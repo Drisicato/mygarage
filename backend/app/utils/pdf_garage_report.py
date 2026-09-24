@@ -146,6 +146,7 @@ def generate_garage_analytics_pdf(
             "total_collision",
             "total_detailing",
             "total_def",
+            "total_financing",
         ]
     )
 
