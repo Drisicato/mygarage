@@ -216,7 +216,7 @@ describe('DEFRecordForm — the odometer follows the distance token', () => {
     expect(payload.odometer_km).toBe(72420)
   })
 
-  it('a blank odometer posts nothing rather than zero', async () => {
+  it('a blank odometer posts null rather than zero, which clears it', async () => {
     // A blank unit-bearing field that posts 0 poisons every derived distance
     // delta downstream, which is the shape of Task 1's F2a.
     units = LITRES_MILES
@@ -233,6 +233,8 @@ describe('DEFRecordForm — the odometer follows the distance token', () => {
     fireEvent.submit(defForm())
     await waitFor(() => expect(updateMock).toHaveBeenCalled())
     const payload = updateMock.mock.calls[0][0] as Record<string, unknown>
-    expect(payload.odometer_km).toBeUndefined()
+    // Not undefined either: the update route skips keys that aren't sent, so
+    // an omitted odometer kept the old reading.
+    expect(payload.odometer_km).toBeNull()
   })
 })
