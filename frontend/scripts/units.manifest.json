@@ -2570,8 +2570,8 @@
     {
       "path": "src/pages/GarageAnalytics.tsx",
       "disposition": "no unit behaviour",
-      "digest": "59374f61ffd7b5acf869f26dd5d66c234f551ad86ca348a58ea854a19a876319",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity."
+      "digest": "15b170b32efdc1d2cff1d308cb24dd74a15e8cef4d166883ff09068db3e2c3cf",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-09-28: the 3-/6-month lines skip months with only insurance or financing (a cost-sum test, not units). Currency only; no unit-bearing value, conversion or label touched."
     },
     {
       "path": "src/pages/Insurance.tsx",
