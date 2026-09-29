@@ -139,6 +139,21 @@ describe('ReminderForm — editing a rule-backed reminder', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
+  it('clearing the notes posts null, and still no due_* fields', async () => {
+    const user = userEvent.setup()
+    const noted = { ...ruleBacked, notes: 'old note' } as unknown as Reminder
+    render(<ReminderForm vin="V1" reminder={noted} currentMileage={CURRENT_KM} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.clear(document.getElementById('reminder-notes') as HTMLTextAreaElement)
+    fireEvent.submit(form())
+    await waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    const payload = updateMock.mock.calls[0][0]
+    expect(payload.notes).toBeNull()
+    // An active rule 422s on any due_* key, null included.
+    expect(payload).not.toHaveProperty('due_date')
+    expect(payload).not.toHaveProperty('due_mileage_km')
+    expect(payload).not.toHaveProperty('due_hours')
+  })
+
   it('switching Repeat off sends recurrence: null with the one-off values the form shows', async () => {
     const user = userEvent.setup()
     render(<ReminderForm vin="V1" reminder={ruleBacked} currentMileage={CURRENT_KM} onClose={vi.fn()} onSuccess={vi.fn()} />)

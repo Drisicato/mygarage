@@ -283,7 +283,9 @@ export default function ReminderForm({ vin, reminder, currentMileage, currentHou
           await updateMutation.mutateAsync({
             id: reminder.id,
             title,
-            notes: notes || undefined,
+            // Null, not undefined: the update skips keys that aren't sent, so
+            // cleared notes stayed.
+            notes: notes || null,
             maintenance_type: maintenanceType ?? null,
             recurrence,
           })
@@ -418,9 +420,14 @@ export default function ReminderForm({ vin, reminder, currentMileage, currentHou
           title,
           reminder_type: reminderType,
           due_date: dueDate || undefined,
-          due_mileage_km,
-          due_hours,
-          notes: notes || undefined,
+          // Null for a target the chosen type doesn't use, and for cleared
+          // notes: the update skips keys that aren't sent, so a date-only
+          // reminder kept its old mileage, and a smart one switched from
+          // mileage to hours kept both and got a 422. Safe here: an active
+          // rule is stopped by this same save (recurrence: null below).
+          due_mileage_km: due_mileage_km ?? null,
+          due_hours: due_hours ?? null,
+          notes: notes || null,
           // Repeat switched off on a rule-backed reminder: the rule stops and
           // the one-off values shown in the form (edited or not) are saved.
           ...(reminder.rule?.is_active ? { recurrence: null } : {}),
