@@ -29,6 +29,7 @@ import csv
 import io
 import json
 import logging
+import operator
 from collections.abc import Mapping, Sequence
 from datetime import date as date_type
 from datetime import datetime, timedelta
@@ -36,6 +37,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import ColumnElement, Numeric, and_, func, literal, or_, select
@@ -64,7 +66,13 @@ from app.models import (
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.models.vendor import Vendor
-from app.schemas.fuel import _validate_diesel_grade, _validate_octane
+from app.schemas.def_record import DEFRecordCreate
+from app.schemas.fuel import FuelRecordCreate, _validate_diesel_grade, _validate_octane
+from app.schemas.hours import HoursRecordCreate
+from app.schemas.odometer import OdometerRecordCreate
+from app.schemas.service_visit import ServiceLineItemCreate, ServiceVisitCreate
+from app.schemas.tax import TaxRecordCreate
+from app.schemas.warranty import WarrantyRecordCreate
 from app.services import maintenance_service
 from app.services.auth import get_vehicle_or_403, require_auth
 from app.services.fuel_side_effects import (
@@ -277,6 +285,38 @@ def _whole_count(value: Decimal, column: str) -> Decimal:
     if value != value.to_integral_value():
         raise _InsuranceRowError(f"{column} must be a whole number")
     return value
+
+
+# The four bounds a Create schema's Field(ge=, gt=, le=, lt=) leaves in
+# `FieldInfo.metadata`, read by attribute so annotated-types stays pydantic's
+# dependency and not ours.
+_API_BOUNDS = (
+    ("ge", operator.ge),
+    ("gt", operator.gt),
+    ("le", operator.le),
+    ("lt", operator.lt),
+)
+
+
+def _within_api_bounds(schema: type[BaseModel], **values: Decimal | int | None) -> None:
+    """Refuse an imported number the API would refuse for the same field.
+
+    Importers build ORM rows directly, so the Create schemas' bounds never
+    ran on imported data and a negative cost or a NaN went straight in. Only
+    the bounds are checked, not the precision rules: converted gallons run
+    past the three decimal places `liters` allows, and would all fail.
+    """
+    for name, value in values.items():
+        if value is None:
+            continue
+        number = value if isinstance(value, Decimal) else Decimal(str(value))
+        if not number.is_finite():
+            raise ValueError(f"{name} must be a finite number")
+        for bound in schema.model_fields[name].metadata:
+            for attr, holds in _API_BOUNDS:
+                limit = getattr(bound, attr, None)
+                if limit is not None and not holds(number, limit):
+                    raise ValueError(f"{name} {number} breaks the API's {attr}={limit}")
 
 
 def _coverages_from_rows(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -669,6 +709,10 @@ async def import_service_csv(
             # Dimensionless — no unit conversion (never present in legacy v2 CSVs).
             engine_hours = parse_decimal(row.get("Engine Hours", ""))
             cost = parse_decimal(row.get("Cost", ""))
+            _within_api_bounds(
+                ServiceVisitCreate, odometer_km=odometer_km, engine_hours=engine_hours
+            )
+            _within_api_bounds(ServiceLineItemCreate, cost=cost)
             vendor_name = (
                 row.get("Vendor", "").strip() or row.get("Vendor Name", "").strip() or None
             )
@@ -818,6 +862,18 @@ async def import_fuel_csv(
 
             cost = parse_decimal(row.get("Total Cost", "") or row.get("Cost", ""))
             rebate = parse_decimal(row.get("Rebate", ""))
+            _within_api_bounds(
+                FuelRecordCreate,
+                odometer_km=odometer_km,
+                engine_hours=engine_hours,
+                liters=liters,
+                price_per_unit=price_per_unit,
+                cost=cost,
+                rebate=rebate,
+                outside_temp_c=outside_temp_c,
+                obc_l_per_100km=obc_l_per_100km,
+                obc_avg_speed_kmh=obc_avg_speed_kmh,
+            )
             is_full_tank = parse_bool(row.get("Full Tank", "True"))
             missed_fillup = parse_bool(row.get("Missed Fill-up", "False"))
             notes = row.get("Notes", "").strip() or None
@@ -955,6 +1011,14 @@ async def import_def_csv(
             price_per_unit = _canonical_cell(units, row, PRICE_PER_VOLUME)
             cost = parse_decimal(row.get("Total Cost", "") or row.get("Cost", ""))
             fill_level = parse_decimal(row.get("Fill Level", ""))
+            _within_api_bounds(
+                DEFRecordCreate,
+                odometer_km=odometer_km,
+                liters=liters,
+                price_per_unit=price_per_unit,
+                cost=cost,
+                fill_level=fill_level,
+            )
             source = row.get("Source", "").strip() or None
             brand = row.get("Brand", "").strip() or None
             notes = row.get("Notes", "").strip() or None
@@ -1045,6 +1109,7 @@ async def import_odometer_csv(
             if odometer_km is None:
                 import_result.add_error(row_num, "Reading is required")
                 continue
+            _within_api_bounds(OdometerRecordCreate, odometer_km=odometer_km)
 
             notes = row.get("Notes", "").strip() or None
 
@@ -1132,6 +1197,7 @@ async def import_hours_csv(
             if engine_hours is None:
                 import_result.add_error(row_num, "Engine Hours is required")
                 continue
+            _within_api_bounds(HoursRecordCreate, engine_hours=engine_hours)
 
             notes = row.get("Notes", "").strip() or None
 
@@ -1211,6 +1277,7 @@ async def import_warranties_csv(
             start_date = parse_date(row.get("Start Date", ""))
             end_date = parse_date(row.get("End Date", ""))
             mileage_limit_km = _canonical_cell(units, row, DISTANCE)
+            _within_api_bounds(WarrantyRecordCreate, mileage_limit_km=mileage_limit_km)
             notes = row.get("Notes", "").strip() or None
 
             # Check for duplicates if requested
@@ -1350,6 +1417,7 @@ async def import_tax_csv(
             record_date = parse_date(row.get("Date", "")) or parse_date(row.get("Paid Date", ""))
             tax_type = row.get("Type", "").strip() or None
             amount = parse_decimal(row.get("Amount", ""))
+            _within_api_bounds(TaxRecordCreate, amount=amount)
             renewal_date = parse_date(row.get("Renewal Date", "")) or parse_date(
                 row.get("Due Date", "")
             )
@@ -1575,6 +1643,8 @@ async def import_vehicle_json(
                     continue
 
             cost = Decimal(str(record_data["cost"])) if record_data.get("cost") else Decimal("0")
+            _within_api_bounds(ServiceVisitCreate, odometer_km=imported_odometer_km)
+            _within_api_bounds(ServiceLineItemCreate, cost=cost)
             description = (
                 record_data.get("service_type") or record_data.get("description") or "Service"
             )
@@ -1650,6 +1720,18 @@ async def import_vehicle_json(
                 record_data.get("liters") or record_data.get("gallons")
             )
             imported_ppu = _maybe_per_gal_to_per_l(record_data.get("price_per_unit"))
+            imported_cost = Decimal(str(record_data["cost"])) if record_data.get("cost") else None
+            imported_rebate = (
+                Decimal(str(record_data["rebate"])) if record_data.get("rebate") else None
+            )
+            _within_api_bounds(
+                FuelRecordCreate,
+                odometer_km=imported_odometer_km,
+                liters=imported_liters,
+                price_per_unit=imported_ppu,
+                cost=imported_cost,
+                rebate=imported_rebate,
+            )
 
             # The export has always written fuel_type_used and is_hauling but
             # this constructor silently dropped both, so a restored backup
@@ -1691,8 +1773,8 @@ async def import_vehicle_json(
                     record_data.get("price_basis")
                     or _derive_price_basis(imported_ppu, liters=imported_liters)
                 ),
-                cost=Decimal(str(record_data["cost"])) if record_data.get("cost") else None,
-                rebate=Decimal(str(record_data["rebate"])) if record_data.get("rebate") else None,
+                cost=imported_cost,
+                rebate=imported_rebate,
                 is_full_tank=record_data.get("is_full_tank", True),
                 missed_fillup=record_data.get("missed_fillup", False),
                 is_hauling=record_data.get("is_hauling", False),
@@ -1739,6 +1821,18 @@ async def import_vehicle_json(
                 record_data.get("liters") or record_data.get("gallons")
             )
             imported_ppu = _maybe_per_gal_to_per_l(record_data.get("price_per_unit"))
+            imported_cost = Decimal(str(record_data["cost"])) if record_data.get("cost") else None
+            imported_fill_level = (
+                Decimal(str(record_data["fill_level"])) if record_data.get("fill_level") else None
+            )
+            _within_api_bounds(
+                DEFRecordCreate,
+                odometer_km=imported_odometer_km,
+                liters=imported_liters,
+                price_per_unit=imported_ppu,
+                cost=imported_cost,
+                fill_level=imported_fill_level,
+            )
 
             if skip_duplicates:
                 existing = await db.execute(
@@ -1765,10 +1859,8 @@ async def import_vehicle_json(
                 odometer_km=imported_odometer_km,
                 liters=imported_liters,
                 price_per_unit=imported_ppu,
-                cost=Decimal(str(record_data["cost"])) if record_data.get("cost") else None,
-                fill_level=Decimal(str(record_data["fill_level"]))
-                if record_data.get("fill_level")
-                else None,
+                cost=imported_cost,
+                fill_level=imported_fill_level,
                 source=record_data.get("source"),
                 brand=record_data.get("brand"),
                 notes=record_data.get("notes"),
@@ -1794,6 +1886,7 @@ async def import_vehicle_json(
             imported_odometer_km = _maybe_mi_to_km(
                 record_data.get("odometer_km") or record_data.get("reading")
             )
+            _within_api_bounds(OdometerRecordCreate, odometer_km=imported_odometer_km)
 
             if skip_duplicates:
                 existing = await db.execute(
@@ -2188,6 +2281,17 @@ async def _persist_parsed_fuel(
                 import_result.add_error(row_num, "Date is required")
                 continue
             odometer_km = row.get("odometer_km")
+            _within_api_bounds(
+                FuelRecordCreate,
+                odometer_km=odometer_km,
+                liters=row.get("liters"),
+                kwh=row.get("kwh"),
+                cost=row.get("cost"),
+                price_per_unit=row.get("price_per_unit"),
+                soc_start_pct=row.get("soc_start_pct"),
+                soc_end_pct=row.get("soc_end_pct"),
+                battery_soh_pct=row.get("battery_soh_pct"),
+            )
             if skip_duplicates:
                 existing = await db.execute(
                     select(FuelRecord).where(*_third_party_duplicate_conditions(vin, row, last_id))
