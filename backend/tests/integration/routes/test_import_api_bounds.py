@@ -8,12 +8,14 @@ analytics down with it.
 """
 
 import json
+import uuid
 from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,8 +26,31 @@ from app.models.hours import HoursRecord
 from app.models.odometer import OdometerRecord
 from app.models.service_visit import ServiceVisit
 from app.models.tax import TaxRecord
+from app.models.vehicle import Vehicle
 from app.models.warranty import WarrantyRecord
 from app.schemas.fuel import FuelRecordCreate
+
+
+@pytest_asyncio.fixture
+async def own_vehicle(db_session: AsyncSession, test_user: dict[str, object]) -> dict[str, Any]:
+    """A fresh diesel vehicle per test. The rows these tests store are dated
+    2043, so on the shared test_vehicle they became every later test's latest
+    odometer and newest fill-up."""
+    vin = "IMP" + uuid.uuid4().hex[:14].upper()
+    db_session.add(
+        Vehicle(
+            vin=vin,
+            user_id=test_user["id"],
+            nickname="Import Bounds",
+            vehicle_type="Truck",
+            year=2020,
+            make="Ram",
+            model="2500",
+            fuel_type="diesel",
+        )
+    )
+    await db_session.commit()
+    return {"vin": vin}
 
 
 async def _count(db: AsyncSession, model: Any, vin: str, **where: Any) -> int:
@@ -166,7 +191,7 @@ class TestCsvImportHoldsApiBounds:
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         db_session: AsyncSession,
         kind: str,
         header: str,
@@ -174,7 +199,7 @@ class TestCsvImportHoldsApiBounds:
         model: Any,
         where: dict[str, Any],
     ):
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         data = await _post_csv(client, auth_headers, vin, kind, f"{header}\n{row}\n")
 
         assert data["success_count"] == 0, data
@@ -187,11 +212,11 @@ class TestCsvImportHoldsApiBounds:
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         db_session: AsyncSession,
     ):
         """The bounds are the API's, not a blanket sign check: -12 °C is a winter fill-up."""
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         data = await _post_csv(
             client,
             auth_headers,
@@ -208,7 +233,7 @@ class TestCsvImportHoldsApiBounds:
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         db_session: AsyncSession,
     ):
         """Gallons convert to litres with more than the schema's 3 decimal places.
@@ -216,7 +241,7 @@ class TestCsvImportHoldsApiBounds:
         Only the bounds are enforced, not the precision rules, or every imperial
         file would fail.
         """
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         data = await _post_csv(
             client,
             auth_headers,
@@ -237,10 +262,10 @@ class TestJsonImportHoldsApiBounds:
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         db_session: AsyncSession,
     ):
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         payload = {
             "export_version": "3",
             "units": "metric",
@@ -283,11 +308,11 @@ class TestJsonImportHoldsApiBounds:
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         db_session: AsyncSession,
     ):
         """json.loads accepts a bare NaN, so a backup can carry one."""
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         body = (
             '{"export_version": "3", "units": "metric", "fuel_records": '
             '[{"date": "2043-03-06", "odometer_km": 1000, "liters": 40, "cost": NaN}]}'
@@ -318,14 +343,14 @@ class TestThirdPartyImportHoldsApiBounds:
     )
     async def test_a_value_the_api_refuses_fails_its_row(
         self,
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         db_session: AsyncSession,
         field: str,
         value: Decimal,
     ):
         from app.routes import import_data
 
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         parsed = [{"date": date(2043, 4, 1), "odometer_km": Decimal("1000"), field: value}]
         result = await import_data._persist_parsed_fuel(vin, parsed, False, db_session)
 
@@ -336,14 +361,14 @@ class TestThirdPartyImportHoldsApiBounds:
 
     async def test_a_value_exactly_on_a_float_bound_imports(
         self,
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         db_session: AsyncSession,
     ):
         """le=9999.999 is a float; compared as one it sits a hair below 9999.999,
         which refused the value pydantic accepts."""
         from app.routes import import_data
 
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         parsed = [
             {
                 "date": date(2043, 4, 2),
@@ -376,10 +401,10 @@ class TestJsonImportBoundsOrderAndReminders:
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
     ):
         """Bounds run before the duplicate check, as in every other section."""
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         r = await client.post(
             f"/api/vehicles/{vin}/service-visits",
             json={
@@ -410,10 +435,10 @@ class TestJsonImportBoundsOrderAndReminders:
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
-        test_vehicle: dict[str, Any],
+        own_vehicle: dict[str, Any],
         miles: str,
     ):
-        vin = test_vehicle["vin"]
+        vin = own_vehicle["vin"]
         body = (
             '{"export_version": "3", "units": "metric", "reminders": [{"description": '
             f'"Bounds reminder {miles}", "is_recurring": true, "recurrence_miles": {miles}}}]}}'
