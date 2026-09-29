@@ -548,7 +548,17 @@ def generate_vehicle_analytics_pdf(
         story.append(Spacer(1, SECTION_SPACING))
 
     # ── 3. Monthly Spending Chart ─────────────────────────────
-    monthly_data = cost.get("monthly_breakdown", [])
+    # Running costs only: a month with just a lease payment would chart as an
+    # empty bar and push a real month out of the twelve slots.
+    monthly_data = [
+        m
+        for m in cost.get("monthly_breakdown", [])
+        if sum(
+            _safe_int(m.get(key, 0))
+            for key in ("service_count", "fuel_count", "def_count", "spot_rental_count")
+        )
+        > 0
+    ]
     if monthly_data:
         story.append(make_section_header("Monthly Spending"))
         story.append(Spacer(1, 6))

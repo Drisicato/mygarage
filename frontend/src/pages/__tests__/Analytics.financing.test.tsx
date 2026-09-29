@@ -98,6 +98,10 @@ function month(overrides: Partial<MonthlyCostSummary>): MonthlyCostSummary {
 }
 
 function analyticsWith(monthly: MonthlyCostSummary[], totalFinancing: string): VehicleAnalytics {
+  // What the backend derives from the same rows: financing-only months are not tracked and
+  // total_cost leaves financing out.
+  const tracked = monthly.filter((m) => m.service_count + m.fuel_count + m.def_count + m.spot_rental_count > 0)
+  const totalCost = monthly.reduce((sum, m) => sum + parseFloat(m.total_cost), 0).toFixed(2)
   return {
     vehicle_name: 'Test Car',
     vehicle_type: 'Car',
@@ -106,9 +110,9 @@ function analyticsWith(monthly: MonthlyCostSummary[], totalFinancing: string): V
     total_km_driven: null,
     average_km_per_month: null,
     cost_analysis: {
-      total_cost: '100.00',
+      total_cost: totalCost,
       average_monthly_cost: '10.00',
-      months_tracked: monthly.length,
+      months_tracked: tracked.length,
       service_count: 0,
       fuel_count: 2,
       def_count: 0,
@@ -161,11 +165,12 @@ function analyticsWith(monthly: MonthlyCostSummary[], totalFinancing: string): V
 
 const WITH_FINANCING = analyticsWith(
   [
-    month({ month: 1, month_name: 'January', total_fuel_cost: '40.00', total_cost: '40.00' }),
+    month({ month: 1, month_name: 'January', total_fuel_cost: '40.00', fuel_count: 1, total_cost: '40.00' }),
     month({
       month: 2,
       month_name: 'February',
       total_fuel_cost: '60.00',
+      fuel_count: 1,
       total_financing_cost: '450.00',
       financing_count: 1,
       total_cost: '60.00',
@@ -174,29 +179,24 @@ const WITH_FINANCING = analyticsWith(
   '450.00'
 )
 const WITHOUT_FINANCING = analyticsWith(
-  [month({ month: 1, month_name: 'January', total_fuel_cost: '40.00', total_cost: '40.00' })],
+  [month({ month: 1, month_name: 'January', total_fuel_cost: '40.00', fuel_count: 1, total_cost: '40.00' })],
   '0.00'
 )
 
-// A real-cost month (nonzero fuel_count) followed by a financing-only month (zero running-cost
-// counts) — the 3m/6m rolling averages must not be diluted by the financing-only month.
-const WITH_FINANCING_ONLY_MONTH = analyticsWith(
+// Fuel in Jan/Mar/May, only a lease payment in Feb/Apr. Main (which had no financing rows) and
+// the backend's rolling_avg_3m both put May's 3-month average at (100 + 300 + 500) / 3 = 300.
+const WITH_LEASE_ONLY_MONTHS = analyticsWith(
   [
-    month({
-      month: 1,
-      month_name: 'January',
-      total_fuel_cost: '40.00',
-      fuel_count: 1,
-      total_cost: '40.00',
-    }),
-    month({
-      month: 2,
-      month_name: 'February',
-      total_financing_cost: '450.00',
-      financing_count: 1,
-      total_cost: '0.00',
-    }),
+    month({ month: 1, month_name: 'January', total_fuel_cost: '100.00', fuel_count: 1, total_cost: '100.00' }),
+    month({ month: 2, month_name: 'February', total_financing_cost: '450.00', financing_count: 1 }),
+    month({ month: 3, month_name: 'March', total_fuel_cost: '300.00', fuel_count: 1, total_cost: '300.00' }),
+    month({ month: 4, month_name: 'April', total_financing_cost: '450.00', financing_count: 1 }),
+    month({ month: 5, month_name: 'May', total_fuel_cost: '500.00', fuel_count: 1, total_cost: '500.00' }),
   ],
+  '900.00'
+)
+const FINANCING_ONLY = analyticsWith(
+  [month({ month: 1, month_name: 'January', total_financing_cost: '450.00', financing_count: 1 })],
   '450.00'
 )
 
@@ -315,19 +315,39 @@ describe('Analytics — financing in the CSV export', () => {
   })
 })
 
-describe('Analytics — rolling averages exclude financing-only months', () => {
-  it('does not dilute the 3-month rolling average with a financing-only month (fails if the average includes the zero-cost month)', async () => {
-    respondWith(WITH_FINANCING_ONLY_MONTH)
+describe('Analytics — the cost trend line skips financing-only months', () => {
+  type TrendPoint = { month: string; rollingAvg3m: number | null; rollingAvg6m: number | null }
+
+  function trendLine(): TrendPoint[] | undefined {
+    return captured.lineCharts.find(
+      (d): d is TrendPoint[] =>
+        Array.isArray(d) && d.length > 0 && typeof d[0] === 'object' && d[0] !== null && 'rollingAvg3m' in d[0]
+    )
+  }
+
+  it('averages the last three running-cost months, not the last three rows', async () => {
+    respondWith(WITH_LEASE_ONLY_MONTHS)
+    renderAnalytics()
+
+    await screen.findByText('vehicle.costTrendsTitle')
+    // Windowing over the padded rows gives Mar, Apr, May -> (300 + 500) / 2 = 400.
+    expect(trendLine()?.find((m) => m.month.startsWith('May'))?.rollingAvg3m).toBe(300)
+  })
+
+  it('leaves lease-only months off the trend line', async () => {
+    respondWith(WITH_LEASE_ONLY_MONTHS)
+    renderAnalytics()
+
+    await screen.findByText('vehicle.costTrendsTitle')
+    expect(trendLine()?.map((m) => m.month)).toEqual(['Jan 2026', 'Mar 2026', 'May 2026'])
+  })
+
+  it('hides the trend chart when the vehicle only has financing', async () => {
+    respondWith(FINANCING_ONLY)
     renderAnalytics()
 
     await screen.findByText('vehicle.monthlyCostTrend')
-    const trend = captured.lineCharts.find(
-      (d): d is Array<{ month: string; rollingAvg3m: number | null }> =>
-        Array.isArray(d) && d.length > 0 && typeof d[0] === 'object' && d[0] !== null && 'rollingAvg3m' in d[0]
-    )
-    expect(trend).toBeDefined()
-    const feb = trend!.find((m) => m.month.startsWith('Feb'))
-    // Without the fix this would be (40 + 0) / 2 = 20; with the fix it is January's own 40.
-    expect(feb?.rollingAvg3m).toBe(40)
+    expect(screen.queryByText('vehicle.costTrendsTitle')).not.toBeInTheDocument()
+    expect(trendLine()).toBeUndefined()
   })
 })

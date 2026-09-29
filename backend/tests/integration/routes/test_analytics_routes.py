@@ -76,6 +76,15 @@ async def financing_and_fuel_vehicle(
     return await _make_fresh_vehicle(db_session, test_user, "Financing And Fuel Vehicle")
 
 
+@pytest_asyncio.fixture
+async def financing_interleaved_vehicle(
+    db_session: AsyncSession, test_user: dict[str, object]
+) -> dict:
+    """A dedicated vehicle for the rolling-average/trend test, whose exact
+    figures would be thrown off by another test's records."""
+    return await _make_fresh_vehicle(db_session, test_user, "Financing Interleaved Vehicle")
+
+
 async def _add_financing(client, headers, vin, on, amount, category="lease_payment"):
     resp = await client.post(
         f"/api/vehicles/{vin}/financing-records",
@@ -251,6 +260,47 @@ class TestVehicleFinancingRollup:
 
         assert ca["months_tracked"] == 1
         assert float(ca["average_monthly_cost"]) == pytest.approx(60.00)
+
+    async def test_rolling_average_and_trend_skip_financing_only_months(
+        self, client: AsyncClient, auth_headers, financing_interleaved_vehicle
+    ):
+        """Fuel in Jan, Mar and Apr, only a lease payment in Feb, May and Jun.
+        Over the three running-cost months (100, 300, 500) the 3-month average
+        is 300 and the trend is increasing. Counting the lease-only months as
+        zero-cost months would give 166.67 and decreasing."""
+        vin = financing_interleaved_vehicle["vin"]
+
+        for on, cost, odometer in (
+            ("2039-01-10", 100.00, 10000.0),
+            ("2039-03-10", 300.00, 10500.0),
+            ("2039-04-10", 500.00, 11000.0),
+        ):
+            fuel_resp = await client.post(
+                f"/api/vehicles/{vin}/fuel",
+                json={
+                    "vin": vin,
+                    "date": on,
+                    "liters": 40.0,
+                    "cost": cost,
+                    "odometer_km": odometer,
+                    "is_full_tank": True,
+                },
+                headers=auth_headers,
+            )
+            assert fuel_resp.status_code == 201, fuel_resp.text
+
+        for on in ("2039-02-15", "2039-05-15", "2039-06-15"):
+            await _add_financing(client, auth_headers, vin, on, 450.00)
+
+        resp = await client.get(f"/api/analytics/vehicles/{vin}", headers=auth_headers)
+        ca = resp.json()["cost_analysis"]
+
+        assert len(ca["monthly_breakdown"]) == 6
+        assert ca["months_tracked"] == 3
+        assert float(ca["average_monthly_cost"]) == pytest.approx(300.00)
+        assert float(ca["rolling_avg_3m"]) == pytest.approx(300.00)
+        assert ca["rolling_avg_6m"] is None
+        assert ca["trend_direction"] == "increasing"
 
     async def test_cost_per_km_excludes_financing(
         self, client: AsyncClient, auth_headers, financing_vehicle

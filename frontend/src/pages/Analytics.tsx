@@ -59,6 +59,7 @@ import {
 import type { PieLabelRenderProps } from 'recharts'
 import type {
   FuelAlertSeverity,
+  MonthlyCostSummary,
   VehicleAnalytics,
   VendorAnalyticsSummary,
   SeasonalAnalyticsSummary,
@@ -98,6 +99,13 @@ type AnomalyRange = '3m' | '6m' | '12m' | 'ytd' | 'all' | 'custom'
 
 /** The window the page opens on, and the only one written to the offline cache. */
 const DEFAULT_ANOMALY_RANGE: AnomalyRange = '12m'
+
+/**
+ * A month with only financing has no running-cost records. The cost trend line and its
+ * rolling averages skip it, the same way the backend's rolling averages do.
+ */
+const hasRunningCostActivity = (m: MonthlyCostSummary): boolean =>
+  m.service_count + m.fuel_count + m.def_count + m.spot_rental_count > 0
 
 export default function Analytics() {
   const { t } = useTranslation('analytics')
@@ -460,6 +468,7 @@ export default function Analytics() {
   const { cost_analysis, cost_projection, fuel_economy, fuel_alerts, service_history, predictions, hours_economy, hours_accumulated } = analytics
 
   const hasFinancing = parseFloat(cost_analysis.total_financing_cost) > 0
+  const runningCostMonths = cost_analysis.monthly_breakdown.filter(hasRunningCostActivity)
 
   // Type-cast unstructured analysis fields (generated schema types them as { [key: string]: unknown })
   const propane = analytics.propane_analysis as PropaneAnalysis | null | undefined
@@ -828,7 +837,7 @@ export default function Analytics() {
       )}
 
       {/* Trend Line with Rolling Averages Overlay */}
-      {cost_analysis.monthly_breakdown.length > 0 && (
+      {runningCostMonths.length > 0 && (
         <div className="bg-garage-surface border border-garage-border rounded-lg p-6 mb-8">
           <div className="flex items-center gap-2 mb-4">
             <LineChart className="w-5 h-5 text-garage-text-muted" />
@@ -838,20 +847,17 @@ export default function Analytics() {
           <div className="bg-garage-bg rounded-lg p-4">
             <ResponsiveContainer width="100%" height={350}>
               <RechartsLineChart
-                data={cost_analysis.monthly_breakdown.slice(-12).map((month, idx, arr) => {
-                  // Calculate 3-month rolling average, excluding financing-only months
-                  // (matches the backend's running-cost criterion in analytics.py).
-                  const hasRunningCostActivity = (m: typeof month) =>
-                    m.service_count + m.fuel_count + m.def_count + m.spot_rental_count > 0
+                data={runningCostMonths.slice(-12).map((month, idx, arr) => {
+                  // Calculate 3-month rolling average
                   const start3m = Math.max(0, idx - 2)
-                  const slice3m = arr.slice(start3m, idx + 1).filter(hasRunningCostActivity)
+                  const slice3m = arr.slice(start3m, idx + 1)
                   const avg3m = slice3m.length > 0
                     ? slice3m.reduce((sum, m) => sum + parseFloat(m.total_cost), 0) / slice3m.length
                     : null
 
-                  // Calculate 6-month rolling average, excluding financing-only months
+                  // Calculate 6-month rolling average
                   const start6m = Math.max(0, idx - 5)
-                  const slice6m = arr.slice(start6m, idx + 1).filter(hasRunningCostActivity)
+                  const slice6m = arr.slice(start6m, idx + 1)
                   const avg6m = slice6m.length > 0
                     ? slice6m.reduce((sum, m) => sum + parseFloat(m.total_cost), 0) / slice6m.length
                     : null
