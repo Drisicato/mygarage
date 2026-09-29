@@ -25,6 +25,7 @@ from app.models.odometer import OdometerRecord
 from app.models.service_visit import ServiceVisit
 from app.models.tax import TaxRecord
 from app.models.warranty import WarrantyRecord
+from app.schemas.fuel import FuelRecordCreate
 
 
 async def _count(db: AsyncSession, model: Any, vin: str, **where: Any) -> int:
@@ -178,6 +179,8 @@ class TestCsvImportHoldsApiBounds:
 
         assert data["success_count"] == 0, data
         assert data["error_count"] == 1, data
+        # The reason reaches the user, not just the log.
+        assert "must be" in data["errors"][0], data
         assert await _count(db_session, model, vin, **where) == 0
 
     async def test_a_negative_temperature_still_imports(
@@ -267,6 +270,8 @@ class TestJsonImportHoldsApiBounds:
         assert data["fuel_records"]["error_count"] == 2, data
         assert data["def_records"]["error_count"] == 1, data
         assert data["odometer_records"]["error_count"] == 1, data
+        assert len(data["errors"]) == 6, data
+        assert all("must be" in error for error in data["errors"]), data
         assert await _count(db_session, ServiceVisit, vin, date=date(2043, 3, 1)) == 0
         assert await _count(db_session, ServiceVisit, vin, date=date(2043, 3, 7)) == 0
         assert await _count(db_session, FuelRecord, vin, date=date(2043, 3, 2)) == 0
@@ -326,4 +331,103 @@ class TestThirdPartyImportHoldsApiBounds:
 
         assert result["success_count"] == 0, result
         assert result["error_count"] == 1, result
+        assert "must be" in result["errors"][0], result
         assert await _count(db_session, FuelRecord, vin, date=date(2043, 4, 1)) == 0
+
+    async def test_a_value_exactly_on_a_float_bound_imports(
+        self,
+        test_vehicle: dict[str, Any],
+        db_session: AsyncSession,
+    ):
+        """le=9999.999 is a float; compared as one it sits a hair below 9999.999,
+        which refused the value pydantic accepts."""
+        from app.routes import import_data
+
+        vin = test_vehicle["vin"]
+        parsed = [
+            {
+                "date": date(2043, 4, 2),
+                "odometer_km": Decimal("1000"),
+                "liters": Decimal("9999.999"),
+            }
+        ]
+        result = await import_data._persist_parsed_fuel(vin, parsed, False, db_session)
+
+        assert result["success_count"] == 1, result
+
+
+async def _post_json(
+    client: AsyncClient, auth_headers: dict[str, str], vin: str, body: str, *, skip: bool
+) -> dict[str, Any]:
+    response = await client.post(
+        f"/api/import/vehicles/{vin}/json",
+        headers=auth_headers,
+        files={"file": ("backup.json", BytesIO(body.encode()), "application/json")},
+        data={"skip_duplicates": "true" if skip else "false"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestJsonImportBoundsOrderAndReminders:
+    async def test_an_out_of_bounds_service_record_is_an_error_even_when_it_duplicates(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_vehicle: dict[str, Any],
+    ):
+        """Bounds run before the duplicate check, as in every other section."""
+        vin = test_vehicle["vin"]
+        r = await client.post(
+            f"/api/vehicles/{vin}/service-visits",
+            json={
+                "date": "2043-05-01",
+                "odometer_km": 3000,
+                "line_items": [{"description": "Oil"}],
+            },
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        body = json.dumps(
+            {
+                "export_version": "3",
+                "units": "metric",
+                "service_records": [
+                    {"date": "2043-05-01", "odometer_km": 3000, "service_type": "Oil", "cost": -5}
+                ],
+            }
+        )
+
+        data = await _post_json(client, auth_headers, vin, body, skip=True)
+
+        assert data["service_records"]["error_count"] == 1, data
+        assert data["service_records"]["skipped_count"] == 0, data
+
+    @pytest.mark.parametrize("miles", ["Infinity", "1e12"])
+    async def test_a_reminder_interval_the_api_refuses_fails(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_vehicle: dict[str, Any],
+        miles: str,
+    ):
+        vin = test_vehicle["vin"]
+        body = (
+            '{"export_version": "3", "units": "metric", "reminders": [{"description": '
+            f'"Bounds reminder {miles}", "is_recurring": true, "recurrence_miles": {miles}}}]}}'
+        )
+
+        data = await _post_json(client, auth_headers, vin, body, skip=False)
+
+        assert data["reminders"]["success_count"] == 0, data
+        assert data["reminders"]["error_count"] == 1, data
+
+
+def test_a_misspelt_field_fails_even_on_an_empty_cell():
+    """A typo'd name must fail every row, not only the rows that fill the column."""
+    from app.routes.import_data import _within_api_bounds
+
+    with pytest.raises(KeyError):
+        _within_api_bounds(FuelRecordCreate, not_a_field=None)

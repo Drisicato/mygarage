@@ -70,6 +70,7 @@ from app.schemas.def_record import DEFRecordCreate
 from app.schemas.fuel import FuelRecordCreate, _validate_diesel_grade, _validate_octane
 from app.schemas.hours import HoursRecordCreate
 from app.schemas.odometer import OdometerRecordCreate
+from app.schemas.reminder import ReminderCreate
 from app.schemas.service_visit import ServiceLineItemCreate, ServiceVisitCreate
 from app.schemas.tax import TaxRecordCreate
 from app.schemas.warranty import WarrantyRecordCreate
@@ -289,13 +290,17 @@ def _whole_count(value: Decimal, column: str) -> Decimal:
 
 # The four bounds a Create schema's Field(ge=, gt=, le=, lt=) leaves in
 # `FieldInfo.metadata`, read by attribute so annotated-types stays pydantic's
-# dependency and not ours.
+# dependency and not ours, with how each reads in a row error.
 _API_BOUNDS = (
-    ("ge", operator.ge),
-    ("gt", operator.gt),
-    ("le", operator.le),
-    ("lt", operator.lt),
+    ("ge", operator.ge, "at least"),
+    ("gt", operator.gt, "more than"),
+    ("le", operator.le, "at most"),
+    ("lt", operator.lt, "less than"),
 )
+
+
+class _ImportBoundError(ValueError):
+    """An imported number the API would refuse, with a reason the user sees."""
 
 
 def _within_api_bounds(schema: type[BaseModel], **values: Decimal | int | None) -> None:
@@ -307,16 +312,24 @@ def _within_api_bounds(schema: type[BaseModel], **values: Decimal | int | None) 
     past the three decimal places `liters` allows, and would all fail.
     """
     for name, value in values.items():
+        # Looked up first, so a misspelt name fails every row, not only
+        # the rows that happen to fill that column.
+        metadata = schema.model_fields[name].metadata
         if value is None:
             continue
         number = value if isinstance(value, Decimal) else Decimal(str(value))
         if not number.is_finite():
-            raise ValueError(f"{name} must be a finite number")
-        for bound in schema.model_fields[name].metadata:
-            for attr, holds in _API_BOUNDS:
+            raise _ImportBoundError(f"{name} must be a number")
+        for bound in metadata:
+            for attr, holds, reads in _API_BOUNDS:
                 limit = getattr(bound, attr, None)
-                if limit is not None and not holds(number, limit):
-                    raise ValueError(f"{name} {number} breaks the API's {attr}={limit}")
+                if limit is None:
+                    continue
+                # A float bound (le=9999.999) compared as a float sits a hair
+                # below 9999.999 and refused the value pydantic accepts.
+                exact = Decimal(str(limit)) if isinstance(limit, float) else limit
+                if not holds(number, exact):
+                    raise _ImportBoundError(f"{name} must be {reads} {exact}, not {number}")
 
 
 def _coverages_from_rows(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -777,6 +790,8 @@ async def import_service_csv(
                 db.add(line_item)
             import_result.add_success()
 
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             # Intentional catch-all: per-row errors should not stop the import
             logger.error("Service import row %d failed: %s", row_num, e)
@@ -959,6 +974,8 @@ async def import_fuel_csv(
                 db.add(record)
             import_result.add_success()
 
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("Fuel import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid fuel record data")
@@ -1060,6 +1077,8 @@ async def import_def_csv(
                 db.add(record)
             import_result.add_success()
 
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("DEF import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid DEF record data")
@@ -1141,6 +1160,8 @@ async def import_odometer_csv(
                 db.add(record)
             import_result.add_success()
 
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
@@ -1230,6 +1251,8 @@ async def import_hours_csv(
                 db.add(record)
             import_result.add_success()
 
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("Hours import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid hours record data")
@@ -1313,6 +1336,8 @@ async def import_warranties_csv(
                 db.add(record)
             import_result.add_success()
 
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
@@ -1453,6 +1478,8 @@ async def import_tax_csv(
                 db.add(record)
             import_result.add_success()
 
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
@@ -1624,6 +1651,9 @@ async def import_vehicle_json(
             imported_odometer_km = _maybe_mi_to_km(
                 record_data.get("odometer_km") or record_data.get("mileage")
             )
+            cost = Decimal(str(record_data["cost"])) if record_data.get("cost") else Decimal("0")
+            _within_api_bounds(ServiceVisitCreate, odometer_km=imported_odometer_km)
+            _within_api_bounds(ServiceLineItemCreate, cost=cost)
 
             if skip_duplicates:
                 existing = await db.execute(
@@ -1642,9 +1672,6 @@ async def import_vehicle_json(
                     results["service_records"]["skipped"] += 1
                     continue
 
-            cost = Decimal(str(record_data["cost"])) if record_data.get("cost") else Decimal("0")
-            _within_api_bounds(ServiceVisitCreate, odometer_km=imported_odometer_km)
-            _within_api_bounds(ServiceLineItemCreate, cost=cost)
             description = (
                 record_data.get("service_type") or record_data.get("description") or "Service"
             )
@@ -1701,6 +1728,9 @@ async def import_vehicle_json(
                 )
                 db.add(line_item)
             results["service_records"]["success"] += 1
+        except _ImportBoundError as e:
+            results["service_records"]["errors"] += 1
+            results["errors"].append(f"Service record {idx}: {e}")
         except Exception as e:
             results["service_records"]["errors"] += 1
             logger.warning("Import: service record %s failed: %s", idx, sanitize_for_log(e))
@@ -1796,6 +1826,9 @@ async def import_vehicle_json(
             async with db.begin_nested():
                 db.add(record)
             results["fuel_records"]["success"] += 1
+        except _ImportBoundError as e:
+            results["fuel_records"]["errors"] += 1
+            results["errors"].append(f"Fuel record {idx}: {e}")
         except Exception as e:
             results["fuel_records"]["errors"] += 1
             logger.warning("Import: fuel record %s failed: %s", idx, sanitize_for_log(e))
@@ -1872,6 +1905,9 @@ async def import_vehicle_json(
             async with db.begin_nested():
                 db.add(record)
             results["def_records"]["success"] += 1
+        except _ImportBoundError as e:
+            results["def_records"]["errors"] += 1
+            results["errors"].append(f"DEF record {idx}: {e}")
         except Exception as e:
             results["def_records"]["errors"] += 1
             logger.warning("Import: DEF record %s failed: %s", idx, sanitize_for_log(e))
@@ -1918,6 +1954,9 @@ async def import_vehicle_json(
             async with db.begin_nested():
                 db.add(record)
             results["odometer_records"]["success"] += 1
+        except _ImportBoundError as e:
+            results["odometer_records"]["errors"] += 1
+            results["errors"].append(f"Odometer record {idx}: {e}")
         except Exception as e:
             results["odometer_records"]["errors"] += 1
             logger.warning("Import: odometer record %s failed: %s", idx, sanitize_for_log(e))
@@ -1942,6 +1981,8 @@ async def import_vehicle_json(
                 results["reminders"]["errors"] += 1
                 results["errors"].append(f"Reminder {idx}: recurrence_miles must be positive")
                 continue
+            if has_miles:
+                _within_api_bounds(ReminderCreate, due_mileage_km=Decimal(str(recurrence_miles)))
 
             if has_date and has_miles:
                 reminder_type = "both"
@@ -1975,6 +2016,9 @@ async def import_vehicle_json(
             async with db.begin_nested():
                 db.add(reminder)
             results["reminders"]["success"] += 1
+        except _ImportBoundError as e:
+            results["reminders"]["errors"] += 1
+            results["errors"].append(f"Reminder {idx}: {e}")
         except Exception as e:
             results["reminders"]["errors"] += 1
             logger.warning("Import: reminder %s failed: %s", idx, sanitize_for_log(e))
@@ -2334,6 +2378,8 @@ async def _persist_parsed_fuel(
                 if best is None or record.odometer_km > best[0]:
                     best_per_date[record.date] = (record.odometer_km, record)
             import_result.add_success()
+        except _ImportBoundError as e:
+            import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("External fuel import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid fuel record data")
