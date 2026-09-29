@@ -505,3 +505,82 @@ class TestSpotRentalBillingRoutes:
         # Should be ordered by date descending (newest first)
         if len(data["billings"]) >= 2:
             assert data["billings"][0]["billing_date"] >= data["billings"][1]["billing_date"]
+
+
+_OPTIONAL_FIELDS = {
+    "location_name": "Lakeside",
+    "location_address": "1 Shore Rd",
+    "check_out_date": "2024-09-30",
+    "nightly_rate": 45.00,
+    "weekly_rate": 250.00,
+    "monthly_rate": 600.00,
+    "electric": 40.00,
+    "water": 10.00,
+    "waste": 5.00,
+    "total_cost": 450.00,
+    "amenities": "wifi",
+    "notes": "quiet",
+}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestSpotRentalClearOnEdit:
+    """An explicit null clears; an omitted field keeps. Until this, every
+    field was `if data.x is not None`, so a cleared field said saved and kept
+    its old value, and a checked-out stay could never be reopened."""
+
+    async def _rental(self, client: AsyncClient, headers, vin: str) -> dict:
+        r = await client.post(
+            f"/api/vehicles/{vin}/spot-rentals",
+            json={"check_in_date": "2024-09-01", **_OPTIONAL_FIELDS},
+            headers=headers,
+        )
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    @pytest.mark.parametrize("field", sorted(_OPTIONAL_FIELDS))
+    async def test_null_clears_the_field(self, client, auth_headers, rv_vehicle, field):
+        rental = await self._rental(client, auth_headers, rv_vehicle["vin"])
+        url = f"/api/vehicles/{rv_vehicle['vin']}/spot-rentals/{rental['id']}"
+        r = await client.put(url, json={field: None}, headers=auth_headers)
+        assert r.status_code == 200, r.text
+        stored = (await client.get(url, headers=auth_headers)).json()
+        assert stored[field] is None
+        # Everything else is untouched.
+        for other in _OPTIONAL_FIELDS:
+            if other != field:
+                assert stored[other] is not None, other
+
+    async def test_omitted_fields_are_kept(self, client, auth_headers, rv_vehicle):
+        rental = await self._rental(client, auth_headers, rv_vehicle["vin"])
+        url = f"/api/vehicles/{rv_vehicle['vin']}/spot-rentals/{rental['id']}"
+        r = await client.put(url, json={"notes": "moved sites"}, headers=auth_headers)
+        assert r.status_code == 200, r.text
+        stored = (await client.get(url, headers=auth_headers)).json()
+        assert stored["notes"] == "moved sites"
+        assert float(stored["total_cost"]) == 450.00
+        assert stored["check_out_date"] == "2024-09-30"
+
+    async def test_null_check_in_date_is_a_422(self, client, auth_headers, rv_vehicle):
+        rental = await self._rental(client, auth_headers, rv_vehicle["vin"])
+        url = f"/api/vehicles/{rv_vehicle['vin']}/spot-rentals/{rental['id']}"
+        r = await client.put(url, json={"check_in_date": None}, headers=auth_headers)
+        assert r.status_code == 422, r.text
+        stored = (await client.get(url, headers=auth_headers)).json()
+        assert stored["check_in_date"] == "2024-09-01"
+
+    async def test_null_billing_date_is_a_422(self, client, auth_headers, rv_vehicle):
+        # The billing update applies exclude_unset, so a null billing_date
+        # reached the NOT NULL column and came back as a 500.
+        rental = await self._rental(client, auth_headers, rv_vehicle["vin"])
+        base = f"/api/vehicles/{rv_vehicle['vin']}/spot-rentals/{rental['id']}/billings"
+        created = await client.post(
+            base, json={"billing_date": "2024-09-05", "total": 10.0}, headers=auth_headers
+        )
+        assert created.status_code == 201, created.text
+        billing = created.json()
+        r = await client.put(
+            f"{base}/{billing['id']}", json={"billing_date": None}, headers=auth_headers
+        )
+        assert r.status_code == 422, r.text

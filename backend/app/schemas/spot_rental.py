@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
 from app.schemas.spot_rental_billing import SpotRentalBillingResponse
 
 
@@ -48,6 +49,9 @@ class SpotRentalUpdate(BaseModel):
     total_cost: Decimal | None = Field(None, ge=0, le=99999.99, decimal_places=2)
     amenities: str | None = None
     notes: str | None = None
+
+    # NOT NULL column: omitted keeps the stored date, null is a 422.
+    _no_null = reject_null("check_in_date")
 
 
 class SpotRentalResponse(SpotRentalBase):
