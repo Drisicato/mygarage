@@ -161,6 +161,9 @@ class TestFuelClear:
                 "liters": 40.0,
                 "cost": 45.00,
                 "odometer_km": 725000,
+                # Engine hours stay as the reading, so the fill-up is still
+                # one create would accept once the odometer is cleared.
+                "engine_hours": 310.5,
                 "is_full_tank": True,
             },
             headers=auth_headers,

@@ -21,7 +21,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import AddressBookEntry
 from app.models.fuel import FuelRecord
 from app.models.user import User
-from app.schemas.fuel import FuelRecordCreate, FuelRecordResponse, FuelRecordUpdate
+from app.schemas.fuel import (
+    READING_AND_AMOUNT_FIELDS,
+    FuelRecordCreate,
+    FuelRecordResponse,
+    FuelRecordUpdate,
+    check_reading_and_amount,
+)
 from app.utils.cache import cached, invalidate_cache_for_vehicle
 from app.utils.def_sync import ensure_def_capable, sync_def_from_fuel_record
 from app.utils.fuel_station_sync import resolve_fuel_station
@@ -985,6 +991,19 @@ class FuelRecordService:
                 raise HTTPException(status_code=404, detail=f"Fuel record {record_id} not found")
 
             update_data = record_data.model_dump(exclude_unset=True)
+            # An edit can't leave a fill-up create would refuse, e.g. an emptied
+            # propane refill that no list shows any more. Only an edit that sends
+            # one of the rule's fields is held to it, so a legacy record that
+            # already falls short can still have its notes fixed.
+            if READING_AND_AMOUNT_FIELDS & record_data.model_fields_set:
+                merged = {
+                    field: update_data.get(field, getattr(record, field))
+                    for field in READING_AND_AMOUNT_FIELDS
+                }
+                try:
+                    check_reading_and_amount(**merged)
+                except ValueError as e:
+                    raise HTTPException(status_code=422, detail=str(e))
             def_fill_level = update_data.pop("def_fill_level", None)
             def_fill_level_was_sent = "def_fill_level" in record_data.model_fields_set
             # Gate BEFORE any field mutation so a rejected request leaves the

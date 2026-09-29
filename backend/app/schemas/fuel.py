@@ -113,6 +113,63 @@ def _parse_obc_trip_duration(v: object) -> int | None:
     raise ValueError(f"obc_trip_duration_s must be int or str; got {type(v).__name__}")
 
 
+# The fields `check_reading_and_amount` reads, which an update must hold to
+# the rule when it sends any of them.
+READING_AND_AMOUNT_FIELDS = frozenset(
+    {
+        "odometer_km",
+        "engine_hours",
+        "liters",
+        "propane_liters",
+        "kwh",
+        "tank_size_kg",
+        "tank_quantity",
+        "missed_fillup",
+    }
+)
+
+
+def check_reading_and_amount(
+    *,
+    odometer_km: object,
+    engine_hours: object,
+    liters: object,
+    propane_liters: object,
+    kwh: object,
+    tank_size_kg: object,
+    tank_quantity: object,
+    missed_fillup: bool,
+) -> None:
+    """Raise ValueError for a fill-up with no reading or no fuel amount.
+
+    Create's rule, shared so an update can hold the merged record to it
+    (see `FuelRecordCreate._require_odometer_and_fuel_amount` for the why).
+    """
+    has_propane_amount = propane_liters is not None or (
+        tank_size_kg is not None and tank_quantity is not None
+    )
+    is_tank_refill = has_propane_amount and liters is None and kwh is None and not missed_fillup
+
+    has_reading = odometer_km is not None or engine_hours is not None
+    if not has_reading and not is_tank_refill:
+        raise ValueError(
+            "odometer_km is required, or engine_hours for a vehicle tracked "
+            "by hours (set missed_fillup=True only if you also can't supply "
+            "a fuel amount)"
+        )
+
+    if missed_fillup:
+        return
+
+    has_amount = liters is not None or kwh is not None or has_propane_amount
+    if not has_amount:
+        raise ValueError(
+            "fuel record must include at least one of: liters, "
+            "propane_liters, kwh, or both tank_size_kg + tank_quantity. "
+            "Set missed_fillup=True if the actual amount is unavailable."
+        )
+
+
 class FuelRecordBase(BaseModel):
     """Base fuel record schema with common fields (metric canonical)."""
 
@@ -393,35 +450,16 @@ class FuelRecordCreate(FuelRecordBase):
         Propane alongside ``liters`` or ``kwh`` is a propane-powered
         vehicle's fill-up, not a tank refill, and still needs the reading.
         """
-        has_propane_amount = self.propane_liters is not None or (
-            self.tank_size_kg is not None and self.tank_quantity is not None
+        check_reading_and_amount(
+            odometer_km=self.odometer_km,
+            engine_hours=self.engine_hours,
+            liters=self.liters,
+            propane_liters=self.propane_liters,
+            kwh=self.kwh,
+            tank_size_kg=self.tank_size_kg,
+            tank_quantity=self.tank_quantity,
+            missed_fillup=self.missed_fillup,
         )
-        is_tank_refill = (
-            has_propane_amount
-            and self.liters is None
-            and self.kwh is None
-            and not self.missed_fillup
-        )
-
-        has_reading = self.odometer_km is not None or self.engine_hours is not None
-        if not has_reading and not is_tank_refill:
-            raise ValueError(
-                "odometer_km is required, or engine_hours for a vehicle tracked "
-                "by hours (set missed_fillup=True only if you also can't supply "
-                "a fuel amount)"
-            )
-
-        if self.missed_fillup:
-            return self
-
-        has_amount = self.liters is not None or self.kwh is not None or has_propane_amount
-        if not has_amount:
-            raise ValueError(
-                "fuel record must include at least one of: liters, "
-                "propane_liters, kwh, or both tank_size_kg + tank_quantity. "
-                "Set missed_fillup=True if the actual amount is unavailable."
-            )
-
         return self
 
     model_config = {
