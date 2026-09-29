@@ -354,7 +354,7 @@ class FuelRecordBase(BaseModel):
 
     @field_validator("obc_trip_duration_s", mode="before")
     @classmethod
-    def _parse_obc_trip_duration(cls, v: object) -> int | None:
+    def _parse_obc_trip_duration_create(cls, v: object) -> int | None:
         return _parse_obc_trip_duration(v)
 
     # Note: enum validators for fuel_type_used / payment_method / trip_type

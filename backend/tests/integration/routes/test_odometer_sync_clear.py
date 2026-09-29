@@ -208,3 +208,45 @@ class TestDefClear:
         assert r.status_code == 200, r.text
 
         assert _marked(await _odometer_rows(client, auth_headers, vin), "def", record["id"]) == []
+
+
+class TestEditToZero:
+    """A create with 0 never syncs, so an edit to 0 must not keep the old reading."""
+
+    async def test_a_fill_up_edited_to_zero(self, client: AsyncClient, auth_headers, own_vehicle):
+        vin = own_vehicle["vin"]
+        r = await client.post(
+            f"/api/vehicles/{vin}/fuel",
+            json={"vin": vin, "date": "2031-09-12", "liters": 40.0, "odometer_km": 725200},
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        record = r.json()
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/fuel/{record['id']}",
+            json={"odometer_km": 0},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        assert _marked(await _odometer_rows(client, auth_headers, vin), "fuel", record["id"]) == []
+
+    async def test_a_def_record_edited_to_zero(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        vin = own_vehicle["vin"]
+        r = await client.post(
+            f"/api/vehicles/{vin}/def",
+            json={"vin": vin, "date": "2031-09-13", "odometer_km": 725300, "liters": 9.5},
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        record = r.json()
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/def/{record['id']}", json={"odometer_km": 0}, headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+
+        assert _marked(await _odometer_rows(client, auth_headers, vin), "def", record["id"]) == []

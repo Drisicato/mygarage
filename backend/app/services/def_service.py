@@ -214,10 +214,18 @@ class DEFRecordService:
                         record_id,
                         sanitize_for_log(e),
                     )
-            elif record.odometer_km is None:
-                # Cleared on edit: take the reading it synced with it.
-                await remove_synced_odometer(self.db, vin, "def", record.id)
-                await self.db.commit()
+            elif "odometer_km" in update_data and not record.odometer_km:
+                # Cleared on edit (or set to 0, which a create never syncs): take
+                # the reading it synced with it. Best-effort, like the sync above.
+                try:
+                    await remove_synced_odometer(self.db, vin, "def", record.id)
+                    await self.db.commit()
+                except Exception as e:
+                    logger.warning(
+                        "Failed to remove the synced odometer for DEF record %s: %s",
+                        record_id,
+                        sanitize_for_log(e),
+                    )
 
             await invalidate_cache_for_vehicle(vin)
 

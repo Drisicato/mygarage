@@ -1095,9 +1095,10 @@ class FuelRecordService:
                         sanitize_for_log(e),
                     )
                     raise
-            elif record.odometer_km is None:
-                # Cleared on edit: take the reading it synced with it, the way
-                # the hours sync below deletes its row.
+            elif "odometer_km" in record_data.model_fields_set and not record.odometer_km:
+                # Cleared on edit (or set to 0, which a create never syncs): take
+                # the reading it synced with it, the way the hours sync below
+                # deletes its row.
                 await remove_synced_odometer(self.db, vin, "fuel", record.id)
 
             # Engine-hours sync. Runs unconditionally (not gated on a non-null
