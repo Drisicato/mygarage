@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing a fill-up with an HH:MM trip duration no longer fails; only new fill-ups accepted that format
 - A warranty with no end date no longer gets today's date when opened and saved, and its end date and mileage limit can be cleared
 - Setting a toll transaction back to "None (manual payment)" now unlinks its toll tag
-- Clearing a field when editing a DEF or propane record now saves instead of keeping the old value
+- Clearing a field when editing a fill-up, DEF or propane record now saves instead of keeping the old value
 
 ## [3.7.0] - 2026-09-24
 

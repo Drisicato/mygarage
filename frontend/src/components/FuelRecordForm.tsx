@@ -766,6 +766,11 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
     const propaneTyped = readNumber(data.propane_liters)
     const priceTyped = readNumber(data.price_per_unit)
 
+    // What an empty field posts. The update route skips keys that aren't sent,
+    // so on edit it must be null or a cleared field keeps its old value; create
+    // leaves it out as before.
+    const cleared = isEdit ? null : undefined
+
     try {
       // Convert user-entered values to canonical metric (SI) for the API.
       const payload: FuelRecordCreate | FuelRecordUpdate = {
@@ -786,9 +791,9 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
             String(odometerTyped ?? ''),
             unitOrigins.odometer_km,
             u.distance
-          ) ?? undefined,
+          ) ?? cleared,
         // Dimensionless — submitted verbatim, no canonical conversion.
-        engine_hours: data.engine_hours,
+        engine_hours: data.engine_hours ?? cleared,
         // ★ Volume and price convert through ONE resolved set. Splitting them
         // stores 10 gal as 37.85 L against an imperial-gallon price: one
         // payload, internally inconsistent, and worse than being uniformly
@@ -800,7 +805,7 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         liters:
           toLitersWirePrecision(
             canonicalFromUnitField(String(litersTyped ?? ''), unitOrigins.liters, u.volume)
-          ) ?? undefined,
+          ) ?? cleared,
         propane_liters:
           toLitersWirePrecision(
             canonicalFromUnitField(
@@ -808,24 +813,24 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
               unitOrigins.propane_liters,
               u.volume
             )
-          ) ?? undefined,
-        kwh: data.kwh,
-        soc_start_pct: data.soc_start_pct,
-        soc_end_pct: data.soc_end_pct,
-        charge_level: data.charge_level,
-        charge_location: data.charge_location,
-        battery_soh_pct: data.battery_soh_pct,
+          ) ?? cleared,
+        kwh: data.kwh ?? cleared,
+        soc_start_pct: data.soc_start_pct ?? cleared,
+        soc_end_pct: data.soc_end_pct ?? cleared,
+        charge_level: data.charge_level ?? cleared,
+        charge_location: data.charge_location ?? cleared,
+        battery_soh_pct: data.battery_soh_pct ?? cleared,
         price_per_unit:
           canonicalFromPriceField(
             String(priceTyped ?? ''),
             priceOrigin,
             units,
             data.price_basis
-          ) ?? undefined,
+          ) ?? cleared,
         price_basis: data.price_basis,
-        cost: data.cost,
-        rebate: data.rebate,
-        fuel_type_used: data.fuel_type_used,
+        cost: data.cost ?? cleared,
+        rebate: data.rebate ?? cleared,
+        fuel_type_used: data.fuel_type_used ?? cleared,
         // #164 — null, not undefined, so a cleared value clears on update
         // (exclude_unset drops omitted keys; the issue-#108 convention).
         octane: data.octane ?? null,
@@ -834,6 +839,8 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         missed_fillup: data.missed_fillup,
         is_hauling: data.is_hauling,
         notes: data.notes,
+        // Left out when empty, even on edit: it isn't seeded from the record,
+        // and a null deletes the fill-up's linked DEF record.
         def_fill_level: data.def_fill_level !== undefined
           ? data.def_fill_level / 100
           : undefined,
@@ -845,10 +852,10 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         station_name_freetext: data.station_name_freetext || null,
         one_time_visit: data.one_time_visit ?? false,
         driver_user_id: data.driver_user_id,
-        driver_name_freetext: data.driver_name_freetext || undefined,
-        payment_method: data.payment_method,
-        trip_type: data.trip_type,
-        outside_temp_c: data.outside_temp_c,
+        driver_name_freetext: data.driver_name_freetext || cleared,
+        payment_method: data.payment_method ?? cleared,
+        trip_type: data.trip_type ?? cleared,
+        outside_temp_c: data.outside_temp_c ?? cleared,
         // Back through `units.consumption` and `units.speed`. An untouched
         // field returns the canonical value it was seeded from: 100 km/h shows
         // as 62 mph and 62 mph converts back to 99.77908 km/h, so a user who
@@ -859,13 +866,13 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
             String(obcConsumptionTyped ?? ''),
             unitOrigins.obc_l_per_100km,
             u.consumption
-          ) ?? undefined,
+          ) ?? cleared,
         obc_avg_speed_kmh:
           canonicalFromUnitField(
             String(obcSpeedTyped ?? ''),
             unitOrigins.obc_avg_speed_kmh,
             u.speed
-          ) ?? undefined,
+          ) ?? cleared,
         // The backend pre-validator (app/schemas/fuel.py) accepts the
         // raw HH:MM/HH:MM:SS string and parses it to seconds. The
         // openapi-generated FuelRecordCreate still types this as
@@ -876,7 +883,7 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         obc_trip_duration_s:
           data.obc_trip_duration_s && data.obc_trip_duration_s.length > 0
             ? (data.obc_trip_duration_s as unknown as number)
-            : undefined,
+            : cleared,
       } as FuelRecordCreate | FuelRecordUpdate
 
       if (isEdit) {
