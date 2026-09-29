@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas._nullability import reject_null
+
 
 class DTCDefinitionResponse(BaseModel):
     """Schema for DTC definition lookup response."""
@@ -71,6 +73,9 @@ class VehicleDTCUpdate(BaseModel):
     description: str | None = Field(None, description="Custom description")
     severity: str | None = Field(None, description="Custom severity")
     user_notes: str | None = Field(None, description="User notes about this DTC")
+
+    # NOT NULL column: omitted keeps the stored severity, null is a 422.
+    _no_null = reject_null("severity")
 
 
 class VehicleDTCResponse(VehicleDTCBase):
