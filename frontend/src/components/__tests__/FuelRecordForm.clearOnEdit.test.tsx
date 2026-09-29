@@ -147,21 +147,38 @@ describe('FuelRecordForm: clearing a field on edit', () => {
     expect(body.propane_liters).toBeNull()
   })
 
-  it('an untouched edit still posts the stored values', async () => {
-    mockVehicle({ fuel_type: 'gasoline' })
+  it('an untouched edit posts every stored value, hidden and collapsed fields included', async () => {
+    // The sweep rests on this: every key that posts null when empty is seeded
+    // from the record, so an untouched field can never post null. Hours-only
+    // hides the odometer, single-fuel hides the fuel-dispensed select,
+    // gasoline hides the energy and propane fields, and More details stays
+    // COLLAPSED here, so none of those inputs is mounted.
+    localStorage.removeItem('fuel_form:more_details_expanded')
+    mockVehicle({ fuel_type: 'gasoline', usage_unit: 'hours', secondary_usage_enabled: false } as Partial<Vehicle>)
+    const stored = {
+      odometer_km: 50000, engine_hours: 120.5, liters: 40, propane_liters: 5, kwh: 3,
+      soc_start_pct: 20, soc_end_pct: 80, battery_soh_pct: 95, charge_level: 'L2', charge_location: 'home',
+      price_per_unit: 1.5, cost: 60, rebate: 2, fuel_type_used: 'gasoline', driver_name_freetext: 'Sam',
+      payment_method: 'cash', trip_type: 'commute', outside_temp_c: 12, obc_l_per_100km: 8.1,
+      obc_avg_speed_kmh: 64,
+    }
     render(
       <FuelRecordForm
         vin={VIN}
-        record={record({ odometer_km: 50000, liters: 40, price_per_unit: 1.5, price_basis: 'per_volume', cost: 60, payment_method: 'cash' })}
+        record={record({ ...stored, price_basis: 'per_volume', obc_trip_duration_s: 5400 })}
         onClose={vi.fn()}
         onSuccess={vi.fn()}
       />
     )
-    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
+    await waitFor(() => expect(input('engine_hours')).toBeInTheDocument())
+    expect(input('odometer_km')).toBeNull()
+    expect(input('payment_method')).toBeNull()
 
     const body = await clearAndSubmit([])
 
-    expect(body).toMatchObject({ odometer_km: 50000, liters: 40, price_per_unit: 1.5, cost: 60, payment_method: 'cash' })
+    expect(body).toMatchObject(stored)
+    // Seeded as text, so the raw string goes back for the server to parse.
+    expect(body.obc_trip_duration_s).toBe('5400')
     expect(body.def_fill_level).toBeUndefined()
   })
 })
