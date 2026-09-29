@@ -143,6 +143,13 @@ def _make_garage_data(
     }
 
 
+def _make_garage_data_with_financing() -> dict:
+    """Garage data with a nonzero total_financing, otherwise minimal."""
+    data = _make_garage_data(include_all_cost_fields=False)
+    data["total_costs"]["total_financing"] = Decimal("450.00")
+    return data
+
+
 class TestGenerateGarageAnalyticsPdf:
     """Tests for generate_garage_analytics_pdf."""
 
@@ -220,6 +227,22 @@ class TestGenerateGarageAnalyticsPdf:
         buf = generate_garage_analytics_pdf(data)
         text = _extract_text(buf.read())
         assert "1 vehicle" in text
+
+    def test_operating_cost_includes_financing(self) -> None:
+        """The Operating Cost KPI (which already includes Insurance) must
+        also include total_financing, matching the donut's Financing slice."""
+        data_without = _make_garage_data(include_all_cost_fields=False)
+        data_with = _make_garage_data_with_financing()
+
+        text_without = _extract_text(
+            generate_garage_analytics_pdf(data_without).read(), normalize=True
+        )
+        text_with = _extract_text(generate_garage_analytics_pdf(data_with).read(), normalize=True)
+
+        # Without financing: 5000 + 8000 + 4000 + 1500 + 2000 + 300 = $20,800
+        assert "$20,800" in text_without
+        # With financing: $20,800 + $450 = $21,250
+        assert "$21,250" in text_with
 
     def test_regression_inspection_collision_detailing_values(self) -> None:
         """Ensure the data flow bug fix carries all cost fields through."""

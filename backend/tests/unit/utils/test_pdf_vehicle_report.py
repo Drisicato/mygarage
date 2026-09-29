@@ -1,10 +1,14 @@
 """Tests for vehicle analytics PDF report generation."""
 
 from decimal import Decimal
+from io import BytesIO
+from typing import Any
 
 import fitz  # PyMuPDF
+import pytest
 
 from app.constants.units import IMPERIAL_PRESET, METRIC_PRESET
+from app.utils import pdf_vehicle_report
 from app.utils.pdf_vehicle_report import generate_vehicle_analytics_pdf
 from app.utils.render_context import RenderContext
 from app.utils.unit_resolution import apply_vehicle_units
@@ -693,3 +697,55 @@ class TestRenderContextDrivesUnits:
 
         assert "N/A (N/A)" not in text
         assert "FUEL ECONOMY N/A" in text
+
+
+class TestMonthlySpendingChartSkipsFinancingOnlyMonths:
+    """The Monthly Spending chart plots running costs, so a month with only a
+    lease payment stays off it instead of taking one of its twelve slots."""
+
+    @staticmethod
+    def _month(year: int, month: int, *, fuel_count: int, financing_count: int) -> dict:
+        fuel = Decimal("100.00") if fuel_count else Decimal("0.00")
+        return {
+            "year": year,
+            "month": month,
+            "month_name": "Month",
+            "total_service_cost": Decimal("0.00"),
+            "total_fuel_cost": fuel,
+            "total_def_cost": Decimal("0.00"),
+            "total_spot_rental_cost": Decimal("0.00"),
+            "total_financing_cost": Decimal("450.00") if financing_count else Decimal("0.00"),
+            "total_cost": fuel,
+            "service_count": 0,
+            "fuel_count": fuel_count,
+            "def_count": 0,
+            "spot_rental_count": 0,
+            "financing_count": financing_count,
+        }
+
+    def test_chart_gets_the_last_twelve_running_cost_months(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        charted: list[list[dict[str, Any]]] = []
+        real_chart = pdf_vehicle_report.render_monthly_spending_chart
+
+        def spy(monthly_data: list[dict[str, Any]]) -> BytesIO:
+            charted.append(monthly_data)
+            return real_chart(monthly_data)
+
+        monkeypatch.setattr(pdf_vehicle_report, "render_monthly_spending_chart", spy)
+
+        # Fuel in Dec 2024 and Feb-Dec 2025, only a lease payment in Jan 2025
+        # and Jan 2026: twelve running-cost months among fourteen rows. The
+        # last twelve ROWS would drop Dec 2024 and chart two empty months.
+        running = [(2024, 12)] + [(2025, m) for m in range(2, 13)]
+        rows = [self._month(y, m, fuel_count=1, financing_count=0) for y, m in running]
+        rows.insert(1, self._month(2025, 1, fuel_count=0, financing_count=1))
+        rows.append(self._month(2026, 1, fuel_count=0, financing_count=1))
+
+        data = _make_analytics_data()
+        data["cost_analysis"]["monthly_breakdown"] = rows
+        generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+
+        assert len(charted) == 1
+        assert [(m["year"], m["month"]) for m in charted[0]] == running
