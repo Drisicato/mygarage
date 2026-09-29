@@ -852,7 +852,7 @@ function main(): void {
     const rows = seed(root, existing)
     writeFileSync(
       manifestPath,
-      `${JSON.stringify({ schemaVersion: MANIFEST_SCHEMA_VERSION, rows }, null, 1)}\n`,
+      `${JSON.stringify({ schemaVersion: MANIFEST_SCHEMA_VERSION, rows }, null, 2)}\n`,
     )
     const restamped = rows.filter((r) => before.has(r.path) && before.get(r.path) !== r.digest)
     const added = rows.filter((r) => !before.has(r.path))
