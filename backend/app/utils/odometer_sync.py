@@ -100,6 +100,23 @@ async def _own_records(
     return list(result.scalars().all())
 
 
+async def remove_synced_odometer(
+    db: AsyncSession, vin: str, source_type: str, source_id: int
+) -> None:
+    """Delete the odometer reading(s) a source synced, when its reading is cleared.
+
+    `sync_odometer_from_record` skips a None, so without this a cleared
+    reading stayed in the log and kept feeding reminder projections. Only the
+    rows `_own_records` finds go (this source's marker, or its fuel FK), so a
+    manual, LiveLink or tire reading on the same day is never touched. The
+    hours track does the same on a clear. Flushes, never commits.
+    """
+    marker = auto_sync_marker(source_type, source_id)
+    for record in await _own_records(db, vin, marker, source_type, source_id):
+        await db.delete(record)
+    await db.flush()
+
+
 def reads_at_or_above(records: Iterable[OdometerRecord], odometer_km: Decimal) -> bool:
     """Whether any of `records` reads at or above `odometer_km`.
 
