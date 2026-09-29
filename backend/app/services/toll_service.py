@@ -445,6 +445,10 @@ class TollService:
                     raise HTTPException(status_code=404, detail="Toll tag not found")
 
             update_data = data.model_dump(exclude_unset=True)
+            # The API calls it transaction_date; the column is `date`. Set as-is,
+            # it landed on an unmapped attribute and the edit saved nothing.
+            if "transaction_date" in update_data:
+                update_data["date"] = update_data.pop("transaction_date")
             for field, value in update_data.items():
                 setattr(transaction, field, value)
 

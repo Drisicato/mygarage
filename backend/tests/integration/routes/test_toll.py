@@ -360,6 +360,71 @@ class TestTollTransactionRoutes:
         assert data["notes"] == "Updated amount"
         assert data["location"] == "I-10 Katy Tollway"  # Unchanged
 
+    async def test_update_toll_transaction_date(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        """The column is `date`; setting `transaction_date` on the model saved nothing."""
+        create_response = await client.post(
+            f"/api/vehicles/{test_vehicle['vin']}/toll-transactions",
+            json={
+                "vin": test_vehicle["vin"],
+                "transaction_date": "2024-06-19",
+                "amount": 3.00,
+                "location": "Date Edit Plaza",
+            },
+            headers=auth_headers,
+        )
+        transaction = create_response.json()
+        url = f"/api/vehicles/{test_vehicle['vin']}/toll-transactions/{transaction['id']}"
+
+        response = await client.put(
+            url, json={"transaction_date": "2024-07-04"}, headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        assert response.json()["date"] == "2024-07-04"
+        reread = await client.get(url, headers=auth_headers)
+        assert reread.json()["date"] == "2024-07-04"
+
+    async def test_update_toll_transaction_null_tag_unlinks_it(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        """The form's "None (manual payment)" option sends null to unlink the tag."""
+        tag = (
+            await client.post(
+                f"/api/vehicles/{test_vehicle['vin']}/toll-tags",
+                json={
+                    "vin": test_vehicle["vin"],
+                    "toll_system": "EZ TAG",
+                    "tag_number": "TAG_UNLINK",
+                    "status": "active",
+                },
+                headers=auth_headers,
+            )
+        ).json()
+        transaction = (
+            await client.post(
+                f"/api/vehicles/{test_vehicle['vin']}/toll-transactions",
+                json={
+                    "vin": test_vehicle["vin"],
+                    "transaction_date": "2024-06-20",
+                    "amount": 1.25,
+                    "location": "Unlink Plaza",
+                    "toll_tag_id": tag["id"],
+                },
+                headers=auth_headers,
+            )
+        ).json()
+
+        response = await client.put(
+            f"/api/vehicles/{test_vehicle['vin']}/toll-transactions/{transaction['id']}",
+            json={"toll_tag_id": None},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["toll_tag_id"] is None
+
     async def test_delete_toll_transaction(self, client: AsyncClient, auth_headers, test_vehicle):
         """Test deleting a toll transaction."""
         # Create a transaction

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Garage analytics 3- and 6-month average lines skip months with only insurance or financing instead of counting them as zero
 - CSV, JSON and third-party imports refuse the negative, out-of-range and NaN values the app itself refuses, instead of storing them
 - Clearing a service visit's vendor, odometer, engine hours, notes, claim number or fees on edit now saves instead of keeping the old value
+- Editing a toll transaction's date now saves; the new date was silently dropped
 
 ## [3.7.0] - 2026-09-24
 
