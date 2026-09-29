@@ -76,6 +76,43 @@ def _validate_diesel_grade(v: str | None) -> str | None:
     return v
 
 
+def _parse_obc_trip_duration(v: object) -> int | None:
+    """Accept OBC trip duration as ``int`` seconds OR an ``HH:MM`` /
+    ``HH:MM:SS`` string and store canonical seconds.
+
+    Surfaced by issue #69: many onboard computers display trip
+    duration as ``HH:MM`` (e.g. the reporter's reads ``02:15``).
+    Forcing users to convert to seconds before submitting was
+    friction; accepting the raw OBC string and converting
+    server-side keeps canonical-seconds storage while improving UX.
+    The frontend can keep sending integer seconds for the
+    auto-suggest path. Create and update both run it: the edit form
+    sends the same raw text.
+    """
+    if v is None or v == "":
+        return None
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        if s.isdigit():
+            return int(s)
+        parts = s.split(":")
+        if len(parts) in (2, 3) and all(p.isdigit() for p in parts):
+            hours = int(parts[0])
+            minutes = int(parts[1])
+            seconds = int(parts[2]) if len(parts) == 3 else 0
+            if minutes >= 60 or seconds >= 60:
+                raise ValueError(f"obc_trip_duration_s {v!r} has minute or second component ≥ 60")
+            return hours * 3600 + minutes * 60 + seconds
+        raise ValueError(
+            f"obc_trip_duration_s must be an int (seconds), 'HH:MM', or 'HH:MM:SS'; got {v!r}"
+        )
+    raise ValueError(f"obc_trip_duration_s must be int or str; got {type(v).__name__}")
+
+
 class FuelRecordBase(BaseModel):
     """Base fuel record schema with common fields (metric canonical)."""
 
@@ -261,41 +298,7 @@ class FuelRecordBase(BaseModel):
     @field_validator("obc_trip_duration_s", mode="before")
     @classmethod
     def _parse_obc_trip_duration(cls, v: object) -> int | None:
-        """Accept OBC trip duration as ``int`` seconds OR an ``HH:MM`` /
-        ``HH:MM:SS`` string and store canonical seconds.
-
-        Surfaced by issue #69: many onboard computers display trip
-        duration as ``HH:MM`` (e.g. the reporter's reads ``02:15``).
-        Forcing users to convert to seconds before submitting was
-        friction; accepting the raw OBC string and converting
-        server-side keeps canonical-seconds storage while improving UX.
-        The frontend can keep sending integer seconds for the
-        auto-suggest path.
-        """
-        if v is None or v == "":
-            return None
-        if isinstance(v, int) and not isinstance(v, bool):
-            return v
-        if isinstance(v, str):
-            s = v.strip()
-            if not s:
-                return None
-            if s.isdigit():
-                return int(s)
-            parts = s.split(":")
-            if len(parts) in (2, 3) and all(p.isdigit() for p in parts):
-                hours = int(parts[0])
-                minutes = int(parts[1])
-                seconds = int(parts[2]) if len(parts) == 3 else 0
-                if minutes >= 60 or seconds >= 60:
-                    raise ValueError(
-                        f"obc_trip_duration_s {v!r} has minute or second component ≥ 60"
-                    )
-                return hours * 3600 + minutes * 60 + seconds
-            raise ValueError(
-                f"obc_trip_duration_s must be an int (seconds), 'HH:MM', or 'HH:MM:SS'; got {v!r}"
-            )
-        raise ValueError(f"obc_trip_duration_s must be int or str; got {type(v).__name__}")
+        return _parse_obc_trip_duration(v)
 
     # Note: enum validators for fuel_type_used / payment_method / trip_type
     # live on FuelRecordCreate / FuelRecordUpdate (input schemas) only.
@@ -538,6 +541,11 @@ class FuelRecordUpdate(BaseModel):
     obc_l_per_100km: Decimal | None = Field(None, ge=0, le=999.99)
     obc_avg_speed_kmh: Decimal | None = Field(None, ge=0, le=9999.9)
     obc_trip_duration_s: int | None = Field(None, ge=0)
+
+    @field_validator("obc_trip_duration_s", mode="before")
+    @classmethod
+    def _parse_obc_trip_duration_update(cls, v: object) -> int | None:
+        return _parse_obc_trip_duration(v)
 
     @field_validator("charge_level")
     @classmethod
