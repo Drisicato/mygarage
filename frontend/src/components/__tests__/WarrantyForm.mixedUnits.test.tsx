@@ -145,13 +145,15 @@ describe('WarrantyForm — the mileage limit follows units.distance', () => {
     expect(payload.mileage_limit_km).not.toBe(96560.64)
   })
 
-  it('a limit cleared to blank posts no mileage limit at all', async () => {
+  it('a limit cleared to blank posts null, which clears it', async () => {
     unitPrefMock.units = LITRES_MILES
     render(<WarrantyForm {...DEFAULT_PROPS} record={RECORD} />)
     fireEvent.change(field('mileage_limit_km'), { target: { value: '' } })
     fireEvent.submit(warrantyForm())
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
     const payload = updateMutateAsync.mock.calls[0][0] as Record<string, unknown>
-    expect(payload.mileage_limit_km).toBeUndefined()
+    // Not undefined: the update route skips keys that aren't sent, so an
+    // omitted limit kept the old one.
+    expect(payload.mileage_limit_km).toBeNull()
   })
 })

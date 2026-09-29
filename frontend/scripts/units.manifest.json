@@ -994,8 +994,8 @@
     {
       "path": "src/components/WarrantyForm.tsx",
       "disposition": "audited",
-      "digest": "ca5d3e9f3cde93ec28fe77cfd47ccaac5d8dc155dd54ce8c277b91edc066602c",
-      "reason": "the mileage limit through useUnitFormat with a seeded origin",
+      "digest": "a31662c2e439db80c3084cfdbd8c3e70b19917196f35c1e549d62ab7c16c54c3",
+      "reason": "the mileage limit through useUnitFormat with a seeded origin Re-read 2026-09-29: a missing end date seeds empty instead of today, and a cleared end date or limit posts null; the limit still goes back through the same seeded origin, so no unit change.",
       "tests": [
         "components/__tests__/WarrantyForm.mixedUnits.test.tsx",
         "components/__tests__/WarrantyForm.test.tsx"
