@@ -405,7 +405,7 @@ class TestJsonImportBoundsOrderAndReminders:
         assert data["service_records"]["error_count"] == 1, data
         assert data["service_records"]["skipped_count"] == 0, data
 
-    @pytest.mark.parametrize("miles", ["Infinity", "1e12"])
+    @pytest.mark.parametrize("miles", ["Infinity", "NaN", "1e12"])
     async def test_a_reminder_interval_the_api_refuses_fails(
         self,
         client: AsyncClient,
@@ -423,6 +423,8 @@ class TestJsonImportBoundsOrderAndReminders:
 
         assert data["reminders"]["success_count"] == 0, data
         assert data["reminders"]["error_count"] == 1, data
+        # The specific reason, in plain digits (not 1E+12).
+        assert "must be" in data["errors"][0] and "E+" not in data["errors"][0], data
 
 
 def test_a_misspelt_field_fails_even_on_an_empty_cell():

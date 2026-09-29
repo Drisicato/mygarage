@@ -87,7 +87,10 @@ class TestServiceVisitClear:
     async def test_a_manual_reading_on_the_same_day_survives(
         self, client: AsyncClient, auth_headers, own_vehicle
     ):
+        """The visit syncs first, so there IS a row to delete; the manual one
+        added after it on the same day must be the one that stays."""
         vin = own_vehicle["vin"]
+        visit = await _visit(client, auth_headers, vin, on="2031-08-11", odometer_km=724100)
         r = await client.post(
             f"/api/vehicles/{vin}/odometer",
             json={"vin": vin, "date": "2031-08-11", "odometer_km": 724000, "notes": "dash photo"},
@@ -95,7 +98,8 @@ class TestServiceVisitClear:
         )
         assert r.status_code == 201, r.text
         manual_id = r.json()["id"]
-        visit = await _visit(client, auth_headers, vin, on="2031-08-11", odometer_km=724100)
+        rows = await _odometer_rows(client, auth_headers, vin)
+        assert len(_marked(rows, "service_visit", visit["id"])) == 1
 
         r = await client.put(
             f"/api/vehicles/{vin}/service-visits/{visit['id']}",
@@ -105,7 +109,25 @@ class TestServiceVisitClear:
         assert r.status_code == 200, r.text
 
         rows = await _odometer_rows(client, auth_headers, vin)
+        assert _marked(rows, "service_visit", visit["id"]) == []
         assert any(row["id"] == manual_id for row in rows)
+
+    async def test_an_edit_to_zero_removes_the_synced_reading(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        """A create with 0 never syncs, so an edit to 0 must not keep the old reading."""
+        vin = own_vehicle["vin"]
+        visit = await _visit(client, auth_headers, vin, on="2031-08-13", odometer_km=724500)
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/service-visits/{visit['id']}",
+            json={"odometer_km": 0},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        rows = await _odometer_rows(client, auth_headers, vin)
+        assert _marked(rows, "service_visit", visit["id"]) == []
 
     async def test_an_edit_that_leaves_the_odometer_alone_keeps_the_reading(
         self, client: AsyncClient, auth_headers, own_vehicle

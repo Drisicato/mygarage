@@ -528,9 +528,10 @@ class ServiceVisitService:
                             commit=False,
                             operation="update",
                         )
-                    elif visit.odometer_km is None:
-                        # Cleared on edit: take the reading it synced with it,
-                        # the way the hours sync below deletes its row.
+                    elif not visit.odometer_km:
+                        # Cleared on edit (or set to 0, which a create never
+                        # syncs): take the reading it synced with it, the way
+                        # the hours sync below deletes its row.
                         await remove_synced_odometer(self.db, vin, "service_visit", visit_id)
                     await sync_hours_from_record(
                         db=self.db,

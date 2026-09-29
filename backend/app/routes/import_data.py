@@ -329,7 +329,10 @@ def _within_api_bounds(schema: type[BaseModel], **values: Decimal | int | None) 
                 # below 9999.999 and refused the value pydantic accepts.
                 exact = Decimal(str(limit)) if isinstance(limit, float) else limit
                 if not holds(number, exact):
-                    raise _ImportBoundError(f"{name} must be {reads} {exact}, not {number}")
+                    # Plain digits: str() of Decimal("1e12") reads 1E+12.
+                    raise _ImportBoundError(
+                        f"{name} must be {reads} {exact}, not {format(number, 'f')}"
+                    )
 
 
 def _coverages_from_rows(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1977,12 +1980,14 @@ async def import_vehicle_json(
             # (check_due_mileage_km); reject a negative recurrence here
             # rather than letting that CHECK reject the row. Not clamped: a
             # negative value is reported, never silently corrected.
+            # Bounds first, so a NaN gets the specific message rather than
+            # failing the comparison below.
+            if has_miles:
+                _within_api_bounds(ReminderCreate, due_mileage_km=Decimal(str(recurrence_miles)))
             if has_miles and Decimal(str(recurrence_miles)) <= 0:
                 results["reminders"]["errors"] += 1
                 results["errors"].append(f"Reminder {idx}: recurrence_miles must be positive")
                 continue
-            if has_miles:
-                _within_api_bounds(ReminderCreate, due_mileage_km=Decimal(str(recurrence_miles)))
 
             if has_date and has_miles:
                 reminder_type = "both"
