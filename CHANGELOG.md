@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Fifth wheel and travel trailer cards show the tow vehicle and average propane use per month, in the slots where motorized cards show the odometer and fuel economy
+- Financing tracking for lease and loan payments and upfront fees, with a Financing tab and cost analytics
 
 ### Changed
 - Vehicle cards and the vehicle hero flag reminders due within 30 days, by date or by projected mileage and hours, instead of every pending reminder; the fleet strip's count is the sum of those badges
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The smallest font subset was inlined as a data: URL and refused by the CSP; fonts are always emitted as files
 - The dashboard sort trigger read "Sort: Sort by Name"; the order is now "Name" in every language, and the French trigger is translated
 - Recall "Resolved" and document "Uploaded" dates rendered as "Invalid Date"
+- Garage analytics 3- and 6-month average lines skip months with only insurance or financing instead of counting them as zero
 
 ## [3.7.0] - 2026-09-24
 
@@ -32,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Alert lines per tank in Settings (level low and critical, battery low): they colour the tank, label it Low or Critical, and notify once per crossing, re-armed by a refill
 - Each vehicle can set the unit its odometer reads (km or mi); its distances and speeds are shown and entered in it, while fuel economy and cost per distance keep your account setting. Account default keeps today's behaviour (#172)
 - Dashboard order in Quick Settings: the dashboard opens in your chosen order on any browser; the sort menu still overrides it for the tab
-- Financing tracking for lease and loan payments and upfront fees, with a Financing tab and cost analytics
 
 ### Fixed
 - Fuel economy "excluding towing" no longer includes it: a towing tank was merged into the next tank, so its fuel stayed in the average

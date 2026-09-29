@@ -6,7 +6,10 @@ import type { ReactNode } from 'react'
 // recharts renders 0×0 in jsdom, so stub the chart boundary (mirrors
 // Analytics.hours.test.tsx). ComposedChart CAPTURES its `data` prop so we can
 // prove the Monthly-Spending-Trend rolling averages have NO leading null at
-// index 0 (the "connect the lines through every month" fix). After the redesign
+// index 0 when the first month has running costs (the "connect the lines
+// through every month" fix), and are null on months with only insurance or
+// financing. Line renders its dataKey so a test can see which lines mount.
+// After the redesign
 // the only categorical chart on the page is the trend chart, and it is a
 // ComposedChart (Recharts v3 only renders <Line> inside a ComposedChart).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,7 +26,7 @@ vi.mock('recharts', () => {
       return <>{children}</>
     },
     Bar: () => null,
-    Line: () => null,
+    Line: ({ dataKey }: { dataKey?: string }) => <span data-testid="trend-line">{dataKey}</span>,
     XAxis: () => null,
     YAxis: () => null,
     CartesianGrid: () => null,
@@ -158,6 +161,73 @@ describe('GarageAnalytics — Monthly Spending Trend rolling averages', () => {
     // Jan total = 100+50+0 = 150; trailing avg over 1 month = 150 (NOT null).
     expect(trend![0].avg3).toBe(150)
     expect(trend![0].avg3).not.toBeNull()
+  })
+
+  it('skips months with only insurance or financing instead of averaging them in as zero', async () => {
+    // Fuel in Jan/Mar/May; Feb has only insurance, Apr only a lease payment.
+    mockedGet.mockResolvedValue({
+      data: {
+        ...GARAGE,
+        monthly_trends: [
+          { month: 'Jan 2026', service: '0', fuel: '100', def_cost: '0', insurance: '0', financing: '0', total: '100' },
+          { month: 'Feb 2026', service: '0', fuel: '0', def_cost: '0', insurance: '80', financing: '0', total: '80' },
+          { month: 'Mar 2026', service: '0', fuel: '300', def_cost: '0', insurance: '0', financing: '0', total: '300' },
+          { month: 'Apr 2026', service: '0', fuel: '0', def_cost: '0', insurance: '0', financing: '450', total: '0' },
+          { month: 'May 2026', service: '0', fuel: '500', def_cost: '0', insurance: '0', financing: '0', total: '500' },
+        ],
+      },
+    })
+    render(<GarageAnalytics />)
+    await screen.findByText('$13,200.00')
+    const trend = captured.barCharts.find(
+      (d): d is Array<{ avg3?: number | null; avg6?: number | null }> =>
+        Array.isArray(d) && d.length > 0 && typeof d[0] === 'object' && d[0] !== null && 'avg3' in d[0]
+    )
+    expect(trend).toBeDefined()
+    // Counting Feb and Apr as zero gives May (300 + 0 + 500) / 3 = 266.67.
+    expect(trend![4].avg3).toBe(300)
+    expect(trend![4].avg6).toBe(300)
+    expect(trend![1].avg3).toBeNull()
+    expect(trend![3].avg3).toBeNull()
+  })
+
+  it('starts the lines at the first running-cost month when the first month has only insurance', async () => {
+    mockedGet.mockResolvedValue({
+      data: {
+        ...GARAGE,
+        monthly_trends: [
+          { month: 'Jan 2026', service: '0', fuel: '0', def_cost: '0', insurance: '80', financing: '0', total: '80' },
+          { month: 'Feb 2026', service: '0', fuel: '100', def_cost: '0', insurance: '80', financing: '0', total: '180' },
+          { month: 'Mar 2026', service: '0', fuel: '200', def_cost: '0', insurance: '80', financing: '0', total: '280' },
+        ],
+      },
+    })
+    render(<GarageAnalytics />)
+    await screen.findByText('$13,200.00')
+    const trend = captured.barCharts.find(
+      (d): d is Array<{ avg3?: number | null }> =>
+        Array.isArray(d) && d.length > 0 && typeof d[0] === 'object' && d[0] !== null && 'avg3' in d[0]
+    )
+    expect(trend![0].avg3).toBeNull()
+    expect(trend![1].avg3).toBe(100)
+    expect(trend![2].avg3).toBe(150)
+  })
+
+  it('mounts the 3-month line only once there are three running-cost months', async () => {
+    // Three rows, but two carry only insurance: one running-cost month.
+    mockedGet.mockResolvedValue({
+      data: {
+        ...GARAGE,
+        monthly_trends: [
+          { month: 'Jan 2026', service: '0', fuel: '0', def_cost: '0', insurance: '80', financing: '0', total: '80' },
+          { month: 'Feb 2026', service: '0', fuel: '0', def_cost: '0', insurance: '80', financing: '0', total: '80' },
+          { month: 'Mar 2026', service: '0', fuel: '100', def_cost: '0', insurance: '80', financing: '0', total: '180' },
+        ],
+      },
+    })
+    render(<GarageAnalytics />)
+    await screen.findByText('$13,200.00')
+    expect(screen.queryAllByTestId('trend-line').map((el) => el.textContent)).not.toContain('avg3')
   })
 
   it('formats month labels with a two-digit year (Jan 26, not Jan 2026)', async () => {

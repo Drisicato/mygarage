@@ -248,11 +248,17 @@ export default function GarageAnalytics() {
   }))
   const maxVehicleCost = barData.reduce((max, v) => Math.max(max, v.totalCost), 0)
 
-  // Monthly trend: trailing averages over the available window so both lines
-  // span the full chart width (no leading nulls that make them start late).
-  const monthlyTotals = monthly_trends.map(monthlyTrendTotal)
-  const rollingAvg3 = trailingAverage(monthlyTotals, 3)
-  const rollingAvg6 = trailingAverage(monthlyTotals, 6)
+  // Monthly trend: trailing averages over the available window, so the lines
+  // have no leading nulls across the running-cost months. A month with only
+  // insurance or financing has no running costs (service, fuel and DEF only
+  // land in a month when the cost is above zero), so the lines skip it as the
+  // vehicle page does: null there, bridged by connectNulls between running
+  // months, and no line before the first or after the last one.
+  const runningCostMonths = monthly_trends.filter((trend) => monthlyTrendTotal(trend) > 0)
+  const runningTotals = runningCostMonths.map(monthlyTrendTotal)
+  const rollingAvg3 = trailingAverage(runningTotals, 3)
+  const rollingAvg6 = trailingAverage(runningTotals, 6)
+  const runningIndex = new Map(runningCostMonths.map((trend, idx) => [trend, idx]))
 
   const formatMonthLabel = (value: string) => {
     const parsed = new Date(`${value} 1`)
@@ -260,15 +266,18 @@ export default function GarageAnalytics() {
     return new Intl.DateTimeFormat(locale, { month: 'short', year: '2-digit' }).format(parsed)
   }
 
-  const trendData = monthly_trends.map((trend, idx) => ({
-    month: formatMonthLabel(trend.month),
-    Service: parseFloat(trend.service),
-    Fuel: parseFloat(trend.fuel),
-    DEF: parseFloat(trend.def_cost),
-    Financing: parseFloat(trend.financing),
-    avg3: rollingAvg3[idx],
-    avg6: rollingAvg6[idx],
-  }))
+  const trendData = monthly_trends.map((trend) => {
+    const idx = runningIndex.get(trend)
+    return {
+      month: formatMonthLabel(trend.month),
+      Service: parseFloat(trend.service),
+      Fuel: parseFloat(trend.fuel),
+      DEF: parseFloat(trend.def_cost),
+      Financing: parseFloat(trend.financing),
+      avg3: idx === undefined ? null : rollingAvg3[idx],
+      avg6: idx === undefined ? null : rollingAvg6[idx],
+    }
+  })
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -596,14 +605,17 @@ export default function GarageAnalytics() {
                         <p style={{ fontWeight: '600', marginBottom: '8px' }}>
                           {payload[0].payload.month}
                         </p>
-                        {payload.map((entry, index) => (
-                          <p
-                            key={index}
-                            style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '4px' }}
-                          >
-                            {entry.name}: {formatCurrency(entry.value as number, { currencyCode, locale })}
-                          </p>
-                        ))}
+                        {payload.map((entry, index) =>
+                          // A rolling average is null on insurance- or financing-only months.
+                          entry.value == null ? null : (
+                            <p
+                              key={index}
+                              style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '4px' }}
+                            >
+                              {entry.name}: {formatCurrency(entry.value as number, { currencyCode, locale })}
+                            </p>
+                          )
+                        )}
                       </div>
                     )
                   }
@@ -616,9 +628,9 @@ export default function GarageAnalytics() {
               <Bar dataKey="DEF" name={t('garage.cards.def')} fill="#14B8A6" stackId="a" maxBarSize={40} />
               <Bar dataKey="Financing" name={t('garage.cards.financing')} fill="#84CC16" stackId="a" maxBarSize={40} />
 
-              {/* Rolling average trend lines. trailingAverage() emits a value for
-                  every month (no leading nulls), so the lines span the full width. */}
-              {trendData.length >= 3 && (
+              {/* Rolling average trend lines over the running-cost months; each
+                  mounts once there are enough of those months to average. */}
+              {runningCostMonths.length >= 3 && (
                 <Line
                   type="monotone"
                   dataKey="avg3"
@@ -630,7 +642,7 @@ export default function GarageAnalytics() {
                   connectNulls
                 />
               )}
-              {trendData.length >= 6 && (
+              {runningCostMonths.length >= 6 && (
                 <Line
                   type="monotone"
                   dataKey="avg6"
