@@ -303,54 +303,22 @@ async def update_current_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Update current user information (non-admin fields only)."""
-    # Users can only update their own email and full_name
-    if user_update.email is not None:
+    # An omitted field keeps its value and an explicit null clears a nullable
+    # one; the schema refuses null on the NOT NULL preferences. Every field
+    # used to be `if x is not None`, so nothing here could be cleared.
+    changes = user_update.model_dump(exclude_unset=True)
+    if "email" in changes:
         # Check if email is already taken by another user
         result = await db.execute(
-            select(User).where(User.email == user_update.email, User.id != current_user.id)
+            select(User).where(User.email == changes["email"], User.id != current_user.id)
         )
         if result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered",
             )
-        current_user.email = user_update.email
-
-    if user_update.full_name is not None:
-        current_user.full_name = user_update.full_name
-
-    if user_update.time_format is not None:
-        current_user.time_format = user_update.time_format
-
-    if user_update.show_both_units is not None:
-        current_user.show_both_units = user_update.show_both_units
-
-    if user_update.mobile_quick_entry_enabled is not None:
-        current_user.mobile_quick_entry_enabled = user_update.mobile_quick_entry_enabled
-
-    if user_update.language is not None:
-        current_user.language = user_update.language
-
-    if user_update.currency_code is not None:
-        current_user.currency_code = user_update.currency_code
-
-    if user_update.accent_color is not None:
-        current_user.accent_color = user_update.accent_color
-
-    if user_update.theme is not None:
-        current_user.theme = user_update.theme
-
-    if user_update.dashboard_sort is not None:
-        current_user.dashboard_sort = user_update.dashboard_sort
-
-    # Fuel-tracking form defaults (issue #69). These two fields are explicitly
-    # nullable — users need to be able to clear a previously-set default — so
-    # we honor explicit `null` payloads via model_fields_set rather than the
-    # is-not-None pattern used for the other preferences.
-    if "default_payment_method" in user_update.model_fields_set:
-        current_user.default_payment_method = user_update.default_payment_method
-    if "default_trip_type" in user_update.model_fields_set:
-        current_user.default_trip_type = user_update.default_trip_type
+    for field, value in changes.items():
+        setattr(current_user, field, value)
 
     # Users cannot change their own is_active or is_admin status
     current_user.updated_at = utc_now()
@@ -576,65 +544,30 @@ async def update_user(
             detail="User not found",
         )
 
-    # Update fields
-    if user_update.email is not None:
+    # An omitted field keeps its value and an explicit null clears a nullable
+    # one. Every field used to be `if x is not None`, so the Edit User dialog's
+    # null for an emptied name or a "None" relationship said saved and stayed.
+    changes = user_update.model_dump(exclude_unset=True)
+    if "email" in changes:
         # Check if email is already taken
         result = await db.execute(
-            select(User).where(User.email == user_update.email, User.id != user_id)
+            select(User).where(User.email == changes["email"], User.id != user_id)
         )
         if result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered",
             )
-        user.email = user_update.email
-
-    if user_update.full_name is not None:
-        user.full_name = user_update.full_name
-
-    if user_update.is_active is not None:
-        user.is_active = user_update.is_active
-
-    if user_update.is_admin is not None:
-        user.is_admin = user_update.is_admin
-
-    # Family/relationship fields
-    if user_update.relationship is not None:
-        user.relationship = user_update.relationship
-        # Clear custom relationship if switching away from 'other'
-        if user_update.relationship != "other":
-            user.relationship_custom = None
-
-    if user_update.relationship_custom is not None:
-        user.relationship_custom = user_update.relationship_custom
-
-    if user_update.show_on_family_dashboard is not None:
-        user.show_on_family_dashboard = user_update.show_on_family_dashboard
-
-    if user_update.family_dashboard_order is not None:
-        user.family_dashboard_order = user_update.family_dashboard_order
-
-    # Preference fields (also settable by admin)
-    if user_update.time_format is not None:
-        user.time_format = user_update.time_format
-
-    if user_update.show_both_units is not None:
-        user.show_both_units = user_update.show_both_units
-
-    if user_update.mobile_quick_entry_enabled is not None:
-        user.mobile_quick_entry_enabled = user_update.mobile_quick_entry_enabled
-
-    if user_update.language is not None:
-        user.language = user_update.language
-
-    if user_update.currency_code is not None:
-        user.currency_code = user_update.currency_code
-
-    if user_update.accent_color is not None:
-        user.accent_color = user_update.accent_color
-
-    if user_update.theme is not None:
-        user.theme = user_update.theme
+    relationship_custom_sent = "relationship_custom" in changes
+    relationship_custom = changes.pop("relationship_custom", None)
+    for field, value in changes.items():
+        setattr(user, field, value)
+    # Clear the custom relationship when switching away from 'other', null
+    # included; a custom value sent in the same request still wins.
+    if "relationship" in changes and changes["relationship"] != "other":
+        user.relationship_custom = None
+    if relationship_custom_sent:
+        user.relationship_custom = relationship_custom
 
     user.updated_at = utc_now()
 
