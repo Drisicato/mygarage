@@ -24,7 +24,7 @@ const activeTag = { id: 7, toll_system: 'E-ZPass', tag_number: 'ABC123', status:
 beforeEach(() => vi.clearAllMocks())
 
 describe('TollTransactionForm — routing + exact payload (SDQ-C)', () => {
-  it('create — MANUAL-payment (toll_tag_id UNTOUCHED) submits the COMPLETE payload with toll_tag_id: undefined + vin, and NEVER calls update (fails if a field is dropped, the amount stays a string, vin is omitted, toll_tag_id is missing/wrong, or it misroutes)', async () => {
+  it('create — MANUAL-payment (toll_tag_id UNTOUCHED) submits the COMPLETE payload with toll_tag_id: null + vin, and NEVER calls update (fails if a field is dropped, the amount stays a string, vin is omitted, toll_tag_id is missing/wrong, or it misroutes)', async () => {
     const user = userEvent.setup()
     render(<TollTransactionForm vin="V1" tollTags={[]} onClose={vi.fn()} onSuccess={vi.fn()} />)
     // The currency amount is the G4(c) raw <input> inside a <Field id="amount"> — getByLabelText
@@ -50,7 +50,7 @@ describe('TollTransactionForm — routing + exact payload (SDQ-C)', () => {
       transaction_date: '2026-02-01',
       amount: 4.5,
       location: 'Main St Toll',
-      toll_tag_id: undefined,
+      toll_tag_id: null,
       notes: 'note',
       vin: 'V1',
     })
@@ -97,18 +97,32 @@ describe('TollTransactionForm — routing + exact payload (SDQ-C)', () => {
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
     // COMPLETE 6-property update object (id + all 5 body fields, NO vin). The seeded amount 3.25
     // round-trips through Number(...) → the number 3.25; the untouched toll_tag_id (seeded null) coerces to
-    // undefined via the B2 valueAsNumber fix. B3: toStrictEqual + toHaveProperty so a dropped key fails.
+    // undefined via the B2 valueAsNumber fix and posts as null. B3: toStrictEqual + toHaveProperty so a
+    // dropped key fails.
     const payload = updateMutateAsync.mock.calls[0][0]
     expect(payload).toStrictEqual({
       id: 9,
       transaction_date: '2026-01-15',
       amount: 3.25,
       location: 'New Rd',
-      toll_tag_id: undefined,
+      toll_tag_id: null,
       notes: 'x',
     })
     expect(payload).toHaveProperty('toll_tag_id')
     expect(createMutateAsync).not.toHaveBeenCalled()
+  })
+
+  it('edit: picking "None (manual payment)" on a tagged transaction sends null, which unlinks the tag', async () => {
+    const transaction = {
+      id: 10, date: '2026-01-16', amount: 2, location: 'Tagged Rd', toll_tag_id: 7, notes: '',
+    } as unknown as TollTransaction
+    const user = userEvent.setup()
+    render(<TollTransactionForm vin="V1" tollTags={[activeTag]} transaction={transaction} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.selectOptions(screen.getByLabelText('toll.tollTag'), '')
+    await user.click(screen.getByRole('button', { name: 'toll.updateTransaction' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    // Not undefined: the update route skips keys that aren't sent, so the tag stayed linked.
+    expect(updateMutateAsync.mock.calls[0][0]).toHaveProperty('toll_tag_id', null)
   })
 
   it('the Field labels resolve to the controls carrying the expected ids (fails if a Field htmlFor/id association is dropped — including the currency carve-out)', () => {

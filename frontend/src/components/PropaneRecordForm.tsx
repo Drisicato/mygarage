@@ -248,6 +248,13 @@ export default function PropaneRecordForm({
         finalNotes = `Vendor: ${data.vendor.trim()}\n${finalNotes}`.trim()
       }
 
+      // What an empty field posts. The update route skips keys that aren't
+      // sent, so on edit it must be null or a cleared field keeps its old
+      // value; create leaves it out as before. The schema refuses one tank
+      // field without the other, as the API does, so the pair arrives here
+      // set together or cleared together.
+      const cleared = isEdit ? null : undefined
+
       // We're using fuel_records table but ONLY propane_liters field
       const payload: FuelRecordCreate | FuelRecordUpdate = {
         vin,
@@ -262,7 +269,7 @@ export default function PropaneRecordForm({
               propaneLitersOrigin,
               u.volume
             )
-          ) ?? undefined,
+          ) ?? cleared,
         // Back through `units.mass`, and an untouched selection returns the
         // canonical value it was seeded from rather than a re-conversion.
         tank_size_kg:
@@ -270,8 +277,8 @@ export default function PropaneRecordForm({
             String(readNumber(data.tank_size_kg) ?? ''),
             tankSizeOrigin,
             u.mass
-          ) ?? undefined,
-        tank_quantity: data.tank_quantity,
+          ) ?? cleared,
+        tank_quantity: data.tank_quantity ?? cleared,
         // Form's price field is per-volume math (cost = volume × price), so
         // store with basis='per_volume' and convert imperial $/gal entries
         // to canonical $/L. Earlier code saved basis='per_tank' with raw
@@ -283,14 +290,14 @@ export default function PropaneRecordForm({
             priceOrigin,
             units,
             'per_volume'
-          ) ?? undefined,
+          ) ?? cleared,
         price_basis: 'per_volume',
-        cost: data.cost,
+        cost: data.cost ?? cleared,
         fuel_type_used: 'propane_lpg',  // Always propane
         is_full_tank: false,  // Not relevant for propane
         missed_fillup: false,
         is_hauling: false,
-        notes: finalNotes || undefined,
+        notes: finalNotes || cleared,
       }
 
       if (isEdit && record) {
@@ -355,7 +362,7 @@ export default function PropaneRecordForm({
             <h3 className="text-sm font-medium text-text mb-3">{t('propane.tankInfo')}</h3>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field id="tank_size_kg" label={t('propane.tankSize')} unit={u.mass.label}>
+              <Field id="tank_size_kg" label={t('propane.tankSize')} unit={u.mass.label} error={errors.tank_size_kg}>
                 <Select
                   id="tank_size_kg"
                   {...register('tank_size_kg', { valueAsNumber: true })}

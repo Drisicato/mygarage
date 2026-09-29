@@ -75,8 +75,10 @@ describe('ReminderForm — create vs update routing (SDQ-C)', () => {
     render(<ReminderForm vin="V1" reminder={reminder} currentMileage={null} onClose={vi.fn()} onSuccess={onSuccess} />)
     fireEvent.click(screen.getByRole('button', { name: 'common:update' }))
     await vi.waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    // The unused targets and the empty notes post null, which on an update is
+    // "none"; undefined would keep whatever was stored.
     expect(updateMock.mock.calls[0][0]).toStrictEqual({
-      id: 3, title: 'Registration', reminder_type: 'date', due_date: '2026-09-01', due_mileage_km: undefined, due_hours: undefined, notes: undefined,
+      id: 3, title: 'Registration', reminder_type: 'date', due_date: '2026-09-01', due_mileage_km: null, due_hours: null, notes: null,
     })
     expect(createMock).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
@@ -314,5 +316,43 @@ describe('ReminderForm — baseline mode toggles expose state to assistive tech'
     await user.click(fromLast)
     expect(fromLast).toHaveAttribute('aria-pressed', 'true')
     expect(fromNow).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+describe('ReminderForm: clearing on edit', () => {
+  it('switching a date-and-mileage reminder to date-only posts null for the mileage target', async () => {
+    const user = userEvent.setup()
+    const both = { ...reminder, id: 5, reminder_type: 'both', due_mileage_km: '8046.72' } as unknown as Reminder
+    render(<ReminderForm vin="V1" reminder={both} currentMileage={CURRENT_KM} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    const group = screen.getByRole('group', { name: 'reminder.reminderType' })
+    await user.click(within(group).getByRole('button', { name: /reminderForm\.typeDate\b/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'common:update' }))
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    // Left out, the old target stayed on a date-only reminder, and a smart
+    // reminder switched from mileage to hours kept both and got a 422.
+    expect(updateMock.mock.calls[0][0]).toMatchObject({ reminder_type: 'date', due_mileage_km: null, due_hours: null })
+  })
+
+  it('switching a date-and-mileage reminder to mileage-only posts null for the date', async () => {
+    const user = userEvent.setup()
+    const both = { ...reminder, id: 6, reminder_type: 'both', due_date: '2026-06-01', due_mileage_km: '8046.72' } as unknown as Reminder
+    render(<ReminderForm vin="V1" reminder={both} currentMileage={CURRENT_KM} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    const group = screen.getByRole('group', { name: 'reminder.reminderType' })
+    await user.click(within(group).getByRole('button', { name: /reminderForm\.typeMileage\b/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'common:update' }))
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    // The hidden date field keeps its value across the switch; posted, it left
+    // a mileage reminder overdue on a date the user had removed.
+    expect(updateMock.mock.calls[0][0]).toMatchObject({ reminder_type: 'mileage', due_date: null })
+  })
+
+  it('clearing the notes posts null', async () => {
+    const user = userEvent.setup()
+    const noted = { ...reminder, notes: 'old note' } as unknown as Reminder
+    render(<ReminderForm vin="V1" reminder={noted} currentMileage={null} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.clear(document.getElementById('reminder-notes') as HTMLTextAreaElement)
+    fireEvent.click(screen.getByRole('button', { name: 'common:update' }))
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    expect(updateMock.mock.calls[0][0].notes).toBeNull()
   })
 })

@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Garage analytics 3- and 6-month average lines skip months with only insurance or financing instead of counting them as zero
 - CSV, JSON and third-party imports refuse the negative, out-of-range and NaN values the app itself refuses, instead of storing them
 - Clearing a service visit's vendor, odometer, engine hours, notes, claim number or fees on edit now saves instead of keeping the old value
+- Editing a toll transaction's date now saves; the new date was silently dropped
+- Editing a fill-up with an HH:MM trip duration no longer fails; only new fill-ups accepted that format
+- A warranty with no end date no longer gets today's date when opened and saved, and its end date and mileage limit can be cleared
+- Setting a toll transaction back to "None (manual payment)" now unlinks its toll tag
+- Clearing a field when editing a fill-up, DEF or propane record now saves instead of keeping the old value; a fill-up still needs a reading and a fuel amount
+- Editing a reminder clears its notes when emptied and drops the date, mileage or hours target its new type doesn't use; a smart reminder switched from mileage to hours no longer fails
 
 ## [3.7.0] - 2026-09-24
 

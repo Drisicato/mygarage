@@ -21,7 +21,7 @@ from app.schemas.def_record import (
 from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.def_sync import ensure_def_capable
 from app.utils.logging_utils import sanitize_for_log
-from app.utils.odometer_sync import sync_odometer_from_record
+from app.utils.odometer_sync import remove_synced_odometer, sync_odometer_from_record
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +211,18 @@ class DEFRecordService:
                 except Exception as e:
                     logger.warning(
                         "Failed to auto-sync odometer for DEF record %s: %s",
+                        record_id,
+                        sanitize_for_log(e),
+                    )
+            elif "odometer_km" in update_data and not record.odometer_km:
+                # Cleared on edit (or set to 0, which a create never syncs): take
+                # the reading it synced with it. Best-effort, like the sync above.
+                try:
+                    await remove_synced_odometer(self.db, vin, "def", record.id)
+                    await self.db.commit()
+                except Exception as e:
+                    logger.warning(
+                        "Failed to remove the synced odometer for DEF record %s: %s",
                         record_id,
                         sanitize_for_log(e),
                     )

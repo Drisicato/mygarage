@@ -21,13 +21,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import AddressBookEntry
 from app.models.fuel import FuelRecord
 from app.models.user import User
-from app.schemas.fuel import FuelRecordCreate, FuelRecordResponse, FuelRecordUpdate
+from app.schemas.fuel import (
+    READING_AND_AMOUNT_FIELDS,
+    FuelRecordCreate,
+    FuelRecordResponse,
+    FuelRecordUpdate,
+    check_reading_and_amount,
+)
 from app.utils.cache import cached, invalidate_cache_for_vehicle
 from app.utils.def_sync import ensure_def_capable, sync_def_from_fuel_record
 from app.utils.fuel_station_sync import resolve_fuel_station
 from app.utils.hours_sync import sync_hours_from_record
 from app.utils.logging_utils import sanitize_for_log
-from app.utils.odometer_sync import sync_odometer_from_record
+from app.utils.odometer_sync import remove_synced_odometer, sync_odometer_from_record
 
 logger = logging.getLogger(__name__)
 
@@ -985,6 +991,24 @@ class FuelRecordService:
                 raise HTTPException(status_code=404, detail=f"Fuel record {record_id} not found")
 
             update_data = record_data.model_dump(exclude_unset=True)
+            # An edit can't leave a fill-up create would refuse, e.g. an emptied
+            # propane refill that no list shows any more. Only an edit that
+            # CHANGES one of the rule's fields is held to it: the forms send them
+            # all on every save, and a webhook or pre-rule fill-up that already
+            # falls short must still take a station or notes edit.
+            changes_the_rule = any(
+                update_data[field] != getattr(record, field)
+                for field in READING_AND_AMOUNT_FIELDS & record_data.model_fields_set
+            )
+            if changes_the_rule:
+                merged = {
+                    field: update_data.get(field, getattr(record, field))
+                    for field in READING_AND_AMOUNT_FIELDS
+                }
+                try:
+                    check_reading_and_amount(**merged)
+                except ValueError as e:
+                    raise HTTPException(status_code=422, detail=str(e))
             def_fill_level = update_data.pop("def_fill_level", None)
             def_fill_level_was_sent = "def_fill_level" in record_data.model_fields_set
             # Gate BEFORE any field mutation so a rejected request leaves the
@@ -1076,6 +1100,11 @@ class FuelRecordService:
                         sanitize_for_log(e),
                     )
                     raise
+            elif "odometer_km" in record_data.model_fields_set and not record.odometer_km:
+                # Cleared on edit (or set to 0, which a create never syncs): take
+                # the reading it synced with it, the way the hours sync below
+                # deletes its row.
+                await remove_synced_odometer(self.db, vin, "fuel", record.id)
 
             # Engine-hours sync. Runs unconditionally (not gated on a non-null
             # reading) so clearing engine_hours to null deletes the synced row;

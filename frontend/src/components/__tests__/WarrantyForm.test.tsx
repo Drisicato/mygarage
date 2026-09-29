@@ -114,3 +114,40 @@ describe('WarrantyForm — routing + canonical mileage + exact payload', () => {
     expect(screen.getByLabelText('warranty.mileageLimit (mi)')).toHaveAttribute('id', 'mileage_limit_km')
   })
 })
+
+describe('WarrantyForm: an open-ended warranty and cleared fields', () => {
+  const openEnded = {
+    id: 8, warranty_type: 'Extended', provider: 'Acme',
+    start_date: '2025-01-01', end_date: null,
+    mileage_limit_km: null, coverage_details: '', policy_number: '', notes: '',
+  } as unknown as WarrantyRecord
+
+  it('opens with no end date and saves it as none, instead of ending the warranty today', async () => {
+    const user = userEvent.setup()
+    render(<WarrantyForm vin="V1" record={openEnded} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect(screen.getByLabelText('common:endDate')).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: 'common:update' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0]).toMatchObject({ end_date: null })
+  })
+
+  it('a new warranty starts with no end date either', () => {
+    render(<WarrantyForm vin="V1" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect(screen.getByLabelText('common:endDate')).toHaveValue('')
+  })
+
+  it('clearing the end date and mileage limit on edit sends null for both', async () => {
+    const record = {
+      id: 9, warranty_type: 'Powertrain', provider: 'Honda',
+      start_date: '2025-01-01', end_date: '2029-01-01',
+      mileage_limit_km: '96561', coverage_details: '', policy_number: '', notes: '',
+    } as unknown as WarrantyRecord
+    const user = userEvent.setup()
+    render(<WarrantyForm vin="V1" record={record} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.clear(screen.getByLabelText('common:endDate'))
+    await user.clear(screen.getByLabelText('warranty.mileageLimit (mi)'))
+    await user.click(screen.getByRole('button', { name: 'common:update' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0]).toMatchObject({ end_date: null, mileage_limit_km: null })
+  })
+})

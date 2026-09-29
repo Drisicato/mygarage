@@ -16,7 +16,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.fuel import FuelRecordCreate
+from app.schemas.fuel import FuelRecordCreate, FuelRecordUpdate
 
 VIN = "1HGBH41JXMN109186"
 TODAY = date(2026, 5, 5)
@@ -193,3 +193,25 @@ def test_obc_trip_duration_rejects_malformed(raw):
             liters=40.0,
             obc_trip_duration_s=raw,
         )
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (120, 120),
+        ("120", 120),
+        ("02:15", 2 * 3600 + 15 * 60),
+        ("02:15:30", 2 * 3600 + 15 * 60 + 30),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_obc_trip_duration_update_accepts_int_and_hhmm(raw, expected):
+    """The edit form sends the same raw text as create, so update parses it the same way."""
+    assert FuelRecordUpdate(obc_trip_duration_s=raw).obc_trip_duration_s == expected
+
+
+@pytest.mark.parametrize("raw", ["bad", "02:60", "02:15:30:01"])
+def test_obc_trip_duration_update_rejects_malformed(raw):
+    with pytest.raises(ValidationError):
+        FuelRecordUpdate(obc_trip_duration_s=raw)

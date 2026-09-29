@@ -56,10 +56,12 @@ export default function WarrantyForm({ vin, record, onClose, onSuccess }: Warran
       warranty_type: data.warranty_type,
       provider: data.provider,
       start_date: data.start_date,
-      end_date: data.end_date,
+      // Null, not '' or undefined: '' isn't a date to the API, and the update
+      // route skips keys that aren't sent, so neither could clear the field.
+      end_date: data.end_date || null,
       mileage_limit_km:
         canonicalFromUnitField(String(limitTyped ?? ''), mileageLimitOrigin, u.distance) ??
-        undefined,
+        null,
       coverage_details: data.coverage_details,
       policy_number: data.policy_number,
       notes: data.notes,
@@ -93,7 +95,9 @@ export default function WarrantyForm({ vin, record, onClose, onSuccess }: Warran
       warranty_type: record?.warranty_type || '',
       provider: record?.provider || '',
       start_date: formatDateForInput(record?.start_date),
-      end_date: formatDateForInput(record?.end_date === '' || record?.end_date === null ? undefined : record?.end_date),
+      // No end date stays empty. formatDateForInput fills a missing date with
+      // today, which ended an open-ended warranty on the day it was saved.
+      end_date: record?.end_date ? formatDateForInput(record.end_date) : '',
       mileage_limit_km: readNumber(mileageLimitOrigin.display),
       coverage_details: record?.coverage_details || '',
       policy_number: record?.policy_number || '',

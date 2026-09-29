@@ -169,6 +169,10 @@ export default function DEFRecordForm({
     setError(null)
 
     try {
+      // What an empty field posts. The update route skips keys that aren't
+      // sent, so on edit it must be null or a cleared field keeps its old
+      // value; create leaves it out as before.
+      const cleared = isEdit ? null : undefined
       const payload = {
         vin,
         date: data.date,
@@ -181,7 +185,7 @@ export default function DEFRecordForm({
             String(readNumber(data.odometer_km) ?? ''),
             odometerOrigin,
             u.distance
-          ) ?? undefined,
+          ) ?? cleared,
         // ★ Volume and price convert through ONE resolved set (defect L1), and
         // an untouched field returns the canonical value it was seeded from
         // rather than a re-conversion of a rounded display (ruling R4).
@@ -194,19 +198,19 @@ export default function DEFRecordForm({
               litersOrigin,
               u.volume
             )
-          ) ?? undefined,
+          ) ?? cleared,
         price_per_unit:
           canonicalFromPriceField(
             String(readNumber(data.price_per_unit) ?? ''),
             priceOrigin,
             units,
             'per_volume'
-          ) ?? undefined,
-        cost: data.cost,
-        fill_level: data.fill_level !== undefined ? data.fill_level / 100 : undefined, // Convert % to 0.00-1.00
-        source: data.source || undefined,
-        brand: data.brand || undefined,
-        notes: data.notes || undefined,
+          ) ?? cleared,
+        cost: data.cost ?? cleared,
+        fill_level: data.fill_level !== undefined ? data.fill_level / 100 : cleared, // Convert % to 0.00-1.00
+        source: data.source || cleared,
+        brand: data.brand || cleared,
+        notes: data.notes || cleared,
       }
 
       if (isEdit && record) {

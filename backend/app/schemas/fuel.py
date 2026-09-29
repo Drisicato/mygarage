@@ -76,6 +76,100 @@ def _validate_diesel_grade(v: str | None) -> str | None:
     return v
 
 
+def _parse_obc_trip_duration(v: object) -> int | None:
+    """Accept OBC trip duration as ``int`` seconds OR an ``HH:MM`` /
+    ``HH:MM:SS`` string and store canonical seconds.
+
+    Surfaced by issue #69: many onboard computers display trip
+    duration as ``HH:MM`` (e.g. the reporter's reads ``02:15``).
+    Forcing users to convert to seconds before submitting was
+    friction; accepting the raw OBC string and converting
+    server-side keeps canonical-seconds storage while improving UX.
+    The frontend can keep sending integer seconds for the
+    auto-suggest path. Create and update both run it: the edit form
+    sends the same raw text.
+    """
+    if v is None or v == "":
+        return None
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        if s.isdigit():
+            return int(s)
+        parts = s.split(":")
+        if len(parts) in (2, 3) and all(p.isdigit() for p in parts):
+            hours = int(parts[0])
+            minutes = int(parts[1])
+            seconds = int(parts[2]) if len(parts) == 3 else 0
+            if minutes >= 60 or seconds >= 60:
+                raise ValueError(f"obc_trip_duration_s {v!r} has minute or second component ≥ 60")
+            return hours * 3600 + minutes * 60 + seconds
+        raise ValueError(
+            f"obc_trip_duration_s must be an int (seconds), 'HH:MM', or 'HH:MM:SS'; got {v!r}"
+        )
+    raise ValueError(f"obc_trip_duration_s must be int or str; got {type(v).__name__}")
+
+
+# The fields `check_reading_and_amount` reads, which an update must hold to
+# the rule when it sends any of them.
+READING_AND_AMOUNT_FIELDS = frozenset(
+    {
+        "odometer_km",
+        "engine_hours",
+        "liters",
+        "propane_liters",
+        "kwh",
+        "tank_size_kg",
+        "tank_quantity",
+        "missed_fillup",
+    }
+)
+
+
+def check_reading_and_amount(
+    *,
+    odometer_km: object,
+    engine_hours: object,
+    liters: object,
+    propane_liters: object,
+    kwh: object,
+    tank_size_kg: object,
+    tank_quantity: object,
+    missed_fillup: bool,
+) -> None:
+    """Raise ValueError for a fill-up with no reading or no fuel amount.
+
+    Create's rule, shared so an update can hold the merged record to it
+    (see `FuelRecordCreate._require_odometer_and_fuel_amount` for the why).
+    """
+    has_propane_amount = propane_liters is not None or (
+        tank_size_kg is not None and tank_quantity is not None
+    )
+    is_tank_refill = has_propane_amount and liters is None and kwh is None and not missed_fillup
+
+    has_reading = odometer_km is not None or engine_hours is not None
+    if not has_reading and not is_tank_refill:
+        raise ValueError(
+            "odometer_km is required, or engine_hours for a vehicle tracked "
+            "by hours (set missed_fillup=True only if you also can't supply "
+            "a fuel amount)"
+        )
+
+    if missed_fillup:
+        return
+
+    has_amount = liters is not None or kwh is not None or has_propane_amount
+    if not has_amount:
+        raise ValueError(
+            "fuel record must include at least one of: liters, "
+            "propane_liters, kwh, or both tank_size_kg + tank_quantity. "
+            "Set missed_fillup=True if the actual amount is unavailable."
+        )
+
+
 class FuelRecordBase(BaseModel):
     """Base fuel record schema with common fields (metric canonical)."""
 
@@ -260,42 +354,8 @@ class FuelRecordBase(BaseModel):
 
     @field_validator("obc_trip_duration_s", mode="before")
     @classmethod
-    def _parse_obc_trip_duration(cls, v: object) -> int | None:
-        """Accept OBC trip duration as ``int`` seconds OR an ``HH:MM`` /
-        ``HH:MM:SS`` string and store canonical seconds.
-
-        Surfaced by issue #69: many onboard computers display trip
-        duration as ``HH:MM`` (e.g. the reporter's reads ``02:15``).
-        Forcing users to convert to seconds before submitting was
-        friction; accepting the raw OBC string and converting
-        server-side keeps canonical-seconds storage while improving UX.
-        The frontend can keep sending integer seconds for the
-        auto-suggest path.
-        """
-        if v is None or v == "":
-            return None
-        if isinstance(v, int) and not isinstance(v, bool):
-            return v
-        if isinstance(v, str):
-            s = v.strip()
-            if not s:
-                return None
-            if s.isdigit():
-                return int(s)
-            parts = s.split(":")
-            if len(parts) in (2, 3) and all(p.isdigit() for p in parts):
-                hours = int(parts[0])
-                minutes = int(parts[1])
-                seconds = int(parts[2]) if len(parts) == 3 else 0
-                if minutes >= 60 or seconds >= 60:
-                    raise ValueError(
-                        f"obc_trip_duration_s {v!r} has minute or second component ≥ 60"
-                    )
-                return hours * 3600 + minutes * 60 + seconds
-            raise ValueError(
-                f"obc_trip_duration_s must be an int (seconds), 'HH:MM', or 'HH:MM:SS'; got {v!r}"
-            )
-        raise ValueError(f"obc_trip_duration_s must be int or str; got {type(v).__name__}")
+    def _parse_obc_trip_duration_create(cls, v: object) -> int | None:
+        return _parse_obc_trip_duration(v)
 
     # Note: enum validators for fuel_type_used / payment_method / trip_type
     # live on FuelRecordCreate / FuelRecordUpdate (input schemas) only.
@@ -390,35 +450,16 @@ class FuelRecordCreate(FuelRecordBase):
         Propane alongside ``liters`` or ``kwh`` is a propane-powered
         vehicle's fill-up, not a tank refill, and still needs the reading.
         """
-        has_propane_amount = self.propane_liters is not None or (
-            self.tank_size_kg is not None and self.tank_quantity is not None
+        check_reading_and_amount(
+            odometer_km=self.odometer_km,
+            engine_hours=self.engine_hours,
+            liters=self.liters,
+            propane_liters=self.propane_liters,
+            kwh=self.kwh,
+            tank_size_kg=self.tank_size_kg,
+            tank_quantity=self.tank_quantity,
+            missed_fillup=self.missed_fillup,
         )
-        is_tank_refill = (
-            has_propane_amount
-            and self.liters is None
-            and self.kwh is None
-            and not self.missed_fillup
-        )
-
-        has_reading = self.odometer_km is not None or self.engine_hours is not None
-        if not has_reading and not is_tank_refill:
-            raise ValueError(
-                "odometer_km is required, or engine_hours for a vehicle tracked "
-                "by hours (set missed_fillup=True only if you also can't supply "
-                "a fuel amount)"
-            )
-
-        if self.missed_fillup:
-            return self
-
-        has_amount = self.liters is not None or self.kwh is not None or has_propane_amount
-        if not has_amount:
-            raise ValueError(
-                "fuel record must include at least one of: liters, "
-                "propane_liters, kwh, or both tank_size_kg + tank_quantity. "
-                "Set missed_fillup=True if the actual amount is unavailable."
-            )
-
         return self
 
     model_config = {
@@ -538,6 +579,11 @@ class FuelRecordUpdate(BaseModel):
     obc_l_per_100km: Decimal | None = Field(None, ge=0, le=999.99)
     obc_avg_speed_kmh: Decimal | None = Field(None, ge=0, le=9999.9)
     obc_trip_duration_s: int | None = Field(None, ge=0)
+
+    @field_validator("obc_trip_duration_s", mode="before")
+    @classmethod
+    def _parse_obc_trip_duration_update(cls, v: object) -> int | None:
+        return _parse_obc_trip_duration(v)
 
     @field_validator("charge_level")
     @classmethod

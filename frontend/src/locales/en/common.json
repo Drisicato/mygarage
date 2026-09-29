@@ -586,6 +586,9 @@
       "fillLevelTooLarge": "Fill level cannot exceed 100%",
       "fillLevelInvalid": "Enter a valid number"
     },
+    "tankPair": {
+      "bothOrNeither": "Enter both the tank size and the number of tanks, or neither"
+    },
     "tankQuantity": {
       "negative": "Tank quantity must be greater than 0",
       "tooLarge": "Tank quantity too large",

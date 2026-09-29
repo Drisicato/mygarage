@@ -223,7 +223,7 @@ describe('PropaneRecordForm — the tank size follows units.mass', () => {
     expect(placeholderOf('price_per_unit')).toBe('0.766')
   })
 
-  it('a record with no tank size posts none, rather than a zero', async () => {
+  it('a record with no tank size posts null, rather than a zero', async () => {
     unitPrefMock.units = LITRES_POUNDS
     render(
       <PropaneRecordForm
@@ -242,6 +242,8 @@ describe('PropaneRecordForm — the tank size follows units.mass', () => {
     fireEvent.submit(propaneForm())
     await waitFor(() => expect(updateMock).toHaveBeenCalled())
     const payload = updateMock.mock.calls[0][0] as Record<string, unknown>
-    expect(payload.tank_size_kg).toBeUndefined()
+    // Null on an edit: the update route skips keys that aren't sent, so an
+    // omitted size could never be cleared.
+    expect(payload.tank_size_kg).toBeNull()
   })
 })
