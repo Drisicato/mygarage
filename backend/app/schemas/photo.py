@@ -6,6 +6,8 @@ from datetime import datetime as datetime_type
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class PhotoResponse(BaseModel):
     """Response model for photo"""
@@ -36,3 +38,6 @@ class PhotoUpdate(BaseModel):
 
     caption: str | None = Field(None, max_length=200)
     is_main: bool | None = None
+
+    # NOT NULL column: omitted leaves it alone, null is a 422.
+    _no_null = reject_null("is_main")

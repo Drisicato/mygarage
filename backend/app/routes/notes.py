@@ -103,13 +103,9 @@ async def update_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    # Update fields
-    if update_data.date is not None:
-        note.date = update_data.date
-    if update_data.title is not None:
-        note.title = update_data.title
-    if update_data.content is not None:
-        note.content = update_data.content
+    # An omitted field keeps its value and an explicit null clears it.
+    for field, value in update_data.model_dump(exclude_unset=True).items():
+        setattr(note, field, value)
 
     await db.commit()
     await db.refresh(note)

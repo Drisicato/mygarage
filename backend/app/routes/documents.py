@@ -18,6 +18,7 @@ from app.schemas.document import (
     DocumentListResponse,
     DocumentResponse,
     DocumentUpdate,
+    usable_title,
 )
 from app.services.auth import get_vehicle_or_403, require_auth
 from app.services.file_upload_service import DOCUMENT_UPLOAD_CONFIG, FileUploadService
@@ -86,6 +87,15 @@ async def upload_document(
     # Verify vehicle exists and user has write access
     _ = await get_vehicle_or_403(vin, current_user, db, require_write=True)
 
+    # The form string never goes through DocumentCreate, so check the title
+    # here, before a file is written for a row that would then be refused.
+    try:
+        title = usable_title(title) or ""
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    if len(title) > 200:
+        raise HTTPException(status_code=422, detail="title must be at most 200 characters")
+
     # Upload using shared service
     upload_result = await FileUploadService.upload_file(
         file, DOCUMENT_UPLOAD_CONFIG, subdirectory=vin
@@ -130,13 +140,9 @@ async def update_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Update fields
-    if update_data.document_type is not None:
-        document.document_type = update_data.document_type
-    if update_data.title is not None:
-        document.title = update_data.title
-    if update_data.description is not None:
-        document.description = update_data.description
+    # An omitted field keeps its value and an explicit null clears it.
+    for field, value in update_data.model_dump(exclude_unset=True).items():
+        setattr(document, field, value)
 
     await db.commit()
     await db.refresh(document)
