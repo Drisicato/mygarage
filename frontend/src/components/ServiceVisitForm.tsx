@@ -563,19 +563,21 @@ export default function ServiceVisitForm({
             : undefined,
         }))
 
+        // Null, not undefined, for anything left empty: the update route
+        // skips keys that aren't sent, so a cleared field kept its old value.
         await updateMutation.mutateAsync({
           id: visit.id,
-          vendor_id: formData.vendor_id,
+          vendor_id: formData.vendor_id ?? null,
           date: formData.date,
-          odometer_km: odometerKm,
+          odometer_km: odometerKm ?? null,
           // Dimensionless — submitted verbatim, no canonical conversion
           // (mirrors FuelRecordForm's engine_hours submit).
-          engine_hours: formData.engine_hours,
-          notes: formData.notes || undefined,
-          insurance_claim_number: formData.insurance_claim_number || undefined,
-          tax_amount: formData.tax_amount,
-          shop_supplies: formData.shop_supplies,
-          misc_fees: formData.misc_fees,
+          engine_hours: formData.engine_hours ?? null,
+          notes: formData.notes || null,
+          insurance_claim_number: formData.insurance_claim_number || null,
+          tax_amount: formData.tax_amount ?? null,
+          shop_supplies: formData.shop_supplies ?? null,
+          misc_fees: formData.misc_fees ?? null,
           line_items: updateLineItems,
         })
         toast.success(t('service.visitUpdated'))

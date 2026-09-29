@@ -192,12 +192,12 @@ def seed(root: Path, manifest: Path) -> None:
             out["reason"] = "nothing here converts a quantity"
         rebuilt.append(out)
     doc["rows"] = rebuilt
-    manifest.write_text(json.dumps(doc, indent=1) + "\n")
+    manifest.write_text(json.dumps(doc, indent=2) + "\n")
 
 
 def write_manifest(manifest: Path, rows: list[dict]) -> None:
     manifest.write_text(
-        json.dumps({"schemaVersion": SCHEMA_VERSION, "rows": rows}, indent=1) + "\n"
+        json.dumps({"schemaVersion": SCHEMA_VERSION, "rows": rows}, indent=2) + "\n"
     )
 
 

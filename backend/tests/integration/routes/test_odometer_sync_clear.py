@@ -1,0 +1,148 @@
+"""Clearing a source record's odometer removes the reading it synced.
+
+Until the edit forms posted null for a cleared field, nothing could clear a
+source's odometer, and `sync_odometer_from_record` simply skips a None. Once
+clearing worked, the synced row stayed behind: a typo'd 724,200 km visit,
+cleared on edit, left 724,200 as the vehicle's highest reading for reminders
+to project from. The hours track has always deleted its row on a clear.
+"""
+
+import uuid
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.vehicle import Vehicle
+
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+
+
+@pytest_asyncio.fixture
+async def own_vehicle(db_session: AsyncSession, test_user: dict[str, object]) -> dict:
+    """A fresh diesel vehicle per test. These readings are high and dated 2031,
+    so on the shared test_vehicle they became every later test's latest
+    odometer."""
+    vin = "CLR" + uuid.uuid4().hex[:14].upper()
+    db_session.add(
+        Vehicle(
+            vin=vin,
+            user_id=test_user["id"],
+            nickname="Clear Test",
+            vehicle_type="Truck",
+            year=2020,
+            make="Ram",
+            model="2500",
+            fuel_type="diesel",
+        )
+    )
+    await db_session.commit()
+    return {"vin": vin}
+
+
+async def _odometer_rows(client: AsyncClient, headers: dict, vin: str) -> list[dict]:
+    r = await client.get(f"/api/vehicles/{vin}/odometer", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()["records"]
+
+
+def _marked(rows: list[dict], source_type: str, source_id: int) -> list[dict]:
+    marker = f"[AUTO-SYNC from {source_type} #{source_id}]"
+    return [r for r in rows if r.get("notes") == marker]
+
+
+async def _visit(
+    client: AsyncClient, headers: dict, vin: str, *, on: str, odometer_km: float
+) -> dict:
+    r = await client.post(
+        f"/api/vehicles/{vin}/service-visits",
+        json={"date": on, "odometer_km": odometer_km, "line_items": [{"description": "Oil"}]},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+class TestServiceVisitClear:
+    async def test_clearing_the_odometer_removes_the_synced_reading(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        vin = own_vehicle["vin"]
+        visit = await _visit(client, auth_headers, vin, on="2031-08-10", odometer_km=724200)
+        rows = await _odometer_rows(client, auth_headers, vin)
+        assert len(_marked(rows, "service_visit", visit["id"])) == 1
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/service-visits/{visit['id']}",
+            json={"odometer_km": None},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        assert r.json()["odometer_km"] is None
+        rows = await _odometer_rows(client, auth_headers, vin)
+        assert _marked(rows, "service_visit", visit["id"]) == []
+
+    async def test_a_manual_reading_on_the_same_day_survives(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        """The visit syncs first, so there IS a row to delete; the manual one
+        added after it on the same day must be the one that stays."""
+        vin = own_vehicle["vin"]
+        visit = await _visit(client, auth_headers, vin, on="2031-08-11", odometer_km=724100)
+        r = await client.post(
+            f"/api/vehicles/{vin}/odometer",
+            json={"vin": vin, "date": "2031-08-11", "odometer_km": 724000, "notes": "dash photo"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        manual_id = r.json()["id"]
+        rows = await _odometer_rows(client, auth_headers, vin)
+        assert len(_marked(rows, "service_visit", visit["id"])) == 1
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/service-visits/{visit['id']}",
+            json={"odometer_km": None},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        rows = await _odometer_rows(client, auth_headers, vin)
+        assert _marked(rows, "service_visit", visit["id"]) == []
+        assert any(row["id"] == manual_id for row in rows)
+
+    async def test_an_edit_to_zero_removes_the_synced_reading(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        """A create with 0 never syncs, so an edit to 0 must not keep the old reading."""
+        vin = own_vehicle["vin"]
+        visit = await _visit(client, auth_headers, vin, on="2031-08-13", odometer_km=724500)
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/service-visits/{visit['id']}",
+            json={"odometer_km": 0},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        rows = await _odometer_rows(client, auth_headers, vin)
+        assert _marked(rows, "service_visit", visit["id"]) == []
+
+    async def test_an_edit_that_leaves_the_odometer_alone_keeps_the_reading(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        vin = own_vehicle["vin"]
+        visit = await _visit(client, auth_headers, vin, on="2031-08-12", odometer_km=724300)
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/service-visits/{visit['id']}",
+            json={"notes": "edited"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        rows = _marked(
+            await _odometer_rows(client, auth_headers, vin), "service_visit", visit["id"]
+        )
+        assert len(rows) == 1 and float(rows[0]["odometer_km"]) == 724300

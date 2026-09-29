@@ -31,7 +31,7 @@ from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.hours_sync import remove_synced_hours, sync_hours_from_record
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.maintenance_types import resolve_type
-from app.utils.odometer_sync import sync_odometer_from_record
+from app.utils.odometer_sync import remove_synced_odometer, sync_odometer_from_record
 
 logger = logging.getLogger(__name__)
 
@@ -528,6 +528,11 @@ class ServiceVisitService:
                             commit=False,
                             operation="update",
                         )
+                    elif not visit.odometer_km:
+                        # Cleared on edit (or set to 0, which a create never
+                        # syncs): take the reading it synced with it, the way
+                        # the hours sync below deletes its row.
+                        await remove_synced_odometer(self.db, vin, "service_visit", visit_id)
                     await sync_hours_from_record(
                         db=self.db,
                         vin=vin,
