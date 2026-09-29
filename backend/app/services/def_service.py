@@ -21,7 +21,7 @@ from app.schemas.def_record import (
 from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.def_sync import ensure_def_capable
 from app.utils.logging_utils import sanitize_for_log
-from app.utils.odometer_sync import sync_odometer_from_record
+from app.utils.odometer_sync import remove_synced_odometer, sync_odometer_from_record
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +214,10 @@ class DEFRecordService:
                         record_id,
                         sanitize_for_log(e),
                     )
+            elif record.odometer_km is None:
+                # Cleared on edit: take the reading it synced with it.
+                await remove_synced_odometer(self.db, vin, "def", record.id)
+                await self.db.commit()
 
             await invalidate_cache_for_vehicle(vin)
 

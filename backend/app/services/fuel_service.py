@@ -27,7 +27,7 @@ from app.utils.def_sync import ensure_def_capable, sync_def_from_fuel_record
 from app.utils.fuel_station_sync import resolve_fuel_station
 from app.utils.hours_sync import sync_hours_from_record
 from app.utils.logging_utils import sanitize_for_log
-from app.utils.odometer_sync import sync_odometer_from_record
+from app.utils.odometer_sync import remove_synced_odometer, sync_odometer_from_record
 
 logger = logging.getLogger(__name__)
 
@@ -1076,6 +1076,10 @@ class FuelRecordService:
                         sanitize_for_log(e),
                     )
                     raise
+            elif record.odometer_km is None:
+                # Cleared on edit: take the reading it synced with it, the way
+                # the hours sync below deletes its row.
+                await remove_synced_odometer(self.db, vin, "fuel", record.id)
 
             # Engine-hours sync. Runs unconditionally (not gated on a non-null
             # reading) so clearing engine_hours to null deletes the synced row;

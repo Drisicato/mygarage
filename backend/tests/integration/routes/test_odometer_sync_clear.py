@@ -146,3 +146,62 @@ class TestServiceVisitClear:
             await _odometer_rows(client, auth_headers, vin), "service_visit", visit["id"]
         )
         assert len(rows) == 1 and float(rows[0]["odometer_km"]) == 724300
+
+
+class TestFuelClear:
+    async def test_clearing_the_odometer_removes_the_synced_reading(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        vin = own_vehicle["vin"]
+        r = await client.post(
+            f"/api/vehicles/{vin}/fuel",
+            json={
+                "vin": vin,
+                "date": "2031-09-10",
+                "liters": 40.0,
+                "cost": 45.00,
+                "odometer_km": 725000,
+                "is_full_tank": True,
+            },
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        record = r.json()
+        assert (
+            len(_marked(await _odometer_rows(client, auth_headers, vin), "fuel", record["id"])) == 1
+        )
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/fuel/{record['id']}",
+            json={"odometer_km": None},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        assert _marked(await _odometer_rows(client, auth_headers, vin), "fuel", record["id"]) == []
+
+
+class TestDefClear:
+    async def test_clearing_the_odometer_removes_the_synced_reading(
+        self, client: AsyncClient, auth_headers, own_vehicle
+    ):
+        vin = own_vehicle["vin"]
+        r = await client.post(
+            f"/api/vehicles/{vin}/def",
+            json={"vin": vin, "date": "2031-09-11", "odometer_km": 725100, "liters": 9.5},
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        record = r.json()
+        assert (
+            len(_marked(await _odometer_rows(client, auth_headers, vin), "def", record["id"])) == 1
+        )
+
+        r = await client.put(
+            f"/api/vehicles/{vin}/def/{record['id']}",
+            json={"odometer_km": None},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+        assert _marked(await _odometer_rows(client, auth_headers, vin), "def", record["id"]) == []
