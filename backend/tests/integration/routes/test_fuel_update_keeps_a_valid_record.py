@@ -4,8 +4,9 @@ Create requires a reading (odometer, or engine hours) and a fuel amount,
 bar the propane-refill and missed-fill-up exemptions. Update never checked
 the merged record, which went unnoticed while the forms couldn't clear a
 field. Once they could, an emptied propane refill vanished from the only
-list that shows it. Only an edit that touches those fields is held to the
-rule, so a legacy record can still have its notes fixed.
+list that shows it. Only an edit that CHANGES one of those fields is held
+to the rule: the forms send them all on every save, and a legacy record that
+already falls short must still take a notes edit.
 """
 
 import uuid
@@ -105,7 +106,8 @@ class TestUpdateKeepsAValidFillUp:
     async def test_a_legacy_record_can_still_have_its_notes_edited(
         self, client: AsyncClient, auth_headers, own_vehicle, db_session: AsyncSession
     ):
-        """Already short of create's rule (an old import), and the edit doesn't touch it."""
+        """Already short of create's rule (an old import), and an API client's
+        edit doesn't send the rule's fields at all."""
         vin = own_vehicle["vin"]
         legacy = FuelRecord(vin=vin, date=date(2032, 1, 11), cost=Decimal("20.00"))
         db_session.add(legacy)
@@ -114,3 +116,33 @@ class TestUpdateKeepsAValidFillUp:
         r = await _put(client, auth_headers, vin, legacy.id, {"notes": "found the receipt"})
 
         assert r.status_code == 200, r.text
+
+    async def test_a_legacy_record_saves_from_the_form_when_the_rule_fields_are_unchanged(
+        self, client: AsyncClient, auth_headers, own_vehicle, db_session: AsyncSession
+    ):
+        """The form sends every rule field on every save, unchanged or not. A
+        webhook or pre-rule fill-up with a volume and no reading must still
+        take a station or notes edit, or it could never be saved again."""
+        vin = own_vehicle["vin"]
+        legacy = FuelRecord(vin=vin, date=date(2032, 1, 12), liters=Decimal("40.000"))
+        db_session.add(legacy)
+        await db_session.commit()
+
+        r = await _put(
+            client,
+            auth_headers,
+            vin,
+            legacy.id,
+            {
+                "odometer_km": None,
+                "engine_hours": None,
+                "liters": 40,
+                "propane_liters": None,
+                "kwh": None,
+                "missed_fillup": False,
+                "notes": "added the station",
+            },
+        )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["notes"] == "added the station"

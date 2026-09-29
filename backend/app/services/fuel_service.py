@@ -992,10 +992,15 @@ class FuelRecordService:
 
             update_data = record_data.model_dump(exclude_unset=True)
             # An edit can't leave a fill-up create would refuse, e.g. an emptied
-            # propane refill that no list shows any more. Only an edit that sends
-            # one of the rule's fields is held to it, so a legacy record that
-            # already falls short can still have its notes fixed.
-            if READING_AND_AMOUNT_FIELDS & record_data.model_fields_set:
+            # propane refill that no list shows any more. Only an edit that
+            # CHANGES one of the rule's fields is held to it: the forms send them
+            # all on every save, and a webhook or pre-rule fill-up that already
+            # falls short must still take a station or notes edit.
+            changes_the_rule = any(
+                update_data[field] != getattr(record, field)
+                for field in READING_AND_AMOUNT_FIELDS & record_data.model_fields_set
+            )
+            if changes_the_rule:
                 merged = {
                     field: update_data.get(field, getattr(record, field))
                     for field in READING_AND_AMOUNT_FIELDS
