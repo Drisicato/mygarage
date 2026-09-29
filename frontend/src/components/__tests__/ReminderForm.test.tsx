@@ -333,6 +333,19 @@ describe('ReminderForm: clearing on edit', () => {
     expect(updateMock.mock.calls[0][0]).toMatchObject({ reminder_type: 'date', due_mileage_km: null, due_hours: null })
   })
 
+  it('switching a date-and-mileage reminder to mileage-only posts null for the date', async () => {
+    const user = userEvent.setup()
+    const both = { ...reminder, id: 6, reminder_type: 'both', due_date: '2026-06-01', due_mileage_km: '8046.72' } as unknown as Reminder
+    render(<ReminderForm vin="V1" reminder={both} currentMileage={CURRENT_KM} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    const group = screen.getByRole('group', { name: 'reminder.reminderType' })
+    await user.click(within(group).getByRole('button', { name: /reminderForm\.typeMileage\b/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'common:update' }))
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    // The hidden date field keeps its value across the switch; posted, it left
+    // a mileage reminder overdue on a date the user had removed.
+    expect(updateMock.mock.calls[0][0]).toMatchObject({ reminder_type: 'mileage', due_date: null })
+  })
+
   it('clearing the notes posts null', async () => {
     const user = userEvent.setup()
     const noted = { ...reminder, notes: 'old note' } as unknown as Reminder

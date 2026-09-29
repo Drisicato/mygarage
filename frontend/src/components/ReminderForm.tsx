@@ -60,6 +60,9 @@ const REMINDER_TYPE_DEFS: Record<ReminderType, { labelKey: string; descriptionKe
   smart: { labelKey: 'reminderForm.typeSmart', descriptionKey: 'reminderForm.typeSmartDescription' },
 }
 
+// The reminder types that carry a due date (the backend's rule too).
+const DATED_TYPES = new Set<string>(['date', 'both', 'smart'])
+
 export default function ReminderForm({ vin, reminder, currentMileage, currentHours, onClose, onSuccess }: ReminderFormProps) {
   const { t } = useTranslation('forms')
   const isEdit = !!reminder
@@ -419,12 +422,13 @@ export default function ReminderForm({ vin, reminder, currentMileage, currentHou
           id: reminder.id,
           title,
           reminder_type: reminderType,
-          due_date: dueDate || undefined,
           // Null for a target the chosen type doesn't use, and for cleared
           // notes: the update skips keys that aren't sent, so a date-only
-          // reminder kept its old mileage, and a smart one switched from
-          // mileage to hours kept both and got a 422. Safe here: an active
-          // rule is stopped by this same save (recurrence: null below).
+          // reminder kept its old mileage, a mileage-only one kept its old
+          // (hidden) date and went overdue on it, and a smart one switched
+          // from mileage to hours kept both and got a 422. Safe here: an
+          // active rule is stopped by this same save (recurrence: null below).
+          due_date: DATED_TYPES.has(reminderType) ? dueDate || null : null,
           due_mileage_km: due_mileage_km ?? null,
           due_hours: due_hours ?? null,
           notes: notes || null,
