@@ -483,3 +483,94 @@ class TestAddressBookRoutes:
         )
         assert resp.status_code == 200
         assert resp.json()["poi_category"] is None
+
+
+_CLEARABLE = {
+    "name": "Joe",
+    "address": "1 Main St",
+    "city": "Springfield",
+    "state": "IL",
+    "zip_code": "62701",
+    "phone": "555-0100",
+    "email": "joe@example.com",
+    "website": "https://joe.example",
+    "category": "service",
+    "notes": "ask for Joe",
+    "latitude": 39.78,
+    "longitude": -89.65,
+    "external_id": "osm-1",
+    "rating": 4.5,
+    "user_rating": 4,
+    "poi_metadata": '{"k": 1}',
+}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestAddressBookClearOnEdit:
+    """An explicit null clears; an omitted field keeps. Every field used to be
+    `if x is not None`, and email/website turn '' into None first, so a
+    cleared email or website said saved and stayed."""
+
+    async def _entry(self, client: AsyncClient, headers) -> dict:
+        r = await client.post(
+            "/api/address-book",
+            json={"business_name": "Clear Test Shop", **_CLEARABLE},
+            headers=headers,
+        )
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    async def _cleanup(self, client: AsyncClient, headers, entry_id: int) -> None:
+        await client.delete(f"/api/address-book/{entry_id}", headers=headers)
+
+    @pytest.mark.parametrize("field", sorted(_CLEARABLE))
+    async def test_null_clears_the_field(self, client, auth_headers, field):
+        entry = await self._entry(client, auth_headers)
+        try:
+            url = f"/api/address-book/{entry['id']}"
+            r = await client.put(url, json={field: None}, headers=auth_headers)
+            assert r.status_code == 200, r.text
+            stored = (await client.get(url, headers=auth_headers)).json()
+            assert stored[field] is None
+            for other in _CLEARABLE:
+                if other != field:
+                    assert stored[other] is not None, other
+        finally:
+            await self._cleanup(client, auth_headers, entry["id"])
+
+    @pytest.mark.parametrize("field", ["email", "website"])
+    async def test_an_emptied_email_or_website_clears(self, client, auth_headers, field):
+        # What the form actually posts for an emptied input.
+        entry = await self._entry(client, auth_headers)
+        try:
+            url = f"/api/address-book/{entry['id']}"
+            r = await client.put(url, json={field: ""}, headers=auth_headers)
+            assert r.status_code == 200, r.text
+            assert (await client.get(url, headers=auth_headers)).json()[field] is None
+        finally:
+            await self._cleanup(client, auth_headers, entry["id"])
+
+    async def test_omitted_fields_are_kept(self, client, auth_headers):
+        entry = await self._entry(client, auth_headers)
+        try:
+            url = f"/api/address-book/{entry['id']}"
+            r = await client.put(url, json={"notes": "new"}, headers=auth_headers)
+            assert r.status_code == 200, r.text
+            stored = (await client.get(url, headers=auth_headers)).json()
+            assert stored["notes"] == "new"
+            assert stored["email"] == "joe@example.com"
+            assert stored["source"] == entry["source"]
+        finally:
+            await self._cleanup(client, auth_headers, entry["id"])
+
+    @pytest.mark.parametrize("field", ["business_name", "source"])
+    async def test_null_on_a_required_field_is_a_422(self, client, auth_headers, field):
+        entry = await self._entry(client, auth_headers)
+        try:
+            url = f"/api/address-book/{entry['id']}"
+            r = await client.put(url, json={field: None}, headers=auth_headers)
+            assert r.status_code == 422, r.text
+            assert (await client.get(url, headers=auth_headers)).json()[field] == entry[field]
+        finally:
+            await self._cleanup(client, auth_headers, entry["id"])
