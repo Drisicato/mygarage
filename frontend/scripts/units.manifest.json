@@ -939,8 +939,8 @@
     {
       "path": "src/components/TollTransactionForm.tsx",
       "disposition": "no unit behaviour",
-      "digest": "2e2e2a3c13b8af8cd27705780c891ab7945afee37bde10ce62a194a05d4e90d8",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-09-24 (money fields): the currency prefix is now CurrencyInput or Input's prefix, padded to the symbol's drawn width; no quantity, unit or conversion code changed."
+      "digest": "0ab4bfd4977e8addee1a685c5871a5d85ac64f1dcd9928aecd53eaec3df19f3d",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-09-24 (money fields): the currency prefix is now CurrencyInput or Input's prefix, padded to the symbol's drawn width; no quantity, unit or conversion code changed. Re-read 2026-09-29: the toll tag posts null for None so an edit can unlink it; no quantity involved."
     },
     {
       "path": "src/components/TollTransactionList.tsx",

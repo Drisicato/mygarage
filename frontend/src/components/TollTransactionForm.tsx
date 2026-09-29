@@ -58,7 +58,9 @@ export default function TollTransactionForm({ vin, tollTags, transaction, onClos
         transaction_date: data.transaction_date,
         amount: data.amount,
         location: data.location,
-        toll_tag_id: data.toll_tag_id,
+        // Null for "None (manual payment)": the update route skips keys that
+        // aren't sent, so an undefined here left the old tag linked.
+        toll_tag_id: data.toll_tag_id ?? null,
         notes: data.notes,
       }
 
