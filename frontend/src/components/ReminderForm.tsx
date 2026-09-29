@@ -322,7 +322,7 @@ export default function ReminderForm({ vin, reminder, currentMileage, currentHou
       return
     }
 
-    if (['date', 'both', 'smart'].includes(reminderType) && !dueDate) {
+    if (DATED_TYPES.has(reminderType) && !dueDate) {
       setError(t('reminder.dueDateRequired'))
       return
     }
@@ -632,7 +632,7 @@ export default function ReminderForm({ vin, reminder, currentMileage, currentHou
           </div>
         </div>
 
-        {['date', 'both', 'smart'].includes(reminderType) && (
+        {DATED_TYPES.has(reminderType) && (
           <Field id="reminder-due-date" label={t('reminder.dueDate')} required error={fieldErrors.due_date}>
             <Input
               id="reminder-due-date"

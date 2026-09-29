@@ -63,8 +63,11 @@ export const makePropaneRecordSchema = (t: TFunction) =>
   // Both tank fields or neither, as the API requires. The message lands on
   // the empty one, so clearing the size alone doesn't blame the count.
   .superRefine((data, ctx) => {
-    const hasSize = data.tank_size_kg !== undefined
-    const hasCount = data.tank_quantity !== undefined
+    // typeof, not !== undefined: a count that failed to parse still holds the
+    // INVALID_NUMBER sentinel here, and already has its own error.
+    const hasSize = typeof data.tank_size_kg === 'number'
+    const hasCount = typeof data.tank_quantity === 'number'
+
     if (hasSize === hasCount) return
     ctx.addIssue({
       code: 'custom',

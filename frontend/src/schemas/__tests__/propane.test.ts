@@ -134,6 +134,12 @@ describe('Propane Record Schema: the tank pair', () => {
     expect(issuesAt({ tank_quantity: 2 })).toEqual(['tank_size_kg'])
   })
 
+  it('an unreadable count with no size gets the count error only, not the pair one too', () => {
+    // A failed field parse leaves the raw INVALID_NUMBER sentinel in place,
+    // which is not a count.
+    expect(issuesAt({ tank_size_kg: NaN, tank_quantity: INVALID_NUMBER })).toEqual(['tank_quantity'])
+  })
+
   it('both or neither is fine', () => {
     expect(issuesAt({ tank_size_kg: 9.07, tank_quantity: 2 })).toEqual([])
     expect(issuesAt({})).toEqual([])
