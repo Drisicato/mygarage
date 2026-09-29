@@ -60,6 +60,18 @@ export const makePropaneRecordSchema = (t: TFunction) =>
     vendor: z.string().max(100).optional(),
     notes: z.string().max(1000).optional(),
   })
+  // Both tank fields or neither, as the API requires. The message lands on
+  // the empty one, so clearing the size alone doesn't blame the count.
+  .superRefine((data, ctx) => {
+    const hasSize = data.tank_size_kg !== undefined
+    const hasCount = data.tank_quantity !== undefined
+    if (hasSize === hasCount) return
+    ctx.addIssue({
+      code: 'custom',
+      path: [hasSize ? 'tank_quantity' : 'tank_size_kg'],
+      message: t('common:validation.tankPair.bothOrNeither'),
+    })
+  })
 
 export type PropaneRecordInput = z.input<ReturnType<typeof makePropaneRecordSchema>>
 export type PropaneRecordFormData = z.output<ReturnType<typeof makePropaneRecordSchema>>

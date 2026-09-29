@@ -250,8 +250,9 @@ export default function PropaneRecordForm({
 
       // What an empty field posts. The update route skips keys that aren't
       // sent, so on edit it must be null or a cleared field keeps its old
-      // value; create leaves it out as before. The tank pair clears together,
-      // since the API refuses one without the other.
+      // value; create leaves it out as before. The schema refuses one tank
+      // field without the other, as the API does, so the pair arrives here
+      // set together or cleared together.
       const cleared = isEdit ? null : undefined
 
       // We're using fuel_records table but ONLY propane_liters field
@@ -361,7 +362,7 @@ export default function PropaneRecordForm({
             <h3 className="text-sm font-medium text-text mb-3">{t('propane.tankInfo')}</h3>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field id="tank_size_kg" label={t('propane.tankSize')} unit={u.mass.label}>
+              <Field id="tank_size_kg" label={t('propane.tankSize')} unit={u.mass.label} error={errors.tank_size_kg}>
                 <Select
                   id="tank_size_kg"
                   {...register('tank_size_kg', { valueAsNumber: true })}

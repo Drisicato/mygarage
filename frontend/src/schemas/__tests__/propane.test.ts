@@ -117,3 +117,25 @@ describe('Propane Record Schema', () => {
     }
   })
 })
+
+describe('Propane Record Schema: the tank pair', () => {
+  // The API refuses a tank size without a count, or a count without a size.
+  const base = { date: '2024-09-15', propane_liters: 7.5 }
+  const issuesAt = (input: Record<string, unknown>) => {
+    const result = propaneRecordSchema.safeParse({ ...base, ...input })
+    return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'))
+  }
+
+  it('a size without a count flags the count', () => {
+    expect(issuesAt({ tank_size_kg: 9.07 })).toEqual(['tank_quantity'])
+  })
+
+  it('a count without a size flags the size', () => {
+    expect(issuesAt({ tank_quantity: 2 })).toEqual(['tank_size_kg'])
+  })
+
+  it('both or neither is fine', () => {
+    expect(issuesAt({ tank_size_kg: 9.07, tank_quantity: 2 })).toEqual([])
+    expect(issuesAt({})).toEqual([])
+  })
+})
