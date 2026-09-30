@@ -197,8 +197,12 @@ describe('overwriting an existing pack', () => {
       <SavePackDialog
         vin={VIN}
         vehicleType="Truck"
-        existingPackId="custom-truck-standard"
-        existingName="Truck Standard"
+        existingPack={{
+          id: 'custom-truck-standard',
+          name: 'Truck Standard',
+          description: '',
+          vehicle_types: ['Truck'],
+        }}
         onClose={vi.fn()}
         onSaved={vi.fn()}
       />
@@ -209,5 +213,35 @@ describe('overwriting an existing pack', () => {
     await waitFor(() => expect(overwriteMock).toHaveBeenCalledTimes(1))
     expect(overwriteMock.mock.calls[0][0].packId).toBe('custom-truck-standard')
     expect(saveMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('an untouched overwrite keeps what the pack already says', () => {
+  const overwrite = async (stored: { description: string; vehicle_types: string[] }) => {
+    rulesMock.mockReturnValue({ data: [rule(1, 'engine_oil_filter', 'Oil & Filter')], isLoading: false })
+    overwriteMock.mockResolvedValue({})
+    render(
+      <SavePackDialog
+        vin={VIN}
+        vehicleType="Truck"
+        existingPack={{ id: 'custom-standard', name: 'Standard', ...stored } as never}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    )
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(overwriteMock).toHaveBeenCalledTimes(1))
+    return overwriteMock.mock.calls[0][0].body
+  }
+
+  it('posts the stored description and vehicle types', async () => {
+    const body = await overwrite({ description: 'Full service', vehicle_types: ['Car', 'Truck'] })
+    expect(body.description).toBe('Full service')
+    expect(body.vehicle_types).toEqual(['Car', 'Truck'])
+  })
+
+  it('keeps an all-types pack for all types', async () => {
+    const body = await overwrite({ description: '', vehicle_types: [] })
+    expect(body.vehicle_types).toEqual([])
   })
 })

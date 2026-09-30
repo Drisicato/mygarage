@@ -290,8 +290,9 @@ describe('VehicleEditDrawer — dual usage tracking (hours + distance)', () => {
   })
 
   it('shows the Current Hours field when primary is distance but secondary (hours) tracking is enabled', async () => {
+    // The toggle seeds from the vehicle row; detail-stats echoes the same column.
     renderVehicleEditWithStats(
-      { ...baseVehicle, usage_unit: 'distance' },
+      { ...baseVehicle, usage_unit: 'distance', secondary_usage_enabled: true },
       { ...baseDetailStats, secondary_usage_enabled: true },
     )
 
@@ -562,8 +563,9 @@ describe('VehicleEditDrawer — conversion behaviour', () => {
     // or single-key, which is how `purchase_price: null` on every save survived
     // a fully green suite. Any field this drawer starts or stops sending fails
     // here, loudly.
+    // No current_hours: an untouched reading isn't sent back (it would be
+    // re-recorded as today's).
     expect(Object.keys(payload).sort()).toEqual([
-      'current_hours',
       'def_tank_capacity_liters',
       // #172: seeded from the fresh GET like every other field here, so an
       // untouched save sends the stored unit back unchanged.
@@ -940,5 +942,39 @@ describe('VehicleEditDrawer — the DEF tank capacity is the eighth gallon write
     await waitFor(() => expect(mockedApi.put).toHaveBeenCalled())
     const [, payload] = mockedApi.put.mock.calls[0] as [string, Record<string, unknown>]
     expect(payload.def_tank_capacity_liters).toBe(19)
+  })
+})
+
+describe('VehicleEditDrawer: an untouched save writes nothing new', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('posts no current_hours unless the reading was changed', async () => {
+    // Posting it restamps the latest reading as a manual one dated today,
+    // which flattens the hours-per-day projection.
+    renderVehicleEditWithStats(
+      { ...baseVehicle, usage_unit: 'hours' },
+      { ...baseDetailStats, usage_unit: 'hours', latest_hours: '42.5' },
+    )
+    await screen.findByLabelText('edit.currentHours')
+    fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
+    await waitFor(() => expect(mockedApi.put).toHaveBeenCalled())
+    const [, payload] = mockedApi.put.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload).not.toHaveProperty('current_hours')
+  })
+
+  it('keeps dual tracking on when detail-stats fails to load', async () => {
+    const dual = { ...baseVehicle, secondary_usage_enabled: true }
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url.includes('detail-stats')) return Promise.reject(new Error('stats down'))
+      return Promise.resolve({ data: dual })
+    })
+    render(drawerEl({ open: true, vin: dual.vin, vehicle: dual, onClose: vi.fn(), onUpdated: vi.fn() }))
+    await screen.findByLabelText('edit.nickname *')
+    fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
+    await waitFor(() => expect(mockedApi.put).toHaveBeenCalled())
+    const [, payload] = mockedApi.put.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload.secondary_usage_enabled).toBe(true)
   })
 })

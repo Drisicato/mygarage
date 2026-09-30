@@ -29,6 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Setting a toll transaction back to "None (manual payment)" now unlinks its toll tag
 - Clearing a field when editing a fill-up, DEF or propane record now saves instead of keeping the old value; a fill-up still needs a reading and a fuel amount
 - Editing a reminder clears its notes when emptied and drops the date, mileage or hours target its new type doesn't use; a smart reminder switched from mileage to hours no longer fails
+- Clearing a field on edit now saves for spot rentals, address book entries, DTC notes, user names and relationships, documents, notes, photo captions, LiveLink device labels and parameter display settings
+- A null for a required field through the API is a validation error instead of a server error or a silent skip
+- Opening and saving a spot rental keeps its total, and the nightly suggestion covers every night of the stay
+- Opening and saving a spot rental billing entry keeps a hand-adjusted total
+- A toll transaction's amount can no longer be emptied on edit
+- The window sticker review saves only what you change, no longer crashes when the OCR missed a price, edits every field it shows and shows fuel economy in your units
+- Clearing Exterior color in the vehicle details clears the colour the overview shows
+- Saving vehicle settings no longer restamps the latest engine-hours reading with today's date or turns off hours tracking when stats fail to load
+- Tax renewal dates, tax types and recall announce dates can be left empty or cleared
+- Editing an address book entry keeps its custom category and where it came from
+- Overwriting a reminder pack keeps its description and vehicle types
+- The timezone can stay on the server default, and saving system settings no longer rewrites every setting
+- Move Up and Move Down reorder the family dashboard
+- A blank OIDC scope or claim setting uses the default instead of blocking sign-in, and the full-name claim setting takes effect
+- A tire set can't be renamed to blank, a toll tag with an unlisted system can be re-saved, and a document needs a title
+- Server validation errors show on the field they belong to instead of a generic banner
 
 ## [3.7.0] - 2026-09-24
 

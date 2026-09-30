@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas._nullability import reject_null
+
 
 class TollTagBase(BaseModel):
     """Base toll tag schema with common fields."""
@@ -74,6 +76,9 @@ class TollTagUpdate(BaseModel):
     )
     status: str | None = Field(None, description="Tag status")
     notes: str | None = Field(None, description="Additional notes")
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("tag_number", "toll_system", "status")
 
     @field_validator("status")
     @classmethod
@@ -184,6 +189,9 @@ class TollTransactionUpdate(BaseModel):
     )
     toll_tag_id: int | None = Field(None, description="Associated toll tag ID")
     notes: str | None = Field(None, description="Additional notes")
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("transaction_date", "amount", "location")
 
 
 class TollTransactionResponse(BaseModel):

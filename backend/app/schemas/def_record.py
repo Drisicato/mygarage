@@ -9,6 +9,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class DEFRecordBase(BaseModel):
     """Base DEF record schema with common fields (metric canonical)."""
@@ -78,6 +80,9 @@ class DEFRecordUpdate(BaseModel):
     source: str | None = Field(None, description="Where purchased", max_length=100)
     brand: str | None = Field(None, description="DEF brand name", max_length=100)
     notes: str | None = Field(None, description="Additional notes")
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("date")
 
     model_config = {"json_schema_extra": {"examples": [{"cost": 22.50, "notes": "Bought on sale"}]}}
 

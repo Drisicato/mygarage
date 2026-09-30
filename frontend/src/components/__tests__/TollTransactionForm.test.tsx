@@ -173,3 +173,28 @@ describe('TollTransactionForm — amount field on NumberInput, toll_tag_id stays
     expect(createMutateAsync).not.toHaveBeenCalled()
   })
 })
+
+describe('TollTransactionForm: the amount is required', () => {
+  const stored = {
+    id: 5, vin: 'V1', date: '2026-02-01', amount: '4.50', location: 'Main St Toll',
+    toll_tag_id: null, notes: null, created_at: '2026-02-01T00:00:00',
+  } as unknown as TollTransaction
+
+  it('clearing it on edit blocks the save with an inline error instead of keeping the old amount', async () => {
+    const user = userEvent.setup()
+    render(<TollTransactionForm vin="V1" tollTags={[]} transaction={stored} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.clear(screen.getByLabelText('common:amount *'))
+    await user.click(screen.getByRole('button', { name: 'toll.updateTransaction' }))
+    expect(await screen.findByText('common:validation.amount.required')).toBeInTheDocument()
+    expect(updateMutateAsync).not.toHaveBeenCalled()
+  })
+
+  it('leaving it empty on create blocks the save inline', async () => {
+    const user = userEvent.setup()
+    render(<TollTransactionForm vin="V1" tollTags={[]} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.type(screen.getByLabelText('toll.location *'), 'Main St Toll')
+    await user.click(screen.getByRole('button', { name: 'toll.addTransaction' }))
+    expect(await screen.findByText('common:validation.amount.required')).toBeInTheDocument()
+    expect(createMutateAsync).not.toHaveBeenCalled()
+  })
+})

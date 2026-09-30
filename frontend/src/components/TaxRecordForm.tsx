@@ -31,13 +31,14 @@ export default function TaxRecordForm({ vin, record, onClose, onSuccess }: TaxRe
     setError(null)
 
     try {
-      // Zod has already validated amount - no parseFloat/isNaN needed!
+      // On edit an emptied field must be null, or the update keeps the old value.
+      const cleared = isEdit ? null : undefined
       const payload: TaxRecordCreate | TaxRecordUpdate = {
         vin,
         date: data.date,
-        tax_type: data.tax_type,
+        tax_type: data.tax_type || cleared,
         amount: data.amount,
-        renewal_date: data.renewal_date,
+        renewal_date: data.renewal_date || cleared,
         notes: data.notes,
       }
 

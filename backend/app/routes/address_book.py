@@ -213,29 +213,14 @@ async def update_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Address book entry not found")
 
-    # Update fields
-    if update_data.name is not None:
-        entry.name = update_data.name
-    if update_data.business_name is not None:
-        entry.business_name = update_data.business_name
-    if update_data.address is not None:
-        entry.address = update_data.address
-    if update_data.city is not None:
-        entry.city = update_data.city
-    if update_data.state is not None:
-        entry.state = update_data.state
-    if update_data.zip_code is not None:
-        entry.zip_code = update_data.zip_code
-    if update_data.phone is not None:
-        entry.phone = update_data.phone
-    if update_data.email is not None:
-        entry.email = update_data.email
-    if update_data.website is not None:
-        entry.website = update_data.website
-    if update_data.category is not None:
-        entry.category = update_data.category
-    if update_data.notes is not None:
-        entry.notes = update_data.notes
+    # An omitted field keeps its value and an explicit null clears it. Every
+    # field used to be `if x is not None`, and email/website turn '' into None
+    # first, so a cleared email or website said saved and stayed.
+    changes = update_data.model_dump(exclude_unset=True)
+    changes.pop("poi_category", None)
+    for field, value in changes.items():
+        setattr(entry, field, value)
+
     # The editor's "Gas station" checkbox sends only None/""/"gas_station".
     # Honor an explicit poi_category (model_fields_set) so unchecking can CLEAR,
     # while an omitted key preserves the existing value. Server-side guard: a
@@ -249,20 +234,6 @@ async def update_entry(
             pass  # protect the existing non-gas tag
         else:
             entry.poi_category = incoming or None  # normalize empty string to NULL
-    if update_data.poi_metadata is not None:
-        entry.poi_metadata = update_data.poi_metadata
-    if update_data.latitude is not None:
-        entry.latitude = update_data.latitude
-    if update_data.longitude is not None:
-        entry.longitude = update_data.longitude
-    if update_data.source is not None:
-        entry.source = update_data.source
-    if update_data.external_id is not None:
-        entry.external_id = update_data.external_id
-    if update_data.rating is not None:
-        entry.rating = update_data.rating
-    if update_data.user_rating is not None:
-        entry.user_rating = update_data.user_rating
 
     try:
         await _sync_to_vendor(db, entry.business_name, entry)

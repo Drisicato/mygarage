@@ -618,12 +618,7 @@ async def update_dtc(
         raise HTTPException(status_code=404, detail=f"DTC {dtc_id} not found for this vehicle")
 
     # Update
-    updated = await dtc_service.update_dtc(
-        dtc_id=dtc_id,
-        description=updates.description,
-        severity=updates.severity,
-        user_notes=updates.user_notes,
-    )
+    updated = await dtc_service.update_dtc(dtc_id, updates.model_dump(exclude_unset=True))
 
     enriched = await dtc_service.enrich_dtc_response(updated)
     return VehicleDTCResponse(**enriched)

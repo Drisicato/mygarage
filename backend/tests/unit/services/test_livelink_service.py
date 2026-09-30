@@ -431,7 +431,7 @@ class TestDeviceManagement:
 
             service = LiveLinkService(mock_db)
             result = await service.update_device(
-                "device_123", label="My WiCAN", vin="VIN123", enabled=False
+                "device_123", {"label": "My WiCAN", "vin": "VIN123", "enabled": False}
             )
 
             assert result == mock_device
@@ -452,7 +452,7 @@ class TestDeviceManagement:
             mock_get.return_value = mock_device
 
             service = LiveLinkService(mock_db)
-            result = await service.update_device("device_123", label="New Label")
+            result = await service.update_device("device_123", {"label": "New Label"})
 
             assert result == mock_device
             assert mock_device.label == "New Label"
@@ -467,7 +467,7 @@ class TestDeviceManagement:
             mock_get.return_value = None
 
             service = LiveLinkService(mock_db)
-            result = await service.update_device("nonexistent", label="Test")
+            result = await service.update_device("nonexistent", {"label": "Test"})
 
             assert result is None
 

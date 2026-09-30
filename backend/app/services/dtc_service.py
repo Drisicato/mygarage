@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -206,20 +207,15 @@ class DTCService:
         )
         return dtc
 
-    async def update_dtc(
-        self,
-        dtc_id: int,
-        description: str | None = None,
-        severity: str | None = None,
-        user_notes: str | None = None,
-    ) -> VehicleDTC | None:
+    async def update_dtc(self, dtc_id: int, changes: dict[str, Any]) -> VehicleDTC | None:
         """Update a DTC record (user-editable fields).
 
         Args:
             dtc_id: The DTC record ID
-            description: Custom description (for manufacturer-specific codes)
-            severity: Custom severity
-            user_notes: User notes
+            changes: Only the fields the request sent (``exclude_unset``). An
+                omitted field keeps its value and a None clears it. Separate
+                parameters defaulting to None could not tell the two apart,
+                so a cleared note said saved and stayed.
 
         Returns:
             The updated VehicleDTC, or None if not found
@@ -230,12 +226,8 @@ class DTCService:
         if not dtc:
             return None
 
-        if description is not None:
-            dtc.description = description
-        if severity is not None:
-            dtc.severity = severity
-        if user_notes is not None:
-            dtc.user_notes = user_notes
+        for field, value in changes.items():
+            setattr(dtc, field, value)
 
         await self.db.commit()
         return dtc

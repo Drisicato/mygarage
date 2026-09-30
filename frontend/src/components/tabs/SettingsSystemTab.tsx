@@ -7,7 +7,6 @@ import { useCanManageInstance } from '@/hooks/useCanManageInstance'
 import type { DashboardResponse } from '@/types/dashboard'
 import api from '@/services/api'
 import { toast } from 'sonner'
-import { getHouseholdTimeZone } from '@/constants/i18n'
 import OIDCModal from '@/components/modals/OIDCModal'
 import FamilyManagementModal from '@/components/modals/FamilyManagementModal'
 import ArchivedVehiclesList from '@/components/ArchivedVehiclesList'
@@ -53,6 +52,10 @@ export default function SettingsSystemTab() {
     oidc_full_name_claim: 'name',
   })
   const [loadedFormData, setLoadedFormData] = useState<typeof formData | null>(null)
+  // The server's own default zone, known only when the page loaded with no zone
+  // stored (the zone in effect then IS the default). With a stored zone it
+  // stays null, so the option can't name the stored zone as the default.
+  const [serverDefaultZone, setServerDefaultZone] = useState<string | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [authenticatorDetected, setAuthenticatorDetected] = useState<boolean | null>(null)
   const [authEverEnabled, setAuthEverEnabled] = useState(false)
@@ -145,7 +148,9 @@ export default function SettingsSystemTab() {
       }
 
       const newFormData = {
-        timezone: settingsMap.timezone || getHouseholdTimeZone() || 'UTC',
+        // '' is "Server default". Seeding the zone in effect here saved it on
+        // the next save and froze the env/container fallback into the setting.
+        timezone: settingsMap.timezone || '',
         family_friends_enabled: settingsMap.family_friends_enabled || 'false',
         auth_mode: settingsMap.auth_mode || 'none',
         oidc_enabled: oidcAdmin ? (oidcAdmin.enabled ? 'true' : 'false') : settingsMap.oidc_enabled || 'false',
@@ -165,6 +170,7 @@ export default function SettingsSystemTab() {
       }
       setFormData(newFormData)
       setLoadedFormData(newFormData)
+      setServerDefaultZone(settingsMap.timezone ? null : settingsMap.effective_timezone || null)
 
       setAutoArchiveDays(settingsMap.auto_archive_inactive_days || '0')
 
@@ -227,10 +233,15 @@ export default function SettingsSystemTab() {
   // OIDC settings go to the dedicated admin endpoint (enforces §5.4 contract:
   // empty secret = preserve, issuer rstrip); everything else goes to /settings/batch.
   const handleSave = useCallback(async () => {
-    const oidcKeyPrefixes = ['oidc_']
+    // Nothing loaded (or the load failed): the form holds hard-coded defaults,
+    // and saving them would overwrite the real settings.
+    if (loadedFormData === null) return
+
+    // Only the keys the user changed. Posting every key rewrote auth_mode and
+    // the rest on each save, and froze whatever the form had seeded.
     const nonOidcSettings: Record<string, string> = {}
-    for (const [key, value] of Object.entries(formData)) {
-      if (!oidcKeyPrefixes.some((p) => key.startsWith(p))) {
+    for (const [key, value] of Object.entries(formData) as Array<[keyof typeof formData, string]>) {
+      if (!key.startsWith('oidc_') && value !== loadedFormData[key]) {
         nonOidcSettings[key] = value
       }
     }
@@ -242,11 +253,9 @@ export default function SettingsSystemTab() {
     // mode. The PUT still goes FIRST when OIDC is dirty: the provider config
     // must land before auth_mode flips to 'oidc', or the mode is enabled against
     // config that never saved.
-    const oidcDirty =
-      loadedFormData === null ||
-      (Object.keys(formData) as Array<keyof typeof formData>).some(
-        (key) => key.startsWith('oidc_') && formData[key] !== loadedFormData[key],
-      )
+    const oidcDirty = (Object.keys(formData) as Array<keyof typeof formData>).some(
+      (key) => key.startsWith('oidc_') && formData[key] !== loadedFormData[key],
+    )
 
     if (oidcDirty) {
       await api.put('/auth/oidc/config/admin', {
@@ -264,7 +273,11 @@ export default function SettingsSystemTab() {
       })
     }
 
-    await api.post('/settings/batch', { settings: nonOidcSettings })
+    if (Object.keys(nonOidcSettings).length > 0) {
+      await api.post('/settings/batch', { settings: nonOidcSettings })
+    }
+    // What's saved is the new baseline for the next diff.
+    setLoadedFormData(formData)
 
     if ('timezone' in nonOidcSettings) {
       // The saved zone changes what "today" means for every open form;
@@ -397,10 +410,18 @@ export default function SettingsSystemTab() {
             value={formData.timezone}
             onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
             className="md:w-96"
-            options={(timezones.includes(formData.timezone)
-              ? timezones
-              : [formData.timezone, ...timezones]
-            ).map((tz) => ({ value: tz, label: tz }))}
+            options={[
+              {
+                value: '',
+                label: serverDefaultZone
+                  ? t('timezone.serverDefaultZone', { zone: serverDefaultZone })
+                  : t('timezone.serverDefault'),
+              },
+              ...(formData.timezone === '' || timezones.includes(formData.timezone)
+                ? timezones
+                : [formData.timezone, ...timezones]
+              ).map((tz) => ({ value: tz, label: tz })),
+            ]}
           />
           <p className="mt-2 text-sm text-garage-text-muted">
             {t('timezone.description')}

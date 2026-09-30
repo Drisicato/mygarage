@@ -17,6 +17,7 @@ from app.models.oidc_pending_link import OIDCPendingLink
 from app.models.settings import Setting
 from app.models.user import User
 from app.services.auth import verify_password
+from app.services.oidc.config import effective_oidc_value, get_oidc_config
 from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
 
@@ -233,8 +234,8 @@ async def validate_and_consume_pending_link(
     if userinfo:
         all_claims.update(userinfo)
 
-    # Extract full name if available
-    name_claim = "name"
+    # The pending link stores claims, not config, so read the claim name now.
+    name_claim = effective_oidc_value(await get_oidc_config(db), "full_name_claim")
     full_name = all_claims.get(name_claim, "")
 
     # Update user with OIDC information

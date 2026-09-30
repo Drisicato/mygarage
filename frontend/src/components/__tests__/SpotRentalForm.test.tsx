@@ -84,20 +84,20 @@ describe('SpotRentalForm — routing + exact payload (SDQ-C)', () => {
     await user.type(screen.getByLabelText('common:notes'), 'updated')
     await user.click(screen.getByRole('button', { name: 'common:update' }))
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
-    // rateType resolves to 'nightly' (no weekly/monthly seeded) ⇒ nightly_rate=45; the auto-calc effect recomputes
-    // total_cost=45 on mount (baseRate 45 + 0 utilities). check_out_date '' → || undefined.
+    // rateType resolves to 'nightly' (no weekly/monthly seeded) ⇒ nightly_rate=45, and the stored total goes back
+    // as is. A field stored empty posts null on edit, which is what's stored.
     expect(updateMutateAsync.mock.calls[0][0]).toStrictEqual({
       id: 7,
       location_name: 'Lakeside',
       location_address: '123 Rd',
       check_in_date: '2026-03-01',
-      check_out_date: undefined,
+      check_out_date: null,
       nightly_rate: 45,
-      weekly_rate: undefined,
-      monthly_rate: undefined,
-      electric: undefined,
-      water: undefined,
-      waste: undefined,
+      weekly_rate: null,
+      monthly_rate: null,
+      electric: null,
+      water: null,
+      waste: null,
       total_cost: 45,
       amenities: 'wifi',
       notes: 'updated',

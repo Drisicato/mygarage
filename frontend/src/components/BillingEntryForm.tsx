@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Save } from 'lucide-react'
@@ -18,6 +18,7 @@ import {
 import { useCreateBillingEntry, useUpdateBillingEntry } from '../hooks/queries/useSpotRentals'
 import { formatDateForInput } from '../utils/dateUtils'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { useOnUserEdit } from '../hooks/useOnUserEdit'
 
 interface BillingEntryFormProps {
   vin: string
@@ -48,8 +49,8 @@ export default function BillingEntryForm({
   const {
     register,
     handleSubmit,
-    watch,
     setValue,
+    subscribe,
     formState: { errors, isSubmitting }
   } = useForm<SpotRentalBillingFormData>({
     resolver: zodResolver(schema) as Resolver<SpotRentalBillingFormData>,
@@ -64,24 +65,15 @@ export default function BillingEntryForm({
     }
   })
 
-  // Auto-calculate total from monthly_rate + electric + water + waste
-  const monthlyRate = watch('monthly_rate')
-  const electric = watch('electric')
-  const water = watch('water')
-  const waste = watch('waste')
-
-  useEffect(() => {
-    const monthly = monthlyRate || 0
-    const elec = electric || 0
-    const wat = water || 0
-    const wst = waste || 0
-    const calculatedTotal = monthly + elec + wat + wst
-
-    // Only set if there's a meaningful value
+  // Suggest the total from the amounts, but only when the user edits one.
+  // Recomputing on open overwrote a total adjusted by hand.
+  useOnUserEdit(subscribe, ['monthly_rate', 'electric', 'water', 'waste'], (values) => {
+    const calculatedTotal =
+      (values.monthly_rate || 0) + (values.electric || 0) + (values.water || 0) + (values.waste || 0)
     if (calculatedTotal > 0) {
       setValue('total', calculatedTotal)
     }
-  }, [monthlyRate, electric, water, waste, setValue])
+  })
 
   const onSubmit = async (data: SpotRentalBillingFormData) => {
     try {

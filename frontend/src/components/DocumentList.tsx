@@ -63,7 +63,10 @@ export default function DocumentList({ vin, onAddClick }: DocumentListProps) {
     }
   }
 
+  const [titleError, setTitleError] = useState<string | null>(null)
+
   const startEdit = (doc: Document) => {
+    setTitleError(null)
     setEditingId(doc.id)
     setEditData({
       title: doc.title,
@@ -78,6 +81,11 @@ export default function DocumentList({ vin, onAddClick }: DocumentListProps) {
   }
 
   const saveEdit = async (documentId: number) => {
+    // The API refuses a blank title too; catching it here keeps the edit open.
+    if (!editData.title.trim()) {
+      setTitleError(t('common:validation.document.titleRequired'))
+      return
+    }
     try {
       await api.put(`/vehicles/${vin}/documents/${documentId}`, editData)
       queryClient.invalidateQueries({ queryKey: ['documents', vin] })
@@ -161,7 +169,7 @@ export default function DocumentList({ vin, onAddClick }: DocumentListProps) {
             >
               {editingId === doc.id ? (
                 <div className="space-y-3">
-                  <Field id="edit-title" label={t('documentList.titleLabel')}>
+                  <Field id="edit-title" label={t('documentList.titleLabel')} required error={titleError ?? undefined}>
                     <Input
                       id="edit-title"
                       type="text"

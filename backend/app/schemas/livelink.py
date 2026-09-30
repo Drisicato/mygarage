@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas._nullability import reject_null
+
 # Shared status literals for OpenAPI schema generation
 DeviceStatusType = Literal["online", "offline", "unknown"]
 ECUStatusType = Literal["online", "offline", "unknown"]
@@ -99,6 +101,9 @@ class LiveLinkDeviceUpdate(BaseModel):
             "or the service cannot tell 'clear it' from 'not supplied'."
         ),
     )
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("enabled")
 
     @field_validator("vin", mode="before")
     @classmethod
@@ -248,6 +253,11 @@ class LiveLinkParameterUpdate(BaseModel):
     archive_only: bool | None = Field(None, description="Hide from default views")
     storage_interval_seconds: int | None = Field(
         None, description="Minimum seconds between stored values", ge=0
+    )
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null(
+        "display_order", "show_on_dashboard", "archive_only", "storage_interval_seconds"
     )
 
 

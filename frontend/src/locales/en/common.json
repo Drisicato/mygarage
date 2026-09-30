@@ -628,6 +628,12 @@
       "obcNegative": "OBC value cannot be negative",
       "obcTooLarge": "OBC value too large",
       "obcInvalid": "Enter a valid number"
+    },
+    "tireSet": {
+      "nameRequired": "Name is required"
+    },
+    "document": {
+      "titleRequired": "Title is required"
     }
   },
   "httpError": {

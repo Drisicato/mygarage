@@ -45,6 +45,7 @@ from app.constants.units import (
     VolumeUnit,
     field_to_column,
 )
+from app.schemas._nullability import reject_null
 from app.utils.unit_resolution import resolve_units
 
 # The vocabulary each raw unit column accepts, keyed by column name (which is
@@ -132,9 +133,8 @@ class UserCreate(UserBase):
 class UserSelfUpdate(BaseModel):
     """Schema for users updating their own profile. Rejects privileged fields.
 
-    Carries no `unit_preference` (D9b). Its route guards every field with
-    `if ... is not None`, so it cannot express "clear this column", and a
-    preset written here would leave the eleven override columns masking it.
+    Carries no `unit_preference` (D9b). A preset written here would leave the
+    eleven override columns masking it.
     Units are set through `PUT /auth/me/units` and `UnitPreferenceUpdate`,
     which writes all eleven or clears all eleven. `show_both_units` stays: it
     is a display toggle, not a choice of unit.
@@ -159,6 +159,17 @@ class UserSelfUpdate(BaseModel):
     # Fuel-tracking form defaults (issue #69)
     default_payment_method: str | None = Field(None, max_length=20)
     default_trip_type: str | None = Field(None, max_length=20)
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null(
+        "email",
+        "show_both_units",
+        "time_format",
+        "mobile_quick_entry_enabled",
+        "language",
+        "currency_code",
+        "dashboard_sort",
+    )
 
     @field_validator("language")
     @classmethod
@@ -226,10 +237,9 @@ class UserSelfUpdate(BaseModel):
 class UnitPreferenceUpdate(BaseModel):
     """Schema for the dedicated unit-preference mutation (spec D9b).
 
-    `PUT /auth/me` guards every field with `if ... is not None`, so it cannot
-    express "clear this column". D3 requires that selecting a preset writes
-    eleven explicit nulls, which is why unit preferences do not ride the
-    generic profile route.
+    D3 requires that selecting a preset writes eleven explicit nulls in one
+    step, derived from the preset rather than sent field by field, which is
+    why unit preferences do not ride the generic profile route.
 
     The `units` field is required for `custom` and forbidden otherwise. A
     partial custom would leave some columns resolving from the base preset,
@@ -242,6 +252,9 @@ class UnitPreferenceUpdate(BaseModel):
     unit_preference: UnitPreference
     units: UnitSet | None = None
     show_both_units: bool | None = None
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("show_both_units")
 
     @model_validator(mode="after")
     def units_present_exactly_when_custom(self) -> UnitPreferenceUpdate:
@@ -305,6 +318,20 @@ class AdminUserUpdate(BaseModel):
     relationship_custom: str | None = Field(None, max_length=100)
     show_on_family_dashboard: bool | None = None
     family_dashboard_order: int | None = Field(None, ge=0)
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null(
+        "email",
+        "is_active",
+        "is_admin",
+        "show_both_units",
+        "time_format",
+        "mobile_quick_entry_enabled",
+        "language",
+        "currency_code",
+        "show_on_family_dashboard",
+        "family_dashboard_order",
+    )
 
     @field_validator("language")
     @classmethod

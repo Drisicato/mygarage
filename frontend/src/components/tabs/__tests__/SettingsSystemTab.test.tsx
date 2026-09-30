@@ -169,3 +169,101 @@ describe('SettingsSystemTab — OIDC config is only written when OIDC changed', 
     expect(putOrder).toBeLessThan(postOrder)
   })
 })
+
+describe('SettingsSystemTab: a save sends only what changed', () => {
+  const OIDC_ADMIN = {
+    enabled: false, provider_name: '', issuer_url: '', client_id: '', client_secret: '',
+    scopes: 'openid profile email', auto_create_users: true, admin_group: '',
+    username_claim: 'preferred_username', email_claim: 'email', full_name_claim: 'name',
+  }
+
+  const mockSettings = (settings: { key: string; value: string }[] | Error) => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/settings') {
+        return settings instanceof Error ? Promise.reject(settings) : Promise.resolve({ data: { settings } })
+      }
+      if (url === '/auth/oidc/config/admin') return Promise.resolve({ data: OIDC_ADMIN })
+      if (url === '/auth/users/count') return Promise.resolve({ data: { count: 2 } })
+      if (url === '/dashboard') return Promise.resolve({ data: { total_vehicles: 0 } })
+      if (url === '/health') return Promise.resolve({ data: { authenticator_detected: false } })
+      return Promise.resolve({ data: {} })
+    })
+  }
+
+  const timezoneSelect = () => document.getElementById('timezone') as HTMLSelectElement
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApi.post.mockResolvedValue({ data: { settings: [], total: 0 } })
+    mockedApi.put.mockResolvedValue({ data: {} })
+  })
+
+  it('with no zone stored, shows the server default instead of freezing it in', async () => {
+    mockSettings([
+      { key: 'auth_mode', value: 'local' },
+      { key: 'effective_timezone', value: 'America/Denver' },
+    ])
+    renderTab()
+    await waitFor(() => expect(timezoneSelect()).toBeInTheDocument())
+    await waitFor(() => expect(mockedApi.get).toHaveBeenCalledWith('/auth/users/count'))
+    expect(timezoneSelect().value).toBe('')
+    expect(timezoneSelect().options[0].value).toBe('')
+    // Nothing stored, so the zone in effect IS the server default.
+    expect(timezoneSelect().options[0].textContent).toBe('timezone.serverDefaultZone')
+  })
+
+  it('changing one setting posts only that one', async () => {
+    mockSettings([
+      { key: 'auth_mode', value: 'local' },
+      { key: 'family_friends_enabled', value: 'false' },
+      { key: 'effective_timezone', value: 'America/Denver' },
+    ])
+    renderTab()
+    const toggle = await screen.findByLabelText('garageSections.familyFriends')
+    await waitFor(() => expect(mockedApi.get).toHaveBeenCalledWith('/auth/users/count'))
+    fireEvent.click(toggle)
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled(), { timeout: 3000 })
+    expect(mockedApi.post).toHaveBeenCalledWith('/settings/batch', {
+      settings: { family_friends_enabled: 'true' },
+    })
+    expect(mockedApi.put).not.toHaveBeenCalled()
+  })
+
+  it('choosing Server default on a stored zone saves an empty zone', async () => {
+    mockSettings([
+      { key: 'timezone', value: 'America/Chicago' },
+      { key: 'auth_mode', value: 'local' },
+      { key: 'effective_timezone', value: 'America/Chicago' },
+    ])
+    renderTab()
+    await screen.findByDisplayValue('America/Chicago')
+    fireEvent.change(timezoneSelect(), { target: { value: '' } })
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled(), { timeout: 3000 })
+    expect(mockedApi.post).toHaveBeenCalledWith('/settings/batch', { settings: { timezone: '' } })
+    // Chicago was the stored zone, not the server's default, so the option
+    // must not name it now that it's cleared.
+    await waitFor(() => expect(timezoneSelect().options[0].textContent).toBe('timezone.serverDefault'))
+  })
+
+  it('a failed load posts nothing, even when a save fires', async () => {
+    mockSettings(new Error('settings down'))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function SaveButton() {
+      const { triggerSave } = useSettings()
+      return <button onClick={triggerSave}>trigger-save</button>
+    }
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsProvider>
+          <ActiveSystemTab />
+          <SaveButton />
+        </SettingsProvider>
+      </QueryClientProvider>,
+    )
+    await screen.findByText('common:errors.generic')
+    fireEvent.click(screen.getByText('trigger-save'))
+    await new Promise((resolve) => setTimeout(resolve, 1300))
+    expect(mockedApi.post).not.toHaveBeenCalled()
+    expect(mockedApi.put).not.toHaveBeenCalled()
+  })
+})

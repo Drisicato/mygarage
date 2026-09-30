@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
-import { makeDateSchema, makeCurrencySchema, makeNotesSchema } from './shared'
+import { makeDateSchema, makeCurrencySchema, makeNotesSchema, makeOptionalDateSchema } from './shared'
 
 /**
  * Tax record schema matching backend Pydantic validators.
@@ -28,9 +28,10 @@ export const TAX_TYPES = [
 export const makeTaxRecordSchema = (t: TFunction) =>
   z.object({
     date: makeDateSchema(t),
-    tax_type: z.enum(TAX_TYPE_VALUES).optional(),
+    // '' is the select's empty option: no type.
+    tax_type: z.enum(TAX_TYPE_VALUES).or(z.literal('')).optional(),
     amount: makeCurrencySchema(t),
-    renewal_date: makeDateSchema(t).optional(),
+    renewal_date: makeOptionalDateSchema(t),
     notes: makeNotesSchema(t).optional(),
   })
 

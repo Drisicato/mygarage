@@ -482,7 +482,8 @@ async def update_vehicle_photo_metadata(
         if not photo:
             raise HTTPException(status_code=404, detail="Photo not found")
 
-        if photo_update.caption is not None:
+        # An omitted caption keeps its value; null or blank clears it.
+        if "caption" in photo_update.model_fields_set:
             new_caption = photo_update.caption.strip() if photo_update.caption else None
             photo.caption = new_caption or None
 

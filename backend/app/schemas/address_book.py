@@ -5,6 +5,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.schemas._nullability import reject_null
+
 
 class AddressBookEntryBase(BaseModel):
     """Base address book entry schema."""
@@ -92,6 +94,9 @@ class AddressBookEntryUpdate(BaseModel):
         if v == "":
             return None
         return v
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("business_name", "source")
 
 
 class AddressBookEntryResponse(AddressBookEntryBase):

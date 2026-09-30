@@ -83,3 +83,37 @@ describe('BillingEntryForm — routing + exact payload (SDQ-C)', () => {
     expect(screen.getByLabelText('common:total')).toHaveAttribute('id', 'total')
   })
 })
+
+describe('BillingEntryForm: the total follows user edits, never the open', () => {
+  // 500 + 40 is 540, but the stored total was adjusted to 560 by hand.
+  const adjusted = {
+    id: 9, rental_id: 3, billing_date: '2026-03-01', monthly_rate: '500', electric: '40',
+    water: null, waste: null, total: '560', notes: 'late fee', created_at: '2026-03-01T00:00:00',
+  } as unknown as SpotRentalBilling
+
+  it('a manually adjusted total survives an untouched save', async () => {
+    const user = userEvent.setup()
+    render(<BillingEntryForm vin="V1" rentalId={3} billing={adjusted} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'common:update' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0]).toStrictEqual({
+      id: 9,
+      billing_date: '2026-03-01',
+      monthly_rate: 500,
+      electric: 40,
+      water: null,
+      waste: null,
+      total: 560,
+      notes: 'late fee',
+    })
+  })
+
+  it('editing an amount recomputes the total', async () => {
+    const user = userEvent.setup()
+    render(<BillingEntryForm vin="V1" rentalId={3} billing={adjusted} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.type(screen.getByLabelText('billingEntryForm.water'), '25')
+    await user.click(screen.getByRole('button', { name: 'common:update' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0]).toMatchObject({ water: 25, total: 565 })
+  })
+})

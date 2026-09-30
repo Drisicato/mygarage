@@ -146,6 +146,20 @@ export const makeDateSchema = (t: TFunction) =>
     .min(1, t('common:validation.date.required'))
     .regex(/^\d{4}-\d{2}-\d{2}$/, t('common:validation.date.invalidFormat'))
 
+/**
+ * An optional date an edit can clear. A date input reports an empty field as
+ * '', which `makeDateSchema(t).optional()` rejects as "date required", so a
+ * record without the date could be neither created nor re-saved. A refine,
+ * not a union with z.literal(''), so the format message isn't swallowed.
+ */
+export const makeOptionalDateSchema = (t: TFunction) =>
+  z
+    .string()
+    .refine((value) => value === '' || /^\d{4}-\d{2}-\d{2}$/.test(value), {
+      message: t('common:validation.date.invalidFormat'),
+    })
+    .optional()
+
 // Text validators
 export const makeDescriptionSchema = (t: TFunction) =>
   z

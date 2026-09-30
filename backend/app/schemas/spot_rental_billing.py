@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class SpotRentalBillingBase(BaseModel):
     """Base schema for billing entry."""
@@ -35,6 +37,9 @@ class SpotRentalBillingUpdate(BaseModel):
     waste: Decimal | None = Field(None, ge=0)
     total: Decimal | None = None
     notes: str | None = Field(None, max_length=1000)
+
+    # NOT NULL column: a null billing_date reached the database as a 500.
+    _no_null = reject_null("billing_date")
 
     class Config:
         extra = "forbid"

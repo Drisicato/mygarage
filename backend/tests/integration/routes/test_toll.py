@@ -386,10 +386,11 @@ class TestTollTransactionRoutes:
         reread = await client.get(url, headers=auth_headers)
         assert reread.json()["date"] == "2024-07-04"
 
-    async def test_update_toll_transaction_null_date_keeps_it(
+    async def test_update_toll_transaction_null_date_is_a_422(
         self, client: AsyncClient, auth_headers, test_vehicle
     ):
-        """The column is NOT NULL: a null date is ignored, not a 409."""
+        """The column is NOT NULL. A null date used to be skipped only to dodge a
+        409; a 422 is the honest answer, and nothing in the request is saved."""
         transaction = (
             await client.post(
                 f"/api/vehicles/{test_vehicle['vin']}/toll-transactions",
@@ -405,12 +406,17 @@ class TestTollTransactionRoutes:
 
         response = await client.put(
             f"/api/vehicles/{test_vehicle['vin']}/toll-transactions/{transaction['id']}",
-            json={"transaction_date": None, "notes": "kept"},
+            json={"transaction_date": None, "notes": "not saved"},
             headers=auth_headers,
         )
 
-        assert response.status_code == 200, response.text
-        assert response.json()["date"] == "2024-06-21"
+        assert response.status_code == 422, response.text
+        reread = await client.get(
+            f"/api/vehicles/{test_vehicle['vin']}/toll-transactions/{transaction['id']}",
+            headers=auth_headers,
+        )
+        assert reread.json()["date"] == "2024-06-21"
+        assert reread.json()["notes"] is None
 
     async def test_update_toll_transaction_null_tag_unlinks_it(
         self, client: AsyncClient, auth_headers, test_vehicle

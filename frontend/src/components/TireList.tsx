@@ -213,6 +213,7 @@ export default function TireList({ vin }: TireListProps) {
   const [newSetName, setNewSetName] = useState('')
   const [renamingSetId, setRenamingSetId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
   /* The fit form expands INSIDE the sets drawer rather than opening a second
    * one. `<Drawer>` sets `inert` on #root, so a drawer opened from a drawer is
    * dead rather than merely behind -- and a fit needs one field, which does not
@@ -736,7 +737,11 @@ export default function TireList({ vin }: TireListProps) {
 
   const handleRenameSet = (setId: number) => {
     const name = renameValue.trim()
-    if (!name) return
+    if (!name) {
+      setRenameError(t('common:validation.tireSet.nameRequired'))
+      return
+    }
+    setRenameError(null)
     updateSet.mutate(
       { setId, name },
       {
@@ -1536,7 +1541,11 @@ export default function TireList({ vin }: TireListProps) {
                   {renamingSetId === tireSet.id ? (
                     <div className="flex items-end gap-2">
                       <div className="flex-1">
-                        <Field id={`set-rename-${tireSet.id}`} label={t('tireList.setName')}>
+                        <Field
+                          id={`set-rename-${tireSet.id}`}
+                          label={t('tireList.setName')}
+                          error={renameError ?? undefined}
+                        >
                           <Input
                             id={`set-rename-${tireSet.id}`}
                             value={renameValue}
@@ -1599,6 +1608,7 @@ export default function TireList({ vin }: TireListProps) {
                           onClick={() => {
                             setRenamingSetId(tireSet.id)
                             setRenameValue(tireSet.name)
+                            setRenameError(null)
                           }}
                         >
                           {t('tireList.setRename')}

@@ -190,6 +190,12 @@ export default function VehicleFieldsDrawer({
       const raw = current.trim()
       payload[f.key] = f.kind === 'number' ? (raw === '' ? null : Number(raw)) : emptyToNull(current)
     }
+    // This field IS the overview's colour (`exterior_color || color`), so a
+    // clear has to take the legacy `color` with it or that comes straight back.
+    // The sticker review doesn't do this: there a clear means the OCR was wrong.
+    if ('exterior_color' in payload && payload.exterior_color === null && vehicle.color) {
+      payload.color = null
+    }
     if (Object.keys(payload).length === 0) {
       onClose()
       return

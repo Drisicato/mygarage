@@ -267,33 +267,11 @@ class SpotRentalService:
             if not rental:
                 raise HTTPException(status_code=404, detail="Spot rental not found")
 
-            # Update fields
-            if data.location_name is not None:
-                rental.location_name = data.location_name
-            if data.location_address is not None:
-                rental.location_address = data.location_address
-            if data.check_in_date is not None:
-                rental.check_in_date = data.check_in_date
-            if data.check_out_date is not None:
-                rental.check_out_date = data.check_out_date
-            if data.nightly_rate is not None:
-                rental.nightly_rate = data.nightly_rate
-            if data.weekly_rate is not None:
-                rental.weekly_rate = data.weekly_rate
-            if data.monthly_rate is not None:
-                rental.monthly_rate = data.monthly_rate
-            if data.electric is not None:
-                rental.electric = data.electric
-            if data.water is not None:
-                rental.water = data.water
-            if data.waste is not None:
-                rental.waste = data.waste
-            if data.total_cost is not None:
-                rental.total_cost = data.total_cost
-            if data.amenities is not None:
-                rental.amenities = data.amenities
-            if data.notes is not None:
-                rental.notes = data.notes
+            # An omitted field keeps its value and an explicit null clears it.
+            # Every field used to be `if data.x is not None`, so a cleared
+            # field said saved and kept its old value.
+            for field, value in data.model_dump(exclude_unset=True).items():
+                setattr(rental, field, value)
 
             await self.db.commit()
             await self.db.refresh(rental, attribute_names=["billings"])

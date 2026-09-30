@@ -80,7 +80,12 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
     }
   }
 
-  visibleMembers.sort((a, b) => a.user.family_dashboard_order - b.user.family_dashboard_order)
+  // Same order as the dashboard, which breaks ties by username.
+  visibleMembers.sort(
+    (a, b) =>
+      a.user.family_dashboard_order - b.user.family_dashboard_order ||
+      a.user.username.localeCompare(b.user.username),
+  )
 
   // ─── Reload helpers ──────────────────────────────────────────────────
 
@@ -244,22 +249,28 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
     }
   }
 
-  const handleMoveUp = async (userId: number, index: number) => {
-    if (index <= 0) return
+  // Every order starts at 0, so swapping two members' orders swapped 0 for 0
+  // and nothing moved. Write each member's new position instead, skipping the
+  // ones already there.
+  const moveMember = async (userId: number, from: number, to: number) => {
+    if (to < 0 || to >= visibleMembers.length) return
     setUpdatingUserId(userId)
-    const current = visibleMembers[index]
-    const prev = visibleMembers[index - 1]
+    const reordered = [...visibleMembers]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(to, 0, moved)
     try {
-      await Promise.all([
-        familyService.updateDashboardMember(current.user.id, {
-          show_on_family_dashboard: true,
-          family_dashboard_order: prev.user.family_dashboard_order,
-        }),
-        familyService.updateDashboardMember(prev.user.id, {
-          show_on_family_dashboard: true,
-          family_dashboard_order: current.user.family_dashboard_order,
-        }),
-      ])
+      await Promise.all(
+        reordered.flatMap(({ user }, position) =>
+          user.family_dashboard_order === position
+            ? []
+            : [
+                familyService.updateDashboardMember(user.id, {
+                  show_on_family_dashboard: true,
+                  family_dashboard_order: position,
+                }),
+              ],
+        ),
+      )
       await reloadAll()
     } catch {
       toast.error(t('modal.failedToReorder'))
@@ -269,30 +280,8 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
     }
   }
 
-  const handleMoveDown = async (userId: number, index: number) => {
-    if (index >= visibleMembers.length - 1) return
-    setUpdatingUserId(userId)
-    const current = visibleMembers[index]
-    const next = visibleMembers[index + 1]
-    try {
-      await Promise.all([
-        familyService.updateDashboardMember(current.user.id, {
-          show_on_family_dashboard: true,
-          family_dashboard_order: next.user.family_dashboard_order,
-        }),
-        familyService.updateDashboardMember(next.user.id, {
-          show_on_family_dashboard: true,
-          family_dashboard_order: current.user.family_dashboard_order,
-        }),
-      ])
-      await reloadAll()
-    } catch {
-      toast.error(t('modal.failedToReorder'))
-      await reloadAll()  // Resync on failure
-    } finally {
-      setUpdatingUserId(null)
-    }
-  }
+  const handleMoveUp = (userId: number, index: number) => moveMember(userId, index, index - 1)
+  const handleMoveDown = (userId: number, index: number) => moveMember(userId, index, index + 1)
 
   const handleUserSaved = () => {
     setShowAddEditModal(false)

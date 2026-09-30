@@ -23673,7 +23673,7 @@
       },
       "UnitPreferenceUpdate": {
         "additionalProperties": false,
-        "description": "Schema for the dedicated unit-preference mutation (spec D9b).\n\n`PUT /auth/me` guards every field with `if ... is not None`, so it cannot\nexpress \"clear this column\". D3 requires that selecting a preset writes\neleven explicit nulls, which is why unit preferences do not ride the\ngeneric profile route.\n\nThe `units` field is required for `custom` and forbidden otherwise. A\npartial custom would leave some columns resolving from the base preset,\nwhich is the masking this phase exists to remove; a preset carrying a set\nwould make the request's intent unknowable.",
+        "description": "Schema for the dedicated unit-preference mutation (spec D9b).\n\nD3 requires that selecting a preset writes eleven explicit nulls in one\nstep, derived from the preset rather than sent field by field, which is\nwhy unit preferences do not ride the generic profile route.\n\nThe `units` field is required for `custom` and forbidden otherwise. A\npartial custom would leave some columns resolving from the base preset,\nwhich is the masking this phase exists to remove; a preset carrying a set\nwould make the request's intent unknowable.",
         "properties": {
           "show_both_units": {
             "anyOf": [
@@ -24299,7 +24299,7 @@
       },
       "UserSelfUpdate": {
         "additionalProperties": false,
-        "description": "Schema for users updating their own profile. Rejects privileged fields.\n\nCarries no `unit_preference` (D9b). Its route guards every field with\n`if ... is not None`, so it cannot express \"clear this column\", and a\npreset written here would leave the eleven override columns masking it.\nUnits are set through `PUT /auth/me/units` and `UnitPreferenceUpdate`,\nwhich writes all eleven or clears all eleven. `show_both_units` stays: it\nis a display toggle, not a choice of unit.",
+        "description": "Schema for users updating their own profile. Rejects privileged fields.\n\nCarries no `unit_preference` (D9b). A preset written here would leave the\neleven override columns masking it.\nUnits are set through `PUT /auth/me/units` and `UnitPreferenceUpdate`,\nwhich writes all eleven or clears all eleven. `show_both_units` stays: it\nis a display toggle, not a choice of unit.",
         "properties": {
           "accent_color": {
             "anyOf": [
@@ -30460,11 +30460,12 @@
         "type": "object"
       },
       "WindowStickerDataUpdate": {
-        "description": "Schema for updating window sticker extracted data.",
+        "description": "The review's edits. Omitted keeps, null clears; widths match the columns.",
         "properties": {
           "assembly_location": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -30488,9 +30489,34 @@
             ],
             "title": "Destination Charge"
           },
+          "environmental_rating_ghg": {
+            "anyOf": [
+              {
+                "maxLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environmental Rating Ghg"
+          },
+          "environmental_rating_smog": {
+            "anyOf": [
+              {
+                "maxLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environmental Rating Smog"
+          },
           "exterior_color": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -30502,6 +30528,8 @@
           "fuel_economy_city_l_per_100km": {
             "anyOf": [
               {
+                "maximum": 999.99,
+                "minimum": 0.0,
                 "type": "number"
               },
               {
@@ -30517,6 +30545,8 @@
           "fuel_economy_combined_l_per_100km": {
             "anyOf": [
               {
+                "maximum": 999.99,
+                "minimum": 0.0,
                 "type": "number"
               },
               {
@@ -30532,6 +30562,8 @@
           "fuel_economy_highway_l_per_100km": {
             "anyOf": [
               {
+                "maximum": 999.99,
+                "minimum": 0.0,
                 "type": "number"
               },
               {
@@ -30547,6 +30579,7 @@
           "interior_color": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -30624,9 +30657,58 @@
             ],
             "title": "Standard Equipment"
           },
+          "sticker_drivetrain": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sticker Drivetrain"
+          },
+          "sticker_engine_description": {
+            "anyOf": [
+              {
+                "maxLength": 150,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sticker Engine Description"
+          },
+          "sticker_transmission_description": {
+            "anyOf": [
+              {
+                "maxLength": 150,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sticker Transmission Description"
+          },
+          "tire_specs": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tire Specs"
+          },
           "warranty_basic": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -30638,6 +30720,7 @@
           "warranty_powertrain": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -30645,6 +30728,18 @@
               }
             ],
             "title": "Warranty Powertrain"
+          },
+          "wheel_specs": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wheel Specs"
           }
         },
         "title": "WindowStickerDataUpdate",
@@ -30816,6 +30911,17 @@
             ],
             "title": "Standard Equipment"
           },
+          "sticker_drivetrain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sticker Drivetrain"
+          },
           "sticker_engine_description": {
             "anyOf": [
               {
@@ -30898,6 +31004,17 @@
             ],
             "title": "Window Sticker Confidence Score"
           },
+          "window_sticker_extracted_vin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Sticker Extracted Vin"
+          },
           "window_sticker_file_path": {
             "anyOf": [
               {
@@ -30975,6 +31092,7 @@
           "interior_color",
           "sticker_engine_description",
           "sticker_transmission_description",
+          "sticker_drivetrain",
           "wheel_specs",
           "tire_specs",
           "warranty_powertrain",
@@ -30984,7 +31102,8 @@
           "window_sticker_options_detail",
           "window_sticker_packages",
           "window_sticker_parser_used",
-          "window_sticker_confidence_score"
+          "window_sticker_confidence_score",
+          "window_sticker_extracted_vin"
         ],
         "title": "WindowStickerResponse",
         "type": "object"

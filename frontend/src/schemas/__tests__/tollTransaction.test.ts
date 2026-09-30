@@ -8,8 +8,19 @@ const tollTransactionSchema = makeTollTransactionSchema(t)
 describe('Toll Transaction Schema', () => {
   const validTransaction = {
     transaction_date: '2024-03-15',
+    amount: 2.25,
     location: 'Hardy Toll Road - Main Plaza',
   }
+
+  it('requires the amount', () => {
+    const { amount: _omitted, ...withoutAmount } = validTransaction
+    const result = tollTransactionSchema.safeParse(withoutAmount)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(['amount'])
+      expect(result.error.issues[0].message).toBe('common:validation.amount.required')
+    }
+  })
 
   it('validates valid transaction with required fields only', () => {
     const result = tollTransactionSchema.safeParse(validTransaction)

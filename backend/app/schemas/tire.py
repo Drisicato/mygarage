@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._nullability import reject_null
 from app.utils.household_time import household_today
 
 TirePosition = Literal["FL", "FR", "RL", "RR", "SPARE"]
@@ -385,6 +386,9 @@ class TireSetUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=60)
     notes: str | None = None
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("name")
 
 
 class TireSetResponse(BaseModel):

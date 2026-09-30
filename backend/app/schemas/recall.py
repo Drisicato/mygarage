@@ -4,6 +4,8 @@ import datetime as dt
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class RecallBase(BaseModel):
     """Base recall schema with common fields."""
@@ -43,6 +45,9 @@ class RecallUpdate(BaseModel):
     date_announced: dt.date | None = Field(None, description="Date recall was announced")
     notes: str | None = Field(None, description="User notes about the recall")
     is_resolved: bool | None = Field(None, description="Whether recall has been resolved")
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("is_resolved")
 
 
 class RecallResponse(RecallBase):

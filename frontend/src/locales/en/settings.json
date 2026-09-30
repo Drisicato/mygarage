@@ -15,7 +15,9 @@
   },
   "timezone": {
     "label": "Timezone",
-    "description": "The calendar day MyGarage uses for due dates, overdue badges, notifications and the dates forms fill in. Log timestamps stay in UTC."
+    "description": "The calendar day MyGarage uses for due dates, overdue badges, notifications and the dates forms fill in. Log timestamps stay in UTC.",
+    "serverDefault": "Server default",
+    "serverDefaultZone": "Server default ({{zone}})"
   },
   "garageSections": {
     "title": "Garage sections",

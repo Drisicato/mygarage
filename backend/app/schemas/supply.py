@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 SupplyUnitType = Literal["volume", "count"]
 
 
@@ -40,6 +42,9 @@ class SupplyUpdate(BaseModel):
     vin: str | None = Field(None, max_length=17)
     notes: str | None = Field(None, max_length=5000)
     is_active: bool | None = Field(None, description="false = archive, true = restore")
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("name", "is_active")
 
 
 class SupplyResponse(SupplyBase):

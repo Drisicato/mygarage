@@ -5,6 +5,8 @@ from datetime import datetime as datetime_type
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class NoteBase(BaseModel):
     """Base note schema."""
@@ -26,6 +28,9 @@ class NoteUpdate(BaseModel):
     date: date_type | None = None
     title: str | None = Field(None, max_length=100)
     content: str | None = Field(None, min_length=1)
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("date", "content")
 
 
 class NoteResponse(NoteBase):

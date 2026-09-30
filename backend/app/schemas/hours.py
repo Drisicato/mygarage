@@ -10,6 +10,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class HoursRecordBase(BaseModel):
     """Base hours record schema with common fields."""
@@ -46,6 +48,9 @@ class HoursRecordUpdate(BaseModel):
         None, description="Engine hours reading", ge=0, le=999999999.9
     )
     notes: str | None = Field(None, description="Additional notes")
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("date", "engine_hours")
 
     model_config = {
         "json_schema_extra": {"examples": [{"engine_hours": 815.2, "notes": "Corrected reading"}]}

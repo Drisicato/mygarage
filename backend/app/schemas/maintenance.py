@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._nullability import reject_null
 from app.utils.maintenance_types import is_valid_code
 
 
@@ -124,6 +125,9 @@ class MaintenanceRuleUpdate(BaseModel):
     notes: str | None = Field(None, max_length=2000)
     recurrence: RecurrenceSpec | None = None
     is_active: bool | None = None
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("title", "is_active", "recurrence")
 
     _validate_type = field_validator("maintenance_type")(validate_maintenance_type)
 

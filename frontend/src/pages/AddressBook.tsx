@@ -20,7 +20,7 @@ import {
   Fuel,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { AddressBookEntry, AddressBookEntryCreate } from '../types/addressBook'
+import type { AddressBookEntry, AddressBookEntryCreate, AddressBookEntryUpdate } from '../types/addressBook'
 import { addressBookSchema, type AddressBookFormData, ADDRESS_BOOK_CATEGORIES } from '../schemas/addressBook'
 import { Chip, Button, Field, Input, Textarea, Select, SearchField } from '../components/ui'
 import type { IconType } from '../components/ui/types'
@@ -277,11 +277,17 @@ export function AddressBookForm({ entry, onClose, onSuccess }: AddressBookFormPr
   const isEdit = !!entry
   const [error, setError] = useState<string | null>(null)
 
-  // Pre-select the category from displayCategory (so editing a POI-derived
-  // gas station shows "Gas Station"), but only when it is one of the canonical
-  // options — a legacy/custom value falls back to the empty placeholder.
-  const initialCategory = entry ? displayCategory(entry) : ''
-  const defaultCategory = ADDRESS_BOOK_CATEGORIES.some((c) => c.value === initialCategory) ? initialCategory : ''
+  // Pre-select the category from displayCategory, so editing a POI-derived
+  // gas station shows "Gas Station". A stored custom category stays selectable
+  // as its own option; seeding '' for it wiped it on any save.
+  const defaultCategory = entry ? displayCategory(entry) : ''
+  const categoryOptions: { value: string; label: string }[] = ADDRESS_BOOK_CATEGORIES.map((cat) => ({
+    value: cat.value,
+    label: t(cat.labelKey),
+  }))
+  if (defaultCategory && !ADDRESS_BOOK_CATEGORIES.some((c) => c.value === defaultCategory)) {
+    categoryOptions.unshift({ value: defaultCategory, label: defaultCategory })
+  }
 
   const {
     register,
@@ -327,7 +333,13 @@ export function AddressBookForm({ entry, onClose, onSuccess }: AddressBookFormPr
       }
 
       if (isEdit) {
-        await api.put(`/address-book/${entry.id}`, payload)
+        // An edit keeps the entry's provenance (tomtom, osm, google), and a
+        // category the form only seeded for display (a POI-derived "Gas
+        // Station") isn't the user's edit, so neither is sent unless changed.
+        const { source: _source, category: _category, ...fields } = payload
+        const update: AddressBookEntryUpdate = fields
+        if (data.category !== defaultCategory) update.category = data.category || null
+        await api.put(`/address-book/${entry.id}`, update)
       } else {
         await api.post('/address-book', payload)
       }
@@ -434,7 +446,7 @@ export function AddressBookForm({ entry, onClose, onSuccess }: AddressBookFormPr
             disabled={isSubmitting}
             invalid={!!errors.category}
             placeholder={t('addressBook.selectCategory')}
-            options={ADDRESS_BOOK_CATEGORIES.map((cat) => ({ value: cat.value, label: t(cat.labelKey) }))}
+            options={categoryOptions}
           />
         </Field>
 

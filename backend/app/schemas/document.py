@@ -2,7 +2,9 @@
 
 from datetime import datetime as datetime_type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas._nullability import reject_null
 
 
 class DocumentBase(BaseModel):
@@ -13,10 +15,26 @@ class DocumentBase(BaseModel):
     description: str | None = None
 
 
+def usable_title(value: str | None) -> str | None:
+    """Strip a document title and refuse one that is blank.
+
+    Lives on Create and Update only: the Response inherits DocumentBase and
+    must still read a blank title saved before this check existed.
+    """
+    if value is None:
+        return value
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("title cannot be blank")
+    return stripped
+
+
 class DocumentCreate(DocumentBase):
     """Schema for creating a document."""
 
     vin: str = Field(..., max_length=17)
+
+    _title = field_validator("title")(usable_title)
 
 
 class DocumentUpdate(BaseModel):
@@ -25,6 +43,9 @@ class DocumentUpdate(BaseModel):
     document_type: str | None = Field(None, max_length=50)
     title: str | None = Field(None, max_length=200)
     description: str | None = None
+
+    _no_null = reject_null("title")
+    _title = field_validator("title")(usable_title)
 
 
 class DocumentResponse(DocumentBase):
