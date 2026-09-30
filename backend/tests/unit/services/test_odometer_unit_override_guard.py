@@ -43,7 +43,9 @@ class TestOdometerUnitOverrideGuard:
         await db_session.flush()
 
         with pytest.raises(ValueError, match="already"):
-            await LiveLinkService(db_session).update_device(device.device_id, odometer_unit="km")
+            await LiveLinkService(db_session).update_device(
+                device.device_id, {"odometer_unit": "km"}
+            )
 
     async def test_changing_the_unit_before_any_odometer_reading_is_allowed(
         self, db_session, make_livelink_vehicle
@@ -54,7 +56,7 @@ class TestOdometerUnitOverrideGuard:
         await db_session.flush()
 
         updated = await LiveLinkService(db_session).update_device(
-            device.device_id, odometer_unit="km"
+            device.device_id, {"odometer_unit": "km"}
         )
         assert updated is not None
         assert updated.odometer_unit == "km"
@@ -78,7 +80,7 @@ class TestOdometerUnitOverrideGuard:
         await db_session.flush()
 
         updated = await LiveLinkService(db_session).update_device(
-            device.device_id, odometer_unit="mi"
+            device.device_id, {"odometer_unit": "mi"}
         )
         assert updated is not None
         assert updated.odometer_unit == "mi"

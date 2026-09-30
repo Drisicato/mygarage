@@ -359,14 +359,7 @@ async def update_device(
 
     service = LiveLinkService(db)
     try:
-        device = await service.update_device(
-            device_id=device_id,
-            label=updates.label,
-            vin=updates.vin,
-            enabled=updates.enabled,
-            odometer_unit=updates.odometer_unit,
-            odometer_param_key=updates.odometer_param_key,
-        )
+        device = await service.update_device(device_id, updates.model_dump(exclude_unset=True))
     except ValueError as exc:
         # Changing the odometer unit once readings depend on it would split the
         # device's history across two units. 409: the request is well formed,
@@ -605,12 +598,13 @@ async def update_parameter(
     if not param:
         raise HTTPException(status_code=404, detail=f"Parameter {param_key} not found")
 
-    # Update fields
-    if updates.display_name is not None:
+    # Omitted keeps, null clears.
+    sent = updates.model_fields_set
+    if "display_name" in sent:
         param.display_name = updates.display_name
-    if updates.category is not None:
+    if "category" in sent:
         param.category = updates.category
-    if updates.icon is not None:
+    if "icon" in sent:
         param.icon = updates.icon
     # An explicit null switches a line off; an omitted one stays as it is.
     lines = {

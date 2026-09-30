@@ -7,6 +7,7 @@ import secrets
 import socket
 from collections.abc import Sequence
 from datetime import timedelta
+from typing import Any
 from urllib.parse import urlsplit
 
 from sqlalchemy import delete, select, update
@@ -486,16 +487,15 @@ class LiveLinkService:
         )
         return True
 
-    async def update_device(
-        self,
-        device_id: str,
-        label: str | None = None,
-        vin: str | None = None,
-        enabled: bool | None = None,
-        odometer_unit: str | None = None,
-        odometer_param_key: str | None = None,
-    ) -> LiveLinkDevice | None:
+    async def update_device(self, device_id: str, changes: dict[str, Any]) -> LiveLinkDevice | None:
         """Update device settings.
+
+        ``changes`` holds only the fields the request sent (``exclude_unset``).
+        An omitted field keeps its value. A null ``label`` clears it; separate
+        parameters defaulting to None couldn't tell that from omitted, so a
+        cleared label said saved and stayed.
+
+        ``vin``: ``""`` unlinks, None leaves the link alone.
 
         ``odometer_unit`` accepts 'km', 'mi', or 'auto' to clear the override
         back to key-shape inference. None leaves the current value untouched.
@@ -511,13 +511,15 @@ class LiveLinkService:
         if not device:
             return None
 
-        if label is not None:
-            device.label = label
+        if "label" in changes:
+            device.label = changes["label"]
+        vin = changes.get("vin")
         if vin is not None:
             # "" is the unlink sentinel (schemas.livelink.LiveLinkDeviceUpdate.vin).
             device.vin = vin or None
-        if enabled is not None:
-            device.enabled = enabled
+        if "enabled" in changes:
+            device.enabled = changes["enabled"]
+        odometer_unit = changes.get("odometer_unit")
         if odometer_unit is not None:
             resolved = None if odometer_unit == "auto" else odometer_unit
             if resolved != device.odometer_unit and await self._has_odometer_history(
@@ -533,6 +535,7 @@ class LiveLinkService:
                 )
             device.odometer_unit = resolved
 
+        odometer_param_key = changes.get("odometer_param_key")
         if odometer_param_key is not None:
             resolved_key = odometer_param_key.upper().replace(" ", "_") or None
             # Same reasoning as the unit guard above: changing which parameter
