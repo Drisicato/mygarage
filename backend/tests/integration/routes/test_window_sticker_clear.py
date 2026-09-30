@@ -157,3 +157,18 @@ async def test_fuel_economy_at_the_column_limit_saves(
     r = await _patch(client, auth_headers, own_vehicle, {field: "999.99"})
     assert r.status_code == 200, r.text
     assert r.json()[field] == "999.99"
+
+
+async def test_the_extracted_vin_is_returned(
+    client: AsyncClient, auth_headers, own_vehicle, db_session: AsyncSession
+):
+    # The upload stores the VIN it read off the sticker so the review can show
+    # it next to the vehicle's; the response never carried it.
+    vehicle = await db_session.get(Vehicle, own_vehicle)
+    assert vehicle is not None
+    vehicle.window_sticker_extracted_vin = "1HGCM82633A004352"
+    await db_session.commit()
+
+    assert (await _sticker(client, auth_headers, own_vehicle))[
+        "window_sticker_extracted_vin"
+    ] == "1HGCM82633A004352"

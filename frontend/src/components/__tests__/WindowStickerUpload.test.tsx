@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '../../__tests__/test-utils'
+import { render, screen } from '../../__tests__/test-utils'
 import userEvent from '@testing-library/user-event'
 
 const apiPost = vi.fn()
@@ -13,6 +13,10 @@ vi.mock('../../services/api', () => ({
 vi.mock('../../hooks/useCurrencyPreference', () => ({
   useCurrencyPreference: () => ({ currencyCode: 'USD', locale: 'en-US', formatCurrency: vi.fn() }),
 }))
+vi.mock('../../hooks/useUnitPreference', async () => {
+  const { METRIC_UNITS } = await import('@/__tests__/factories')
+  return { useUnitPreference: () => ({ system: 'metric', showBoth: false, units: METRIC_UNITS }) }
+})
 
 import WindowStickerUpload from '../WindowStickerUpload'
 
@@ -31,6 +35,13 @@ const uploadAndReachEditScreen = async (user: ReturnType<typeof userEvent.setup>
   await user.upload(input, file)
   await user.click(screen.getByRole('button', { name: 'windowSticker.uploadAndExtract' }))
   await screen.findByRole('button', { name: 'windowSticker.misc.saveData' })
+}
+
+// Save only PATCHes what changed, so each 422 case edits a field first.
+const editAndSave = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.clear(screen.getByLabelText('detail.misc.basePrice'))
+  await user.type(screen.getByLabelText('detail.misc.basePrice'), '31000')
+  await user.click(screen.getByRole('button', { name: 'windowSticker.misc.saveData' }))
 }
 
 // Final-review I4 regression fence: WindowStickerUpload has 9 fieldErrors-wired
@@ -55,7 +66,7 @@ describe('WindowStickerUpload — server-side error wiring (final-review I4)', (
 
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await uploadAndReachEditScreen(user)
-    await user.click(screen.getByRole('button', { name: 'windowSticker.misc.saveData' }))
+    await editAndSave(user)
 
     await vi.waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1))
     expect(
@@ -78,7 +89,7 @@ describe('WindowStickerUpload — server-side error wiring (final-review I4)', (
 
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await uploadAndReachEditScreen(user)
-    await user.click(screen.getByRole('button', { name: 'windowSticker.misc.saveData' }))
+    await editAndSave(user)
 
     await vi.waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1))
     const alert = await screen.findByRole('alert')
@@ -106,7 +117,7 @@ describe('WindowStickerUpload — server-side error wiring (final-review I4)', (
 
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await uploadAndReachEditScreen(user)
-    await user.click(screen.getByRole('button', { name: 'windowSticker.misc.saveData' }))
+    await editAndSave(user)
 
     await vi.waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1))
     await screen.findByRole('alert')
@@ -116,23 +127,5 @@ describe('WindowStickerUpload — server-side error wiring (final-review I4)', (
   })
 })
 
-// Final-review I9 regression fence: `parseCurrency` stripped everything but
-// digits and dots with `parseFloat(value.replace(/[^0-9.]/g, ''))`, so a
-// comma decimal ("528,25") had its comma silently dropped instead of read as
-// a separator — "52825" instead of "528.25", a silent 100x error on all four
-// MSRP fields. Fixed by routing through the same parseDecimalInput the rest
-// of the app's numeric inputs use.
-describe('WindowStickerUpload — MSRP field parsing (final-review I9)', () => {
-  it('reads a comma-decimal MSRP as 528.25, not a 100x-inflated 52825', async () => {
-    const user = userEvent.setup({ applyAccept: false })
-    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
-    await uploadAndReachEditScreen(user)
-    // A successful upload starts in edit mode already (setEditMode(true)),
-    // so the MSRP inputs are enabled without an extra toggle click.
-
-    const msrpBaseInput = screen.getByPlaceholderText('91,860')
-    fireEvent.change(msrpBaseInput, { target: { value: '528,25' } })
-
-    expect(msrpBaseInput).toHaveValue('528.25')
-  })
-})
+// The comma-decimal MSRP fence (final-review I9) lives in WindowStickerUpload.review.test.tsx,
+// asserted on the posted payload now that the input keeps the typed text.

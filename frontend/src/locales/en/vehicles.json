@@ -1575,6 +1575,7 @@
       "colors": "Colors",
       "vehicleSpecs": "Vehicle Specifications",
       "fuelEconomyMpg": "Fuel Economy (MPG)",
+      "fuelEconomyUnit": "Fuel Economy ({{unit}})",
       "environmentalRatings": "Environmental Ratings (CA ARB)",
       "greenhouseGas": "Greenhouse Gas (GHG)",
       "assemblyAndVin": "Assembly & VIN",

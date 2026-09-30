@@ -19978,6 +19978,8 @@ export interface components {
             wheel_specs: string | null;
             /** Window Sticker Confidence Score */
             window_sticker_confidence_score: string | null;
+            /** Window Sticker Extracted Vin */
+            window_sticker_extracted_vin: string | null;
             /** Window Sticker File Path */
             window_sticker_file_path: string | null;
             /** Window Sticker Options Detail */

@@ -6,27 +6,53 @@ import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { applyControlledFieldErrors } from '../hooks/useApiFormErrors'
 import { parseDecimalInput } from '../utils/decimalInput'
 import { getActiveLocale } from '@/constants/i18n'
-
-// Render targets: the ONLY 9 of ExtractedData's ~25 keys that have a
-// fieldErrors-wired <p role="alert"> in the JSX below (msrp_base,
-// msrp_options, destination_charge, msrp_total, exterior_color,
-// interior_color, warranty_powertrain, warranty_basic, assembly_location).
-// A 422 naming any other key (fuel_economy_*, sticker_*, wheel_specs,
-// tire_specs, environmental_rating_*, etc.) has nowhere to render and must
-// fall through to the banner instead of vanishing silently.
-const WINDOW_STICKER_KNOWN_FIELDS = [
-  'msrp_base',
-  'msrp_options',
-  'destination_charge',
-  'msrp_total',
-  'exterior_color',
-  'interior_color',
-  'warranty_powertrain',
-  'warranty_basic',
-  'assembly_location',
-] as const
 import { Drawer } from './ui'
 import { useCurrencySymbol } from '../hooks/useCurrencySymbol'
+import { useUnitFormat } from '../hooks/useUnitFormat'
+import { seedUnitField, unitFieldUnchanged, type UnitFieldOrigin } from '../utils/unitFormat'
+import type { components } from '../types/api.generated'
+
+type StickerData = components['schemas']['WindowStickerResponse']
+
+// Widths match the vehicle columns, so an overlong value stops at the input
+// instead of coming back as a 422.
+const TEXT_FIELDS = {
+  exterior_color: 100,
+  interior_color: 100,
+  sticker_engine_description: 150,
+  sticker_transmission_description: 150,
+  sticker_drivetrain: 50,
+  wheel_specs: 100,
+  tire_specs: 100,
+  warranty_powertrain: 100,
+  warranty_basic: 100,
+  environmental_rating_ghg: 10,
+  environmental_rating_smog: 10,
+  assembly_location: 100,
+} as const
+type TextField = keyof typeof TEXT_FIELDS
+const TEXT_KEYS = Object.keys(TEXT_FIELDS) as TextField[]
+
+const MONEY_FIELDS = ['msrp_base', 'msrp_options', 'destination_charge', 'msrp_total'] as const
+type MoneyField = (typeof MONEY_FIELDS)[number]
+
+// Stored in L/100 km, shown and edited in the user's unit.
+const ECONOMY_FIELDS = [
+  'fuel_economy_city_l_per_100km',
+  'fuel_economy_highway_l_per_100km',
+  'fuel_economy_combined_l_per_100km',
+] as const
+type EconomyField = (typeof ECONOMY_FIELDS)[number]
+
+type ReviewField = TextField | MoneyField | EconomyField
+
+// Every editable field renders its own fieldErrors alert, so a 422 on any of
+// them lands inline. A key listed here without an alert would swallow its
+// error: it counts as attached, which suppresses the banner.
+const WINDOW_STICKER_KNOWN_FIELDS: readonly ReviewField[] = [...MONEY_FIELDS, ...ECONOMY_FIELDS, ...TEXT_KEYS]
+
+const toNumber = (value: string | number | null | undefined): number | null =>
+  value == null || value === '' ? null : Number(value)
 
 interface WindowStickerUploadProps {
   vin: string
@@ -34,51 +60,21 @@ interface WindowStickerUploadProps {
   onClose: () => void
 }
 
-interface ExtractedData {
-  // Pricing
-  msrp_base?: number
-  msrp_options?: number
-  msrp_total?: number
-  destination_charge?: number
-  // Fuel economy
-  fuel_economy_city?: number
-  fuel_economy_highway?: number
-  fuel_economy_combined?: number
-  // Colors
-  exterior_color?: string
-  interior_color?: string
-  // Vehicle specs
-  sticker_engine_description?: string
-  sticker_transmission_description?: string
-  wheel_specs?: string
-  tire_specs?: string
-  // Warranty
-  warranty_powertrain?: string
-  warranty_basic?: string
-  // Environmental
-  environmental_rating_ghg?: string
-  environmental_rating_smog?: string
-  // Location & metadata
-  assembly_location?: string
-  window_sticker_parser_used?: string
-  window_sticker_confidence_score?: number
-  window_sticker_extracted_vin?: string
-  // Equipment (JSON)
-  standard_equipment?: { items: string[] }
-  optional_equipment?: { items: string[] }
-  window_sticker_options_detail?: Record<string, string>
-  window_sticker_packages?: Record<string, string>
-}
-
 export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowStickerUploadProps) {
   const { t } = useTranslation('vehicles')
   const currencySymbol = useCurrencySymbol()
+  const u = useUnitFormat()
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [success, setSuccess] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
-  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null)
+  // What the upload stored, and the review's edits as typed. Save sends only
+  // the fields whose value differs from the seed, so an untouched review
+  // writes nothing back.
+  const [seed, setSeed] = useState<StickerData | null>(null)
+  const [draft, setDraft] = useState<Record<ReviewField, string> | null>(null)
+  const [economyOrigins, setEconomyOrigins] = useState<Record<EconomyField, UnitFieldOrigin> | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -144,7 +140,17 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
         headers: { 'Content-Type': 'multipart/form-data' },
       })
 
-      setExtractedData(response.data)
+      const data = response.data as StickerData
+      const origins = Object.fromEntries(
+        ECONOMY_FIELDS.map((key) => [key, seedUnitField(toNumber(data[key]), u.consumption)])
+      ) as Record<EconomyField, UnitFieldOrigin>
+      const seeded = {} as Record<ReviewField, string>
+      for (const key of TEXT_KEYS) seeded[key] = data[key] ?? ''
+      for (const key of MONEY_FIELDS) seeded[key] = data[key] ?? ''
+      for (const key of ECONOMY_FIELDS) seeded[key] = origins[key].display
+      setSeed(data)
+      setEconomyOrigins(origins)
+      setDraft(seeded)
       setSuccess(t('windowSticker.misc.uploadSuccess'))
       setEditMode(true)
     } catch (err) {
@@ -163,21 +169,74 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
     }
   }
 
-  const handleSaveEdits = async () => {
-    if (!extractedData) return
+  // The fields that differ from what the upload stored, plus any text that
+  // doesn't parse as a number.
+  const collectChanges = (
+    stored: StickerData,
+    typed: Record<ReviewField, string>,
+    origins: Record<EconomyField, UnitFieldOrigin>
+  ): { changes: Record<string, string | number | null>; problems: Record<string, string> } => {
+    const changes: Record<string, string | number | null> = {}
+    const problems: Record<string, string> = {}
+    const invalid = t('common:validation.amount.invalid')
 
-    setUploading(true)
+    for (const key of TEXT_KEYS) {
+      if (typed[key] === (stored[key] ?? '')) continue
+      changes[key] = typed[key] === '' ? null : typed[key]
+    }
+    for (const key of MONEY_FIELDS) {
+      if (typed[key] === (stored[key] ?? '')) continue
+      const parsed = parseDecimalInput(typed[key], getActiveLocale())
+      if (parsed.kind === 'invalid') {
+        problems[key] = invalid
+        continue
+      }
+      const value = parsed.kind === 'empty' ? null : parsed.value
+      if (value !== toNumber(stored[key])) changes[key] = value
+    }
+    for (const key of ECONOMY_FIELDS) {
+      // Compared as a quantity: 7.84 L/100 km shows as 30.0 mpg, and 30.0 mpg
+      // converted back would not be 7.84.
+      if (unitFieldUnchanged(typed[key], origins[key])) continue
+      const parsed = parseDecimalInput(typed[key], getActiveLocale())
+      if (parsed.kind === 'invalid') {
+        problems[key] = invalid
+        continue
+      }
+      changes[key] = parsed.kind === 'empty' ? null : u.consumption.toCanonical(parsed.value)
+    }
+    return { changes, problems }
+  }
+
+  const finish = () => {
+    setSuccess(t('windowSticker.misc.saveSuccess'))
+    setTimeout(() => {
+      onSuccess()
+      onClose()
+    }, 1000)
+  }
+
+  const handleSaveEdits = async () => {
+    if (!seed || !draft || !economyOrigins) return
+
     setError(null)
     setFieldErrors({})
 
-    try {
-      await api.patch(`/vehicles/${vin}/window-sticker/data`, extractedData)
+    const { changes, problems } = collectChanges(seed, draft, economyOrigins)
+    if (Object.keys(problems).length > 0) {
+      setFieldErrors(problems)
+      return
+    }
+    // The upload already stored everything, so an untouched review is done.
+    if (Object.keys(changes).length === 0) {
+      finish()
+      return
+    }
 
-      setSuccess(t('windowSticker.misc.saveSuccess'))
-      setTimeout(() => {
-        onSuccess()
-        onClose()
-      }, 1000)
+    setUploading(true)
+    try {
+      await api.patch(`/vehicles/${vin}/window-sticker/data`, changes)
+      finish()
     } catch (err) {
       const { attached, unhandled, errorsByField } = applyControlledFieldErrors(
         err,
@@ -194,20 +253,36 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
     }
   }
 
-  const formatCurrency = (value: number | undefined) => {
-    if (value === undefined) return ''
-    return value.toString()
-  }
+  const reviewInput = (key: ReviewField, label: string, placeholder?: string) => (
+    <div>
+      <label htmlFor={`sticker-${key}`} className="block text-xs text-garage-text-muted mb-1">{label}</label>
+      <input
+        id={`sticker-${key}`}
+        type="text"
+        inputMode={key in TEXT_FIELDS ? undefined : 'decimal'}
+        maxLength={key in TEXT_FIELDS ? TEXT_FIELDS[key as TextField] : undefined}
+        value={draft?.[key] ?? ''}
+        onChange={(e) => {
+          const value = e.target.value
+          setDraft((prev) => (prev ? { ...prev, [key]: value } : prev))
+        }}
+        disabled={!editMode}
+        placeholder={placeholder}
+        aria-invalid={fieldErrors[key] ? true : undefined}
+        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
+      />
+      {fieldErrors[key] && (
+        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors[key]}</p>
+      )}
+    </div>
+  )
 
-  // Final-review I9: stripping non-digits with `parseFloat(value.replace(/[^0-9.]/g, ''))`
-  // treats a comma as nothing rather than a decimal separator, so "528,25"
-  // becomes "52825" — a silent 100x error on all four MSRP fields below.
-  // Route through the same locale-aware parser NumberInput/registerDecimal
-  // uses elsewhere in the app instead of a bespoke regex.
-  const parseCurrency = (value: string): number | undefined => {
-    const result = parseDecimalInput(value, getActiveLocale())
-    return result.kind === 'value' ? result.value : undefined
-  }
+  const hasEconomy = !!seed && ECONOMY_FIELDS.some((key) => seed[key] != null)
+  const hasRatings = !!seed && (seed.environmental_rating_ghg != null || seed.environmental_rating_smog != null)
+  const optionsDetail = seed?.window_sticker_options_detail ?? {}
+  const standardItems = Array.isArray(seed?.standard_equipment?.items)
+    ? (seed.standard_equipment.items as unknown[]).map(String)
+    : []
 
   return (
     <Drawer
@@ -232,7 +307,7 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
           </div>
         )}
 
-        {!extractedData && (
+        {!seed && (
           <>
             <div
               className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
@@ -302,19 +377,19 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
           </>
         )}
 
-        {extractedData && (
+        {seed && (
           <>
             <div className="bg-garage-bg rounded-lg p-4 border border-garage-border max-h-[60vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4 sticky top-0 bg-garage-bg pb-2">
                 <div>
                   <h3 className="text-lg font-semibold text-garage-text">{t('windowSticker.extractedData')}</h3>
-                  {extractedData.window_sticker_parser_used && (
+                  {seed.window_sticker_parser_used && (
                     <p className="text-xs text-garage-text-muted">
-                      {t('detail.misc.parser', { parser: extractedData.window_sticker_parser_used })}
-                      {extractedData.window_sticker_confidence_score && (
+                      {t('detail.misc.parser', { parser: seed.window_sticker_parser_used })}
+                      {seed.window_sticker_confidence_score && (
                         <span className="ml-2">
                           {t('windowSticker.misc.confidence', {
-                            percent: Math.round(Number(extractedData.window_sticker_confidence_score)),
+                            percent: Math.round(Number(seed.window_sticker_confidence_score)),
                           })}
                         </span>
                       )}
@@ -338,76 +413,11 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     <DollarSign className="w-5 h-5 text-primary" />
                     <span>{t('windowSticker.msrpPricing')}</span>
                   </div>
-
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ml-7">
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.basePrice')}</label>
-                      <input
-                        type="text"
-                        value={formatCurrency(extractedData.msrp_base)}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          msrp_base: parseCurrency(e.target.value)
-                        })}
-                        disabled={!editMode}
-                        placeholder="91,860"
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.msrp_base && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.msrp_base}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.options')}</label>
-                      <input
-                        type="text"
-                        value={formatCurrency(extractedData.msrp_options)}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          msrp_options: parseCurrency(e.target.value)
-                        })}
-                        disabled={!editMode}
-                        placeholder="11,055"
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.msrp_options && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.msrp_options}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.destination')}</label>
-                      <input
-                        type="text"
-                        value={formatCurrency(extractedData.destination_charge)}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          destination_charge: parseCurrency(e.target.value)
-                        })}
-                        disabled={!editMode}
-                        placeholder="2,095"
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.destination_charge && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.destination_charge}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.totalMsrp')}</label>
-                      <input
-                        type="text"
-                        value={formatCurrency(extractedData.msrp_total)}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          msrp_total: parseCurrency(e.target.value)
-                        })}
-                        disabled={!editMode}
-                        placeholder="102,915"
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.msrp_total && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.msrp_total}</p>
-                      )}
-                    </div>
+                    {reviewInput('msrp_base', t('detail.misc.basePrice'), '91,860')}
+                    {reviewInput('msrp_options', t('detail.misc.options'), '11,055')}
+                    {reviewInput('destination_charge', t('detail.misc.destination'), '2,095')}
+                    {reviewInput('msrp_total', t('detail.misc.totalMsrp'), '102,915')}
                   </div>
                 </div>
 
@@ -417,42 +427,9 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     <Palette className="w-5 h-5 text-primary" />
                     <span>{t('windowSticker.misc.colors')}</span>
                   </div>
-
                   <div className="grid grid-cols-2 gap-3 ml-7">
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.exteriorColor')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.exterior_color || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          exterior_color: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.exteriorColorPlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.exterior_color && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.exterior_color}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.interiorColor')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.interior_color || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          interior_color: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.interiorColorPlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.interior_color && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.interior_color}</p>
-                      )}
-                    </div>
+                    {reviewInput('exterior_color', t('detail.misc.exteriorColor'), t('windowSticker.misc.exteriorColorPlaceholder'))}
+                    {reviewInput('interior_color', t('detail.misc.interiorColor'), t('windowSticker.misc.interiorColorPlaceholder'))}
                   </div>
                 </div>
 
@@ -462,118 +439,26 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     <Cog className="w-5 h-5 text-primary" />
                     <span>{t('windowSticker.misc.vehicleSpecs')}</span>
                   </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 ml-7">
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.engine')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.sticker_engine_description || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          sticker_engine_description: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.enginePlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.transmission')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.sticker_transmission_description || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          sticker_transmission_description: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.transmissionPlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.wheels')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.wheel_specs || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          wheel_specs: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.wheelsPlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.tires')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.tire_specs || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          tire_specs: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder="LT285/60R20E"
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                    </div>
+                    {reviewInput('sticker_engine_description', t('detail.misc.engine'), t('windowSticker.misc.enginePlaceholder'))}
+                    {reviewInput('sticker_transmission_description', t('detail.misc.transmission'), t('windowSticker.misc.transmissionPlaceholder'))}
+                    {reviewInput('sticker_drivetrain', t('detail.misc.drivetrain'), t('wizard.misc.driveTypePlaceholder'))}
+                    {reviewInput('wheel_specs', t('detail.misc.wheels'), t('windowSticker.misc.wheelsPlaceholder'))}
+                    {reviewInput('tire_specs', t('detail.misc.tires'), 'LT285/60R20E')}
                   </div>
                 </div>
 
                 {/* Fuel Economy Section */}
-                {(extractedData.fuel_economy_city || extractedData.fuel_economy_highway || extractedData.fuel_economy_combined) && (
+                {hasEconomy && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-garage-text font-medium">
                       <Fuel className="w-5 h-5 text-primary" />
-                      <span>{t('windowSticker.misc.fuelEconomyMpg')}</span>
+                      <span>{t('windowSticker.misc.fuelEconomyUnit', { unit: u.consumption.label })}</span>
                     </div>
-
                     <div className="grid grid-cols-3 gap-3 ml-7">
-                      <div>
-                        <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.city')}</label>
-                        <input
-                          type="number"
-                          value={extractedData.fuel_economy_city || ''}
-                          onChange={(e) => setExtractedData({
-                            ...extractedData,
-                            fuel_economy_city: e.target.value ? parseInt(e.target.value) : undefined
-                          })}
-                          disabled={!editMode}
-                          placeholder="20"
-                          className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.highway')}</label>
-                        <input
-                          type="number"
-                          value={extractedData.fuel_economy_highway || ''}
-                          onChange={(e) => setExtractedData({
-                            ...extractedData,
-                            fuel_economy_highway: e.target.value ? parseInt(e.target.value) : undefined
-                          })}
-                          disabled={!editMode}
-                          placeholder="25"
-                          className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.combined')}</label>
-                        <input
-                          type="number"
-                          value={extractedData.fuel_economy_combined || ''}
-                          onChange={(e) => setExtractedData({
-                            ...extractedData,
-                            fuel_economy_combined: e.target.value ? parseInt(e.target.value) : undefined
-                          })}
-                          disabled={!editMode}
-                          placeholder="22"
-                          className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                        />
-                      </div>
+                      {reviewInput('fuel_economy_city_l_per_100km', t('detail.misc.city'))}
+                      {reviewInput('fuel_economy_highway_l_per_100km', t('detail.misc.highway'))}
+                      {reviewInput('fuel_economy_combined_l_per_100km', t('detail.misc.combined'))}
                     </div>
                   </div>
                 )}
@@ -584,82 +469,22 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     <Shield className="w-5 h-5 text-primary" />
                     <span>{t('detail.warranty')}</span>
                   </div>
-
                   <div className="grid grid-cols-2 gap-3 ml-7">
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.powertrain')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.warranty_powertrain || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          warranty_powertrain: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.warrantyPowertrainPlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.warranty_powertrain && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.warranty_powertrain}</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.basic')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.warranty_basic || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          warranty_basic: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.warrantyBasicPlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.warranty_basic && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.warranty_basic}</p>
-                      )}
-                    </div>
+                    {reviewInput('warranty_powertrain', t('detail.powertrain'), t('windowSticker.misc.warrantyPowertrainPlaceholder'))}
+                    {reviewInput('warranty_basic', t('detail.misc.basic'), t('windowSticker.misc.warrantyBasicPlaceholder'))}
                   </div>
                 </div>
 
                 {/* Environmental Ratings Section */}
-                {(extractedData.environmental_rating_ghg || extractedData.environmental_rating_smog) && (
+                {hasRatings && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-garage-text font-medium">
                       <Leaf className="w-5 h-5 text-primary" />
                       <span>{t('windowSticker.misc.environmentalRatings')}</span>
                     </div>
-
                     <div className="grid grid-cols-2 gap-3 ml-7">
-                      <div>
-                        <label className="block text-xs text-garage-text-muted mb-1">{t('windowSticker.misc.greenhouseGas')}</label>
-                        <input
-                          type="text"
-                          value={extractedData.environmental_rating_ghg || ''}
-                          onChange={(e) => setExtractedData({
-                            ...extractedData,
-                            environmental_rating_ghg: e.target.value || undefined
-                          })}
-                          disabled={!editMode}
-                          placeholder="A+"
-                          className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.smogRating')}</label>
-                        <input
-                          type="text"
-                          value={extractedData.environmental_rating_smog || ''}
-                          onChange={(e) => setExtractedData({
-                            ...extractedData,
-                            environmental_rating_smog: e.target.value || undefined
-                          })}
-                          disabled={!editMode}
-                          placeholder="A+"
-                          className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                        />
-                      </div>
+                      {reviewInput('environmental_rating_ghg', t('windowSticker.misc.greenhouseGas'), 'A+')}
+                      {reviewInput('environmental_rating_smog', t('detail.misc.smogRating'), 'A+')}
                     </div>
                   </div>
                 )}
@@ -670,31 +495,14 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     <Car className="w-5 h-5 text-primary" />
                     <span>{t('windowSticker.misc.assemblyAndVin')}</span>
                   </div>
-
                   <div className="grid grid-cols-2 gap-3 ml-7">
-                    <div>
-                      <label className="block text-xs text-garage-text-muted mb-1">{t('detail.misc.assemblyLocation')}</label>
-                      <input
-                        type="text"
-                        value={extractedData.assembly_location || ''}
-                        onChange={(e) => setExtractedData({
-                          ...extractedData,
-                          assembly_location: e.target.value || undefined
-                        })}
-                        disabled={!editMode}
-                        placeholder={t('windowSticker.misc.assemblyLocationPlaceholder')}
-                        className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
-                      />
-                      {fieldErrors.assembly_location && (
-                        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors.assembly_location}</p>
-                      )}
-                    </div>
-                    {extractedData.window_sticker_extracted_vin && (
+                    {reviewInput('assembly_location', t('detail.misc.assemblyLocation'), t('windowSticker.misc.assemblyLocationPlaceholder'))}
+                    {seed.window_sticker_extracted_vin && (
                       <div>
                         <label className="block text-xs text-garage-text-muted mb-1">{t('windowSticker.misc.extractedVin')}</label>
                         <input
                           type="text"
-                          value={extractedData.window_sticker_extracted_vin || ''}
+                          value={seed.window_sticker_extracted_vin}
                           disabled={true}
                           className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60 font-mono"
                         />
@@ -704,7 +512,7 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                 </div>
 
                 {/* Options Detail (if available) */}
-                {extractedData.window_sticker_options_detail && Object.keys(extractedData.window_sticker_options_detail).length > 0 && (
+                {Object.keys(optionsDetail).length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-garage-text font-medium">
                       <DollarSign className="w-5 h-5 text-primary" />
@@ -712,10 +520,10 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     </div>
                     <div className="ml-7 bg-garage-surface rounded p-3 border border-garage-border">
                       <div className="space-y-1 text-sm">
-                        {Object.entries(extractedData.window_sticker_options_detail).map(([name, price]) => (
+                        {Object.entries(optionsDetail).map(([name, price]) => (
                           <div key={name} className="flex justify-between">
                             <span className="text-garage-text-muted">{name}</span>
-                            <span className="text-garage-text">{currencySymbol}{price}</span>
+                            <span className="text-garage-text">{currencySymbol}{String(price)}</span>
                           </div>
                         ))}
                       </div>
@@ -724,25 +532,25 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                 )}
 
                 {/* Standard Equipment (if available) */}
-                {extractedData.standard_equipment?.items && extractedData.standard_equipment.items.length > 0 && (
+                {standardItems.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-garage-text font-medium">
                       <FileText className="w-5 h-5 text-primary" />
                       <span>
                         {t('windowSticker.misc.standardEquipmentCount', {
-                          count: extractedData.standard_equipment.items.length,
+                          count: standardItems.length,
                         })}
                       </span>
                     </div>
                     <div className="ml-7 bg-garage-surface rounded p-3 border border-garage-border max-h-40 overflow-y-auto">
                       <ul className="text-sm text-garage-text-muted space-y-1">
-                        {extractedData.standard_equipment.items.slice(0, 20).map((item, i) => (
+                        {standardItems.slice(0, 20).map((item, i) => (
                           <li key={i} className="truncate">{item}</li>
                         ))}
-                        {extractedData.standard_equipment.items.length > 20 && (
+                        {standardItems.length > 20 && (
                           <li className="text-primary">
                             {t('windowSticker.misc.andMore', {
-                              count: extractedData.standard_equipment.items.length - 20,
+                              count: standardItems.length - 20,
                             })}
                           </li>
                         )}

@@ -97,6 +97,7 @@ class WindowStickerResponse(BaseModel):
     window_sticker_packages: dict[str, Any] | None
     window_sticker_parser_used: str | None
     window_sticker_confidence_score: Decimal | None
+    window_sticker_extracted_vin: str | None
 
     class Config:
         from_attributes = True

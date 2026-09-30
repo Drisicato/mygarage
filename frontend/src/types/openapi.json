@@ -31004,6 +31004,17 @@
             ],
             "title": "Window Sticker Confidence Score"
           },
+          "window_sticker_extracted_vin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Sticker Extracted Vin"
+          },
           "window_sticker_file_path": {
             "anyOf": [
               {
@@ -31091,7 +31102,8 @@
           "window_sticker_options_detail",
           "window_sticker_packages",
           "window_sticker_parser_used",
-          "window_sticker_confidence_score"
+          "window_sticker_confidence_score",
+          "window_sticker_extracted_vin"
         ],
         "title": "WindowStickerResponse",
         "type": "object"
