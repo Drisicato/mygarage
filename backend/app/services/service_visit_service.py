@@ -3,6 +3,7 @@
 # pyright: reportReturnType=false
 
 import logging
+from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException
@@ -24,6 +25,7 @@ from app.schemas.service_visit import (
     ServiceVisitUpdate,
     VendorSummary,
 )
+from app.schemas.supply import SupplyUsageInput
 from app.services import maintenance_service
 from app.services.supply_service import SupplyService, usage_cost_subject
 from app.services.vehicle_lock import lock_vehicle_for_write
@@ -890,7 +892,10 @@ class ServiceVisitService:
         return visit
 
     async def _sync_line_item_supplies(
-        self, line_item: ServiceLineItem, supplies_used, vin: str
+        self,
+        line_item: ServiceLineItem,
+        supplies_used: Sequence[SupplyUsageInput] | None,
+        vin: str,
     ) -> None:
         """Diff a line item's supply usages by supply_id — PRESERVE frozen snapshots.
 

@@ -402,7 +402,8 @@ def _insurance_amounts_within_api_bounds(row: dict[str, Any]) -> None:
     _within_api_bounds(
         PolicyVehicleCreate, premium_share=row["premium"], deductible=row["deductible"]
     )
-    for coverage in row.get("coverages") or []:
+    coverages: list[dict[str, Any]] = row.get("coverages") or []
+    for coverage in coverages:
         try:
             _within_api_bounds(
                 CoverageEntry,
