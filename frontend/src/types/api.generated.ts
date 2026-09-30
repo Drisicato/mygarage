@@ -14703,7 +14703,7 @@ export interface components {
             tax_amount?: number | string | null;
             /**
              * Total Cost
-             * @description Override total cost (otherwise calculated from line items)
+             * @description Ignored: the server always computes the total from line items, supplies, tax and fees. Accepted so existing clients don't 422.
              */
             total_cost?: number | string | null;
             /**
@@ -14864,7 +14864,7 @@ export interface components {
          * @description Schema for updating an existing service visit.
          * @example {
          *       "notes": "Updated notes",
-         *       "total_cost": 150
+         *       "tax_amount": 8.5
          *     }
          */
         ServiceVisitUpdate: {
@@ -14920,7 +14920,7 @@ export interface components {
             tax_amount?: number | string | null;
             /**
              * Total Cost
-             * @description Override total cost
+             * @description Ignored: the server always computes the total from line items, supplies, tax and fees. Accepted so existing clients don't 422.
              */
             total_cost?: number | string | null;
             /**

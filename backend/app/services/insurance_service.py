@@ -65,6 +65,7 @@ from app.utils.insurance_shares import (
     validate_allocation,
 )
 from app.utils.logging_utils import sanitize_for_log
+from app.utils.money_fits import ensure_fits
 
 logger = logging.getLogger(__name__)
 
@@ -727,7 +728,9 @@ class InsuranceService:
         policy = await self._load_writable(policy_id, access)
         link = await self._new_link(policy, data, current_user)
         if link.premium_share is not None and policy.premium_amount is not None:
-            policy.premium_amount = policy.premium_amount + link.premium_share
+            grown = policy.premium_amount + link.premium_share
+            ensure_fits(grown, "The policy premium")
+            policy.premium_amount = grown
         self._check_allocation(policy)
         await self._commit("attaching a vehicle to an insurance policy")
         return await self._respond(policy.id, access)

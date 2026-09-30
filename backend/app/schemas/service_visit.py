@@ -239,7 +239,9 @@ class ServiceVisitCreate(ServiceVisitBase):
         ..., description="Services performed during this visit", min_length=1
     )
     total_cost: OptionalMoney = Field(
-        None, description="Override total cost (otherwise calculated from line items)"
+        None,
+        description="Ignored: the server always computes the total from line items, "
+        "supplies, tax and fees. Accepted so existing clients don't 422.",
     )
 
     @model_validator(mode="after")
@@ -305,7 +307,11 @@ class ServiceVisitUpdate(BaseModel):
         None, description="Insurance claim number", max_length=50
     )
     vendor_id: int | None = Field(None, description="Vendor ID")
-    total_cost: OptionalMoney = Field(None, description="Override total cost")
+    total_cost: OptionalMoney = Field(
+        None,
+        description="Ignored: the server always computes the total from line items, "
+        "supplies, tax and fees. Accepted so existing clients don't 422.",
+    )
     tax_amount: OptionalMoney = Field(None, description="Sales tax")
     shop_supplies: OptionalMoney = Field(None, description="Shop supplies/environmental fee")
     misc_fees: OptionalMoney = Field(None, description="Miscellaneous fees (disposal, etc.)")
@@ -342,7 +348,7 @@ class ServiceVisitUpdate(BaseModel):
             "examples": [
                 {
                     "notes": "Updated notes",
-                    "total_cost": 150.00,
+                    "tax_amount": 8.50,
                 }
             ]
         }

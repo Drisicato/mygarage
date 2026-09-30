@@ -25,12 +25,13 @@ from app.schemas.service_visit import (
     VendorSummary,
 )
 from app.services import maintenance_service
-from app.services.supply_service import SupplyService
+from app.services.supply_service import SupplyService, usage_cost_subject
 from app.services.vehicle_lock import lock_vehicle_for_write
 from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.hours_sync import remove_synced_hours, sync_hours_from_record
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.maintenance_types import resolve_type
+from app.utils.money_fits import ensure_fits
 from app.utils.odometer_sync import remove_synced_odometer, sync_odometer_from_record
 
 logger = logging.getLogger(__name__)
@@ -291,7 +292,8 @@ class ServiceVisitService:
             date=visit_data.date,
             odometer_km=visit_data.odometer_km,
             engine_hours=visit_data.engine_hours,
-            total_cost=visit_data.total_cost,
+            # No total_cost: the client's is ignored. The recompute below
+            # writes the real one before anything reads it.
             tax_amount=visit_data.tax_amount,
             shop_supplies=visit_data.shop_supplies,
             misc_fees=visit_data.misc_fees,
@@ -411,6 +413,8 @@ class ServiceVisitService:
 
             # Handle line_items separately - diff-based update
             new_line_items = update_data.pop("line_items", None)
+            # The total is always recomputed below, so the client's is ignored.
+            update_data.pop("total_cost", None)
 
             for field, value in update_data.items():
                 setattr(visit, field, value)
@@ -873,9 +877,15 @@ class ServiceVisitService:
         return result.scalar_one()
 
     async def _recompute_visit_total(self, visit_id: int) -> ServiceVisit:
-        """Reload the full chain, set the denormalized total_cost cache, return the visit."""
+        """Reload the full chain, set the denormalized total_cost cache, return the visit.
+
+        Every part fits its column but the sum may not, so a total past it is a
+        422 before it is written.
+        """
         visit = await self._reload_visit_full(visit_id)
-        visit.total_cost = visit.calculated_total_cost
+        total = visit.calculated_total_cost
+        ensure_fits(total, "The visit total")
+        visit.total_cost = total
         await self.db.flush()
         return visit
 
@@ -930,14 +940,17 @@ class ServiceVisitService:
             if prior is not None:
                 # Unchanged association: keep frozen unit cost; recompute cost only if qty moved.
                 if prior.quantity != u.quantity:
-                    prior.quantity = u.quantity
-                    prior.cost_snapshot = (
+                    cost = (
                         (prior.unit_cost_snapshot * u.quantity).quantize(
                             Decimal("0.01"), rounding=ROUND_HALF_UP
                         )
                         if prior.unit_cost_snapshot is not None
                         else None
                     )
+                    # Checked before the row changes: this bypasses SupplyService.
+                    ensure_fits(cost, usage_cost_subject(u.supply_id))
+                    prior.quantity = u.quantity
+                    prior.cost_snapshot = cost
                 # fully unchanged → leave the row (and its created_at) untouched
             else:
                 # New association: validate + snapshot at current average cost.
