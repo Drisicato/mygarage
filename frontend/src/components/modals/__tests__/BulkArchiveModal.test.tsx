@@ -34,6 +34,29 @@ describe('BulkArchiveModal', () => {
     }
   })
 
+  // money-fits: the API takes a sale price from 0 to MONEY_MAX
+  // (9,999,999,999.99). The field is optional; blank posts null.
+  it.each([
+    ['10000000000', 'common:validation.amount.tooLarge'],
+    ['-5', 'common:validation.amount.negative'],
+    ['abc', 'common:validation.amount.invalid'],
+  ])('refuses a sale price of %s on the field and posts nothing', async (typed, message) => {
+    render(<BulkArchiveModal {...PROPS} />)
+    fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: typed } })
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('posts a typed sale price as a number', async () => {
+    render(<BulkArchiveModal {...PROPS} />)
+    fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: '25000' } })
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls[0][1] as { sale_price: unknown }).sale_price).toBe(25000)
+  })
+
   it('renders over a translucent backdrop, not an opaque one', () => {
     // bg-opacity-50 was removed in Tailwind v4 and this project is on v4, so it
     // emitted no CSS at all and bg-black painted a solid sheet over the page.

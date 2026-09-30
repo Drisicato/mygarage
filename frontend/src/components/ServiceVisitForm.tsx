@@ -11,6 +11,7 @@ import { NON_MOTORIZED_TYPES } from '../schemas/vehicle'
 import type { Supply } from '../types/supplies'
 import type { UnitSystem } from '../utils/units'
 import { SERVICE_CATEGORIES } from '../schemas/serviceVisit'
+import { MONEY_MAX } from '../schemas/shared'
 import VendorSearch from './VendorSearch'
 import LineItemEditor from './LineItemEditor'
 import ServiceVisitAttachmentUpload from './ServiceVisitAttachmentUpload'
@@ -368,7 +369,8 @@ export default function ServiceVisitForm({
     }
 
     // `min="0"` equivalents. Checked with `< 0` rather than `!(x >= 0)` so an
-    // empty optional field stays valid.
+    // empty optional field stays valid. The three amounts also get the API's
+    // money cap, the same one the zod forms use.
     const nonNegative: [keyof ServiceVisitFormData, string][] = [
       ['odometer_km', 'odometer_km'],
       ['engine_hours', 'engine_hours'],
@@ -376,6 +378,7 @@ export default function ServiceVisitForm({
       ['shop_supplies', 'shop_supplies'],
       ['misc_fees', 'misc_fees'],
     ]
+    const money = new Set<keyof ServiceVisitFormData>(['tax_amount', 'shop_supplies', 'misc_fees'])
     for (const [field, key] of nonNegative) {
       const raw = formData[field]
       if (raw === undefined || raw === null || raw === '') continue
@@ -384,6 +387,8 @@ export default function ServiceVisitForm({
         errors[key] = t('common:mustBeANumber')
       } else if (value < 0) {
         errors[key] = t('common:mustNotBeNegative')
+      } else if (money.has(field) && value > MONEY_MAX) {
+        errors[key] = t('common:validation.amount.tooLarge')
       }
     }
 
@@ -431,6 +436,7 @@ export default function ServiceVisitForm({
       if (item.cost !== undefined && item.cost !== null) {
         if (Number.isNaN(item.cost)) return t('service.lineItemCostInvalid', { number: n })
         if (item.cost < 0) return t('service.lineItemCostNegative', { number: n })
+        if (item.cost > MONEY_MAX) return t('service.lineItemCostTooLarge', { number: n })
         const text = String(item.cost)
         if (text.includes('.') && text.split('.')[1].length > 2) {
           return t('service.lineItemCostDecimals', { number: n })

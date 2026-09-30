@@ -234,6 +234,21 @@ describe('SupplyHistoryModal', () => {
     })
   })
 
+  // money-fits: the API caps a purchase total at MONEY_MAX (9,999,999,999.99).
+  it('rejects a total_cost past MONEY_MAX with a field error', async () => {
+    const user = userEvent.setup()
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('supplies.history.logPurchase'))
+    await user.type(screen.getByLabelText(/supplies\.history\.quantity/), '2')
+    await user.type(screen.getByLabelText('totalCost'), '10000000000')
+    await user.click(screen.getByRole('button', { name: 'save' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('validation.amount.tooLarge')).toBeInTheDocument()
+    })
+  })
+
   it('rejects unparseable text in the purchase total_cost field without crashing', async () => {
     const user = userEvent.setup()
     render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)

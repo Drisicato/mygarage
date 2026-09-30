@@ -739,6 +739,7 @@
     "lineItemCostDecimals": "Line item {{number}}: cost allows at most 2 decimal places",
     "lineItemCostInvalid": "Line item {{number}}: enter a number for cost",
     "lineItemCostNegative": "Line item {{number}}: cost cannot be negative",
+    "lineItemCostTooLarge": "Line item {{number}}: cost too large",
     "miscFees": "Misc Fees",
     "partsSupplies": "Parts/Supplies",
     "reminderIntervalTooSmall": "Line item {{number}}: reminder interval must be at least 1",

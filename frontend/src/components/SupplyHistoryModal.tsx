@@ -29,6 +29,7 @@ import type { components } from '@/types/api.generated'
 import { getActiveLocale } from '@/constants/i18n'
 import { applyServerErrors } from '@/hooks/useApiFormErrors'
 import { getActionErrorMessage } from '@/utils/httpErrorHandler'
+import { MONEY_MAX } from '@/schemas/shared'
 
 type SupplyLedgerEntry = components['schemas']['SupplyLedgerEntry']
 
@@ -407,11 +408,13 @@ function validateSupplyQuantity(value: unknown, message: string): true | string 
  * before this field was migrated off `type="number"`; without an equivalent
  * `validate` rule a negative total_cost reaches the API with no client-side
  * error at all (the backend's `ge=0` still rejects it, but as a generic
- * banner instead of a field message).
+ * banner instead of a field message). The API's money cap applies too, with
+ * its own message.
  */
-function validateNonNegativeCost(value: unknown, message: string): true | string {
+function validateCost(value: unknown, negative: string, tooLarge: string): true | string {
   if (value === undefined) return true
-  return typeof value === 'number' && !Number.isNaN(value) && value >= 0 ? true : message
+  if (typeof value !== 'number' || Number.isNaN(value) || value < 0) return negative
+  return value > MONEY_MAX ? tooLarge : true
 }
 
 interface PurchaseFormValues {
@@ -556,7 +559,8 @@ function PurchaseForm({
           <CurrencyInput
             id="purchase-cost"
             {...registerDecimal(register, 'total_cost', {
-              validate: (val) => validateNonNegativeCost(val, t('validation.amount.negative')),
+              validate: (val) =>
+                validateCost(val, t('validation.amount.negative'), t('validation.amount.tooLarge')),
             })}
             invalid={!!errors.total_cost}
             disabled={isSubmitting}

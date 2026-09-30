@@ -13,7 +13,9 @@ import { Archive, Trash2, AlertTriangle, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/services/api'
 import { getActionErrorMessage } from '@/utils/httpErrorHandler'
-import { Select } from '@/components/ui'
+import { NumberInput, Select } from '@/components/ui'
+import { moneyTextError } from '@/schemas/shared'
+import { parseOptionalDecimal } from '@/utils/decimalInput'
 import type { Vehicle } from '@/types/vehicle'
 
 interface VehicleRemoveModalProps {
@@ -26,6 +28,9 @@ interface VehicleRemoveModalProps {
 type RemoveMode = 'select' | 'archive' | 'delete'
 type ArchiveReason = 'Sold' | 'Totaled' | 'Gifted' | 'Trade-in' | 'Other'
 
+/** Only a sale or a trade-in shows the price and date fields. */
+const showsSaleFields = (reason: ArchiveReason): boolean => reason === 'Sold' || reason === 'Trade-in'
+
 export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm }: VehicleRemoveModalProps) {
   const { t } = useTranslation('forms')
   const [mode, setMode] = useState<RemoveMode>('select')
@@ -34,6 +39,7 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
   // Archive form state
   const [archiveReason, setArchiveReason] = useState<ArchiveReason>('Sold')
   const [salePrice, setSalePrice] = useState('')
+  const [salePriceError, setSalePriceError] = useState<string | undefined>()
   const [saleDate, setSaleDate] = useState('')
   const [notes, setNotes] = useState('')
   const [visible, setVisible] = useState(true)
@@ -45,6 +51,7 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
     setMode('select')
     setArchiveReason('Sold')
     setSalePrice('')
+    setSalePriceError(undefined)
     setSaleDate('')
     setNotes('')
     setVisible(true)
@@ -53,12 +60,16 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
 
   const handleArchive = async () => {
     if (!vehicle) return
+    // The API's money bounds, checked on the field the user can see.
+    const priceProblem = showsSaleFields(archiveReason) ? moneyTextError(t, salePrice) : undefined
+    setSalePriceError(priceProblem)
+    if (priceProblem) return
 
     setLoading(true)
     try {
       await api.post(`/vehicles/${vehicle.vin}/archive`, {
         reason: archiveReason,
-        sale_price: salePrice ? parseFloat(salePrice) : null,
+        sale_price: parseOptionalDecimal(salePrice) ?? null,
         sale_date: saleDate || null,
         notes: notes || null,
         visible,
@@ -102,7 +113,7 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
   if (!isOpen || !vehicle) return null
 
   // Show price/date fields only for Sold and Trade-in
-  const showFinancialFields = archiveReason === 'Sold' || archiveReason === 'Trade-in'
+  const showFinancialFields = showsSaleFields(archiveReason)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -221,16 +232,22 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
               {/* Sale Price (conditional) */}
               {showFinancialFields && (
                 <div>
-                  <label className="block text-sm font-medium text-garage-text mb-2">
+                  <label htmlFor="archive-sale-price" className="block text-sm font-medium text-garage-text mb-2">
                     {archiveReason === 'Sold' ? t('modal.salePrice') : t('modal.tradeInValue')} ({t('common:optional')})
                   </label>
-                  <input
-                    type="number"
+                  <NumberInput
+                    id="archive-sale-price"
                     value={salePrice}
                     onChange={(e) => setSalePrice(e.target.value)}
                     placeholder="25000"
-                    className="w-full px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text focus:outline-none focus:ring-2 focus:ring-primary"
+                    invalid={!!salePriceError}
+                    aria-describedby={salePriceError ? 'archive-sale-price-error' : undefined}
                   />
+                  {salePriceError && (
+                    <p id="archive-sale-price-error" role="alert" className="mt-1 text-xs text-danger">
+                      {salePriceError}
+                    </p>
+                  )}
                 </div>
               )}
 

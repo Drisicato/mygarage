@@ -177,6 +177,15 @@ describe('ServiceVisitForm — the line-item constraints that replaced native on
     await submitAndExpectRefusal(/lineItemCostNegative/)
   })
 
+  it('refuses a line-item cost past MONEY_MAX', async () => {
+    // money-fits: the API caps a line item at 9,999,999,999.99.
+    render(<ServiceVisitForm {...DEFAULT_PROPS} />)
+    describeTheWork()
+    fireEvent.change(costField(), { target: { value: '10000000000' } })
+
+    await submitAndExpectRefusal(/lineItemCostTooLarge/)
+  })
+
   it('refuses a third decimal place on a line-item cost', async () => {
     // Replaced `step="0.01"`. The likelier of the two in practice: a negative
     // cost is rare, a third decimal is not, and `stepMismatch` showed nothing.
