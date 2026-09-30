@@ -124,6 +124,21 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     expect(apiPatch).not.toHaveBeenCalled()
   })
 
+  // money-fits: the API takes an MSRP from 0 to MONEY_MAX (9,999,999,999.99).
+  it.each([
+    ['10000000000', 'common:validation.amount.tooLarge'],
+    ['-5', 'common:validation.amount.negative'],
+  ])('an MSRP of %s is an inline error and nothing is sent', async (typed, message) => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    await user.clear(screen.getByLabelText('detail.misc.totalMsrp'))
+    await user.type(screen.getByLabelText('detail.misc.totalMsrp'), typed)
+    await save(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(apiPatch).not.toHaveBeenCalled()
+  })
+
   it('a 422 on a field the old list lacked lands inline, not in the banner', async () => {
     const user = userEvent.setup({ applyAccept: false })
     apiPatch.mockRejectedValueOnce({

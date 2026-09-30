@@ -5,6 +5,7 @@ import api from '../services/api'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { applyControlledFieldErrors } from '../hooks/useApiFormErrors'
 import { parseDecimalInput } from '../utils/decimalInput'
+import { moneyTextError } from '../schemas/shared'
 import { getActiveLocale } from '@/constants/i18n'
 import { Drawer } from './ui'
 import { useCurrencySymbol } from '../hooks/useCurrencySymbol'
@@ -186,12 +187,14 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
     }
     for (const key of MONEY_FIELDS) {
       if (typed[key] === (stored[key] ?? '')) continue
-      const parsed = parseDecimalInput(typed[key], getActiveLocale())
-      if (parsed.kind === 'invalid') {
-        problems[key] = invalid
+      // Unreadable, negative or past the API's MONEY_MAX, said on the field.
+      const problem = moneyTextError(t, typed[key])
+      if (problem) {
+        problems[key] = problem
         continue
       }
-      const value = parsed.kind === 'empty' ? null : parsed.value
+      const parsed = parseDecimalInput(typed[key], getActiveLocale())
+      const value = parsed.kind === 'value' ? parsed.value : null
       if (value !== toNumber(stored[key])) changes[key] = value
     }
     for (const key of ECONOMY_FIELDS) {

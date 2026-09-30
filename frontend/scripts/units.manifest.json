@@ -1014,8 +1014,8 @@
     {
       "path": "src/components/WindowStickerUpload.tsx",
       "disposition": "audited",
-      "digest": "ec7896e36135eb177d20b757b05579f8f11c08594a15f0ecb3058483290bdca0",
-      "reason": "fuel economy through u.consumption. 2026-09-29 (clear-means-clear): the old 'domain exemption' said the sticker's MPG is transcribed, not converted, but the upload already converts it to L/100 km at the OCR boundary (services/window_sticker_ocr.py) and stores the canonical columns, and the review read keys that never exist, so the section never rendered. The review now shows the stored L/100 km in the resolved consumption unit via seedUnitField, compares an edit as a quantity with unitFieldUnchanged (an untouched value is never re-posted, so the display round-trip cannot shift it), and posts u.consumption.toCanonical.",
+      "digest": "2a2cfab2e2edd6d90c946d29a5912032e802cdd242a5c26f3dc66bba6b2bcd2c",
+      "reason": "fuel economy through u.consumption. 2026-09-29 (clear-means-clear): the old 'domain exemption' said the sticker's MPG is transcribed, not converted, but the upload already converts it to L/100 km at the OCR boundary (services/window_sticker_ocr.py) and stores the canonical columns, and the review read keys that never exist, so the section never rendered. The review now shows the stored L/100 km in the resolved consumption unit via seedUnitField, compares an edit as a quantity with unitFieldUnchanged (an untouched value is never re-posted, so the display round-trip cannot shift it), and posts u.consumption.toCanonical. 2026-09-30 (money-fits B6): a changed MSRP field is checked against the API money bounds (moneyTextError) on the field; the fuel-economy fields still go back through their seeded origins, so no unit change.",
       "tests": [
         "components/__tests__/WindowStickerUpload.review.test.tsx",
         "components/__tests__/WindowStickerUpload.test.tsx"
