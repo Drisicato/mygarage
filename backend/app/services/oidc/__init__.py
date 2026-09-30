@@ -2,7 +2,8 @@
 
 This package handles OAuth2/OIDC authentication flow with support for:
 - Generic OIDC provider support (Authentik, Keycloak, Auth0, Okta, etc.)
-- Email-based account linking (links OIDC to existing local accounts)
+- Password-confirmed account linking (an email or username match links an
+  existing account only after its password is entered)
 - Automatic user creation from OIDC claims
 - Group-based admin role mapping
 - Provider metadata discovery

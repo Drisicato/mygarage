@@ -18,13 +18,17 @@ class SSRFProtectionError(Exception):
 
 
 class PendingLinkRequiredError(Exception):
-    """Raised when username-based OIDC linking requires password verification.
+    """Raised when OIDC linking requires the matched account's password.
 
-    This exception is raised during OIDC authentication when:
-    - A username matches an existing local account
-    - No OIDC subject link exists yet
-    - The user has a local password (not OIDC-only)
-    - Account is not already linked to a different OIDC provider
+    This exception is raised during OIDC authentication when no account has the
+    login's OIDC subject and either:
+    - The email claim matches an active account that has a password and no
+      OIDC link, or
+    - The username claim matches an active account that has a password and is
+      not linked to a different OIDC subject
+
+    ``username`` is always the matched account's username, which for an email
+    match can differ from the claim's. The pending link finds its target by it.
 
     The exception carries the necessary data to create a pending link token
     and redirect the user to the password verification flow.
@@ -50,3 +54,28 @@ class PendingLinkRequiredError(Exception):
         self.userinfo = userinfo
         self.config = config
         super().__init__(f"Username '{username}' requires password verification for OIDC linking")
+
+
+class OIDCLoginRefusedError(Exception):
+    """Raised when an SSO login matches an account it may not sign into.
+
+    Raised during OIDC login resolution when the matched account is disabled,
+    is already linked to a different OIDC subject, or has no password to confirm
+    ownership with. Nothing on the matched account has been changed when it is
+    raised.
+
+    ``message`` is written for the person signing in and is meant to be shown as
+    the 403 detail. ``username`` is the matched MyGarage account, for the audit
+    trail, or None when no account was matched.
+    """
+
+    def __init__(self, message: str, username: str | None = None):
+        """Initialize the refusal.
+
+        Args:
+            message: Why the login was refused, safe to show the user
+            username: The matched account's username, if an account was matched
+        """
+        self.message = message
+        self.username = username
+        super().__init__(message)
