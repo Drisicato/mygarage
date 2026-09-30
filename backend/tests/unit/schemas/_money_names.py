@@ -13,15 +13,20 @@ anywhere wins over a money word: `mileage_limit_km` is a distance, and
 """
 
 #: A word that makes a name money (`tax_amount`, `premium_share`, `msrp_base`).
+#: The frontend's moneyBounds.test.ts reads these three lists from this file and
+#: fails if its copies differ. No `balance`: the only one is a supply's running
+#: quantity. Add it the day a money balance exists.
 MONEY_WORDS = frozenset(
     {
         "amount",
         "charge",
         "cost",
         "deductible",
+        "fee",
         "fees",
         "limit",
         "msrp",
+        "payment",
         "premium",
         "price",
         "rate",

@@ -12,10 +12,11 @@
  * (Fable F-B5), `ReminderCompleteRequest` and `VehicleArchiveRequest` among
  * them.
  *
- * Money is decided by NAME, mirroring backend tests/unit/schemas/_money_names.py
- * plus fee, payment and balance. Not by value: supply quantities carry a
- * maximum equal to UNIT_PRICE_MAX because their column holds the same digits,
- * and they aren't money.
+ * Money is decided by NAME, with the word lists in backend
+ * tests/unit/schemas/_money_names.py (a test below reads that file and fails
+ * if the two differ). Not by value: supply quantities carry a maximum equal to
+ * UNIT_PRICE_MAX because their column holds the same digits, and they aren't
+ * money.
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -28,10 +29,9 @@ interface Spec {
   components: { schemas: Record<string, Schema> }
 }
 
-/** A word that makes a name money. The backend's list, plus fee, payment and balance. */
+/** A word that makes a name money. Same list as the backend's. */
 const MONEY_WORDS = new Set([
   'amount',
-  'balance',
   'charge',
   'cost',
   'deductible',
@@ -246,6 +246,32 @@ describe('money bounds: the forms and the API agree', () => {
   })
 })
 
+/** The backend's copy of the name lists. Read, not retyped, so the two can't drift. */
+const backendNames = readFileSync(
+  resolve(__dirname, '../../../../backend/tests/unit/schemas/_money_names.py'),
+  'utf-8',
+)
+
+/** The quoted words in the backend's `NAME = frozenset({...})`. */
+function backendSet(name: string): Set<string> {
+  const body = new RegExp(`^${name} = frozenset\\(\\s*\\{([^}]*)\\}`, 'm').exec(backendNames)?.[1]
+  if (body === undefined) throw new Error(`${name} = frozenset({...}) not found in _money_names.py`)
+  return new Set([...body.matchAll(/"([^"]*)"/g)].map((match) => match[1]))
+}
+
+describe('money bounds: the name lists are the backend lists', () => {
+  it.each([
+    ['MONEY_WORDS', MONEY_WORDS],
+    ['MONEY_NAMES', MONEY_NAMES],
+    ['UNIT_WORDS', UNIT_WORDS],
+  ])('%s holds exactly the words the backend has', (name, ours) => {
+    const theirs = backendSet(name)
+    // A floor, so a regex that stops matching can't compare two empty sets.
+    expect(theirs.size, name).toBeGreaterThanOrEqual(4)
+    expect([...ours].sort()).toEqual([...theirs].sort())
+  })
+})
+
 describe('money bounds: the walker', () => {
   // A small spec with every shape the real one uses, so a walker that stops
   // following one of them fails here, not by quietly checking less.
@@ -302,10 +328,11 @@ describe('money bounds: the walker', () => {
   })
 
   it('reads money off the name the way the backend does', () => {
-    for (const name of ['tax_amount', 'shop_supplies', 'misc_fees', 'fee', 'payment', 'balance', 'electric', 'msrp_base']) {
+    for (const name of ['tax_amount', 'shop_supplies', 'misc_fees', 'fee', 'payment', 'electric', 'msrp_base']) {
       expect(isMoneyName(name), name).toBe(true)
     }
-    for (const name of ['quantity', 'mileage_limit_km', 'cost_per_km', 'total_liters', 'uptime_seconds']) {
+    // No money balance exists yet; the only balance is a supply's running quantity.
+    for (const name of ['quantity', 'balance', 'running_balance', 'mileage_limit_km', 'cost_per_km', 'total_liters', 'uptime_seconds']) {
       expect(isMoneyName(name), name).toBe(false)
     }
   })

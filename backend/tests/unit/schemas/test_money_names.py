@@ -28,6 +28,11 @@ from tests.unit.schemas._money_names import is_money_name
         "total_amount",
         "total_garage_value",
         "total_spent",
+        # No field is called these yet; the words cover one the day it lands.
+        "fee",
+        "late_fee",
+        "monthly_payment",
+        "payment",
     ],
 )
 def test_money_without_a_column(name: str):
