@@ -3,7 +3,8 @@
 Functions for creating pending link tokens and validating them with password
 verification to securely link OIDC accounts to existing local accounts
 when the email or username claim matches an account that has a password.
-This is the only way an email or username match ever links.
+Apart from a relink an admin armed on the account (see users.py), this is the
+only way an email or username match ever links.
 """
 
 import json

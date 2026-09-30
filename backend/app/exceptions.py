@@ -26,6 +26,7 @@ class PendingLinkRequiredError(Exception):
       OIDC link, or
     - The username claim matches an active account that has a password and is
       not linked to a different OIDC subject
+    and no admin-armed relink is open on that account (an open one links it).
 
     ``username`` is always the matched account's username, which for an email
     match can differ from the claim's. The pending link finds its target by it.

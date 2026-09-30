@@ -6,17 +6,20 @@ the OIDC authorization URL for initiating the login flow.
 
 Only the OIDC subject logs straight into an existing account. An email or
 username match never links by itself: it offers the password-link page for the
-matched account, or refuses the login when that account can't be confirmed.
+matched account, or refuses the login when that account can't be confirmed. The
+exception is a relink an admin armed on the account (``oidc_relink_until``),
+which the next matching SSO login spends to link it.
 """
 
 import base64
 import hashlib
 import logging
 import secrets
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -49,6 +52,53 @@ _USERNAME_NO_PASSWORD = (
     "An account with this username exists but has no password to confirm it. "
     "Ask an administrator to allow an SSO relink for it."
 )
+
+
+async def _consume_armed_relink(
+    db: AsyncSession, user: User, sub: str, provider_name: str, full_name: str
+) -> bool:
+    """Link the account to this sub if an admin armed a relink on it, spending the arm.
+
+    One conditional UPDATE links it and disarms it together, so an arm links once
+    even when two SSO logins race for it, and an expired one links nothing.
+
+    Args:
+        db: Database session
+        user: The account the email or username matched
+        sub: The claimant's OIDC subject
+        provider_name: The configured provider name
+        full_name: The name claim, or empty to keep the account's
+
+    Returns:
+        True if the account is now linked to ``sub``, False if nothing was armed.
+    """
+    if user.oidc_relink_until is None:
+        return False
+
+    now = utc_now()
+    values: dict[str, Any] = {
+        "oidc_subject": sub,
+        "oidc_provider": provider_name,
+        "auth_method": "oidc",
+        "last_login": now,
+        "oidc_relink_until": None,
+    }
+    if full_name:
+        values["full_name"] = full_name
+    result = await db.execute(
+        update(User)
+        .where(User.id == user.id, User.oidc_relink_until > now)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    if cast(CursorResult[Any], result).rowcount != 1:
+        # Expired, or spent or revoked since this login read the row.
+        return False
+
+    await db.commit()
+    await db.refresh(user)
+    logger.info("OIDC relink approved by an admin was used: %s", sanitize_for_log(user.username))
+    return True
 
 
 def generate_state() -> str:
@@ -155,15 +205,16 @@ async def create_or_update_user_from_oidc(
     Strategy:
     1. A user with this oidc_subject logs in, and their name, provider and
        last_login are refreshed. A disabled account is refused.
-    2. A user with this email is never linked here, and the row is not written.
-       In order: a disabled account is refused; an account already linked to a
-       different subject is refused; an account with a password goes to the
-       password-link page for its own username; an account with no password is
-       refused. The IdP's email-verified flag is not read, since the IdP
-       verifying an address doesn't prove who owns the MyGarage account.
-    3. A user with this username: a disabled account is refused; an SSO-only
-       account, or one linked to a different subject, is refused; otherwise the
-       password-link page.
+    2. A user with this email. In order: a disabled account is refused; an
+       account with an unexpired admin-armed relink is linked to this subject
+       and disarmed; an account already linked to a different subject is
+       refused; an account with a password goes to the password-link page for
+       its own username; an account with no password is refused. Only the armed
+       relink writes to the row. The IdP's email-verified flag is not read, since
+       the IdP verifying an address doesn't prove who owns the MyGarage account.
+    3. A user with this username: a disabled account is refused; an armed
+       relink links it as in step 2; an SSO-only account, or one linked to a
+       different subject, is refused; otherwise the password-link page.
     4. No match: create the user if auto_create is enabled.
 
     Every refusal is raised before anything on the matched row is assigned.
@@ -231,7 +282,8 @@ async def create_or_update_user_from_oidc(
         return user
 
     # Step 2: email match. The email only says which account to offer, it never
-    # proves the claimant owns it, so this step never writes to the row.
+    # proves the claimant owns it, so the row is only written when an admin armed
+    # a relink on it.
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
@@ -242,6 +294,9 @@ async def create_or_update_user_from_oidc(
                 sanitize_for_log(user.username),
             )
             raise OIDCLoginRefusedError(_DISABLED, username=user.username)
+
+        if await _consume_armed_relink(db, user, sub, provider_name, full_name):
+            return user
 
         # Step 1 didn't find this sub, so any subject here belongs to someone else.
         if user.oidc_subject:
@@ -278,6 +333,9 @@ async def create_or_update_user_from_oidc(
                 sanitize_for_log(user.username),
             )
             raise OIDCLoginRefusedError(_DISABLED, username=user.username)
+
+        if await _consume_armed_relink(db, user, sub, provider_name, full_name):
+            return user
 
         if user.hashed_password is None:
             logger.warning(
