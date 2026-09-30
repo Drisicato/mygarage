@@ -55,4 +55,21 @@ describe('VehicleRemoveModal: the archive sale price', () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
     expect((post.mock.calls[0][1] as { sale_price: unknown }).sale_price).toBeNull()
   })
+
+  it('posts no sale price or date once the reason hides them', async () => {
+    // What was typed under Sold stays in state after a switch to Totaled. The
+    // check skipped the hidden field but the post still sent it, so -5 was a 422.
+    openArchiveForm()
+    fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: '-5' } })
+    fireEvent.change(document.querySelector('input[type="date"]')!, { target: { value: '2026-01-15' } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Totaled' } })
+    archive()
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    const body = post.mock.calls[0][1] as { reason: unknown; sale_price: unknown; sale_date: unknown }
+    expect(body.reason).toBe('Totaled')
+    expect(body.sale_price).toBeNull()
+    expect(body.sale_date).toBeNull()
+    expect(screen.queryByText('common:validation.amount.negative')).not.toBeInTheDocument()
+  })
 })

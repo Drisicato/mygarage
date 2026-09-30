@@ -54,8 +54,10 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
 
   const handleArchive = async () => {
     if (vins.length === 0) return
-    // The API's money bounds, checked on the field the user can see.
-    const priceProblem = showsSaleFields(archiveReason) ? moneyTextError(t, salePrice) : undefined
+    // The API's money bounds, checked on the field the user can see. A hidden
+    // field is neither checked nor sent, whatever was typed before the switch.
+    const showsSale = showsSaleFields(archiveReason)
+    const priceProblem = showsSale ? moneyTextError(t, salePrice) : undefined
     setSalePriceError(priceProblem)
     if (priceProblem) return
     setLoading(true)
@@ -63,8 +65,8 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
       const response = await api.post('/vehicles/archive/bulk', {
         vins,
         reason: archiveReason,
-        sale_price: parseOptionalDecimal(salePrice) ?? null,
-        sale_date: saleDate || null,
+        sale_price: showsSale ? parseOptionalDecimal(salePrice) ?? null : null,
+        sale_date: showsSale ? saleDate || null : null,
         notes: notes || null,
         visible,
       })
