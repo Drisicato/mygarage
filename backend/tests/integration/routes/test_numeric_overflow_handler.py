@@ -3,9 +3,9 @@
 Validation is the fence: every money input is bounded and every computed total
 is checked before it is written. This is the backstop for a path that slipped
 through. PostgreSQL refuses an over-column number with SQLSTATE 22003 ("numeric
-field overflow"), and that reaches the client as a 422 saying the amount is too
-large for storage, in debug mode too. Every other database error keeps the
-treatment it had.
+field overflow", or "integer out of range" for an integer column), and that
+reaches the client as a 422 saying the number is too large for storage, in debug
+mode too. Every other database error keeps the treatment it had.
 
 Driven through real request paths: the app's own route, with its service forced
 to raise, and on PostgreSQL a real overflowing UPDATE through the request's
@@ -30,7 +30,7 @@ from app.services.spot_rental_service import SpotRentalService
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
-TOO_LARGE = "Amount too large for storage"
+TOO_LARGE = "Number too large for storage"
 DATABASE_ERROR = "A database error occurred. Please try again later."
 STATEMENT = "UPDATE vehicles SET msrp_total=%(msrp_total)s WHERE vehicles.vin = %(vin)s"
 

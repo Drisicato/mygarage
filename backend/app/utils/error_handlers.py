@@ -175,9 +175,10 @@ async def handle_database_error(request: Request, exc: SQLAlchemyError) -> JSONR
     )
 
 
-# PostgreSQL's "numeric value out of range": a number past its column.
+# PostgreSQL's "numeric value out of range": a number past its column. The
+# same code covers "integer out of range", so the words say number, not amount.
 _NUMERIC_OVERFLOW = "22003"
-NUMERIC_OVERFLOW_DETAIL = "Amount too large for storage"
+NUMERIC_OVERFLOW_DETAIL = "Number too large for storage"
 
 
 def is_numeric_overflow(exc: DBAPIError) -> bool:
