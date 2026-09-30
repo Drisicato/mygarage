@@ -546,16 +546,7 @@
       "invalidFormat": "Ungültiges VIN-Format"
     },
     "spotRental": {
-      "nightlyRateNegative": "Übernachtungspreis kann nicht negativ sein",
-      "nightlyRateTooLarge": "Übernachtungspreis ist zu hoch (max. 9.999,99 $)",
-      "rateNegative": "Tarif kann nicht negativ sein",
-      "rateTooLarge": "Tarif ist zu hoch (max. 99.999,99 $)",
-      "utilityNegative": "Nebenkosten können nicht negativ sein",
-      "utilityTooLarge": "Nebenkosten sind zu hoch (max. 9.999,99 $)",
-      "locationNameTooLong": "Standortname ist zu lang (max. 100 Zeichen)",
-      "nightlyRateInvalid": "Gib eine gültige Nummer ein",
-      "rateInvalid": "Gib eine gültige Nummer ein",
-      "utilityInvalid": "Gib eine gültige Nummer ein"
+      "locationNameTooLong": "Standortname ist zu lang (max. 100 Zeichen)"
     },
     "note": {
       "titleTooLong": "Titel zu lang (maximal 100 Zeichen)",

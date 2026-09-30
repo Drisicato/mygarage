@@ -565,15 +565,6 @@
       "invalidFormat": "Invalid VIN format"
     },
     "spotRental": {
-      "nightlyRateNegative": "Nightly rate cannot be negative",
-      "nightlyRateTooLarge": "Nightly rate too large (max $9,999.99)",
-      "nightlyRateInvalid": "Enter a valid number",
-      "rateNegative": "Rate cannot be negative",
-      "rateTooLarge": "Rate too large (max $99,999.99)",
-      "rateInvalid": "Enter a valid number",
-      "utilityNegative": "Utility cost cannot be negative",
-      "utilityTooLarge": "Utility cost too large (max $9,999.99)",
-      "utilityInvalid": "Enter a valid number",
       "locationNameTooLong": "Location name too long (max 100 characters)"
     },
     "note": {
