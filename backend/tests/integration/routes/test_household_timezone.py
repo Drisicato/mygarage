@@ -188,6 +188,21 @@ class TestSettingsApi:
         by_key = {s["key"]: s["value"] for s in response.json()["settings"]}
         assert by_key.get("effective_timezone") == "America/Chicago"
 
+    async def test_a_blank_timezone_falls_back_to_the_server_default(
+        self, client, auth_headers, household_row, monkeypatch
+    ):
+        """The settings tab's "Server default" option saves ''. That must be
+        accepted and hand the zone back to the fallback chain."""
+        monkeypatch.setenv("MYGARAGE_TIMEZONE", "America/Denver")
+        batch = await client.post(
+            "/api/settings/batch", headers=auth_headers, json={"settings": {"timezone": ""}}
+        )
+        assert batch.status_code == 200, batch.text
+
+        response = await client.get("/api/settings/public")
+        by_key = {s["key"]: s["value"] for s in response.json()["settings"]}
+        assert by_key.get("effective_timezone") == "America/Denver"
+
     async def test_reserved_key_is_rejected_on_every_write_path(
         self, client, auth_headers, db_session
     ):
