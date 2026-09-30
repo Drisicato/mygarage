@@ -313,6 +313,37 @@ class TestCallbackRefusal:
             username=target.username,
         )
 
+    async def test_the_callback_backstop_refuses_a_disabled_user_and_audits_it(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_sessionmaker: async_sessionmaker[AsyncSession],
+        made_users: list[_Account],
+        user_agent: str,
+    ):
+        """The service refuses a disabled account itself, so this is an admin disable mid-login."""
+        target = await _account(db_session, made_users, active=False)
+        disabled = await db_session.get(User, target.id)
+
+        with (
+            _idp(_claims()),
+            patch(
+                "app.services.oidc.create_or_update_user_from_oidc",
+                new_callable=AsyncMock,
+                return_value=disabled,
+            ),
+        ):
+            response = await _callback(client, user_agent)
+
+        assert response.status_code == 403, response.text
+        assert response.json()["detail"] == _DISABLED
+        assert not _sets_auth_cookie(response)
+        _assert_refusal_row(
+            await _refusal_rows(test_sessionmaker, user_agent),
+            reason=_DISABLED,
+            username=target.username,
+        )
+
 
 class TestLinkStepInactiveTarget:
     @pytest.mark.parametrize(

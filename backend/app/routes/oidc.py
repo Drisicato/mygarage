@@ -417,7 +417,10 @@ async def oidc_callback(
             detail="Failed to create or update user from OIDC claims",
         )
 
+    # Backstop: the service refuses a disabled account itself, so this only
+    # fires when an admin disables it while the login is in flight.
     if not user.is_active:
+        await _audit_login_refused(db, request, "User account is disabled", user.username)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled",
