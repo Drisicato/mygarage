@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -36,23 +36,34 @@ ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
+# Numeric(5,2) on the vehicle row.
+_FUEL_ECONOMY_MAX = Decimal("999.99")
+
+
 class WindowStickerDataUpdate(BaseModel):
-    """Schema for updating window sticker extracted data."""
+    """The review's edits. Omitted keeps, null clears; widths match the columns."""
 
     msrp_base: Decimal | None = None
     msrp_options: Decimal | None = None
     msrp_total: Decimal | None = None
     destination_charge: Decimal | None = None
-    fuel_economy_city_l_per_100km: Decimal | None = None
-    fuel_economy_highway_l_per_100km: Decimal | None = None
-    fuel_economy_combined_l_per_100km: Decimal | None = None
+    fuel_economy_city_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
+    fuel_economy_highway_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
+    fuel_economy_combined_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
     standard_equipment: dict[str, Any] | None = None
     optional_equipment: dict[str, Any] | None = None
-    assembly_location: str | None = None
-    exterior_color: str | None = None
-    interior_color: str | None = None
-    warranty_powertrain: str | None = None
-    warranty_basic: str | None = None
+    assembly_location: str | None = Field(None, max_length=100)
+    exterior_color: str | None = Field(None, max_length=100)
+    interior_color: str | None = Field(None, max_length=100)
+    sticker_engine_description: str | None = Field(None, max_length=150)
+    sticker_transmission_description: str | None = Field(None, max_length=150)
+    sticker_drivetrain: str | None = Field(None, max_length=50)
+    wheel_specs: str | None = Field(None, max_length=100)
+    tire_specs: str | None = Field(None, max_length=100)
+    warranty_powertrain: str | None = Field(None, max_length=100)
+    warranty_basic: str | None = Field(None, max_length=100)
+    environmental_rating_ghg: str | None = Field(None, max_length=10)
+    environmental_rating_smog: str | None = Field(None, max_length=10)
 
 
 class WindowStickerResponse(BaseModel):
@@ -75,6 +86,7 @@ class WindowStickerResponse(BaseModel):
     interior_color: str | None
     sticker_engine_description: str | None
     sticker_transmission_description: str | None
+    sticker_drivetrain: str | None
     wheel_specs: str | None
     tire_specs: str | None
     warranty_powertrain: str | None
@@ -374,11 +386,8 @@ async def update_window_sticker_data(
     # Editing sticker data mutates the vehicle row -> OWNER-only (D-8).
     vehicle = await get_vehicle_for_owner_or_403(vin, current_user, db)
 
-    # Update fields (only update non-None values)
-    update_dict = update_data.model_dump(exclude_unset=True)
-    for field, value in update_dict.items():
-        if value is not None:
-            setattr(vehicle, field, value)
+    for field, value in update_data.model_dump(exclude_unset=True).items():
+        setattr(vehicle, field, value)
 
     await db.commit()
     await db.refresh(vehicle)
