@@ -13,9 +13,9 @@ The READ path was already guarded (`reminder_service.py:370-372` re-attaches
 UTC to the naive value it gets back). Only the write was not, which is the
 tell: someone hit the symptom on the read side and fixed the half they saw.
 
-This file lives in `tests/integration/` on purpose. `ci.yml:25` sets
-`pg-migrations-pytest-path: "tests/migrations/ tests/integration/"`, so only
-these two paths run against the PostgreSQL sidecar. The natural home would be
+This file lives in `tests/integration/` on purpose. `ci.yml` sets
+`pg-migrations-pytest-path: "tests/migrations/ tests/pg_migration_path_test.py
+tests/integration/"`, so only those paths run against the PostgreSQL sidecar. The natural home would be
 `tests/unit/services/test_reminder_service.py`, where it would pass on SQLite
 with the bug fully present and stay green forever.
 """

@@ -22,5 +22,8 @@ jobs:
       # Closes #77: run both migration and integration tests against the PG
       # sidecar so the asyncpg loop-binding regression that gated this work
       # can't reappear. Pytest accepts multiple positional paths.
-      pg-migrations-pytest-path: "tests/migrations/ tests/integration/"
+      # pg_migration_path_test.py doesn't match python_files, so it's named
+      # outright. It drops the public schema, so it runs before integration
+      # builds its session schema, same as tests/migrations/.
+      pg-migrations-pytest-path: "tests/migrations/ tests/pg_migration_path_test.py tests/integration/"
       security-tripwire-script: .github/scripts/security-tripwire.sh
