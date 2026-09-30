@@ -56,7 +56,7 @@ class TollTransaction(Base):
         Integer, ForeignKey("toll_tags.id", ondelete="SET NULL")
     )
     date: Mapped[dt.date] = mapped_column(Date, nullable=False)
-    amount: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     location: Mapped[str] = mapped_column(String(200), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

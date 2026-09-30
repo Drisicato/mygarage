@@ -24,7 +24,7 @@ import os
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -598,3 +598,100 @@ class TestUnitPreferenceColumns:
             assert _pg_setting(engine, "default_unit_prefs") == setting_after_first
         finally:
             engine.dispose()
+
+
+# ===========================================================================
+# Scenario 6: Money columns (migration 122)
+#
+# tests/migrations/test_122_widen_money_columns.py runs the ALTERs on bare
+# narrow tables with values in them, on both dialects. Here it's the two
+# whole-install paths: a fresh install, and an existing install upgrading
+# through the runner, on the full schema with every constraint and index
+# create_all builds.
+# ===========================================================================
+
+MIGRATION_122 = "122_widen_money_columns"
+
+
+def _money_column_types(engine: Engine) -> dict[str, tuple[int | None, int | None]]:
+    """(precision, scale) of every registered money column."""
+    from tests.migrations._money_columns import pg_numeric_types
+    from tests.unit.schemas._money_names import MONEY_COLUMNS
+
+    found = pg_numeric_types(engine)
+    return {qualified: found[qualified][1:] for qualified in MONEY_COLUMNS}
+
+
+def _create_all_on_pg() -> None:
+    """create_all on a clean schema, the way init_db starts."""
+    import asyncio
+
+    _reset_schema()
+    async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+
+    async def _create():
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await async_engine.dispose()
+
+    asyncio.run(_create())
+
+
+class TestMoneyColumnsWidened:
+    """Every money column ends at its policy type, however the install got here."""
+
+    def test_fresh_install_lands_on_the_policy_types(self):
+        from tests.unit.schemas._money_names import MONEY_COLUMNS
+
+        _create_all_on_pg()
+        runner = MigrationRunner(PG_SYNC_URL, MIGRATIONS_DIR)
+        runner.run_pending_migrations()
+        try:
+            assert _money_column_types(runner.engine) == MONEY_COLUMNS
+        finally:
+            runner.engine.dispose()
+
+    def test_upgrade_through_the_runner_widens_every_money_column(self):
+        """An install with every migration but 122 applied, at the pre-122 widths."""
+        from tests.migrations._money_columns import PRE_122_TYPES
+        from tests.unit.schemas._money_names import MONEY_COLUMNS
+
+        _create_all_on_pg()
+        runner = MigrationRunner(PG_SYNC_URL, MIGRATIONS_DIR)
+        try:
+            with runner.engine.begin() as conn:
+                for qualified, (precision, scale) in PRE_122_TYPES.items():
+                    table, column = qualified.split(".", 1)
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE {table} ALTER COLUMN {column} "
+                            f"TYPE NUMERIC({precision}, {scale})"
+                        )
+                    )
+            runner._ensure_migration_tracking_table()
+            discovered = [name for name, _ in runner._discover_migrations()]
+            assert MIGRATION_122 in discovered
+            runner._mark_migrations_applied([n for n in discovered if n != MIGRATION_122])
+            narrow = _money_column_types(runner.engine)
+            assert {q: narrow[q] for q in PRE_122_TYPES} == PRE_122_TYPES, (
+                "the install must start at the old widths"
+            )
+
+            runner.run_pending_migrations()
+
+            assert MIGRATION_122 in runner._get_applied_migrations()
+            assert _money_column_types(runner.engine) == MONEY_COLUMNS
+
+            # Rerun on the widened install: nothing left to do.
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                MIGRATION_122, MIGRATIONS_DIR / f"{MIGRATION_122}.py"
+            )
+            assert spec is not None and spec.loader is not None
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            module.upgrade(engine=runner.engine)
+            assert _money_column_types(runner.engine) == MONEY_COLUMNS
+        finally:
+            runner.engine.dispose()

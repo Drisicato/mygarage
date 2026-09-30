@@ -38,7 +38,7 @@ class FinancingRecord(Base):
     )
     vendor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("vendors.id"))
     date: Mapped[dt.date] = mapped_column(Date, nullable=False)
-    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     category: Mapped[str] = mapped_column(String(20), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

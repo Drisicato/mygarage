@@ -71,9 +71,9 @@ class Vehicle(Base):
     license_plate: Mapped[str | None] = mapped_column(String(20))
     color: Mapped[str | None] = mapped_column(String(30))
     purchase_date: Mapped[date | None] = mapped_column(Date)
-    purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     sold_date: Mapped[date | None] = mapped_column(Date)
-    sold_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    sold_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     main_photo: Mapped[str | None] = mapped_column(String(255))
     # VIN decoded fields
     trim: Mapped[str | None] = mapped_column(String(50))
@@ -90,9 +90,9 @@ class Vehicle(Base):
     # Window sticker fields
     window_sticker_file_path: Mapped[str | None] = mapped_column(String(255))
     window_sticker_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime)
-    msrp_base: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    msrp_options: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    msrp_total: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    msrp_base: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    msrp_options: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    msrp_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     fuel_economy_city_l_per_100km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     fuel_economy_highway_l_per_100km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     fuel_economy_combined_l_per_100km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
@@ -100,7 +100,7 @@ class Vehicle(Base):
     optional_equipment: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     assembly_location: Mapped[str | None] = mapped_column(String(100))
     # Enhanced window sticker fields
-    destination_charge: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    destination_charge: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     window_sticker_options_detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     window_sticker_packages: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     exterior_color: Mapped[str | None] = mapped_column(String(100))
@@ -127,7 +127,7 @@ class Vehicle(Base):
     archive_reason: Mapped[str | None] = mapped_column(
         String(50)
     )  # Sold, Totaled, Gifted, Trade-in, Other
-    archive_sale_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    archive_sale_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     archive_sale_date: Mapped[date | None] = mapped_column(Date)
     archive_notes: Mapped[str | None] = mapped_column(String(1000))
     archived_visible: Mapped[bool] = mapped_column(Boolean, server_default="1")

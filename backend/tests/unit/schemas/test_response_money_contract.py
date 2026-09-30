@@ -7,8 +7,10 @@ model reachable from a route's response may bound a money field, however deep it
 sits: list items, nested models, Optional and Annotated wrappers all count.
 
 The model set comes from the router, not from class names, so a new response
-model is covered without registering it. Money is decided by name
-(`_money_names.is_money_name`) on fields typed Decimal or float.
+model is covered without registering it. A field typed Decimal or float is money
+when its name is (`_money_names.is_money_name`) or when it names a registered
+money column (`MONEY_COLUMN_NAMES`). The registry is the authority, so a column
+the word list misses still counts.
 """
 
 import typing
@@ -22,7 +24,7 @@ from pydantic.fields import FieldInfo
 
 from app.main import app
 from app.schemas._money import OptionalMoney
-from tests.unit.schemas._money_names import is_money_name
+from tests.unit.schemas._money_names import MONEY_COLUMN_NAMES, is_money_name
 
 _BOUND_ATTRS = ("ge", "gt", "le", "lt")
 _MONEY_TYPES = (Decimal, float)
@@ -79,21 +81,26 @@ def _walk(roots: Iterable[Any]) -> Iterator[type[BaseModel]]:
             queue += _unwrap(info.annotation)[2]
 
 
-def _money_fields(model: type[BaseModel]) -> dict[str, list[str]]:
-    """Each money field of the model, with the bounds it carries."""
+def _money_fields(model: type[BaseModel], registered: frozenset[str]) -> dict[str, list[str]]:
+    """Each money field of the model, with the bounds it carries.
+
+    `registered` is the column names that count as money whatever their words.
+    """
     fields = {}
     for name, info in model.model_fields.items():
         is_money_type, metadata, _models = _unwrap(info.annotation)
-        if is_money_type and is_money_name(name):
+        if is_money_type and (is_money_name(name) or name in registered):
             fields[name] = _bounds(info.metadata) + _bounds(metadata)
     return fields
 
 
-def _bounded(models: Iterable[type[BaseModel]]) -> dict[str, dict[str, list[str]]]:
+def _bounded(
+    models: Iterable[type[BaseModel]], registered: frozenset[str]
+) -> dict[str, dict[str, list[str]]]:
     """Model name -> {money field: its bounds}, for the models that bound one."""
     found = {}
     for model in models:
-        bounded = {name: b for name, b in _money_fields(model).items() if b}
+        bounded = {name: b for name, b in _money_fields(model, registered).items() if b}
         if bounded:
             found[model.__name__] = bounded
     return found
@@ -124,12 +131,12 @@ def test_the_walk_found_the_responses():
     assert len(RESPONSE_MODELS) >= 200
     # Reached only through a parent's field, never as a route's own model.
     assert {"PolicyVehicleResponse", "ServiceLineItemResponse", "SupplyUsageResponse"} <= names
-    money = sum(len(_money_fields(model)) for model in RESPONSE_MODELS)
+    money = sum(len(_money_fields(model, MONEY_COLUMN_NAMES)) for model in RESPONSE_MODELS)
     assert money >= 100
 
 
 def test_no_response_bounds_a_money_field():
-    assert _bounded(RESPONSE_MODELS) == {}, (
+    assert _bounded(RESPONSE_MODELS, MONEY_COLUMN_NAMES) == {}, (
         "a response inherits an input bound on money: redeclare the field on the "
         "response without it, or move the bound off the shared base"
     )
@@ -168,7 +175,7 @@ class _Probe(BaseModel):
 def test_the_detector_sees_every_form():
     # On the FieldInfo, inside the Optional, through the shared alias, inside a
     # PEP 695 alias, on a float, and one model down through a list.
-    assert _bounded(_walk([_Probe])) == {
+    assert _bounded(_walk([_Probe]), frozenset()) == {
         "_Probe": {
             "amount": ["le=100"],
             "cost": ["ge=0"],
@@ -177,4 +184,18 @@ def test_the_detector_sees_every_form():
             "price": ["gt=0"],
         },
         "_Nested": {"cost": ["ge=0"]},
+    }
+
+
+class _Ledger(BaseModel):
+    # No money word in the name, and a count that must stay out of it.
+    balance: Decimal = Field(Decimal(0), ge=0)
+    entries: int = Field(0, ge=0)
+
+
+def test_a_registered_column_name_is_money_whatever_the_word_list_says():
+    assert not is_money_name("balance")
+    assert _bounded([_Ledger], frozenset()) == {}
+    assert _bounded([_Ledger], frozenset({"balance", "entries"})) == {
+        "_Ledger": {"balance": ["ge=0"]}
     }

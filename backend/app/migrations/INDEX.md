@@ -131,3 +131,4 @@ migrations must swallow their own operational errors.
 | `119_add_vehicle_distance_unit` | **FATAL** — Add vehicles.distance_unit: the unit the vehicle's odometer reads (#172). |
 | `120_add_dashboard_sort` | **FATAL** — Add users.dashboard_sort: the order this person's dashboard opens in. |
 | `121_add_financing_records` | Create financing_records table for lease, loan, and upfront-fee costs. |
+| `122_widen_money_columns` | **FATAL** — Widen every money column to its policy type on PostgreSQL. |
