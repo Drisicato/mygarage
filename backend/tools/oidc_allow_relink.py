@@ -25,6 +25,7 @@ import sys
 from datetime import datetime, timedelta
 
 from sqlalchemy import Connection, create_engine, insert, select, update
+from sqlalchemy.exc import OperationalError
 
 sys.path.insert(0, ".")
 
@@ -128,15 +129,30 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _first_line(exc: BaseException) -> str:
+    """An error's message cut to one line, for the operator's terminal."""
+    lines = str(exc).strip().splitlines()
+    return lines[0] if lines else type(exc).__name__
+
+
 def main(argv: list[str] | None = None) -> int:
     """Allow or cancel an SSO relink from the command line."""
     args = _parse_args(argv)
-    engine = create_engine(resolve_sync_url(args.db))
+    try:
+        engine = create_engine(resolve_sync_url(args.db))
+    except ValueError as exc:
+        # A --db dialect the tools don't support, or no database configured.
+        print(exc, file=sys.stderr)
+        return 1
     try:
         with engine.begin() as conn:
             until = allow_relink(conn, args.username, args.minutes)
     except LookupError as exc:
         print(exc, file=sys.stderr)
+        return 1
+    except OperationalError as exc:
+        # Can't reach the database, or its schema is from before migration 123.
+        print(f"Database error: {_first_line(exc.orig or exc)}", file=sys.stderr)
         return 1
     finally:
         engine.dispose()

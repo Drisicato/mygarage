@@ -7,8 +7,10 @@ re-reads the row through the test's session with `refresh()`.
 """
 
 import datetime as dt
+import sqlite3
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -174,3 +176,36 @@ class TestMain:
         assert "--minutes" in capsys.readouterr().err
         await db_session.refresh(account)
         assert account.oidc_relink_until is None
+
+    async def test_an_unsupported_db_dialect_is_one_line_and_exit_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ):
+        code = main(["--username", "anyone", "--db", "mysql://db.example/mygarage"])
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "unsupported database dialect 'mysql'" in err
+        assert err.strip().count("\n") == 0, f"expected one line, got:\n{err}"
+
+    async def test_a_schema_without_the_relink_column_is_one_line_and_exit_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ):
+        """A database from before migration 123, which added oidc_relink_until."""
+        db_file = tmp_path / "pre_123.db"
+        conn = sqlite3.connect(db_file)
+        try:
+            conn.execute(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR(50), "
+                "updated_at DATETIME)"
+            )
+            conn.execute("INSERT INTO users (username) VALUES ('old_admin')")
+            conn.commit()
+        finally:
+            conn.close()
+
+        code = main(["--username", "old_admin", "--db", str(db_file)])
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "oidc_relink_until" in err
+        assert err.strip().count("\n") == 0, f"expected one line, got:\n{err}"

@@ -8,6 +8,9 @@ The link step used to link a disabled account and only then 403. It now refuses
 a disabled account before it looks at the password, and burns the pending link
 like every other refusal there.
 
+A relink an admin armed is audited when it's used, with the callback request's
+IP and user agent.
+
 The IdP round trip (state, discovery, token exchange, ID token check) is mocked
 at the service boundary the route calls; everything after that is real.
 """
@@ -36,6 +39,7 @@ from app.models.settings import Setting
 from app.models.user import User
 from app.routes.oidc import limiter as oidc_route_limiter
 from app.services.oidc import create_pending_link_token
+from app.utils.datetime_utils import utc_now
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -126,7 +130,11 @@ async def user_agent(db_session: AsyncSession) -> AsyncIterator[str]:
 
 
 async def _account(
-    db_session: AsyncSession, made_users: list[_Account], *, active: bool = True
+    db_session: AsyncSession,
+    made_users: list[_Account],
+    *,
+    active: bool = True,
+    relink_until: dt.datetime | None = None,
 ) -> _Account:
     """A local password account with a fixed past last_login, so any write to it shows."""
     tag = uuid.uuid4().hex[:10]
@@ -139,6 +147,7 @@ async def _account(
         is_admin=False,
         auth_method="local",
         last_login=_LAST_LOGIN,
+        oidc_relink_until=relink_until,
     )
     db_session.add(user)
     await db_session.commit()
@@ -289,7 +298,7 @@ class TestCallbackRefusal:
         """The audit commit must not carry a link the refused step had half applied."""
         target = await _account(db_session, made_users)
 
-        async def half_applied_then_refused(db: AsyncSession, *_: Any) -> None:
+        async def half_applied_then_refused(db: AsyncSession, *_: Any, **__: Any) -> None:
             user = await db.get(User, target.id)
             assert user is not None
             user.oidc_subject = "sub-half-applied"
@@ -449,3 +458,46 @@ class TestEmailStepEndToEnd:
         assert linked.auth_method == "oidc"
         assert await _stored_pending_link(test_sessionmaker, token) is None
         assert await _refusal_rows(test_sessionmaker, user_agent) == []
+
+
+class TestArmedRelinkThroughTheCallback:
+    async def test_a_used_relink_is_audited_with_the_requests_ip_and_user_agent(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_sessionmaker: async_sessionmaker[AsyncSession],
+        made_users: list[_Account],
+        user_agent: str,
+    ):
+        """The service has no request, so the callback hands it where the sign-in came from."""
+        target = await _account(
+            db_session, made_users, relink_until=utc_now() + dt.timedelta(minutes=30)
+        )
+        claims = _claims(email=target.email)
+
+        with _idp(claims):
+            response = await _callback(client, user_agent)
+
+        assert response.status_code == 302, response.text
+        assert urlsplit(response.headers["location"]).path == "/auth/oidc/success"
+        assert _sets_auth_cookie(response)
+        linked = await _stored_user(test_sessionmaker, target.id)
+        assert linked.oidc_subject == claims["sub"]
+        assert linked.oidc_relink_until is None
+
+        async with test_sessionmaker() as fresh:
+            rows = list(
+                (
+                    await fresh.execute(
+                        select(AuditLog).where(
+                            AuditLog.user_agent == user_agent,
+                            AuditLog.action == "oidc_relink_used",
+                        )
+                    )
+                ).scalars()
+            )
+        assert len(rows) == 1, f"expected one oidc_relink_used row, got {len(rows)}"
+        assert rows[0].user_id == target.id
+        assert rows[0].username == target.username
+        assert rows[0].ip_address == "127.0.0.1"
+        assert rows[0].details == {"old_subject": None, "new_subject": claims["sub"]}

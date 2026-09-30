@@ -22,6 +22,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.constants.oidc import SSO_ACCOUNT_DISABLED
 from app.database import get_db
 from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError
 from app.models.audit_log import AuditLog
@@ -57,6 +58,12 @@ def _frontend_base(request: Request) -> str:
 limiter = Limiter(key_func=get_remote_address)
 
 
+def _request_origin(request: Request) -> tuple[str | None, str]:
+    """The request's client IP and user agent, as the audit rows record them."""
+    ip_address = request.client.host if request.client else None
+    return ip_address, request.headers.get("user-agent", "")
+
+
 async def _audit_login_refused(
     db: AsyncSession, request: Request, reason: str, username: str | None
 ) -> None:
@@ -74,6 +81,7 @@ async def _audit_login_refused(
         username: The matched account's username, or None if none matched
     """
     await db.rollback()
+    ip_address, user_agent = _request_origin(request)
     db.add(
         AuditLog(
             user_id=None,
@@ -81,8 +89,8 @@ async def _audit_login_refused(
             action="oidc_login_refused",
             details={"reason": reason},
             success=0,
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent", ""),
+            ip_address=ip_address,
+            user_agent=user_agent,
             timestamp=utc_now(),
         )
     )
@@ -385,9 +393,13 @@ async def oidc_callback(
         userinfo = await oidc_service.get_userinfo(access_token, metadata)
 
     # Create or update user from OIDC claims. Anything other than these two
-    # exceptions propagates untouched.
+    # exceptions propagates untouched. The origin goes along for the audit row
+    # an armed relink writes.
+    ip_address, user_agent = _request_origin(request)
     try:
-        user = await oidc_service.create_or_update_user_from_oidc(db, claims, userinfo, config)
+        user = await oidc_service.create_or_update_user_from_oidc(
+            db, claims, userinfo, config, ip_address=ip_address, user_agent=user_agent
+        )
     except PendingLinkRequiredError as e:
         # Email or username matched a password account, so confirm it with that password first
         logger.info("Pending link required for username: %s", sanitize_for_log(e.username))
@@ -420,11 +432,8 @@ async def oidc_callback(
     # Backstop: the service refuses a disabled account itself, so this only
     # fires when an admin disables it while the login is in flight.
     if not user.is_active:
-        await _audit_login_refused(db, request, "User account is disabled", user.username)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is disabled",
-        )
+        await _audit_login_refused(db, request, SSO_ACCOUNT_DISABLED, user.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SSO_ACCOUNT_DISABLED)
 
     # Clean up expired CSRF tokens for this user
     await db.execute(
@@ -576,14 +585,15 @@ async def link_oidc_account(
         await _audit_login_refused(db, request, e.message, e.username)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
 
+    ip_address, user_agent = _request_origin(request)
     if user is None:
         # Failed - create audit log
         audit_log = AuditLog(
             user_id=None,
             action="oidc_link_failed",
             details=error_message,
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent", ""),
+            ip_address=ip_address,
+            user_agent=user_agent,
             timestamp=utc_now(),
         )
         db.add(audit_log)
@@ -599,19 +609,16 @@ async def link_oidc_account(
     # fires when an admin disables it while the link is being committed.
     if not user.is_active:
         logger.warning("OIDC link attempt for inactive user: %s", sanitize_for_log(user.username))
-        await _audit_login_refused(db, request, "User account is disabled", user.username)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is disabled",
-        )
+        await _audit_login_refused(db, request, SSO_ACCOUNT_DISABLED, user.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SSO_ACCOUNT_DISABLED)
 
     # Success - create audit log
     audit_log = AuditLog(
         user_id=user.id,
         action="oidc_account_linked",
         details=f"Linked OIDC account to username: {user.username}, provider: {user.oidc_provider}, oidc_subject: {user.oidc_subject}",
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent", ""),
+        ip_address=ip_address,
+        user_agent=user_agent,
         timestamp=utc_now(),
     )
     db.add(audit_log)

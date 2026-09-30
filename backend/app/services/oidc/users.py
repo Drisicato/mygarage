@@ -23,7 +23,9 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.constants.oidc import SSO_ACCOUNT_DISABLED
 from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError
+from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
@@ -34,8 +36,8 @@ from .state import store_oidc_state
 
 logger = logging.getLogger(__name__)
 
-# Refusal messages, shown to the person signing in.
-_DISABLED = "User account is disabled"
+# Refusal messages, shown to the person signing in. A disabled account gets
+# SSO_ACCOUNT_DISABLED.
 _EMAIL_LINKED_ELSEWHERE = (
     "This email belongs to an account that is linked to a different sign-in. "
     "Ask an administrator to allow an SSO relink for it."
@@ -55,12 +57,20 @@ _USERNAME_NO_PASSWORD = (
 
 
 async def _consume_armed_relink(
-    db: AsyncSession, user: User, sub: str, provider_name: str, full_name: str
+    db: AsyncSession,
+    user: User,
+    sub: str,
+    provider_name: str,
+    full_name: str,
+    *,
+    ip_address: str | None,
+    user_agent: str | None,
 ) -> bool:
     """Link the account to this sub if an admin armed a relink on it, spending the arm.
 
     One conditional UPDATE links it and disarms it together, so an arm links once
-    even when two SSO logins race for it, and an expired one links nothing.
+    even when two SSO logins race for it, and an expired one links nothing. The
+    link is audited as ``oidc_relink_used`` in the same commit.
 
     Args:
         db: Database session
@@ -68,6 +78,8 @@ async def _consume_armed_relink(
         sub: The claimant's OIDC subject
         provider_name: The configured provider name
         full_name: The name claim, or empty to keep the account's
+        ip_address: Where the sign-in came from, for the audit row
+        user_agent: The sign-in's user agent, for the audit row
 
     Returns:
         True if the account is now linked to ``sub``, False if nothing was armed.
@@ -75,6 +87,7 @@ async def _consume_armed_relink(
     if user.oidc_relink_until is None:
         return False
 
+    old_subject = user.oidc_subject
     now = utc_now()
     values: dict[str, Any] = {
         "oidc_subject": sub,
@@ -95,6 +108,22 @@ async def _consume_armed_relink(
         # Expired, or spent or revoked since this login read the row.
         return False
 
+    # Who used it and from where, so an admin can tell the user's own sign-in
+    # from someone else's.
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            username=user.username,
+            action="oidc_relink_used",
+            resource_type="user",
+            resource_id=str(user.id),
+            details={"old_subject": old_subject, "new_subject": sub},
+            success=1,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            timestamp=now,
+        )
+    )
     await db.commit()
     await db.refresh(user)
     logger.info("OIDC relink approved by an admin was used: %s", sanitize_for_log(user.username))
@@ -199,12 +228,16 @@ async def create_or_update_user_from_oidc(
     claims: dict[str, Any],
     userinfo: dict[str, Any] | None,
     config: dict[str, str],
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> User | None:
     """Resolve an SSO login to a MyGarage account, creating one if allowed.
 
     Strategy:
     1. A user with this oidc_subject logs in, and their name, provider and
-       last_login are refreshed. A disabled account is refused.
+       last_login are refreshed. A disabled account is refused. Any open
+       relink is cancelled, since the sign-in it was for already works.
     2. A user with this email. In order: a disabled account is refused; an
        account with an unexpired admin-armed relink is linked to this subject
        and disarmed; an account already linked to a different subject is
@@ -224,6 +257,8 @@ async def create_or_update_user_from_oidc(
         claims: ID token claims
         userinfo: Optional userinfo claims
         config: OIDC configuration
+        ip_address: The sign-in's IP, recorded if it uses an armed relink
+        user_agent: The sign-in's user agent, recorded the same way
 
     Returns:
         User object or None if creation/update fails
@@ -271,12 +306,14 @@ async def create_or_update_user_from_oidc(
             logger.warning(
                 "OIDC login refused, account disabled: %s", sanitize_for_log(user.username)
             )
-            raise OIDCLoginRefusedError(_DISABLED, username=user.username)
+            raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=user.username)
 
         logger.info("Found existing OIDC user: %s", sanitize_for_log(user.username))
         user.full_name = full_name or user.full_name
         user.last_login = utc_now()
         user.oidc_provider = provider_name
+        # Their sign-in works, so a relink left open is only a way in for someone else.
+        user.oidc_relink_until = None
         await db.commit()
         await db.refresh(user)
         return user
@@ -293,9 +330,17 @@ async def create_or_update_user_from_oidc(
                 "OIDC login refused, email matched a disabled account: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(_DISABLED, username=user.username)
+            raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=user.username)
 
-        if await _consume_armed_relink(db, user, sub, provider_name, full_name):
+        if await _consume_armed_relink(
+            db,
+            user,
+            sub,
+            provider_name,
+            full_name,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        ):
             return user
 
         # Step 1 didn't find this sub, so any subject here belongs to someone else.
@@ -332,9 +377,17 @@ async def create_or_update_user_from_oidc(
                 "OIDC login refused, username matched a disabled account: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(_DISABLED, username=user.username)
+            raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=user.username)
 
-        if await _consume_armed_relink(db, user, sub, provider_name, full_name):
+        if await _consume_armed_relink(
+            db,
+            user,
+            sub,
+            provider_name,
+            full_name,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        ):
             return user
 
         if user.hashed_password is None:

@@ -60,10 +60,14 @@ async def _locked_active_admin_count(db: AsyncSession) -> int:
 
     The last-admin guard's one pre-read. PostgreSQL rejects `count(*) ... FOR
     UPDATE`, so it selects the ids and counts them here. SQLite drops the
-    FOR UPDATE; the guard's flush and re-count cover it there.
+    FOR UPDATE; the guard's flush and re-count cover it there. The rows lock
+    in id order, so two guards queue on them instead of deadlocking.
     """
     result = await db.execute(
-        select(User.id).where(User.is_admin.is_(True), User.is_active.is_(True)).with_for_update()
+        select(User.id)
+        .where(User.is_admin.is_(True), User.is_active.is_(True))
+        .order_by(User.id)
+        .with_for_update()
     )
     return len(result.all())
 
@@ -619,6 +623,8 @@ async def update_user(
     active_admins = 0
     if changes.get("is_active") is False or changes.get("is_admin") is False:
         active_admins = await _locked_active_admin_count(db)
+        # On PostgreSQL a target enabled between the two reads isn't in the
+        # locked count, so this can 400 it. That fails closed; a retry works.
         user = await _locked_target(db, user_id)
         if user.is_admin and user.is_active and active_admins <= 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_UPDATE)
@@ -679,6 +685,8 @@ async def delete_user(
     # as a disabled admin or a plain user might have been enabled or promoted
     # since. The locked re-read is also the 404. A disabled admin can still go.
     active_admins = await _locked_active_admin_count(db)
+    # Same PostgreSQL race as update_user: a target enabled since the count can
+    # 400 here. Fail closed, and a retry works.
     user = await _locked_target(db, user_id)
     if user.is_admin and user.is_active and active_admins <= 1:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_DELETE)

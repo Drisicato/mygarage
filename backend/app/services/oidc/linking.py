@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants.oidc import SSO_ACCOUNT_DISABLED
 from app.exceptions import OIDCLoginRefusedError
 from app.models.oidc_pending_link import OIDCPendingLink
 from app.models.settings import Setting
@@ -25,9 +26,6 @@ from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
-
-# The refusal message for a disabled target, the same one the login steps use.
-_DISABLED = "User account is disabled"
 
 
 async def _cleanup_expired_pending_links(db: AsyncSession) -> None:
@@ -191,7 +189,7 @@ async def validate_and_consume_pending_link(
         logger.warning("Pending link refused, account disabled: %s", sanitize_for_log(username))
         await db.delete(pending_link)
         await db.commit()
-        raise OIDCLoginRefusedError(_DISABLED, username=username)
+        raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=username)
 
     # Security check: user must have a password (not OIDC-only)
     if user.hashed_password is None:
@@ -270,6 +268,8 @@ async def validate_and_consume_pending_link(
     if full_name:
         user.full_name = full_name
     user.last_login = utc_now()
+    # They proved the account with its password, so an open relink isn't needed.
+    user.oidc_relink_until = None
 
     # Delete pending link token (one-time use)
     await db.delete(pending_link)

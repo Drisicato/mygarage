@@ -9,7 +9,8 @@ the password-link page for its own username; everything else is refused. Every
 refusal leaves the matched row alone, in memory and in the database.
 
 The one exception is a relink an admin armed on the account: until it expires,
-the next email or username match links it and spends the arm.
+the next email or username match links it and spends the arm. Using one is
+audited, and any SSO sign-in that already works cancels it.
 """
 
 import datetime as dt
@@ -22,9 +23,14 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError
+from app.models.audit_log import AuditLog
 from app.models.settings import Setting
 from app.models.user import User
-from app.services.oidc import create_or_update_user_from_oidc
+from app.services.oidc import (
+    create_or_update_user_from_oidc,
+    create_pending_link_token,
+    validate_and_consume_pending_link,
+)
 from app.utils.datetime_utils import utc_now
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
@@ -33,6 +39,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 _HASH = "$argon2id$v=19$m=102400,t=2,p=8$NNbLa8SMLODWY2Es68EvLw$hiGLA+DtO213EMAMi8D8gXvvyjP8EVMFIHWp7SlUVnI"
 _LAST_LOGIN = dt.datetime(2024, 1, 2, 3, 4, 5)
 _WATCHED = ("oidc_subject", "oidc_provider", "auth_method", "last_login", "full_name")
+_RELINK_USED = "oidc_relink_used"
 
 _DISABLED = "User account is disabled"
 _EMAIL_LINKED_ELSEWHERE = (
@@ -78,10 +85,13 @@ async def _oidc_rows(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def made_users(db_session: AsyncSession):
-    """Collects users a test creates and deletes them afterwards."""
+    """Collects users a test creates and deletes them, and their relink audit rows, afterwards."""
     ids: list[int] = []
     yield ids
     await db_session.rollback()
+    await db_session.execute(
+        delete(AuditLog).where(AuditLog.action == _RELINK_USED, AuditLog.user_id.in_(ids))
+    )
     for user_id in ids:
         user = await db_session.get(User, user_id)
         if user is not None:
@@ -363,6 +373,17 @@ async def _stored(sessionmaker: async_sessionmaker[AsyncSession], user_id: int) 
 _LINKED_ELSEWHERE = {"email": _EMAIL_LINKED_ELSEWHERE, "username": _USERNAME_LINKED_ELSEWHERE}
 
 
+async def _relink_used_rows(
+    sessionmaker: async_sessionmaker[AsyncSession], user_id: int
+) -> list[AuditLog]:
+    """Committed `oidc_relink_used` rows for this account, read over a second session."""
+    async with sessionmaker() as fresh:
+        rows = await fresh.execute(
+            select(AuditLog).where(AuditLog.action == _RELINK_USED, AuditLog.user_id == user_id)
+        )
+        return list(rows.scalars())
+
+
 @pytest.mark.parametrize("match", ["email", "username"])
 @pytest.mark.parametrize("password", [True, False], ids=["with-password", "sso-only"])
 async def test_armed_relink_links_the_new_subject_and_disarms(
@@ -465,3 +486,99 @@ async def test_relink_spent_since_it_was_read_does_not_link_again(
 
     _assert_refused(outcome, _EMAIL_LINKED_ELSEWHERE, account.username)
     assert (await _stored(test_sessionmaker, account.id))["oidc_subject"] == winner_sub
+    # The next commit on this session (the pending-link path makes one) must not
+    # carry an audit row the loser staged.
+    await db_session.commit()
+    assert await _relink_used_rows(test_sessionmaker, account.id) == [], (
+        "the loser linked nothing, so it has nothing to audit"
+    )
+
+
+# 10. Using a relink is audited, with where the sign-in came from.
+@pytest.mark.parametrize("match", ["email", "username"])
+@pytest.mark.parametrize("linked", [True, False], ids=["was-linked", "never-linked"])
+async def test_a_used_relink_is_audited_with_its_origin(
+    db_session: AsyncSession,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    made_users: list[int],
+    match: str,
+    linked: bool,
+):
+    old_sub = f"old-{uuid.uuid4().hex[:10]}" if linked else None
+    account = await _account(
+        db_session, made_users, subject=old_sub, relink_until=_minutes_from_now(30)
+    )
+    claims = _claims_matching(account, match)
+    user_agent = f"relink-test/{uuid.uuid4().hex}"
+
+    outcome = await create_or_update_user_from_oidc(
+        db_session, claims, None, {}, ip_address="203.0.113.7", user_agent=user_agent
+    )
+
+    assert isinstance(outcome, User) and outcome.id == account.id
+    rows = await _relink_used_rows(test_sessionmaker, account.id)
+    assert len(rows) == 1, f"expected one {_RELINK_USED} row, got {len(rows)}"
+    row = rows[0]
+    assert row.username == account.username
+    assert row.details == {"old_subject": old_sub, "new_subject": claims["sub"]}
+    assert row.ip_address == "203.0.113.7"
+    assert row.user_agent == user_agent
+    assert row.success == 1
+
+
+# 11. A working sign-in disarms an open relink, so nobody else can spend it later.
+async def test_a_subject_login_disarms_an_open_relink(
+    db_session: AsyncSession,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    made_users: list[int],
+):
+    sub = f"sub-{uuid.uuid4().hex[:10]}"
+    account = await _account(
+        db_session, made_users, subject=sub, relink_until=_minutes_from_now(30)
+    )
+
+    outcome = await _login(db_session, _claims(sub=sub))
+
+    assert outcome is account
+    stored = await _stored(test_sessionmaker, account.id)
+    assert stored["oidc_subject"] == sub
+    assert stored["oidc_relink_until"] is None, "the subject login left the relink open"
+
+
+async def test_a_refused_subject_login_leaves_the_relink_armed(
+    db_session: AsyncSession,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    made_users: list[int],
+):
+    """Disabled wins, and a refusal writes nothing, the arm included."""
+    sub = f"sub-{uuid.uuid4().hex[:10]}"
+    until = _minutes_from_now(30)
+    account = await _account(db_session, made_users, subject=sub, active=False, relink_until=until)
+
+    outcome = await _login(db_session, _claims(sub=sub))
+
+    _assert_refused(outcome, _DISABLED, account.username)
+    assert account.oidc_relink_until == until, "the refusal touched the arm in memory"
+    await db_session.flush()
+    await db_session.refresh(account)
+    assert account.oidc_relink_until == until
+    assert (await _stored(test_sessionmaker, account.id))["oidc_relink_until"] == until
+
+
+async def test_a_password_link_disarms_an_open_relink(
+    db_session: AsyncSession,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    made_users: list[int],
+):
+    """The user got to the password page, and an admin armed a relink while they typed."""
+    account = await _account(db_session, made_users, relink_until=_minutes_from_now(30))
+    claims = _claims(email=account.email)
+    token = await create_pending_link_token(db_session, account.username, claims, None, {})
+
+    user, error = await validate_and_consume_pending_link(db_session, token, "testpassword123")
+
+    assert error is None
+    assert user is not None and user.id == account.id
+    stored = await _stored(test_sessionmaker, account.id)
+    assert stored["oidc_subject"] == claims["sub"]
+    assert stored["oidc_relink_until"] is None, "the password link left the relink open"
