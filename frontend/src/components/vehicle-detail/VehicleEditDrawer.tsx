@@ -137,6 +137,11 @@ export default function VehicleEditDrawer({
    */
   const defCapacityOrigin = useRef<UnitFieldOrigin>({ canonical: null, display: '' })
 
+  // The hours reading the form opened with. The backend records a submitted
+  // current_hours as a manual reading dated today, so an untouched save must
+  // not send it back or it restamps an old reading with today's date.
+  const hoursSeed = useRef<number | null>(null)
+
   const isMotorized = seedSource ? !NON_MOTORIZED.includes(seedSource.vehicle_type) : false
   const hasWindowSticker = seedSource
     ? WINDOW_STICKER_TYPES.includes(seedSource.vehicle_type)
@@ -204,7 +209,9 @@ export default function VehicleEditDrawer({
       nickname: source.nickname,
       vehicle_type: source.vehicle_type,
       usage_unit: source.usage_unit ?? 'distance',
-      secondary_usage_enabled: detailStats?.secondary_usage_enabled ?? false,
+      // From the vehicle row, not detail-stats: a failed stats fetch fell back
+      // to false and switched dual tracking off on the next save.
+      secondary_usage_enabled: source.secondary_usage_enabled ?? false,
       // '' is the "Account default" option (#172).
       distance_unit: source.distance_unit ?? '',
       // R2-H1: `vehicle.current_hours` (the raw column) is retired as a read
@@ -233,6 +240,8 @@ export default function VehicleEditDrawer({
           : Number(defCapacityOrigin.current.display)
       })(),
     }
+
+    hoursSeed.current = formData.current_hours as number | null
 
     // DEF enabled follows the stored capacity, not the fuel type; the diesel
     // hint covers the suggestion when tracking is off.
@@ -287,6 +296,11 @@ export default function VehicleEditDrawer({
         )
       )
       data.def_tank_capacity_liters = canonical ?? data.def_tank_capacity_liters
+    }
+
+    const typedHours = data.current_hours == null ? null : Number(data.current_hours)
+    if (typedHours === hoursSeed.current) {
+      delete data.current_hours
     }
 
     try {
