@@ -1,5 +1,6 @@
 """Tests for vehicle analytics PDF report generation."""
 
+from collections.abc import Callable
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
@@ -729,9 +730,9 @@ class TestMonthlySpendingChartSkipsFinancingOnlyMonths:
         charted: list[list[dict[str, Any]]] = []
         real_chart = pdf_vehicle_report.render_monthly_spending_chart
 
-        def spy(monthly_data: list[dict[str, Any]]) -> BytesIO:
+        def spy(monthly_data: list[dict[str, Any]], **kwargs: Any) -> BytesIO:
             charted.append(monthly_data)
-            return real_chart(monthly_data)
+            return real_chart(monthly_data, **kwargs)
 
         monkeypatch.setattr(pdf_vehicle_report, "render_monthly_spending_chart", spy)
 
@@ -749,3 +750,19 @@ class TestMonthlySpendingChartSkipsFinancingOnlyMonths:
 
         assert len(charted) == 1
         assert [(m["year"], m["month"]) for m in charted[0]] == running
+
+
+def test_every_chart_labels_money_in_the_report_currency(
+    chart_texts: Callable[[], list[list[str]]],
+) -> None:
+    """The tables already used `currency_code`; the charts wrote "$"."""
+    generate_vehicle_analytics_pdf(
+        _make_analytics_data(), currency_code="HUF", locale="hu-HU", render_context=METRIC_CTX
+    )
+
+    drawn = chart_texts()
+    # Monthly spending, the service donut and the projection bars.
+    assert len(drawn) == 3
+    for texts in drawn:
+        assert any("Ft" in t for t in texts), texts
+        assert not any("$" in t for t in texts), texts

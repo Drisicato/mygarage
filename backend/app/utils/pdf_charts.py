@@ -15,7 +15,9 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.font_manager import FontProperties, fontManager  # noqa: E402
+from matplotlib.ticker import FuncFormatter  # noqa: E402
 
+from app.utils.currency import get_currency_symbol  # noqa: E402
 from app.utils.pdf_styles import CHART_COLORS, MPL, apply_chart_rcparams  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -67,13 +69,22 @@ def _to_float(val: Any) -> float:
         return 0.0
 
 
-def _format_dollar(val: float) -> str:
-    """Format a float as a dollar string for chart labels."""
-    if val >= 10000:
-        return f"${val:,.0f}"
+def _format_money(val: float, currency_code: str, locale: str) -> str:
+    """Format an amount for a chart label, in the reader's currency.
+
+    Composed like `pdf_styles.format_currency`, so the charts and the tables
+    beside them show the same symbol. No cents from 1,000 up.
+    """
+    symbol = get_currency_symbol(currency_code, locale)
     if val >= 1000:
-        return f"${val:,.0f}"
-    return f"${val:,.2f}"
+        return f"{symbol}{val:,.0f}"
+    return f"{symbol}{val:,.2f}"
+
+
+def _money_axis(currency_code: str, locale: str) -> FuncFormatter:
+    """A y-axis tick formatter for money, in the reader's currency."""
+    symbol = get_currency_symbol(currency_code, locale)
+    return FuncFormatter(lambda v, _: f"{symbol}{v:,.0f}")
 
 
 # ── Chart Functions ────────────────────────────────────────
@@ -83,6 +94,9 @@ def render_monthly_spending_chart(
     monthly_data: list[dict[str, Any]],
     width_inches: float = 7.0,
     height_inches: float = 2.8,
+    *,
+    currency_code: str,
+    locale: str,
 ) -> BytesIO:
     """Render a grouped bar chart of monthly service vs fuel spending.
 
@@ -91,6 +105,8 @@ def render_monthly_spending_chart(
             month_name, year, total_service_cost, total_fuel_cost
         width_inches: Chart width in inches
         height_inches: Chart height in inches
+        currency_code: ISO 4217 code for the axis labels.
+        locale: BCP 47 locale, passed through to the symbol lookup.
 
     Returns:
         BytesIO containing PNG image data.
@@ -157,7 +173,7 @@ def render_monthly_spending_chart(
             # Style axes
             ax.set_xticks(x)
             ax.set_xticklabels(labels, fontproperties=_mono_font(), fontsize=9)
-            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:,.0f}"))  # pyright: ignore[reportPrivateImportUsage]
+            ax.yaxis.set_major_formatter(_money_axis(currency_code, locale))
 
             for label in ax.get_yticklabels():
                 label.set_fontproperties(_mono_font())
@@ -196,14 +212,19 @@ def render_donut_chart(
     width_inches: float = 4.5,
     height_inches: float = 2.8,
     show_legend: bool = True,
+    *,
+    currency_code: str,
+    locale: str,
 ) -> BytesIO:
     """Render a donut/ring chart with center total and optional legend.
 
     Args:
         categories: List of (name, amount) tuples sorted by amount descending.
-        total: Total dollar amount for center text.
+        total: Total amount for center text.
         width_inches: Chart width in inches.
         height_inches: Chart height in inches.
+        currency_code: ISO 4217 code for the center total.
+        locale: BCP 47 locale, passed through to the symbol lookup.
 
     Returns:
         BytesIO containing PNG image data.
@@ -257,7 +278,7 @@ def render_donut_chart(
             ax_donut.text(
                 0,
                 0.05,
-                _format_dollar(total),
+                _format_money(total, currency_code, locale),
                 ha="center",
                 va="center",
                 fontproperties=_mono_font(),
@@ -322,6 +343,9 @@ def render_projection_bars(
     months_tracked: int,
     width_inches: float = 7.0,
     height_inches: float = 1.8,
+    *,
+    currency_code: str,
+    locale: str,
 ) -> BytesIO:
     """Render horizontal projection bars (current, 6mo, 12mo).
 
@@ -332,6 +356,8 @@ def render_projection_bars(
         months_tracked: Number of months of data.
         width_inches: Chart width in inches.
         height_inches: Chart height in inches.
+        currency_code: ISO 4217 code for the bar labels.
+        locale: BCP 47 locale, passed through to the symbol lookup.
 
     Returns:
         BytesIO containing PNG image data.
@@ -373,7 +399,7 @@ def render_projection_bars(
             ax.text(
                 current_amount + max_val * 0.02,
                 2,
-                _format_dollar(current_amount),
+                _format_money(current_amount, currency_code, locale),
                 ha="left",
                 va="center",
                 fontproperties=_mono_font(),
@@ -398,7 +424,7 @@ def render_projection_bars(
                 ax.text(
                     val + max_val * 0.02,
                     y,
-                    f"{label_prefix}{_format_dollar(val)}",
+                    f"{label_prefix}{_format_money(val, currency_code, locale)}",
                     ha="left",
                     va="center",
                     fontproperties=_mono_font(),
@@ -432,6 +458,9 @@ def render_garage_monthly_trends(
     monthly_data: list[dict[str, Any]],
     width_inches: float = 7.0,
     height_inches: float = 2.8,
+    *,
+    currency_code: str,
+    locale: str,
 ) -> BytesIO:
     """Render a grouped bar chart for garage monthly trends.
 
@@ -441,6 +470,8 @@ def render_garage_monthly_trends(
         monthly_data: List of GarageMonthlyTrend dicts.
         width_inches: Chart width in inches.
         height_inches: Chart height in inches.
+        currency_code: ISO 4217 code for the axis labels.
+        locale: BCP 47 locale, passed through to the symbol lookup.
 
     Returns:
         BytesIO containing PNG image data.
@@ -502,7 +533,7 @@ def render_garage_monthly_trends(
             ax.set_xticklabels(
                 labels, fontproperties=_mono_font(), fontsize=8, rotation=45, ha="right"
             )
-            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:,.0f}"))  # pyright: ignore[reportPrivateImportUsage]
+            ax.yaxis.set_major_formatter(_money_axis(currency_code, locale))
 
             for label in ax.get_yticklabels():
                 label.set_fontproperties(_mono_font())
