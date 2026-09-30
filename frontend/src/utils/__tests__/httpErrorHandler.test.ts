@@ -43,6 +43,46 @@ describe('parseApiError on a FastAPI 422', () => {
 // converted 10c site that surfaces a 404 (VehicleSharingModal x3,
 // VehicleTransferWizard, DeleteUserModal, FamilyManagementModal,
 // VehicleRemoveModal, SettingsBackupTab).
+// What MyGarage's own handler sends (backend/app/utils/error_handlers.py,
+// SecureErrorResponse.validation_error): the list is under `details`, not
+// FastAPI's default `detail`, and each loc entry is stringified.
+const myGarage422 = {
+  isAxiosError: true,
+  message: 'Request failed with status code 422',
+  response: {
+    status: 422,
+    data: {
+      error: true,
+      message: 'Validation error',
+      details: [
+        {
+          type: 'string_too_long',
+          loc: ['body', 'environmental_rating_ghg'],
+          msg: 'String should have at most 10 characters',
+          input: 'AAAAAAAAAAA',
+        },
+      ],
+      request_id: 'req-1',
+    },
+  },
+}
+
+describe("parseApiError on MyGarage's own 422 envelope", () => {
+  it('reads the field problems from `details`', () => {
+    const parsed = parseApiError(myGarage422)
+    expect(parsed.status).toBe(422)
+    expect(parsed.fieldErrors).toEqual([
+      {
+        field: 'environmental_rating_ghg',
+        message: 'String should have at most 10 characters',
+        type: 'string_too_long',
+      },
+    ])
+    // Still never a toast string: the list is field content only.
+    expect(parsed.detail).toBeUndefined()
+  })
+})
+
 describe('getActionErrorMessage on a 404', () => {
   const axios404 = (detail?: unknown): unknown => ({
     isAxiosError: true,

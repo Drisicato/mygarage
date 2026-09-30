@@ -117,7 +117,11 @@ export function parseApiError(error: unknown, context?: string): ParsedApiError 
   // Handle Axios errors
   if (isAxiosError(error)) {
     const status = error.response?.status || 0
-    const rawDetail = (error.response?.data as { detail?: unknown })?.detail
+    // MyGarage's validation handler sends the 422 list as `details`; FastAPI's
+    // default and a raised HTTPException use `detail`. Reading only `detail`
+    // meant no 422 ever reached a field, so every form fell back to the banner.
+    const data = error.response?.data as { detail?: unknown; details?: unknown } | undefined
+    const rawDetail = data?.detail ?? data?.details
     const fieldErrors = parseValidationErrors(rawDetail)
     // `detail` is human-facing text ONLY. A 422 sends an array, which must never
     // be stringified into a toast — fieldErrors carries that content. Falling

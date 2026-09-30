@@ -129,10 +129,13 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     apiPatch.mockRejectedValueOnce({
       isAxiosError: true,
       message: 'Request failed with status code 422',
+      // The envelope the backend really sends (utils/error_handlers.py): `details`.
       response: {
         status: 422,
         data: {
-          detail: [
+          error: true,
+          message: 'Validation error',
+          details: [
             { type: 'string_too_long', loc: ['body', 'environmental_rating_ghg'], msg: 'String should have at most 10 characters' },
           ],
         },
