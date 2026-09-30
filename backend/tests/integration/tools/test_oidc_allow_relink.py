@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from sqlalchemy import create_engine, delete, select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_log import AuditLog
@@ -204,6 +205,30 @@ class TestMain:
             conn.close()
 
         code = main(["--username", "old_admin", "--db", str(db_file)])
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "oidc_relink_until" in err
+        assert err.strip().count("\n") == 0, f"expected one line, got:\n{err}"
+
+    async def test_a_pg_schema_error_is_one_line_and_exit_1(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ):
+        """psycopg2 reports a missing column as ProgrammingError, not OperationalError."""
+
+        def _undefined_column(*_args: object, **_kwargs: object) -> None:
+            raise ProgrammingError(
+                "UPDATE users ...",
+                {},
+                Exception('column "oidc_relink_until" does not exist\nLINE 1: ...'),
+            )
+
+        monkeypatch.setattr("tools.oidc_allow_relink.allow_relink", _undefined_column)
+
+        code = main(["--username", "old_admin", "--db", str(tmp_path / "any.db")])
 
         assert code == 1
         err = capsys.readouterr().err

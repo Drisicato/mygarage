@@ -25,7 +25,7 @@ import sys
 from datetime import datetime, timedelta
 
 from sqlalchemy import Connection, create_engine, insert, select, update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DBAPIError
 
 sys.path.insert(0, ".")
 
@@ -150,8 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     except LookupError as exc:
         print(exc, file=sys.stderr)
         return 1
-    except OperationalError as exc:
-        # Can't reach the database, or its schema is from before migration 123.
+    except DBAPIError as exc:
+        # Can't reach the database, or its schema is from before migration 123
+        # (SQLite calls that OperationalError, psycopg2 ProgrammingError).
         print(f"Database error: {_first_line(exc.orig or exc)}", file=sys.stderr)
         return 1
     finally:
