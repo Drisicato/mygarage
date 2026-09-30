@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._nullability import reject_null
 from app.schemas.maintenance import (
     AnchorSpec,
     MaintenanceRuleSummary,
@@ -95,6 +96,9 @@ class ReminderUpdate(BaseModel):
     notes: str | None = None
     maintenance_type: str | None = Field(None, max_length=50)
     recurrence: RecurrenceSpec | None = None
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("title", "reminder_type")
 
     _validate_type = field_validator("maintenance_type")(validate_maintenance_type)
 

@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._nullability import reject_null
 from app.utils.insurance_coverages import COVERAGE_BY_KEY
 
 PolicyType = Literal["Liability", "Comprehensive", "Collision", "Full Coverage", "Minimum", "Other"]
@@ -152,6 +153,9 @@ class PolicyVehicleUpdate(BaseModel):
     coverages: list[CoverageEntry] | None = None
     fields: list[NamedField] | None = None
 
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("policy_type")
+
     _check_coverages = field_validator("coverages")(no_repeated_coverage)
 
 
@@ -251,6 +255,9 @@ class InsurancePolicyUpdate(_PolicyDates):
         description="Required when the premium changes on a policy whose vehicle shares "
         "are all explicit: rescale them proportionally, or reset to an even split",
     )
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("start_date", "end_date", "provider", "policy_number")
 
 
 class InsurancePolicyRenew(_PolicyDates):

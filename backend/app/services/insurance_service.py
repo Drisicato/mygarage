@@ -753,8 +753,6 @@ class InsuranceService:
             )
         await get_vehicle_or_403(link.vin, current_user, self.db, require_write=True)
 
-        if "policy_type" in changes and changes["policy_type"] is None:
-            changes.pop("policy_type")
         for name, value in changes.items():
             setattr(link, name, value)
         if coverages is not None:

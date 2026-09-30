@@ -31,6 +31,7 @@ from app.constants.fuel import (
     PAYMENT_METHOD_VALUES,
     TRIP_TYPE_VALUES,
 )
+from app.schemas._nullability import reject_null
 
 PRICE_BASIS_VALUES = ("per_volume", "per_weight", "per_tank", "per_kwh")
 CHARGE_LEVEL_VALUES = ("L1", "L2", "DCFC")
@@ -579,6 +580,9 @@ class FuelRecordUpdate(BaseModel):
     obc_l_per_100km: Decimal | None = Field(None, ge=0, le=999.99)
     obc_avg_speed_kmh: Decimal | None = Field(None, ge=0, le=9999.9)
     obc_trip_duration_s: int | None = Field(None, ge=0)
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("date", "is_full_tank", "is_hauling", "missed_fillup")
 
     @field_validator("obc_trip_duration_s", mode="before")
     @classmethod

@@ -237,10 +237,9 @@ class UserSelfUpdate(BaseModel):
 class UnitPreferenceUpdate(BaseModel):
     """Schema for the dedicated unit-preference mutation (spec D9b).
 
-    `PUT /auth/me` guards every field with `if ... is not None`, so it cannot
-    express "clear this column". D3 requires that selecting a preset writes
-    eleven explicit nulls, which is why unit preferences do not ride the
-    generic profile route.
+    D3 requires that selecting a preset writes eleven explicit nulls in one
+    step, derived from the preset rather than sent field by field, which is
+    why unit preferences do not ride the generic profile route.
 
     The `units` field is required for `custom` and forbidden otherwise. A
     partial custom would leave some columns resolving from the base preset,
@@ -253,6 +252,9 @@ class UnitPreferenceUpdate(BaseModel):
     unit_preference: UnitPreference
     units: UnitSet | None = None
     show_both_units: bool | None = None
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("show_both_units")
 
     @model_validator(mode="after")
     def units_present_exactly_when_custom(self) -> UnitPreferenceUpdate:

@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._nullability import reject_null
 from app.schemas.livelink import DEVICE_ID_PATTERN
 
 
@@ -72,6 +73,9 @@ class TopicMapUpdate(BaseModel):
     scale: Decimal | None = None
     value_offset: Decimal | None = None
     enabled: bool | None = None
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("enabled", "scale", "value_offset")
 
 
 class TopicMapResponse(TopicMapBase):

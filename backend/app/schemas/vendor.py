@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class VendorBase(BaseModel):
     """Base vendor schema with common fields."""
@@ -44,6 +46,9 @@ class VendorUpdate(BaseModel):
     state: str | None = Field(None, description="State/province", max_length=50)
     zip_code: str | None = Field(None, description="ZIP/postal code", max_length=20)
     phone: str | None = Field(None, description="Phone number", max_length=20)
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("name")
 
     model_config = {
         "json_schema_extra": {

@@ -448,10 +448,7 @@ class TollService:
             # The API calls it transaction_date; the column is `date`. Set as-is,
             # it landed on an unmapped attribute and the edit saved nothing.
             if "transaction_date" in update_data:
-                transaction_date = update_data.pop("transaction_date")
-                # The column is NOT NULL, so a null date is ignored, not a 409.
-                if transaction_date is not None:
-                    update_data["date"] = transaction_date
+                update_data["date"] = update_data.pop("transaction_date")
             for field, value in update_data.items():
                 setattr(transaction, field, value)
 

@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas._nullability import reject_null
 from app.schemas.maintenance import validate_maintenance_type
 from app.schemas.reminder import ReminderCreate  # noqa: F401 — used in type annotations
 from app.schemas.supply import SupplyUsageInput, SupplyUsageResponse
@@ -307,6 +308,9 @@ class ServiceVisitUpdate(BaseModel):
     line_items: list[ServiceLineItemUpdate] | None = Field(
         None, description="Diff-based line items (if provided)"
     )
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("date")
 
     @model_validator(mode="after")
     def validate_line_item_temp_ids(self) -> ServiceVisitUpdate:

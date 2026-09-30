@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class WarrantyRecordBase(BaseModel):
     """Base warranty record schema."""
@@ -39,6 +41,9 @@ class WarrantyRecordUpdate(BaseModel):
     coverage_details: str | None = None
     policy_number: str | None = None
     notes: str | None = None
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("warranty_type", "start_date")
 
 
 class WarrantyRecord(WarrantyRecordBase):

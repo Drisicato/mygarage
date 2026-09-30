@@ -4,6 +4,8 @@ import datetime as dt
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 
 class SettingBase(BaseModel):
     """Base setting schema."""
@@ -35,6 +37,9 @@ class SettingUpdate(BaseModel):
     encrypted: bool | None = Field(
         None, description="Whether the value is sensitive (masked in API responses)"
     )
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("category", "encrypted")
 
 
 class SettingResponse(SettingBase):

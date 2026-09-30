@@ -14,6 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
+
 # =============================================================================
 # User Minimal Schemas (for embedding in other responses)
 # =============================================================================
@@ -212,3 +214,6 @@ class FamilyMemberUpdateRequest(BaseModel):
         ge=0,
         description="Display order on family dashboard",
     )
+
+    # NOT NULL column: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("family_dashboard_order")

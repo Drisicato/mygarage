@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.constants.fuel import FUEL_TYPE_VALUES, normalize_fuel_type
 from app.constants.units import DistanceUnit
+from app.schemas._nullability import reject_null
 from app.utils.unit_resolution import LenientDistanceUnit
 
 
@@ -253,6 +254,9 @@ class VehicleUpdate(VehicleBase):
         None, description="Drivetrain (window sticker)", max_length=50
     )
     assembly_location: str | None = Field(None, description="Assembly location", max_length=100)
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("nickname", "vehicle_type", "usage_unit", "secondary_usage_enabled")
 
     @field_validator("fuel_type", "fuel_type_secondary", mode="before")
     @classmethod

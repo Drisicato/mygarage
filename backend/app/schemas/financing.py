@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._nullability import reject_null
 from app.schemas.service_visit import VendorSummary
 
 FinancingCategory = Literal["lease_payment", "loan_payment", "upfront_fee"]
@@ -54,6 +55,9 @@ class FinancingRecordUpdate(BaseModel):
     category: FinancingCategory | None = Field(None, description="Type of financing cost")
     vendor_id: int | None = Field(None, description="Associated vendor/lender ID")
     notes: str | None = Field(None, description="Additional notes")
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("amount", "category", "date")
 
 
 class FinancingRecordResponse(FinancingRecordBase):
