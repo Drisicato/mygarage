@@ -331,7 +331,7 @@
     "oidcAuth": "OIDC Authentication",
     "oidcConfiguration": "OIDC Configuration",
     "oidcUser": "OIDC User",
-    "oidcUserDescriptionEditable": "Identity managed by {{provider}}. Only role, relationship and active status can be edited.",
+    "oidcUserDescriptionEditable": "Identity managed by {{provider}}, which sets the name. Email, role, relationship and active status can be edited.",
     "onDashboard": "On Dashboard",
     "overdue": "Overdue",
     "password": "Password",

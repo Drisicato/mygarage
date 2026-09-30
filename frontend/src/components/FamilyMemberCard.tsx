@@ -164,10 +164,12 @@ export default function FamilyMemberCard({
   const canToggleDashboard = showActions && !isInactive && membersLoaded && !!onToggleDashboard
   const canEdit = showActions && !!onEdit
   const canResetPassword = showActions && !isOidc && !isInactive && !!onResetPassword
-  const canToggleActive = showActions && !isLastAdmin && !!onToggleActive
+  // Not on your own card: one tap would lock you out. Edit User still can.
+  const canToggleActive = showActions && !isLastAdmin && !isSelf && !!onToggleActive
   const canDeleteUser = showActions && !isSelf && !!onDelete
-  // Offered to SSO users; an open one can be cancelled whoever it's on.
-  const canToggleRelink = showActions && (isOidc || relinkOpen) && !!onToggleRelink
+  // Offered to active SSO users, since a disabled one is refused before the
+  // relink is read. An open one can be cancelled whoever it's on.
+  const canToggleRelink = showActions && ((isOidc && !isInactive) || relinkOpen) && !!onToggleRelink
   const canReorder = showActions && !isInactive && membersLoaded && !!(onMoveUp || onMoveDown)
 
   const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
@@ -304,7 +306,7 @@ export default function FamilyMemberCard({
               </button>
             )}
 
-            {/* SSO relink (OIDC users, or any account with one open) */}
+            {/* SSO relink (active OIDC users, or any account with one open) */}
             {canToggleRelink && (
               <button
                 type="button"
@@ -323,7 +325,7 @@ export default function FamilyMemberCard({
               </button>
             )}
 
-            {/* Toggle Active (not the last active admin) */}
+            {/* Toggle Active (not the last active admin, not yourself) */}
             {canToggleActive && (
               <button
                 type="button"

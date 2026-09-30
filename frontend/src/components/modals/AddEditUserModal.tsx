@@ -25,6 +25,9 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
   // The last active admin can't be disabled, whoever it is, not only you.
   // The server refuses it too.
   const isLastActiveAdmin = !!user && user.is_admin && user.is_active && activeAdminCount === 1
+  // You can't change your own role when you're that last admin. With auth on
+  // it's the same as isLastActiveAdmin; with auth off the server refuses it.
+  const isSelfLastActiveAdmin = isLastActiveAdmin && user?.id === currentUserId
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -110,12 +113,14 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
 
     try {
       if (isEditMode) {
-        // The IdP owns an SSO user's email and name, so those stay local-only.
+        // The IdP resets an SSO user's name on every sign-in, so it isn't sent.
+        // Nothing syncs their email, so an admin can change it. It's only sent
+        // when changed, since the IdP's address can be one the server's email
+        // check refuses (admin@localhost), and that would block every save.
+        const emailChanged = formData.email !== user.email
         await api.put(`/auth/users/${user.id}`, {
-          ...(!isOidc && {
-            email: formData.email,
-            full_name: formData.full_name || null,
-          }),
+          ...((!isOidc || emailChanged) && { email: formData.email }),
+          ...(!isOidc && { full_name: formData.full_name || null }),
           is_active: formData.is_active,
           is_admin: formData.is_admin,
           relationship: formData.relationship || null,
@@ -206,10 +211,8 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required
-              disabled={isOidc}
               className="w-full px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            {isOidc && <p className="text-xs text-garage-text-muted mt-1">{t('modal.managedByOidc')}</p>}
           </div>
 
           {/* Full Name */}
@@ -321,13 +324,13 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
             <Select
               value={formData.is_admin ? 'admin' : 'user'}
               onChange={(e) => setFormData({ ...formData, is_admin: e.target.value === 'admin' })}
-              disabled={isEditMode && user?.id === currentUserId && user?.is_admin && user?.is_active && activeAdminCount === 1}
+              disabled={isSelfLastActiveAdmin}
               options={[
                 { value: 'user', label: t('common:user') },
                 { value: 'admin', label: t('common:admin') },
               ]}
             />
-            {isEditMode && user?.id === currentUserId && user?.is_admin && user?.is_active && activeAdminCount === 1 && (
+            {isSelfLastActiveAdmin && (
               <p className="text-xs text-warning mt-1">{t('modal.lastActiveAdminWarning')}</p>
             )}
           </div>

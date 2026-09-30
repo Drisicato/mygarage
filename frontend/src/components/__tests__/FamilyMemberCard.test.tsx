@@ -132,6 +132,20 @@ describe('FamilyMemberCard SSO relink', () => {
     expect(screen.getByText(/familyCard\.relinkOpenUntil/)).toBeInTheDocument()
     expect(screen.getByTitle('familyCard.cancelSsoRelink')).toBeInTheDocument()
   })
+
+  // Both sign-in steps refuse a disabled account before they read the relink,
+  // so arming one would only advertise a window nobody can use.
+  it('does not offer it to a disabled SSO user', () => {
+    renderCard(user({ is_active: false }))
+    expect(screen.queryByTitle('familyCard.allowSsoRelink')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('familyCard.cancelSsoRelink')).not.toBeInTheDocument()
+  })
+
+  it('still lets you cancel one left open on a disabled user', () => {
+    const onToggleRelink = renderCard(user({ is_active: false, oidc_relink_until: naiveUtc(minutesFromNow(20)) }))
+    fireEvent.click(screen.getByTitle('familyCard.cancelSsoRelink'))
+    expect(onToggleRelink).toHaveBeenCalledWith(false)
+  })
 })
 
 /** A card with every admin action wired, for the actions that aren't the relink. */
@@ -166,6 +180,17 @@ describe('FamilyMemberCard disable and delete', () => {
   it.each(['local', 'oidc'] as const)('offers no disable for the last active admin (%s)', (authMethod) => {
     renderActions(user({ auth_method: authMethod, is_admin: true }), { activeAdminCount: 1 })
     expect(screen.queryByTitle('familyCard.disableUser')).not.toBeInTheDocument()
+  })
+
+  // One tap would lock you out mid-session. Edit User still lets you do it on purpose.
+  it.each(['local', 'oidc'] as const)('offers no disable on your own card (%s)', (authMethod) => {
+    renderActions(user({ auth_method: authMethod, is_admin: true }), { currentUserId: 7 })
+    expect(screen.queryByTitle('familyCard.disableUser')).not.toBeInTheDocument()
+  })
+
+  it("offers disable on another admin's card", () => {
+    renderActions(user({ is_admin: true }), { currentUserId: 1 })
+    expect(screen.getByTitle('familyCard.disableUser')).toBeInTheDocument()
   })
 
   it('offers delete for an SSO user who is not you', () => {

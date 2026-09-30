@@ -4,7 +4,9 @@
  * Active is MyGarage's own kill switch: it's checked on every request, so
  * unticking it ends a live session at once, and the IdP never touches it. The
  * dialog used to lock it for SSO users and leave it out of the save, so an
- * admin couldn't disable one at all. Email and name still belong to the IdP.
+ * admin couldn't disable one at all. The name belongs to the IdP, which sets it
+ * on every sign-in. The email doesn't: nothing syncs it, so it's editable, and
+ * sent only when changed.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
@@ -82,7 +84,7 @@ beforeEach(() => {
 })
 
 describe('AddEditUserModal active status', () => {
-  it('unticking Active on an SSO user saves is_active false, and no email or name', async () => {
+  it('unticking Active on an SSO user saves is_active false, and no name', async () => {
     renderEdit(account())
 
     expect(activeBox()).toBeEnabled()
@@ -90,7 +92,6 @@ describe('AddEditUserModal active status', () => {
     const body = await save()
 
     expect(body).toHaveProperty('is_active', false)
-    expect(body).not.toHaveProperty('email')
     expect(body).not.toHaveProperty('full_name')
     expect(post).not.toHaveBeenCalled()
   })
@@ -120,6 +121,39 @@ describe('AddEditUserModal active status', () => {
   it('names the provider and says active status can be edited', () => {
     renderEdit(account())
     expect(screen.getByText('modal.oidcUserDescriptionEditable Rauthy', { exact: false })).toBeInTheDocument()
+  })
+})
+
+describe('AddEditUserModal SSO email and name', () => {
+  it("lets an admin change an SSO user's email, and saves it", async () => {
+    renderEdit(account())
+
+    const email = screen.getByDisplayValue('dana@example.com')
+    expect(email).toBeEnabled()
+    fireEvent.change(email, { target: { value: 'dana@new.example' } })
+    const body = await save()
+
+    expect(body).toHaveProperty('email', 'dana@new.example')
+    expect(body).not.toHaveProperty('full_name')
+  })
+
+  // The IdP's address can be one the server's email check refuses, so an
+  // untouched save leaves it out rather than fail on it.
+  it('an untouched SSO save leaves the email out', async () => {
+    renderEdit(account({ email: 'admin@localhost' }))
+
+    fireEvent.click(activeBox())
+    const body = await save()
+
+    expect(body).toHaveProperty('is_active', false)
+    expect(body).not.toHaveProperty('email')
+  })
+
+  it("keeps an SSO user's name locked, with the only managed-by hint", () => {
+    renderEdit(account())
+
+    expect(screen.getByDisplayValue('Dana')).toBeDisabled()
+    expect(screen.getAllByText('modal.managedByOidc')).toHaveLength(1)
   })
 })
 
