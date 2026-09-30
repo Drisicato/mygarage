@@ -2,9 +2,26 @@
  * Shared formatting utilities for currency and numbers.
  */
 
-import { cachedCurrencyFormat } from './numberFormatCache'
+import { CURRENCY_DIGITS, cachedCurrencyFormat } from './numberFormatCache'
 
 const GENERIC_CURRENCY_SIGN = '¤'
+
+/**
+ * Options for `formatCurrency`. `currencyCode` is required so a direct call
+ * can't quietly render dollars; `useCurrencyPreference` fills it in for you.
+ */
+export interface CurrencyFormatOptions {
+  /** Returned when the value is null, undefined, unparseable or zero (default: '-'). */
+  fallback?: string
+  /** Hide the fraction digits entirely (default: false). */
+  wholeDollars?: boolean
+  /** Format 0 instead of returning the fallback (default: false). */
+  zeroIsValid?: boolean
+  /** ISO 4217 code. */
+  currencyCode: string
+  /** BCP 47 locale for number formatting (default: 'en-US'). */
+  locale?: string
+}
 
 /**
  * Build the Intl-formatted currency string, swapping the generic ¤ sign for
@@ -16,52 +33,46 @@ function formatWithIntl(
   locale: string,
   wholeDollars: boolean
 ): string {
-  const digits = wholeDollars ? 0 : 2
   try {
     // Inside the try, so an invalid currency code still throws where it always
     // did and still falls back below; the cache stores nothing on a throw, so a
     // bad code costs one construction per call exactly as before.
-    const formatted = cachedCurrencyFormat(locale, currencyCode, digits).format(num)
+    const formatted = cachedCurrencyFormat(
+      locale,
+      currencyCode,
+      wholeDollars ? 0 : CURRENCY_DIGITS
+    ).format(num)
     // Intl emits ¤ for ISO "no currency" codes (e.g. XXX). Swap for the code.
     if (formatted.includes(GENERIC_CURRENCY_SIGN)) {
       return formatted.replace(GENERIC_CURRENCY_SIGN, currencyCode)
     }
     return formatted
   } catch {
-    return `${currencyCode} ${num.toFixed(digits)}`
+    // Intl doesn't know this code, so it can't tell us its digits either.
+    return `${currencyCode} ${num.toFixed(wholeDollars ? 0 : 2)}`
   }
 }
 
 /**
  * Format a value as currency using Intl.NumberFormat.
  *
- * Handles number, string (parseable), null, and undefined inputs.
- * Returns a formatted currency string or the fallback value.
+ * Handles number, string (parseable), null, and undefined inputs. The fraction
+ * digits are the currency's own (yen 0, dollars 2) unless `wholeDollars` drops
+ * them. Rates that need a fixed precision build their own formatter.
  *
  * @param value - The value to format
- * @param options - Formatting options
- * @param options.fallback - Value to return when input is null/undefined/zero (default: '-')
- * @param options.wholeDollars - If true, hide cents (default: false)
- * @param options.zeroIsValid - If true, format 0 instead of returning fallback (default: false)
- * @param options.currencyCode - ISO 4217 currency code (default: 'USD')
- * @param options.locale - BCP 47 locale for number formatting (default: 'en-US')
- * @returns Formatted currency string
+ * @param options - Formatting options; see `CurrencyFormatOptions`
+ * @returns Formatted currency string, or the fallback
  */
 export function formatCurrency(
   value: number | string | null | undefined,
-  options: {
-    fallback?: string
-    wholeDollars?: boolean
-    zeroIsValid?: boolean
-    currencyCode?: string
-    locale?: string
-  } = {}
+  options: CurrencyFormatOptions
 ): string {
   const {
     fallback = '-',
     wholeDollars = false,
     zeroIsValid = false,
-    currencyCode = 'USD',
+    currencyCode,
     locale = 'en-US',
   } = options
 
@@ -79,9 +90,9 @@ export function formatCurrency(
  */
 export function formatCurrencyZero(
   value: number | string | null | undefined,
-  options: { currencyCode?: string; locale?: string } = {}
+  options: Pick<CurrencyFormatOptions, 'currencyCode' | 'locale'>
 ): string {
-  const { currencyCode = 'USD', locale = 'en-US' } = options
+  const { currencyCode, locale = 'en-US' } = options
   const zeroFormatted = formatWithIntl(0, currencyCode, locale, false)
   return formatCurrency(value, { fallback: zeroFormatted, zeroIsValid: true, currencyCode, locale })
 }
@@ -94,7 +105,7 @@ export function formatCurrencyZero(
  */
 export function formatStickerValue(
   raw: unknown,
-  { currencyCode, locale }: { currencyCode?: string; locale?: string } = {}
+  { currencyCode, locale }: Pick<CurrencyFormatOptions, 'currencyCode' | 'locale'>
 ): string | null {
   const text = Array.isArray(raw) ? raw.join(', ') : typeof raw === 'string' ? raw : null
   if (!text) return null

@@ -10,14 +10,20 @@ import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 import { languageToLocale } from '../constants/i18n'
-import { formatCurrency as formatCurrencyShared } from '../utils/formatUtils'
+import {
+  formatCurrency as formatCurrencyShared,
+  type CurrencyFormatOptions,
+} from '../utils/formatUtils'
+
+/** The shared options minus the two this hook fills in, so the two can't drift. */
+type PreferenceFormatOptions = Omit<CurrencyFormatOptions, 'currencyCode' | 'locale'>
 
 interface CurrencyPreference {
   currencyCode: string
   locale: string
   formatCurrency: (
     value: number | string | null | undefined,
-    options?: { fallback?: string; wholeDollars?: boolean; zeroIsValid?: boolean }
+    options?: PreferenceFormatOptions
   ) => string
 }
 
@@ -31,7 +37,7 @@ export function useCurrencyPreference(): CurrencyPreference {
   const formatCurrency = useCallback(
     (
       value: number | string | null | undefined,
-      options: { fallback?: string; wholeDollars?: boolean; zeroIsValid?: boolean } = {}
+      options: PreferenceFormatOptions = {}
     ): string => formatCurrencyShared(value, { ...options, currencyCode, locale }),
     [currencyCode, locale]
   )
