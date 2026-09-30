@@ -297,6 +297,7 @@
     "updatePermissionAction": "update the sharing permission",
     "failedToUpdateStatus": "Failed to update user status",
     "updateStatusAction": "update the user status",
+    "updateSsoRelinkAction": "update the SSO relink",
     "failedToUpdateUser": "Failed to update user",
     "updateUserAction": "update the user",
     "familyManagement": "Family Management",
@@ -364,6 +365,8 @@
     "sharing": "Sharing...",
     "showInMainList": "Show in main vehicle list with watermark",
     "shownOnDashboardMsg": "{{name}} shown on dashboard",
+    "ssoRelinkAllowed": "SSO relink allowed for 30 minutes",
+    "ssoRelinkCancelled": "SSO relink cancelled",
     "test": "Test",
     "testing": "Testing...",
     "torque": {

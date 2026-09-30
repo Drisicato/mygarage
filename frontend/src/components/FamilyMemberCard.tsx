@@ -7,18 +7,26 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronDown, ChevronRight, ChevronUp, Car, AlertTriangle, Bell, User,
-  Eye, EyeOff, Edit, Key, Power, PowerOff, Trash2,
+  Eye, EyeOff, Edit, Key, Link2, Link2Off, Power, PowerOff, Trash2,
 } from 'lucide-react'
 import type { FamilyMemberData, FamilyVehicleSummary, TranslateFn } from '@/types/family'
 import type { User as UserType } from '@/types/user'
 import { useTranslation } from 'react-i18next'
 import { formatRelationship } from '@/types/family'
 import { formatDateForDisplay } from '@/utils/dateUtils'
+import { formatTime, parseAPITimestamp } from '@/utils/parseAPITimestamp'
 import { useDateLocale } from '@/hooks/useDateLocale'
+import { useTimeFormat } from '@/hooks/useTimeFormat'
 import { withBase } from '@/utils/basePath'
 
 /** Matches a bare ISO calendar date (YYYY-MM-DD). */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** When the account's SSO relink closes, or null if none is open. The value is naive UTC. */
+function openRelinkUntil(value: string | null | undefined): Date | null {
+  const until = parseAPITimestamp(value)
+  return until !== null && until.getTime() > Date.now() ? until : null
+}
 
 interface FamilyMemberCardProps {
   member: FamilyMemberData
@@ -35,6 +43,8 @@ interface FamilyMemberCardProps {
   onToggleActive?: () => void
   onToggleDashboard?: () => void
   onResetPassword?: () => void
+  /** Allow (true) or cancel (false) a one-time SSO relink for this account. */
+  onToggleRelink?: (arm: boolean) => void
   onMoveUp?: () => void
   onMoveDown?: () => void
   canMoveUp?: boolean
@@ -130,12 +140,14 @@ export default function FamilyMemberCard({
   onToggleActive,
   onToggleDashboard,
   onResetPassword,
+  onToggleRelink,
   onMoveUp,
   onMoveDown,
   canMoveUp = false,
   canMoveDown = false,
 }: FamilyMemberCardProps) {
   const { t } = useTranslation('common')
+  const { timeFormat } = useTimeFormat()
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
 
   const displayName = member.full_name || member.username
@@ -145,6 +157,8 @@ export default function FamilyMemberCard({
   const isInactive = user ? !user.is_active : false
   const isSelf = user ? user.id === currentUserId : false
   const isLastAdmin = user ? (user.is_admin && user.is_active && (activeAdminCount ?? 0) === 1) : false
+  const relinkUntil = openRelinkUntil(user?.oidc_relink_until)
+  const relinkOpen = relinkUntil !== null
 
   // Permission matrix
   const canToggleDashboard = showActions && !isInactive && membersLoaded && !!onToggleDashboard
@@ -152,6 +166,8 @@ export default function FamilyMemberCard({
   const canResetPassword = showActions && !isOidc && !isInactive && !!onResetPassword
   const canToggleActive = showActions && !isOidc && !isLastAdmin && !!onToggleActive
   const canDeleteUser = showActions && !isOidc && !isSelf && !!onDelete
+  // Offered to SSO users; an open one can be cancelled whoever it's on.
+  const canToggleRelink = showActions && (isOidc || relinkOpen) && !!onToggleRelink
   const canReorder = showActions && !isInactive && membersLoaded && !!(onMoveUp || onMoveDown)
 
   const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
@@ -207,6 +223,11 @@ export default function FamilyMemberCard({
             {showActions && isInactive && (
               <span className="px-2 py-0.5 text-xs bg-danger/20 text-danger rounded">
                 {t('inactive')}
+              </span>
+            )}
+            {showActions && relinkOpen && (
+              <span className="px-2 py-0.5 text-xs bg-warning/20 text-warning rounded">
+                {t('familyCard.relinkOpenUntil', { time: formatTime(relinkUntil, timeFormat) })}
               </span>
             )}
           </div>
@@ -280,6 +301,25 @@ export default function FamilyMemberCard({
                 title={t('familyCard.resetPassword')}
               >
                 <Key className="w-4 h-4 text-garage-text-muted" />
+              </button>
+            )}
+
+            {/* SSO relink (OIDC users, or any account with one open) */}
+            {canToggleRelink && (
+              <button
+                type="button"
+                onClick={() => onToggleRelink!(!relinkOpen)}
+                disabled={isUpdating}
+                className={`p-1.5 rounded transition-colors disabled:opacity-50 ${
+                  relinkOpen ? 'bg-warning/20 hover:bg-warning/30' : 'hover:bg-garage-border'
+                }`}
+                title={relinkOpen ? t('familyCard.cancelSsoRelink') : t('familyCard.allowSsoRelink')}
+              >
+                {relinkOpen ? (
+                  <Link2Off className="w-4 h-4 text-warning" />
+                ) : (
+                  <Link2 className="w-4 h-4 text-garage-text-muted" />
+                )}
               </button>
             )}
 
