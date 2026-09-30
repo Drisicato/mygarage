@@ -24091,6 +24091,17 @@
             "title": "Mobile Quick Entry Enabled",
             "type": "boolean"
           },
+          "oidc_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Provider"
+          },
           "oidc_relink_until": {
             "anyOf": [
               {

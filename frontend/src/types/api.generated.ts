@@ -17486,6 +17486,8 @@ export interface components {
              * @default true
              */
             mobile_quick_entry_enabled: boolean;
+            /** Oidc Provider */
+            oidc_provider?: string | null;
             /** Oidc Relink Until */
             oidc_relink_until?: string | null;
             /** Relationship */

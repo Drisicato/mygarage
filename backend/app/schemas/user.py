@@ -443,6 +443,9 @@ class UserResponse(UserBase):
     is_admin: bool
     # 'local' or 'oidc'. The admin user cards branch on it.
     auth_method: str = "local"
+    # The SSO provider's display name (e.g. "Rauthy"), or None for a local
+    # account. The Edit User dialog names it.
+    oidc_provider: str | None = None
     # When an admin-approved SSO relink closes (naive UTC), or None if none was
     # armed. A past value means it expired unused.
     oidc_relink_until: datetime | None = None
