@@ -7,9 +7,9 @@ enforces them on the API but the importers silently enforce nothing. A PEP 695
 `type Money = ...` alias does exactly that, so these tests pin the metadata, not
 just the validation.
 
-The per-importer-schema check (every money field an importer passes to
-`_within_api_bounds` carries `le == MONEY_MAX`) lands with the input schemas
-that switch to these types.
+The per-importer-schema check (every money field of a schema an importer passes
+to `_within_api_bounds` carries `le == MONEY_MAX`) is in
+test_money_input_bounds.py, with the input schemas that use these types.
 """
 
 from decimal import Decimal

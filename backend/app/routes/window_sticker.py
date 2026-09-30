@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.schemas._money import OptionalMoney
 from app.services.auth import (
     get_vehicle_for_owner_or_403,
     get_vehicle_or_403,
@@ -43,10 +44,10 @@ _FUEL_ECONOMY_MAX = Decimal("999.99")
 class WindowStickerDataUpdate(BaseModel):
     """The review's edits. Omitted keeps, null clears; widths match the columns."""
 
-    msrp_base: Decimal | None = None
-    msrp_options: Decimal | None = None
-    msrp_total: Decimal | None = None
-    destination_charge: Decimal | None = None
+    msrp_base: OptionalMoney = None
+    msrp_options: OptionalMoney = None
+    msrp_total: OptionalMoney = None
+    destination_charge: OptionalMoney = None
     fuel_economy_city_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
     fuel_economy_highway_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
     fuel_economy_combined_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)

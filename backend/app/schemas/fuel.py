@@ -31,6 +31,7 @@ from app.constants.fuel import (
     PAYMENT_METHOD_VALUES,
     TRIP_TYPE_VALUES,
 )
+from app.schemas._money import OptionalMoney, OptionalUnitPrice
 from app.schemas._nullability import reject_null
 
 PRICE_BASIS_VALUES = ("per_volume", "per_weight", "per_tank", "per_kwh")
@@ -230,23 +231,16 @@ class FuelRecordBase(BaseModel):
     battery_soh_pct: Decimal | None = Field(
         None, description="Optional battery state-of-health (%)", ge=0, le=100
     )
-    cost: Decimal | None = Field(
-        None, description="Total cost, net of any rebate", ge=0, le=99999.99
+    cost: OptionalMoney = Field(None, description="Total cost, net of any rebate")
+    rebate: OptionalMoney = Field(
+        None, description="Rebate/discount/points redeemed; already deducted from cost"
     )
-    rebate: Decimal | None = Field(
-        None,
-        description="Rebate/discount/points redeemed; already deducted from cost",
-        ge=0,
-        le=99999.99,
-    )
-    price_per_unit: Decimal | None = Field(
+    price_per_unit: OptionalUnitPrice = Field(
         None,
         description=(
             "Price per unit; denominator depends on price_basis "
             "(per_volume=per liter, per_weight=per kg, per_kwh=per kWh, per_tank=per tank)"
         ),
-        ge=0,
-        le=999.999,
     )
     price_basis: str | None = Field(
         None,
@@ -522,17 +516,12 @@ class FuelRecordUpdate(BaseModel):
     charge_level: str | None = Field(None, max_length=10)
     charge_location: str | None = Field(None, max_length=20)
     battery_soh_pct: Decimal | None = Field(None, ge=0, le=100)
-    cost: Decimal | None = Field(
-        None, description="Total cost, net of any rebate", ge=0, le=99999.99
+    cost: OptionalMoney = Field(None, description="Total cost, net of any rebate")
+    rebate: OptionalMoney = Field(
+        None, description="Rebate/discount/points redeemed; already deducted from cost"
     )
-    rebate: Decimal | None = Field(
-        None,
-        description="Rebate/discount/points redeemed; already deducted from cost",
-        ge=0,
-        le=99999.99,
-    )
-    price_per_unit: Decimal | None = Field(
-        None, description="Price per unit (see price_basis for denominator)", ge=0, le=999.999
+    price_per_unit: OptionalUnitPrice = Field(
+        None, description="Price per unit (see price_basis for denominator)"
     )
     price_basis: str | None = Field(None, max_length=12)
     fuel_type_used: str | None = Field(

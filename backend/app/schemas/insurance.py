@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.utils.insurance_coverages import COVERAGE_BY_KEY
 
@@ -74,10 +75,10 @@ class CoverageEntry(BaseModel):
     """
 
     coverage_key: CoverageKey
-    limit_primary: Decimal | None = Field(None, ge=0, decimal_places=2)
-    limit_secondary: Decimal | None = Field(None, ge=0, decimal_places=2)
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
-    premium: Decimal | None = Field(None, ge=0, decimal_places=2)
+    limit_primary: OptionalMoney = Field(None, decimal_places=2)
+    limit_secondary: OptionalMoney = Field(None, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
+    premium: OptionalMoney = Field(None, decimal_places=2)
 
     model_config = ConfigDict(from_attributes=True, json_schema_extra=_COVERAGE_SLOTS_SCHEMA)
 
@@ -143,10 +144,10 @@ class PolicyVehicleCreate(BaseModel):
 
     vin: str = Field(..., min_length=17, max_length=17)
     policy_type: PolicyType
-    premium_share: Decimal | None = Field(
-        None, ge=0, decimal_places=2, description="Per-period share; omit for an even split"
+    premium_share: OptionalMoney = Field(
+        None, decimal_places=2, description="Per-period share; omit for an even split"
     )
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
     notes: str | None = None
     coverages: list[CoverageEntry] = Field(default_factory=list)
     fields: list[NamedField] = Field(default_factory=list)
@@ -163,8 +164,8 @@ class PolicyVehicleUpdate(BaseModel):
     """
 
     policy_type: PolicyType | None = None
-    premium_share: Decimal | None = Field(None, ge=0, decimal_places=2)
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_share: OptionalMoney = Field(None, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
     notes: str | None = None
     effective_to: date_type | None = None
     coverages: list[CoverageEntry] | None = None
@@ -182,8 +183,8 @@ class PolicyVehicleUpsert(BaseModel):
 
     vin: str = Field(..., min_length=17, max_length=17)
     policy_type: PolicyType
-    premium_share: Decimal | None = Field(None, ge=0, decimal_places=2)
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_share: OptionalMoney = Field(None, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
     notes: str | None = None
     effective_to: date_type | None = None
     coverages: list[CoverageEntry] | None = Field(
@@ -238,9 +239,8 @@ class InsurancePolicyCreate(_PolicyDates):
     policy_number: str = Field(..., min_length=1, max_length=50)
     start_date: date_type
     end_date: date_type
-    premium_amount: Decimal | None = Field(
+    premium_amount: OptionalMoney = Field(
         None,
-        ge=0,
         decimal_places=2,
         description="Whole-policy amount per premium_frequency period",
     )
@@ -257,7 +257,7 @@ class InsurancePolicyUpdate(_PolicyDates):
     policy_number: str | None = Field(None, min_length=1, max_length=50)
     start_date: date_type | None = None
     end_date: date_type | None = None
-    premium_amount: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_amount: OptionalMoney = Field(None, decimal_places=2)
     premium_frequency: PremiumFrequency | None = None
     notes: str | None = None
     fields: list[NamedField] | None = None
@@ -283,7 +283,7 @@ class InsurancePolicyRenew(_PolicyDates):
 
     start_date: date_type | None = Field(None, description="Default: the current end_date")
     end_date: date_type | None = Field(None, description="Default: the same term length")
-    premium_amount: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_amount: OptionalMoney = Field(None, decimal_places=2)
     premium_frequency: PremiumFrequency | None = None
     notes: str | None = None
 
@@ -295,7 +295,7 @@ class InsurancePolicyReplace(_PolicyDates):
     policy_number: str = Field(..., min_length=1, max_length=50)
     start_date: date_type
     end_date: date_type
-    premium_amount: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_amount: OptionalMoney = Field(None, decimal_places=2)
     premium_frequency: PremiumFrequency | None = None
     notes: str | None = None
     vins: list[str] | None = Field(

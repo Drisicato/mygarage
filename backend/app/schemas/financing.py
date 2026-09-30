@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._money import Money, OptionalMoney
 from app.schemas._nullability import reject_null
 from app.schemas.service_visit import VendorSummary
 
@@ -16,9 +17,7 @@ class FinancingRecordBase(BaseModel):
     """Base financing record schema with common fields."""
 
     date: dt.date = Field(..., description="Date of the payment or fee")
-    amount: Decimal = Field(
-        ..., description="Payment or fee amount", ge=0, le=99999999.99, decimal_places=2
-    )
+    amount: Money = Field(..., description="Payment or fee amount", decimal_places=2)
     category: FinancingCategory = Field(..., description="Type of financing cost")
     vendor_id: int | None = Field(None, description="Associated vendor/lender ID")
     notes: str | None = Field(None, description="Additional notes")
@@ -49,9 +48,7 @@ class FinancingRecordUpdate(BaseModel):
     """Schema for updating an existing financing record."""
 
     date: dt.date | None = Field(None, description="Date of the payment or fee")
-    amount: Decimal | None = Field(
-        None, description="Payment or fee amount", ge=0, le=99999999.99, decimal_places=2
-    )
+    amount: OptionalMoney = Field(None, description="Payment or fee amount", decimal_places=2)
     category: FinancingCategory | None = Field(None, description="Type of financing cost")
     vendor_id: int | None = Field(None, description="Associated vendor/lender ID")
     notes: str | None = Field(None, description="Additional notes")

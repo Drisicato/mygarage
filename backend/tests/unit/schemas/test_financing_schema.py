@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
+from app.schemas._money import MONEY_MAX
 from app.schemas.financing import (
     FinancingRecordCreate,
     FinancingRecordResponse,
@@ -44,11 +45,19 @@ def test_financing_record_create_rejects_negative_amount():
 
 
 def test_financing_record_create_rejects_amount_above_max():
+    # The max is what the column holds, so a forint or yen payment fits.
+    top = FinancingRecordCreate(
+        vin="1HGBH41JXMN109186",
+        date=dt.date(2026, 1, 1),
+        amount=MONEY_MAX,
+        category="loan_payment",
+    )
+    assert top.amount == MONEY_MAX
     with pytest.raises(ValidationError):
         FinancingRecordCreate(
             vin="1HGBH41JXMN109186",
             date=dt.date(2026, 1, 1),
-            amount=Decimal("100000000.00"),
+            amount=MONEY_MAX + Decimal("0.01"),
             category="loan_payment",
         )
 

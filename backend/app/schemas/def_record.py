@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._money import OptionalMoney, OptionalUnitPrice
 from app.schemas._nullability import reject_null
 
 
@@ -22,8 +23,8 @@ class DEFRecordBase(BaseModel):
     liters: Decimal | None = Field(
         None, description="DEF volume added in liters", ge=0, le=9999.999, decimal_places=3
     )
-    cost: Decimal | None = Field(None, description="Total cost", ge=0, le=99999.99)
-    price_per_unit: Decimal | None = Field(None, description="Cost per liter", ge=0, le=999.999)
+    cost: OptionalMoney = Field(None, description="Total cost")
+    price_per_unit: OptionalUnitPrice = Field(None, description="Cost per liter")
     fill_level: Decimal | None = Field(
         None,
         description="Tank level after adding DEF (0.00=empty, 1.00=full)",
@@ -69,8 +70,8 @@ class DEFRecordUpdate(BaseModel):
     liters: Decimal | None = Field(
         None, description="DEF volume added in liters", ge=0, le=9999.999, decimal_places=3
     )
-    cost: Decimal | None = Field(None, description="Total cost", ge=0, le=99999.99)
-    price_per_unit: Decimal | None = Field(None, description="Cost per liter", ge=0, le=999.999)
+    cost: OptionalMoney = Field(None, description="Total cost")
+    price_per_unit: OptionalUnitPrice = Field(None, description="Cost per liter")
     fill_level: Decimal | None = Field(
         None,
         description="Tank level after adding DEF (0.00=empty, 1.00=full)",

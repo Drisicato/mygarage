@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._money import Money, OptionalMoney
 from app.schemas._nullability import reject_null
 
 TaxType = Literal["Registration", "Inspection", "Property Tax", "Tolls"]
@@ -17,7 +18,7 @@ class TaxRecordBase(BaseModel):
 
     date: date_type = Field(..., description="Date the fee was paid")
     tax_type: TaxType | None = Field(None, description="Type of tax/fee")
-    amount: Decimal = Field(..., description="Amount paid", ge=0)
+    amount: Money = Field(..., description="Amount paid")
     renewal_date: date_type | None = Field(None, description="Next renewal date")
     notes: str | None = None
 
@@ -48,7 +49,7 @@ class TaxRecordUpdate(BaseModel):
 
     date: date_type | None = None
     tax_type: TaxType | None = None
-    amount: Decimal | None = Field(None, ge=0)
+    amount: OptionalMoney = None
     renewal_date: date_type | None = None
     notes: str | None = None
 

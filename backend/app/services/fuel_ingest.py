@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.fuel import FuelRecord
 from app.models.vehicle import Vehicle
+from app.schemas._money import OptionalMoney, OptionalUnitPrice
 from app.schemas.fuel import (
     CHARGE_LEVEL_VALUES,
     CHARGE_LOCATION_VALUES,
@@ -46,8 +47,8 @@ class WebhookFuelPayload(BaseModel):
     odometer_km: Decimal | None = Field(None, ge=0, le=99999999.99)
     liters: Decimal | None = Field(None, ge=0, le=9999.999)
     kwh: Decimal | None = Field(None, ge=0, le=99999.999)
-    cost: Decimal | None = Field(None, ge=0, le=99999.99)
-    price_per_unit: Decimal | None = Field(None, ge=0, le=999.999)
+    cost: OptionalMoney = None
+    price_per_unit: OptionalUnitPrice = None
     price_basis: str | None = None
     is_full_tank: bool = True
     notes: str | None = None

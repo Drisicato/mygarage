@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.constants.fuel import FUEL_TYPE_VALUES, normalize_fuel_type
 from app.constants.units import DistanceUnit
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.utils.unit_resolution import LenientDistanceUnit
 
@@ -95,9 +96,9 @@ class VehicleBase(BaseModel):
     license_plate: str | None = Field(None, description="License plate number", max_length=20)
     color: str | None = Field(None, description="Vehicle color", max_length=30)
     purchase_date: date | None = Field(None, description="Date purchased")
-    purchase_price: Decimal | None = Field(None, description="Purchase price")
+    purchase_price: OptionalMoney = Field(None, description="Purchase price")
     sold_date: date | None = Field(None, description="Date sold")
-    sold_price: Decimal | None = Field(None, description="Sale price")
+    sold_price: OptionalMoney = Field(None, description="Sale price")
     # VIN decoded fields
     trim: str | None = Field(None, description="Trim level", max_length=50)
     body_class: str | None = Field(None, description="Body class", max_length=100)
@@ -229,10 +230,10 @@ class VehicleUpdate(VehicleBase):
     )
     # MSRP is editable from the pricing sidecar. Like equipment, these live only
     # on VehicleResponse otherwise, so a PUT would silently drop them.
-    msrp_base: Decimal | None = Field(None, description="MSRP base price")
-    msrp_options: Decimal | None = Field(None, description="MSRP options total")
-    msrp_total: Decimal | None = Field(None, description="MSRP total")
-    destination_charge: Decimal | None = Field(None, description="Destination charge")
+    msrp_base: OptionalMoney = Field(None, description="MSRP base price")
+    msrp_options: OptionalMoney = Field(None, description="MSRP options total")
+    msrp_total: OptionalMoney = Field(None, description="MSRP total")
+    destination_charge: OptionalMoney = Field(None, description="Destination charge")
     # Window-sticker / VIN-decoded descriptive fields, editable from the
     # vehicle-detail card sidecars (Basic Information / Vehicle Details /
     # Powertrain / Warranty). Same rationale as equipment/MSRP: they live only
@@ -449,7 +450,7 @@ class VehicleArchiveRequest(BaseModel):
         description="Reason for archiving (Sold, Totaled, Gifted, Trade-in, Other)",
         max_length=50,
     )
-    sale_price: Decimal | None = Field(None, description="Sale price (if applicable)")
+    sale_price: OptionalMoney = Field(None, description="Sale price (if applicable)")
     sale_date: date | None = Field(None, description="Sale/disposal date")
     notes: str | None = Field(
         None, description="Additional notes about the archive", max_length=1000
@@ -485,7 +486,7 @@ class VehicleBulkArchiveRequest(BaseModel):
 
     vins: list[str] = Field(..., min_length=1, max_length=50)
     reason: str = Field(..., max_length=50)
-    sale_price: Decimal | None = None
+    sale_price: OptionalMoney = None
     sale_date: date | None = None
     notes: str | None = Field(None, max_length=1000)
     visible: bool = True

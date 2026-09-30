@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 
 SupplyUnitType = Literal["volume", "count"]
@@ -78,7 +79,7 @@ class SupplyReceiptSummary(BaseModel):
 class SupplyPurchaseCreate(BaseModel):
     date: date_type
     quantity: Decimal = Field(..., gt=0, description="Canonical units (L or count)")
-    total_cost: Decimal | None = Field(None, ge=0)
+    total_cost: OptionalMoney = None
     supplier_id: int | None = None
     part_number: str | None = Field(None, max_length=60)
     notes: str | None = Field(None, max_length=5000)

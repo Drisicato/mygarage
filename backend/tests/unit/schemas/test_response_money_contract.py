@@ -13,10 +13,9 @@ money column (`MONEY_COLUMN_NAMES`). The registry is the authority, so a column
 the word list misses still counts.
 """
 
-import typing
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from decimal import Decimal
-from typing import Annotated, Any, TypeAliasType
+from typing import Annotated, Any
 
 from fastapi.routing import APIRoute, iter_route_contexts
 from pydantic import BaseModel, Field
@@ -25,9 +24,9 @@ from pydantic.fields import FieldInfo
 from app.main import app
 from app.schemas._money import OptionalMoney
 from tests.unit.schemas._money_names import MONEY_COLUMN_NAMES, is_money_name
+from tests.unit.schemas._schema_walk import unwrap, walk
 
 _BOUND_ATTRS = ("ge", "gt", "le", "lt")
-_MONEY_TYPES = (Decimal, float)
 
 
 def _bounds(metadata: Iterable[Any]) -> list[str]:
@@ -43,44 +42,6 @@ def _bounds(metadata: Iterable[Any]) -> list[str]:
     return found
 
 
-def _unwrap(annotation: Any) -> tuple[bool, list[Any], list[type[BaseModel]]]:
-    """What an annotation holds: whether it is a money type, its Annotated
-    metadata, and the models inside it.
-
-    Walks Optional/Union, list/dict/tuple arguments, Annotated and `type` aliases,
-    since a bound can hide inside any of them.
-    """
-    if isinstance(annotation, TypeAliasType):
-        return _unwrap(annotation.__value__)
-    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-        return False, [], [annotation]
-    if annotation in _MONEY_TYPES:
-        return True, [], []
-    is_money_type, metadata, models = False, [], []
-    if typing.get_origin(annotation) is Annotated:
-        metadata += annotation.__metadata__
-    for arg in typing.get_args(annotation):
-        inner_money, inner_metadata, inner_models = _unwrap(arg)
-        is_money_type = is_money_type or inner_money
-        metadata += inner_metadata
-        models += inner_models
-    return is_money_type, metadata, models
-
-
-def _walk(roots: Iterable[Any]) -> Iterator[type[BaseModel]]:
-    """Every model reachable from the root annotations, each once."""
-    seen: set[type[BaseModel]] = set()
-    queue = [model for root in roots for model in _unwrap(root)[2]]
-    while queue:
-        model = queue.pop()
-        if model in seen:
-            continue
-        seen.add(model)
-        yield model
-        for info in model.model_fields.values():
-            queue += _unwrap(info.annotation)[2]
-
-
 def _money_fields(model: type[BaseModel], registered: frozenset[str]) -> dict[str, list[str]]:
     """Each money field of the model, with the bounds it carries.
 
@@ -88,7 +49,7 @@ def _money_fields(model: type[BaseModel], registered: frozenset[str]) -> dict[st
     """
     fields = {}
     for name, info in model.model_fields.items():
-        is_money_type, metadata, _models = _unwrap(info.annotation)
+        is_money_type, metadata, _models = unwrap(info.annotation)
         if is_money_type and (is_money_name(name) or name in registered):
             fields[name] = _bounds(info.metadata) + _bounds(metadata)
     return fields
@@ -121,7 +82,7 @@ def _response_roots() -> list[Any]:
     return roots
 
 
-RESPONSE_MODELS = sorted(_walk(_response_roots()), key=lambda m: m.__name__)
+RESPONSE_MODELS = sorted(walk(_response_roots()), key=lambda m: m.__name__)
 
 
 def test_the_walk_found_the_responses():
@@ -175,7 +136,7 @@ class _Probe(BaseModel):
 def test_the_detector_sees_every_form():
     # On the FieldInfo, inside the Optional, through the shared alias, inside a
     # PEP 695 alias, on a float, and one model down through a list.
-    assert _bounded(_walk([_Probe]), frozenset()) == {
+    assert _bounded(walk([_Probe]), frozenset()) == {
         "_Probe": {
             "amount": ["le=100"],
             "cost": ["ge=0"],
