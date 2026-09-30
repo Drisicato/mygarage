@@ -208,6 +208,8 @@ describe('SettingsSystemTab: a save sends only what changed', () => {
     await waitFor(() => expect(mockedApi.get).toHaveBeenCalledWith('/auth/users/count'))
     expect(timezoneSelect().value).toBe('')
     expect(timezoneSelect().options[0].value).toBe('')
+    // Nothing stored, so the zone in effect IS the server default.
+    expect(timezoneSelect().options[0].textContent).toBe('timezone.serverDefaultZone')
   })
 
   it('changing one setting posts only that one', async () => {
@@ -238,6 +240,9 @@ describe('SettingsSystemTab: a save sends only what changed', () => {
     fireEvent.change(timezoneSelect(), { target: { value: '' } })
     await waitFor(() => expect(mockedApi.post).toHaveBeenCalled(), { timeout: 3000 })
     expect(mockedApi.post).toHaveBeenCalledWith('/settings/batch', { settings: { timezone: '' } })
+    // Chicago was the stored zone, not the server's default, so the option
+    // must not name it now that it's cleared.
+    await waitFor(() => expect(timezoneSelect().options[0].textContent).toBe('timezone.serverDefault'))
   })
 
   it('a failed load posts nothing, even when a save fires', async () => {

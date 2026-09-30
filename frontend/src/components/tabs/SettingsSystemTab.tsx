@@ -52,9 +52,10 @@ export default function SettingsSystemTab() {
     oidc_full_name_claim: 'name',
   })
   const [loadedFormData, setLoadedFormData] = useState<typeof formData | null>(null)
-  // The zone in effect when the page loaded. With no zone stored it is the
-  // server's default, which the "Server default" option names.
-  const [effectiveZone, setEffectiveZone] = useState<string | null>(null)
+  // The server's own default zone, known only when the page loaded with no zone
+  // stored (the zone in effect then IS the default). With a stored zone it
+  // stays null, so the option can't name the stored zone as the default.
+  const [serverDefaultZone, setServerDefaultZone] = useState<string | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [authenticatorDetected, setAuthenticatorDetected] = useState<boolean | null>(null)
   const [authEverEnabled, setAuthEverEnabled] = useState(false)
@@ -169,7 +170,7 @@ export default function SettingsSystemTab() {
       }
       setFormData(newFormData)
       setLoadedFormData(newFormData)
-      setEffectiveZone(settingsMap.effective_timezone || null)
+      setServerDefaultZone(settingsMap.timezone ? null : settingsMap.effective_timezone || null)
 
       setAutoArchiveDays(settingsMap.auto_archive_inactive_days || '0')
 
@@ -412,10 +413,9 @@ export default function SettingsSystemTab() {
             options={[
               {
                 value: '',
-                label:
-                  loadedFormData?.timezone === '' && effectiveZone
-                    ? t('timezone.serverDefaultZone', { zone: effectiveZone })
-                    : t('timezone.serverDefault'),
+                label: serverDefaultZone
+                  ? t('timezone.serverDefaultZone', { zone: serverDefaultZone })
+                  : t('timezone.serverDefault'),
               },
               ...(formData.timezone === '' || timezones.includes(formData.timezone)
                 ? timezones
