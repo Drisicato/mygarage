@@ -2612,7 +2612,7 @@
         "title": "CostProjection",
         "type": "object"
       },
-      "CoverageEntry-Input": {
+      "CoverageEntry": {
         "description": "One standard coverage on one vehicle.\n\nSending the entry at all is what says the coverage is carried, so every\namount may be omitted (roadside assistance usually has none). A slot the\ncatalogue does not give this coverage is REJECTED rather than ignored: a\nstored \"each accident\" limit on a coverage whose card has no such line\nwould be money no screen ever shows.\n\n`premium` is what the declarations page charges for this coverage alone.\nIt is a record of the bill, NOT part of the allocation: the policy premium\nand the per-vehicle shares are what analytics and the even split work from,\nso editing it moves no money between vehicles and needs only write access\nto the vehicle it is on.",
         "properties": {
           "coverage_key": {
@@ -2763,8 +2763,8 @@
           }
         }
       },
-      "CoverageEntry-Output": {
-        "description": "One standard coverage on one vehicle.\n\nSending the entry at all is what says the coverage is carried, so every\namount may be omitted (roadside assistance usually has none). A slot the\ncatalogue does not give this coverage is REJECTED rather than ignored: a\nstored \"each accident\" limit on a coverage whose card has no such line\nwould be money no screen ever shows.\n\n`premium` is what the declarations page charges for this coverage alone.\nIt is a record of the bill, NOT part of the allocation: the policy premium\nand the per-vehicle shares are what analytics and the even split work from,\nso editing it moves no money between vehicles and needs only write access\nto the vehicle it is on.",
+      "CoverageEntryResponse": {
+        "description": "One standard coverage on one vehicle, as stored.\n\n`CoverageEntry`'s shape without its input rules: no bounds and no slot\ncheck, so a stored amount those rules would refuse today still reads\ninstead of taking the whole policy read down with it.",
         "properties": {
           "coverage_key": {
             "enum": [
@@ -2837,7 +2837,7 @@
         "required": [
           "coverage_key"
         ],
-        "title": "CoverageEntry",
+        "title": "CoverageEntryResponse",
         "type": "object",
         "x-coverage-slots": {
           "bodily_injury": {
@@ -13998,7 +13998,7 @@
         "properties": {
           "coverages": {
             "items": {
-              "$ref": "#/components/schemas/CoverageEntry-Input"
+              "$ref": "#/components/schemas/CoverageEntry"
             },
             "title": "Coverages",
             "type": "array"
@@ -14090,7 +14090,7 @@
           },
           "coverages": {
             "items": {
-              "$ref": "#/components/schemas/CoverageEntry-Output"
+              "$ref": "#/components/schemas/CoverageEntryResponse"
             },
             "title": "Coverages",
             "type": "array"
@@ -14196,7 +14196,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/CoverageEntry-Input"
+                  "$ref": "#/components/schemas/CoverageEntry"
                 },
                 "type": "array"
               },
@@ -14305,7 +14305,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/CoverageEntry-Input"
+                  "$ref": "#/components/schemas/CoverageEntry"
                 },
                 "type": "array"
               },

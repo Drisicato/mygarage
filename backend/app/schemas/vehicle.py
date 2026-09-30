@@ -280,6 +280,10 @@ class VehicleUpdate(VehicleBase):
 class VehicleResponse(VehicleBase):
     """Schema for vehicle response."""
 
+    # Money without the input bounds, so a stored price past today's rules
+    # (a legacy negative one, say) still reads (test_response_money_contract).
+    purchase_price: Decimal | None = Field(None, description="Purchase price")
+    sold_price: Decimal | None = Field(None, description="Sale price")
     vin: str
     # Served, never refused: the column has no CHECK, and a strict Literal here
     # would turn one hand-edited row into a 500 for every response carrying it.

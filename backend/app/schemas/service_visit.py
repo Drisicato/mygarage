@@ -149,6 +149,9 @@ class ServiceLineItemUpdate(BaseModel):
 class ServiceLineItemResponse(ServiceLineItemBase):
     """Schema for service line item response."""
 
+    # Money without the input bounds, so a stored amount past today's rules
+    # still reads instead of 500ing (test_response_money_contract).
+    cost: Decimal | None = Field(None, description="Cost for this line item")
     id: int
     visit_id: int
     created_at: datetime
@@ -359,6 +362,11 @@ class VendorSummary(BaseModel):
 class ServiceVisitResponse(ServiceVisitBase):
     """Schema for service visit response."""
 
+    # Money without the input bounds, so a stored amount past today's rules
+    # still reads instead of 500ing (test_response_money_contract).
+    tax_amount: Decimal | None = Field(None, description="Sales tax")
+    shop_supplies: Decimal | None = Field(None, description="Shop supplies/environmental fee")
+    misc_fees: Decimal | None = Field(None, description="Miscellaneous fees (disposal, etc.)")
     id: int
     vin: str
     total_cost: Decimal | None = None

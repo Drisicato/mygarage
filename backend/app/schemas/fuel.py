@@ -654,6 +654,19 @@ class FuelRecordUpdate(BaseModel):
 class FuelRecordResponse(FuelRecordBase):
     """Schema for fuel record response (metric canonical)."""
 
+    # Money without the input bounds, so a stored amount past today's rules
+    # still reads instead of 500ing (test_response_money_contract).
+    cost: Decimal | None = Field(None, description="Total cost, net of any rebate")
+    rebate: Decimal | None = Field(
+        None, description="Rebate/discount/points redeemed; already deducted from cost"
+    )
+    price_per_unit: Decimal | None = Field(
+        None,
+        description=(
+            "Price per unit; denominator depends on price_basis "
+            "(per_volume=per liter, per_weight=per kg, per_kwh=per kWh, per_tank=per tank)"
+        ),
+    )
     id: int
     vin: str
     created_at: datetime

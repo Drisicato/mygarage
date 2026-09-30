@@ -90,6 +90,10 @@ class DEFRecordUpdate(BaseModel):
 class DEFRecordResponse(DEFRecordBase):
     """Schema for DEF record response."""
 
+    # Money without the input bounds, so a stored amount past today's rules
+    # still reads instead of 500ing (test_response_money_contract).
+    cost: Decimal | None = Field(None, description="Total cost")
+    price_per_unit: Decimal | None = Field(None, description="Cost per liter")
     id: int
     vin: str
     created_at: datetime

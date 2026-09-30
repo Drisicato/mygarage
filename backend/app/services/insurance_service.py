@@ -40,6 +40,7 @@ from app.models.vehicle import Vehicle
 from app.models.vehicle_share import VehicleShare
 from app.schemas.insurance import (
     CoverageEntry,
+    CoverageEntryResponse,
     InsurancePolicyCreate,
     InsurancePolicyRenew,
     InsurancePolicyReplace,
@@ -147,11 +148,11 @@ def _coverage_tuples(rows: Iterable[Any]) -> list[tuple]:
     ]
 
 
-def _coverage_responses(link: InsurancePolicyVehicle) -> list[CoverageEntry]:
+def _coverage_responses(link: InsurancePolicyVehicle) -> list[CoverageEntryResponse]:
     """One vehicle's coverages in CATALOGUE order, which is the display order.
 
     A key outside the catalogue can only come from a hand-edited database or a
-    downgrade. It is dropped rather than returned, because `CoverageEntry`
+    downgrade. It is dropped rather than returned, because `CoverageEntryResponse`
     would reject it and take the whole policy read down with it.
     """
     unknown = [c.coverage_key for c in link.coverages if c.coverage_key not in COVERAGE_BY_KEY]
@@ -163,7 +164,7 @@ def _coverage_responses(link: InsurancePolicyVehicle) -> list[CoverageEntry]:
         )
     known = [c for c in link.coverages if c.coverage_key in COVERAGE_BY_KEY]
     known.sort(key=lambda row: COVERAGE_ORDER[row.coverage_key])
-    return [CoverageEntry.model_validate(row) for row in known]
+    return [CoverageEntryResponse.model_validate(row) for row in known]
 
 
 class InsuranceService:
@@ -460,7 +461,10 @@ class InsuranceService:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @staticmethod
-    def _set_coverages(link: InsurancePolicyVehicle, entries: list[CoverageEntry]) -> None:
+    def _set_coverages(
+        link: InsurancePolicyVehicle,
+        entries: Iterable[CoverageEntry | CoverageEntryResponse],
+    ) -> None:
         """Replace one vehicle's standard coverages.
 
         Wholesale, like `_set_fields`: the form always sends the complete set,
