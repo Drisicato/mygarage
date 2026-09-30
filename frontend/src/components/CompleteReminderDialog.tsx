@@ -24,6 +24,7 @@ import { canonicalFromUnitField, seedUnitField, type UnitFieldOrigin } from '../
 import { formatDateForDisplay, formatDateForInput } from '../utils/dateUtils'
 import { parseOptionalDecimal } from '../utils/decimalInput'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { moneyTextError } from '../schemas/shared'
 import type { Reminder, ReminderCompleteRequest } from '../types/reminder'
 
 type Mode = ReminderCompleteRequest['mode']
@@ -71,6 +72,7 @@ export default function CompleteReminderDialog({
   const [visitId, setVisitId] = useState<string>('')
   const [vendorId, setVendorId] = useState<number | undefined>()
   const [costText, setCostText] = useState('')
+  const [costError, setCostError] = useState<string | undefined>()
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const submitting = completeMutation.isPending
@@ -89,6 +91,10 @@ export default function CompleteReminderDialog({
       setError(t('completeReminder.dateRequired'))
       return
     }
+    // Only the visit it creates takes a cost, so only that mode checks it.
+    const costProblem = mode === 'create_visit' ? moneyTextError(t, costText) : undefined
+    setCostError(costProblem)
+    if (costProblem) return
     // A linked visit is the service record: the backend takes its date and
     // readings, so the dialog sends the visit's date and no readings of its own.
     const linkedVisit = linking ? visits.find((v) => String(v.id) === visitId) : undefined
@@ -283,11 +289,12 @@ export default function CompleteReminderDialog({
                 disabled={submitting}
               />
             </Field>
-            <Field id="complete-cost" label={t('completeReminder.cost')} unit={currencyCode}>
+            <Field id="complete-cost" label={t('completeReminder.cost')} unit={currencyCode} error={costError}>
               <NumberInput
                 id="complete-cost"
                 value={costText}
                 onChange={(e) => setCostText(e.target.value)}
+                invalid={!!costError}
                 disabled={submitting}
               />
             </Field>

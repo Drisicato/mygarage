@@ -681,7 +681,7 @@ export class UnitFormatter {
   static formatCostPerVolume(
     costPerLiter: number,
     units: UnitSet,
-    currencyCode: string = 'USD',
+    currencyCode: string,
     locale: string = 'en-US'
   ): string {
     // Defect L1's second half: this line multiplied by a hardcoded 3.78541, so

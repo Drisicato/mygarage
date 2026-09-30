@@ -28,6 +28,7 @@ from app.models.service_visit import ServiceVisit
 from app.models.tax import TaxRecord
 from app.models.vehicle import Vehicle
 from app.models.warranty import WarrantyRecord
+from app.schemas._money import MONEY_MAX
 from app.schemas.fuel import FuelRecordCreate
 
 
@@ -458,3 +459,86 @@ def test_a_misspelt_field_fails_even_on_an_empty_cell():
 
     with pytest.raises(KeyError):
         _within_api_bounds(FuelRecordCreate, not_a_field=None)
+
+
+# An amount one cent past the money column (Plan B, B4). The service and tax
+# importers take their bounds from the Create schemas through
+# `_within_api_bounds`, so the policy maximum reaches them with no code of
+# their own: this pins that it does, with the reason and not a 500.
+PAST_MAX = MONEY_MAX + Decimal("0.01")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestAnImportPastTheMoneyColumn:
+    @pytest.mark.parametrize(
+        ("kind", "header", "row", "model", "where", "reason"),
+        [
+            pytest.param(
+                "service",
+                "Date,Odometer (km),Description,Cost",
+                f"2043-06-01,1000,Engine,{PAST_MAX}",
+                ServiceVisit,
+                {"date": date(2043, 6, 1)},
+                f"cost must be at most {MONEY_MAX}, not {PAST_MAX}",
+                id="service-cost",
+            ),
+            pytest.param(
+                "tax",
+                "Date,Type,Amount,Renewal Date,Notes",
+                f"2043-06-02,Registration,{PAST_MAX},2044-06-02,big",
+                TaxRecord,
+                {"date": date(2043, 6, 2)},
+                f"amount must be at most {MONEY_MAX}, not {PAST_MAX}",
+                id="tax-amount",
+            ),
+        ],
+    )
+    async def test_a_csv_row_fails_with_the_reason(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        own_vehicle: dict[str, Any],
+        db_session: AsyncSession,
+        kind: str,
+        header: str,
+        row: str,
+        model: Any,
+        where: dict[str, Any],
+        reason: str,
+    ):
+        vin = own_vehicle["vin"]
+        data = await _post_csv(client, auth_headers, vin, kind, f"{header}\n{row}\n")
+
+        assert (data["success_count"], data["error_count"]) == (0, 1), data
+        assert reason in data["errors"][0], data
+        assert await _count(db_session, model, vin, **where) == 0
+
+    async def test_a_json_service_record_fails_with_the_reason(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        own_vehicle: dict[str, Any],
+        db_session: AsyncSession,
+    ):
+        vin = own_vehicle["vin"]
+        body = json.dumps(
+            {
+                "export_version": "3",
+                "units": "metric",
+                "service_records": [
+                    {
+                        "date": "2043-06-03",
+                        "odometer_km": 1000,
+                        "service_type": "Engine",
+                        "cost": str(PAST_MAX),
+                    }
+                ],
+            }
+        )
+
+        data = await _post_json(client, auth_headers, vin, body, skip=False)
+
+        assert data["service_records"]["error_count"] == 1, data
+        assert f"cost must be at most {MONEY_MAX}, not {PAST_MAX}" in data["errors"][0], data
+        assert await _count(db_session, ServiceVisit, vin, date=date(2043, 6, 3)) == 0

@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
+import type { UnitSet } from '@/types/units'
 
 import {
+  checkUnitPriceCap,
   makeDateSchema,
   makeNotesSchema,
   makeOptionalCurrencySchema,
@@ -24,9 +26,13 @@ import {
  * of a translated message. Routed through the shared makeNumericField,
  * preserving the exact 0-100 bound. FuelRecordForm's def_fill_level is the
  * same percentage concept and reuses these same three keys.
+ *
+ * `units` is the client's resolved set: the API caps `price_per_unit` in $/L,
+ * and this form always posts `per_volume`, so the typed price converts through
+ * the user's volume unit before the cap applies.
  */
 
-export const makeDefRecordSchema = (t: TFunction) =>
+export const makeDefRecordSchema = (t: TFunction, units: UnitSet) =>
   z.object({
     date: makeDateSchema(t),
     odometer_km: makeOptionalOdometerSchema(t),
@@ -44,5 +50,6 @@ export const makeDefRecordSchema = (t: TFunction) =>
     brand: z.string().max(100).optional(),
     notes: makeNotesSchema(t).optional(),
   })
+  .superRefine((data, ctx) => checkUnitPriceCap(t, ctx, data.price_per_unit, units, 'per_volume'))
 
 export type DefRecordFormData = z.infer<ReturnType<typeof makeDefRecordSchema>>

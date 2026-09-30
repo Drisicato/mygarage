@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.schemas.maintenance import validate_maintenance_type
 from app.schemas.reminder import ReminderCreate  # noqa: F401 — used in type annotations
@@ -34,7 +35,7 @@ class ServiceLineItemBase(BaseModel):
         ),
         max_length=50,
     )
-    cost: Decimal | None = Field(None, description="Cost for this line item", ge=0)
+    cost: OptionalMoney = Field(None, description="Cost for this line item")
     notes: str | None = Field(None, description="Additional notes", max_length=5000)
     is_inspection: bool = Field(default=False, description="Is this an inspection item")
     inspection_result: InspectionResult | None = Field(
@@ -121,7 +122,7 @@ class ServiceLineItemUpdate(BaseModel):
     description: str = Field(..., min_length=1, max_length=200)
     category: ServiceCategory | None = None
     maintenance_type: str | None = Field(None, max_length=50)
-    cost: Decimal | None = Field(None, ge=0)
+    cost: OptionalMoney = None
     notes: str | None = Field(None, max_length=5000)
     is_inspection: bool = False
     inspection_result: InspectionResult | None = None
@@ -149,6 +150,9 @@ class ServiceLineItemUpdate(BaseModel):
 class ServiceLineItemResponse(ServiceLineItemBase):
     """Schema for service line item response."""
 
+    # Money without the input bounds, so a stored amount past today's rules
+    # still reads instead of 500ing (test_response_money_contract).
+    cost: Decimal | None = Field(None, description="Cost for this line item")
     id: int
     visit_id: int
     created_at: datetime
@@ -206,9 +210,9 @@ class ServiceVisitBase(BaseModel):
         None, description="Insurance claim number", max_length=50
     )
     vendor_id: int | None = Field(None, description="Vendor ID")
-    tax_amount: Decimal | None = Field(None, description="Sales tax", ge=0)
-    shop_supplies: Decimal | None = Field(None, description="Shop supplies/environmental fee", ge=0)
-    misc_fees: Decimal | None = Field(None, description="Miscellaneous fees (disposal, etc.)", ge=0)
+    tax_amount: OptionalMoney = Field(None, description="Sales tax")
+    shop_supplies: OptionalMoney = Field(None, description="Shop supplies/environmental fee")
+    misc_fees: OptionalMoney = Field(None, description="Miscellaneous fees (disposal, etc.)")
 
     @field_validator("service_category")
     @classmethod
@@ -234,8 +238,10 @@ class ServiceVisitCreate(ServiceVisitBase):
     line_items: list[ServiceLineItemCreate] = Field(
         ..., description="Services performed during this visit", min_length=1
     )
-    total_cost: Decimal | None = Field(
-        None, description="Override total cost (otherwise calculated from line items)"
+    total_cost: OptionalMoney = Field(
+        None,
+        description="Ignored: the server always computes the total from line items, "
+        "supplies, tax and fees. Accepted so existing clients don't 422.",
     )
 
     @model_validator(mode="after")
@@ -301,10 +307,14 @@ class ServiceVisitUpdate(BaseModel):
         None, description="Insurance claim number", max_length=50
     )
     vendor_id: int | None = Field(None, description="Vendor ID")
-    total_cost: Decimal | None = Field(None, description="Override total cost")
-    tax_amount: Decimal | None = Field(None, description="Sales tax", ge=0)
-    shop_supplies: Decimal | None = Field(None, description="Shop supplies/environmental fee", ge=0)
-    misc_fees: Decimal | None = Field(None, description="Miscellaneous fees (disposal, etc.)", ge=0)
+    total_cost: OptionalMoney = Field(
+        None,
+        description="Ignored: the server always computes the total from line items, "
+        "supplies, tax and fees. Accepted so existing clients don't 422.",
+    )
+    tax_amount: OptionalMoney = Field(None, description="Sales tax")
+    shop_supplies: OptionalMoney = Field(None, description="Shop supplies/environmental fee")
+    misc_fees: OptionalMoney = Field(None, description="Miscellaneous fees (disposal, etc.)")
     line_items: list[ServiceLineItemUpdate] | None = Field(
         None, description="Diff-based line items (if provided)"
     )
@@ -338,7 +348,7 @@ class ServiceVisitUpdate(BaseModel):
             "examples": [
                 {
                     "notes": "Updated notes",
-                    "total_cost": 150.00,
+                    "tax_amount": 8.50,
                 }
             ]
         }
@@ -359,6 +369,11 @@ class VendorSummary(BaseModel):
 class ServiceVisitResponse(ServiceVisitBase):
     """Schema for service visit response."""
 
+    # Money without the input bounds, so a stored amount past today's rules
+    # still reads instead of 500ing (test_response_money_contract).
+    tax_amount: Decimal | None = Field(None, description="Sales tax")
+    shop_supplies: Decimal | None = Field(None, description="Shop supplies/environmental fee")
+    misc_fees: Decimal | None = Field(None, description="Miscellaneous fees (disposal, etc.)")
     id: int
     vin: str
     total_cost: Decimal | None = None

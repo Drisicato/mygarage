@@ -563,7 +563,9 @@ def generate_vehicle_analytics_pdf(
         story.append(make_section_header("Monthly Spending"))
         story.append(Spacer(1, 6))
 
-        chart_buf = render_monthly_spending_chart(monthly_data[-12:])
+        chart_buf = render_monthly_spending_chart(
+            monthly_data[-12:], currency_code=currency_code, locale=locale
+        )
         chart_img = Image(chart_buf, width=CONTENT_WIDTH, height=2.4 * inch)
         story.append(wrap_in_card(chart_img, padding=10))
         story.append(Spacer(1, 16))
@@ -640,6 +642,8 @@ def generate_vehicle_analytics_pdf(
                 width_inches=3.5,
                 height_inches=2.0,
                 show_legend=True,
+                currency_code=currency_code,
+                locale=locale,
             )
             donut_img = Image(
                 donut_buf,
@@ -742,6 +746,8 @@ def generate_vehicle_analytics_pdf(
             six_month=six_month,
             twelve_month=twelve_month,
             months_tracked=months_tracked,
+            currency_code=currency_code,
+            locale=locale,
         )
         proj_img = Image(proj_buf, width=CONTENT_WIDTH, height=1.8 * inch)
         story.append(wrap_in_card(proj_img, padding=16))

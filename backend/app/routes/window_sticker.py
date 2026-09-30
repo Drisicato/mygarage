@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.schemas._money import MONEY_MAX, OptionalMoney
 from app.services.auth import (
     get_vehicle_for_owner_or_403,
     get_vehicle_or_403,
@@ -22,6 +23,7 @@ from app.services.auth import (
 )
 from app.services.window_sticker_ocr import WindowStickerOCRService
 from app.utils.datetime_utils import utc_now
+from app.utils.logging_utils import sanitize_for_log
 from app.utils.vin import validate_vin
 
 logger = logging.getLogger(__name__)
@@ -39,14 +41,51 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 # Numeric(5,2) on the vehicle row.
 _FUEL_ECONOMY_MAX = Decimal("999.99")
 
+# The parsed numbers and the largest each column holds. OCR can misread a
+# price, and nothing validates what a parser returns before it is written.
+_PARSED_NUMBER_MAX = {
+    "msrp_base": MONEY_MAX,
+    "msrp_options": MONEY_MAX,
+    "msrp_total": MONEY_MAX,
+    "destination_charge": MONEY_MAX,
+    "fuel_economy_city_l_per_100km": _FUEL_ECONOMY_MAX,
+    "fuel_economy_highway_l_per_100km": _FUEL_ECONOMY_MAX,
+    "fuel_economy_combined_l_per_100km": _FUEL_ECONOMY_MAX,
+}
+
+
+def _drop_numbers_that_cannot_be_stored(extracted: dict[str, Any]) -> None:
+    """Drop a parsed number that is negative, not a number, or past its column.
+
+    It's a misread, not a value: written, it was a 500 on PostgreSQL with the
+    upload already on disk. The review form shows the field empty instead.
+    """
+    for key, top in _PARSED_NUMBER_MAX.items():
+        value = extracted.get(key)
+        if value is None:
+            continue
+        try:
+            number = value if isinstance(value, Decimal) else Decimal(str(value))
+            fits = number.is_finite() and 0 <= number <= top
+        except ArithmeticError:  # Decimal's InvalidOperation: not a number at all
+            fits = False
+        if not fits:
+            logger.warning(
+                "Window sticker: dropped parsed %s=%s, outside 0 to %s",
+                key,
+                sanitize_for_log(value),
+                top,
+            )
+            del extracted[key]
+
 
 class WindowStickerDataUpdate(BaseModel):
     """The review's edits. Omitted keeps, null clears; widths match the columns."""
 
-    msrp_base: Decimal | None = None
-    msrp_options: Decimal | None = None
-    msrp_total: Decimal | None = None
-    destination_charge: Decimal | None = None
+    msrp_base: OptionalMoney = None
+    msrp_options: OptionalMoney = None
+    msrp_total: OptionalMoney = None
+    destination_charge: OptionalMoney = None
     fuel_economy_city_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
     fuel_economy_highway_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
     fuel_economy_combined_l_per_100km: Decimal | None = Field(None, ge=0, le=_FUEL_ECONOMY_MAX)
@@ -258,6 +297,8 @@ async def upload_window_sticker(
     except Exception as e:
         logger.error("OCR extraction failed: %s", e)
         extracted_data = {}
+
+    _drop_numbers_that_cannot_be_stored(extracted_data)
 
     # Update vehicle with file path and extracted data
     vehicle.window_sticker_file_path = str(file_path)

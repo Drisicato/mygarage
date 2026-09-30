@@ -69,8 +69,10 @@ vi.mock('react-i18next', () => ({
 // hook), so the REAL formatter runs: formatCurrency(43.75) → "$43.75" and
 // formatCurrency(0) → "-" (NEVER "$0.00"). Assertions use the real output; the old
 // plan's `getAllByText('$0.00')` was a dead assertion — that string is never rendered.
+// Mutable so the rate-digits tests can read the list in yen.
+const currencyMock = vi.hoisted(() => ({ code: 'USD' }))
 vi.mock('../../hooks/useCurrencyPreference', () => ({
-  useCurrencyPreference: () => ({ currencyCode: 'USD', locale: 'en-US' }),
+  useCurrencyPreference: () => ({ currencyCode: currencyMock.code, locale: 'en-US' }),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -108,6 +110,7 @@ beforeEach(() => {
   unitPrefMock.system = 'metric'
   unitPrefMock.units = null
   unitPrefMock.accountUnits = null
+  currencyMock.code = 'USD'
   UnitConverter.setGallonStandard('us')
   vi.spyOn(window, 'confirm').mockReturnValue(true)
   useFuelRecordsMock.mockReturnValue({
@@ -533,5 +536,49 @@ describe('FuelRecordList — the average card and its towing toggle (#181)', () 
     render(<FuelRecordList {...DEFAULT_PROPS} />)
     await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
     expect(toggle()).not.toBeInTheDocument()
+  })
+})
+
+describe('FuelRecordList — a rate keeps its decimals in yen', () => {
+  // A unit price and a cost per hour are rates. Yen's own digits are zero,
+  // so the plain amount formatter would show ¥170.5/L as ¥171.
+  const yenRecord = { ...record, id: 7, price_per_unit: '170.500', cost: '8525.00' } as FuelRecord
+
+  it('shows the unit price with its decimals and the cost as whole yen', async () => {
+    currencyMock.code = 'JPY'
+    useFuelRecordsMock.mockReturnValue({
+      data: { records: [yenRecord], total: 1, average_l_per_100km: '8.5' },
+      isLoading: false,
+      error: null,
+    })
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+
+    expect(within(table()).getByText('¥170.50')).toBeInTheDocument()
+    expect(within(table()).queryByText('¥171')).not.toBeInTheDocument()
+    // The cost is an amount, so it stays at yen's own digits.
+    expect(within(table()).getByText('¥8,525')).toBeInTheDocument()
+  })
+
+  it('shows the average cost per hour with its decimals', async () => {
+    currencyMock.code = 'JPY'
+    apiGetMock.mockResolvedValue({ data: { fuel_type: 'gasoline', usage_unit: 'hours', secondary_usage_enabled: false } })
+    useFuelRecordsMock.mockReturnValue({
+      data: { records: [yenRecord], total: 1, average_l_per_100km: null, average_l_per_hr: '4.50', average_cost_per_hr: '170.5' },
+      isLoading: false,
+      error: null,
+    })
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+
+    expect(await screen.findByText('4.50 L/hr')).toBeInTheDocument()
+    expect(screen.getAllByText('¥170.50').length).toBeGreaterThan(0)
+    expect(screen.queryByText('¥171')).not.toBeInTheDocument()
+  })
+
+  it('leaves the dollar unit price where it was', async () => {
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+    // 0.925 at two decimals, as before the currency-digits change.
+    expect(within(table()).getByText('$0.93')).toBeInTheDocument()
   })
 })

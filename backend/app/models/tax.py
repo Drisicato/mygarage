@@ -34,7 +34,7 @@ class TaxRecord(Base):
     )
     date: Mapped[dt.date] = mapped_column(Date, nullable=False)
     tax_type: Mapped[str | None] = mapped_column(String(30))
-    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     renewal_date: Mapped[dt.date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

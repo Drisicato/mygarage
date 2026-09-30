@@ -24,12 +24,11 @@ vi.mock('../../hooks/queries/useQuickEntryVehicles', () => ({
 vi.mock('../../hooks/useUnitPreference', () => ({
   useUnitPreference: () => ({ system: 'metric', showBoth: false }),
 }))
-vi.mock('../../hooks/useCurrencyPreference', () => ({
-  useCurrencyPreference: () => ({
-    currencyCode: 'USD',
-    locale: 'en-US',
-    formatCurrency: () => '$5.25',
-  }),
+// The REAL currency hook runs, so a rate option has to survive it. Only the
+// signed-in user is faked, and the rate-digits test flips them to yen.
+const currencyMock = vi.hoisted(() => ({ code: 'USD' }))
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { currency_code: currencyMock.code } }),
 }))
 
 import Supplies from '../Supplies'
@@ -52,6 +51,7 @@ const mockSupply: Supply = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  currencyMock.code = 'USD'
   useSuppliesMock.mockReturnValue({
     data: { supplies: [mockSupply], total: 1 },
     isLoading: false,
@@ -104,5 +104,25 @@ describe('Supplies page', () => {
     expect(document.getElementById('unit_type')).toBeDisabled()
     // is_active toggle only appears on edit
     expect(document.getElementById('is_active')).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page — the average unit cost is a rate', () => {
+  it('shows a yen unit cost with its decimals', () => {
+    currencyMock.code = 'JPY'
+    useSuppliesMock.mockReturnValue({
+      data: { supplies: [{ ...mockSupply, avg_unit_cost: '170.5' }], total: 1 },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    expect(screen.getByText('¥170.50')).toBeInTheDocument()
+    expect(screen.queryByText('¥171')).not.toBeInTheDocument()
+  })
+
+  it('leaves the dollar unit cost where it was', () => {
+    render(<Supplies />)
+    expect(screen.getByText('$5.25')).toBeInTheDocument()
   })
 })

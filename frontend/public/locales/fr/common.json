@@ -510,12 +510,6 @@
       "invalidFormat": "Format de VIN invalide"
     },
     "spotRental": {
-      "nightlyRateNegative": "Le tarif de nuit ne peut pas être négatif",
-      "nightlyRateTooLarge": "Tarif de nuit trop élevé (max. 9 999,99 $)",
-      "rateNegative": "Le tarif ne peut pas être négatif",
-      "rateTooLarge": "Tarif trop élevé (max. 99 999,99 $)",
-      "utilityNegative": "Le coût des services publics ne peut pas être négatif",
-      "utilityTooLarge": "Coût des services publics trop élevé (max. 9 999,99 $)",
       "locationNameTooLong": "Nom de lieu trop long (max. 100 caractères)"
     },
     "note": {

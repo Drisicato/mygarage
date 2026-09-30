@@ -185,3 +185,38 @@ describe('CompleteReminderDialog — payloads', () => {
     expect(completeMock.mock.calls[0][0].odometer_km).toBeUndefined()
   })
 })
+
+// money-fits: the API takes 0 to MONEY_MAX (9,999,999,999.99) for the visit
+// cost. The dialog used to drop unreadable text and post anything else.
+describe('CompleteReminderDialog: the visit cost', () => {
+  const cost = () => screen.getByLabelText(/completeReminder\.cost/)
+
+  it.each([
+    ['10000000000', 'common:validation.amount.tooLarge'],
+    ['-5', 'common:validation.amount.negative'],
+    ['abc', 'common:validation.amount.invalid'],
+  ])('refuses %s on the field and sends nothing', async (typed, message) => {
+    renderDialog()
+    fireEvent.change(cost(), { target: { value: typed } })
+    fireEvent.submit(form())
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(completeMock).not.toHaveBeenCalled()
+  })
+
+  it('takes MONEY_MAX itself', async () => {
+    renderDialog()
+    fireEvent.change(cost(), { target: { value: '9999999999.99' } })
+    fireEvent.submit(form())
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1))
+    expect(completeMock.mock.calls[0][0].cost).toBe(9999999999.99)
+  })
+
+  it('a cost left behind in another mode does not block the save it is not part of', async () => {
+    renderDialog()
+    fireEvent.change(cost(), { target: { value: '10000000000' } })
+    fireEvent.click(screen.getByLabelText(/completeReminder\.modeMarkOnly/))
+    fireEvent.submit(form())
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1))
+    expect(completeMock.mock.calls[0][0].cost).toBeUndefined()
+  })
+})

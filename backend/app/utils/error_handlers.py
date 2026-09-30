@@ -3,10 +3,12 @@
 import logging
 import math
 
-from fastapi import Request, status
+from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
+
+from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +173,73 @@ async def handle_database_error(request: Request, exc: SQLAlchemyError) -> JSONR
         message="A database error occurred. Please try again later.",
         request_id=request_id,
     )
+
+
+# PostgreSQL's "numeric value out of range": a number past its column. The
+# same code covers "integer out of range", so the words say number, not amount.
+_NUMERIC_OVERFLOW = "22003"
+NUMERIC_OVERFLOW_DETAIL = "Number too large for storage"
+
+
+def is_numeric_overflow(exc: DBAPIError) -> bool:
+    """Whether the database refused a number too wide for its column.
+
+    asyncpg's adapter sets `sqlstate` (and wraps the error as a plain
+    DBAPIError, not a DataError); psycopg2 sets `pgcode`. SQLite never
+    raises it: it ignores a column's declared precision.
+    """
+    orig = exc.orig
+    code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    return code == _NUMERIC_OVERFLOW
+
+
+def _numeric_overflow_response(request: Request, exc: DBAPIError) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
+    # The input fence missed this path, so it's worth a look, but it's the
+    # client's number, not a server fault.
+    logger.warning(
+        "Numeric overflow (request_id=%s) on %s %s: %s",
+        request_id,
+        request.method,
+        sanitize_for_log(request.url.path),
+        type(exc.orig).__name__,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": NUMERIC_OVERFLOW_DETAIL},
+    )
+
+
+async def handle_dbapi_error(request: Request, exc: DBAPIError) -> JSONResponse:
+    """Production: a numeric overflow is a 422, any other DBAPI error a 500."""
+    if is_numeric_overflow(exc):
+        return _numeric_overflow_response(request, exc)
+    return await handle_database_error(request, exc)
+
+
+async def handle_dbapi_error_debug(request: Request, exc: DBAPIError) -> JSONResponse:
+    """Debug: a numeric overflow is a 422 here too. Anything else propagates to
+    the debug traceback, exactly as it did with no handler."""
+    if is_numeric_overflow(exc):
+        return _numeric_overflow_response(request, exc)
+    raise exc
+
+
+def register_error_handlers(app: FastAPI, *, debug: bool) -> None:
+    """Register the app's exception handlers.
+
+    Production gets the sanitized handlers. The numeric-overflow mapping applies
+    in debug too: an overflow is the client's number, so it's a 422 either way.
+    Validation stays the fence; this is the backstop for a path it missed.
+    """
+    if debug:
+        app.add_exception_handler(DBAPIError, handle_dbapi_error_debug)  # type: ignore[arg-type]
+    else:
+        app.add_exception_handler(Exception, handle_generic_exception)  # type: ignore[arg-type]
+        app.add_exception_handler(SQLAlchemyError, handle_database_error)  # type: ignore[arg-type]
+        # More specific than SQLAlchemyError, so a DBAPI error lands here first.
+        app.add_exception_handler(DBAPIError, handle_dbapi_error)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, handle_validation_error)  # type: ignore[arg-type]
 
 
 def safe_error_detail(exc: Exception, development_mode: bool = False) -> str:

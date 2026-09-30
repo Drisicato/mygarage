@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { makeTollTransactionSchema } from '../tollTransaction'
-import { INVALID_NUMBER } from '../shared'
+import { INVALID_NUMBER, MONEY_MAX } from '../shared'
 
 const t = ((key: string) => key) as unknown as Parameters<typeof makeTollTransactionSchema>[0]
 const tollTransactionSchema = makeTollTransactionSchema(t)
@@ -99,15 +99,20 @@ describe('Toll Transaction Schema', () => {
     }
   })
 
-  // Final-review I5: makeOptionalCurrencySchema's 99,999.99 ceiling doesn't
-  // exist on the backend (toll.py — `ge=0`, no `le`). A large toll amount
-  // (e.g. an unusual bulk/commercial toll charge) must not be client-side
-  // rejected when the API would accept it.
-  it('accepts an amount above the old 99,999.99 currency-factory ceiling', () => {
+  // The old 99,999.99 currency cap refused a large toll the API took. Both
+  // sides use MONEY_MAX now (money-fits).
+  it('accepts an amount past the old 99,999.99 cap', () => {
     const result = tollTransactionSchema.safeParse({
       ...validTransaction,
       amount: 150000,
     })
     expect(result.success).toBe(true)
+  })
+
+  it('accepts MONEY_MAX and refuses a cent more', () => {
+    expect(tollTransactionSchema.safeParse({ ...validTransaction, amount: MONEY_MAX }).success).toBe(true)
+    const result = tollTransactionSchema.safeParse({ ...validTransaction, amount: MONEY_MAX + 0.01 })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues[0].message).toBe('common:validation.amount.tooLarge')
   })
 })

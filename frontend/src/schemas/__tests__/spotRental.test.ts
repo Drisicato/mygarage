@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { TFunction } from 'i18next'
 import { makeSpotRentalSchema } from '../spotRental'
-import { INVALID_NUMBER } from '../shared'
+import { INVALID_NUMBER, MONEY_MAX } from '../shared'
 
 // Same shape as the global react-i18next mock in src/__tests__/setup.ts:
 // messages come back as their i18n key, which is all these tests need.
@@ -53,12 +53,26 @@ describe('Spot Rental Schema', () => {
     expect(result.success).toBe(false)
   })
 
+  // The three old tiers (9,999.99 a night or a utility, 99,999.99 a week,
+  // month or total) refused a ¥10,000 night. Every amount takes the API's
+  // MONEY_MAX now, and the message no longer names a dollar cap.
   it('rejects nightly_rate exceeding max', () => {
     const result = spotRentalSchema.safeParse({
       ...validRental,
-      nightly_rate: 10000,
+      nightly_rate: MONEY_MAX + 0.01,
     })
     expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues[0].message).toBe('common:validation.amount.tooLarge')
+  })
+
+  it('accepts amounts past the old tiers, up to MONEY_MAX on every amount', () => {
+    expect(spotRentalSchema.safeParse({ ...validRental, nightly_rate: 10000, electric: 25000, monthly_rate: 150000 }).success).toBe(true)
+    for (const field of ['nightly_rate', 'weekly_rate', 'monthly_rate', 'electric', 'water', 'waste', 'total_cost']) {
+      expect(spotRentalSchema.safeParse({ ...validRental, [field]: MONEY_MAX }).success, field).toBe(true)
+      const over = spotRentalSchema.safeParse({ ...validRental, [field]: MONEY_MAX + 0.01 })
+      expect(over.success, field).toBe(false)
+      if (!over.success) expect(over.error.issues[0].message).toBe('common:validation.amount.tooLarge')
+    }
   })
 
   it('rejects negative utility cost', () => {
@@ -92,7 +106,7 @@ describe('Spot Rental Schema', () => {
   // z.nan())` shape couldn't recognize INVALID_NUMBER (the sentinel
   // registerDecimal emits for unparseable text) and leaked zod's raw
   // "Invalid input: expected number, received symbol" instead of a
-  // translated message. Assert all three rate tiers now report one.
+  // translated message. The three rate tiers share the amount messages now.
   it('rejects the INVALID_NUMBER sentinel on every rate tier with a translated message, not a raw zod union error', () => {
     const result = spotRentalSchema.safeParse({
       ...validRental,
@@ -103,9 +117,11 @@ describe('Spot Rental Schema', () => {
     expect(result.success).toBe(false)
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message)
-      expect(messages).toContain('common:validation.spotRental.nightlyRateInvalid')
-      expect(messages).toContain('common:validation.spotRental.rateInvalid')
-      expect(messages).toContain('common:validation.spotRental.utilityInvalid')
+      expect(messages).toEqual([
+        'common:validation.amount.invalid',
+        'common:validation.amount.invalid',
+        'common:validation.amount.invalid',
+      ])
       for (const m of messages) {
         expect(m).not.toMatch(/received symbol|expected number/i)
       }

@@ -42,7 +42,7 @@ class ServiceLineItem(Base):
     # client or classified from `description` at write time, then matched by
     # code only. Migration 101 classified existing rows.
     maintenance_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     notes: Mapped[str | None] = mapped_column(Text)
     is_inspection: Mapped[bool] = mapped_column(Boolean, default=False)
     inspection_result: Mapped[str | None] = mapped_column(

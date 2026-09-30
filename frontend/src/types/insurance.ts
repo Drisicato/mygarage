@@ -16,7 +16,7 @@ export type PolicyVehicleCreate = components['schemas']['PolicyVehicleCreate']
 export type PolicyVehicleUpsert = components['schemas']['PolicyVehicleUpsert']
 export type PolicyHistoryEntry = components['schemas']['PolicyHistoryEntry']
 export type NamedField = components['schemas']['NamedField']
-export type Coverage = components['schemas']['CoverageEntry-Output']
+export type Coverage = components['schemas']['CoverageEntryResponse']
 /** The standard coverage catalogue's keys, straight from the backend's
  *  `Literal`. `constants/insuranceCoverages.ts` is typed against this, so a
  *  coverage added there and not here (or the reverse) fails the build. */

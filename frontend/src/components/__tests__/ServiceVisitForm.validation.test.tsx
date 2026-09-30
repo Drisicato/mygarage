@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { render, screen } from '../../__tests__/test-utils'
+import { fireEvent, render, screen } from '../../__tests__/test-utils'
 import ServiceVisitForm from '../ServiceVisitForm'
 import api from '../../services/api'
 
@@ -146,6 +146,20 @@ describe('ServiceVisitForm – native constraints are replaced, not just disable
     await save()
 
     expect(await screen.findByText(/decimal|step|precision/i)).toBeTruthy()
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  // money-fits: the API caps every amount at MONEY_MAX (9,999,999,999.99).
+  // Past it the fee used to reach the API and come back a 422 banner.
+  it('rejects a tax or fee past MONEY_MAX on its own field and sends nothing', async () => {
+    render(<ServiceVisitForm {...DEFAULT_PROPS} />)
+    for (const label of [/service\.tax$/, /service\.shopSupplies/, /service\.miscFees/]) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value: '10000000000' } })
+    }
+
+    await save()
+
+    expect(await screen.findAllByText('common:validation.amount.tooLarge')).toHaveLength(3)
     expect(api.post).not.toHaveBeenCalled()
   })
 

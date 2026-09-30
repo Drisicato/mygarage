@@ -537,7 +537,7 @@ const COST_PER_DISTANCE_PRECISION = 2
 export function formatCostPerDistance(
   units: UnitSet,
   costPerKm: number,
-  currencyCode = 'USD',
+  currencyCode: string,
   locale = 'en-US'
 ): string {
   // Cost per km to cost per one of the reader's distance units, then to cost

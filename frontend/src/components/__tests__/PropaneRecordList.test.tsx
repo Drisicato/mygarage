@@ -51,8 +51,10 @@ vi.mock('react-i18next', () => ({
   Trans: ({ children }: { children: React.ReactNode }) => children,
   initReactI18next: { type: '3rdParty', init: () => {} },
 }))
+// Mutable so the rate-digits test can read the list in yen.
+const currencyMock = vi.hoisted(() => ({ code: 'USD' }))
 vi.mock('../../hooks/useCurrencyPreference', () => ({
-  useCurrencyPreference: () => ({ currencyCode: 'USD', locale: 'en-US' }),
+  useCurrencyPreference: () => ({ currencyCode: currencyMock.code, locale: 'en-US' }),
 }))
 // PropaneRecordForm (rendered on Add/Edit) → CurrencyInputPrefix → useCurrencySymbol.
 vi.mock('../../hooks/useCurrencySymbol', () => ({ useCurrencySymbol: () => '$' }))
@@ -82,7 +84,7 @@ beforeEach(() => {
   usePropaneRecordsMock.mockReturnValue({ data: { records: [record] }, isLoading: false, error: null })
   useDeletePropaneRecordMock.mockReturnValue({ mutate: deleteMutate, isPending: false, variables: undefined })
 })
-afterEach(() => { unitPrefMock.system = 'metric'; unitPrefMock.units = null })
+afterEach(() => { unitPrefMock.system = 'metric'; unitPrefMock.units = null; currencyMock.code = 'USD' })
 
 describe('PropaneRecordList — DataTable rows scoped to the named table', () => {
   it('renders the row vendor (parsed from notes) and the row cost INSIDE the table (fails if the vendor or cost column is dropped; scoping stops the Total-Spent tile from satisfying the cost check)', () => {
@@ -191,5 +193,27 @@ describe('PropaneRecordList — one gallon per page, taken from the user', () =>
     expect(screen.getByText('propaneList.totalVolume (L)')).toBeInTheDocument()
     expect(screen.getByText('39.8 L')).toBeInTheDocument()
     expect(screen.getByText('propaneList.avgCostPerVolume (L)')).toBeInTheDocument()
+  })
+})
+
+describe('PropaneRecordList — the unit price is a rate', () => {
+  it('shows a yen unit price with its decimals and the cost as whole yen', () => {
+    currencyMock.code = 'JPY'
+    usePropaneRecordsMock.mockReturnValue({
+      data: { records: [{ ...record, price_per_unit: '170.500', cost: '6777.00' }] },
+      isLoading: false,
+      error: null,
+    })
+    render(<PropaneRecordList vin="TEST12345678901234" />)
+
+    expect(within(table()).getByText('¥170.50')).toBeInTheDocument()
+    expect(within(table()).queryByText('¥171')).not.toBeInTheDocument()
+    expect(within(table()).getByText('¥6,777')).toBeInTheDocument()
+  })
+
+  it('leaves the dollar unit price where it was', () => {
+    render(<PropaneRecordList vin="TEST12345678901234" />)
+    // 0.766 at two decimals, as before the currency-digits change.
+    expect(within(table()).getByText('$0.77')).toBeInTheDocument()
   })
 })

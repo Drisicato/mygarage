@@ -66,8 +66,9 @@ const LITRES = [0, 0.001, 1, 12.345, 37.9, 45.461, 47.318, 72.42, 9999.999]
  * Nine stored canonical prices, in $/L.
  *
  * `1.234567` is the value the ruling quotes: it came back `1.23446742145` from
- * the shipped round trip. The rest are real pump prices plus both ends of the
- * column's range (`Numeric(6, 3)`, `le=999.999`).
+ * the shipped round trip. The rest are real pump prices, zero, and 999.999,
+ * which was the column's top when it was `Numeric(6, 3)`. money-fits widened
+ * it to `Numeric(12, 3)`; the matrix keeps its nine values.
  */
 const PRICES = [0, 0.001, 0.898, 1.136, 1.189, 1.234567, 1.4499, 2.899, 999.999]
 

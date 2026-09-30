@@ -58,7 +58,13 @@ export function cachedNumberFormat(
 }
 
 /**
- * A currency formatter at a fixed number of decimals.
+ * Ask for the currency's own fraction digits (yen 0, dollars 2) instead of a
+ * fixed count. Plain amounts use it; rates keep asking for explicit digits.
+ */
+export const CURRENCY_DIGITS = 'currency'
+
+/**
+ * A currency formatter at a fixed number of decimals, or at the currency's own.
  *
  * ★ IT EXISTS SO THE KEY CANNOT DISAGREE WITH THE OPTIONS. Three call sites want
  * this exact shape, and each spelled its own key beside its own option block.
@@ -71,13 +77,14 @@ export function cachedNumberFormat(
  * @param locale The reader's locale.
  * @param currencyCode ISO code. An invalid one throws from `Intl`, uncached, so
  *   a caller that catches keeps its fallback.
- * @param digits Both the minimum and maximum fraction digits.
+ * @param digits Both the minimum and maximum fraction digits, or
+ *   `CURRENCY_DIGITS` to let Intl use the currency's default.
  * @returns The cached or newly built formatter.
  */
 export function cachedCurrencyFormat(
   locale: string,
   currencyCode: string,
-  digits: number
+  digits: number | typeof CURRENCY_DIGITS
 ): Intl.NumberFormat {
   return cachedNumberFormat(
     `${locale}|currency|${currencyCode}|${digits}`,
@@ -85,8 +92,10 @@ export function cachedCurrencyFormat(
       new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: currencyCode,
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits,
+        // Leaving both out is how Intl picks the currency's own digits.
+        ...(digits === CURRENCY_DIGITS
+          ? {}
+          : { minimumFractionDigits: digits, maximumFractionDigits: digits }),
       })
   )
 }

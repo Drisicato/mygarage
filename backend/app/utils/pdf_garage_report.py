@@ -199,6 +199,8 @@ def generate_garage_analytics_pdf(
                 total=donut_total,
                 width_inches=6.5,
                 height_inches=2.4,
+                currency_code=currency_code,
+                locale=locale,
             )
             donut_img = Image(donut_buf, width=CONTENT_WIDTH, height=2.4 * inch)
             story.append(wrap_in_card(donut_img, padding=12))
@@ -275,7 +277,9 @@ def generate_garage_analytics_pdf(
         story.append(make_section_header("Monthly Spending Trends"))
         story.append(Spacer(1, 6))
 
-        chart_buf = render_garage_monthly_trends(monthly_trends[-12:])
+        chart_buf = render_garage_monthly_trends(
+            monthly_trends[-12:], currency_code=currency_code, locale=locale
+        )
         chart_img = Image(chart_buf, width=CONTENT_WIDTH, height=3.0 * inch)
         story.append(wrap_in_card(chart_img, padding=12))
 

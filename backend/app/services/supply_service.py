@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.supply import Supply, SupplyPurchase, SupplyUsage
 from app.models.user import User
+from app.schemas._money import UNIT_COST_MAX
 from app.schemas.supply import (
     SupplyAdjustmentCreate,
     SupplyCreate,
@@ -24,10 +25,16 @@ from app.schemas.supply import (
     SupplyUsageResponse,
 )
 from app.utils.logging_utils import sanitize_for_log
+from app.utils.money_fits import ensure_fits
 
 logger = logging.getLogger(__name__)
 
 _ZERO = Decimal("0")
+
+
+def usage_cost_subject(supply_id: int) -> str:
+    """How a usage's cost snapshot reads in a refusal, wherever it is computed."""
+    return f"The cost of this much of supply {supply_id}"
 
 
 class SupplyService:
@@ -294,11 +301,17 @@ class SupplyService:
     async def create_usage_snapshot(
         self, supply_id: int, quantity: Decimal
     ) -> tuple[Decimal | None, Decimal | None]:
-        """Freeze (unit_cost, cost) for a usage from the supply's current avg cost."""
+        """Freeze (unit_cost, cost) for a usage from the supply's current avg cost.
+
+        Both are computed, so both are checked against their columns here: a
+        huge purchase over a tiny quantity makes a unit cost no column holds.
+        """
         avg = await self.compute_avg_unit_cost(supply_id)
         if avg is None:
             return None, None
+        ensure_fits(avg, f"The unit cost of supply {supply_id}", UNIT_COST_MAX)
         cost = (avg * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        ensure_fits(cost, usage_cost_subject(supply_id))
         return avg, cost
 
     async def add_adjustment(

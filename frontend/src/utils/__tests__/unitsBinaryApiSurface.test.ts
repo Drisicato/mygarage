@@ -648,8 +648,13 @@ describe('the binary conversion surface', () => {
     // covers exported arrow consts and module-local declarations. If
     // `decimalSafe.ts` ever grows one of those, this list will not see it and
     // the committed suppression set above is what would.
+    //
+    // money-fits added `priceOverCanonicalMax`, the price cap's check. It
+    // converts the same way but answers yes or no, so nothing can post what it
+    // computes, and `priceToCanonical` stays private.
     expect(decimalSafeExports()).toEqual([
       'canonicalFromPriceField',
+      'priceOverCanonicalMax',
       'priceToDisplay',
       'readNumber',
       'seedPriceField',

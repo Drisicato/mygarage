@@ -54,12 +54,12 @@ class FuelRecord(Base):
     charge_level: Mapped[str | None] = mapped_column(String(10))  # L1 / L2 / DCFC
     charge_location: Mapped[str | None] = mapped_column(String(20))  # home / public
     battery_soh_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    cost: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     # Rebate/discount/points redeemed on this fill-up. `cost` stores the NET
     # (price × volume − rebate); this keeps the redeemed amount for display and
     # export/import round-trips.
-    rebate: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
-    price_per_unit: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
+    rebate: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    price_per_unit: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
     # Per-row classifier added by migration 053. Drives unit-aware price math.
     price_basis: Mapped[str | None] = mapped_column(String(12))
     # Per-fillup actual fuel dispensed. Surfaced in UI only when the vehicle

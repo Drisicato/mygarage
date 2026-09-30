@@ -7,9 +7,14 @@ import { useTranslation } from 'react-i18next'
 import { Archive, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/services/api'
-import { Select } from '@/components/ui'
+import { NumberInput, Select } from '@/components/ui'
+import { moneyTextError } from '@/schemas/shared'
+import { parseOptionalDecimal } from '@/utils/decimalInput'
 
 type ArchiveReason = 'Sold' | 'Totaled' | 'Gifted' | 'Trade-in' | 'Other'
+
+/** Only a sale or a trade-in shows the price and date fields. */
+const showsSaleFields = (reason: ArchiveReason): boolean => reason === 'Sold' || reason === 'Trade-in'
 
 interface BulkArchiveModalProps {
   isOpen: boolean
@@ -23,6 +28,7 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
   const [loading, setLoading] = useState(false)
   const [archiveReason, setArchiveReason] = useState<ArchiveReason>('Sold')
   const [salePrice, setSalePrice] = useState('')
+  const [salePriceError, setSalePriceError] = useState<string | undefined>()
   const [saleDate, setSaleDate] = useState('')
   const [notes, setNotes] = useState('')
   // Defaults to true to match VehicleRemoveModal and the backend's
@@ -33,9 +39,10 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
   const resetForm = () => {
     setArchiveReason('Sold')
     setSalePrice('')
+    setSalePriceError(undefined)
     setSaleDate('')
     setNotes('')
-    setVisible(false)
+    setVisible(true)
   }
 
   const handleClose = () => {
@@ -47,13 +54,19 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
 
   const handleArchive = async () => {
     if (vins.length === 0) return
+    // The API's money bounds, checked on the field the user can see. A hidden
+    // field is neither checked nor sent, whatever was typed before the switch.
+    const showsSale = showsSaleFields(archiveReason)
+    const priceProblem = showsSale ? moneyTextError(t, salePrice) : undefined
+    setSalePriceError(priceProblem)
+    if (priceProblem) return
     setLoading(true)
     try {
       const response = await api.post('/vehicles/archive/bulk', {
         vins,
         reason: archiveReason,
-        sale_price: salePrice ? parseFloat(salePrice) : null,
-        sale_date: saleDate || null,
+        sale_price: showsSale ? parseOptionalDecimal(salePrice) ?? null : null,
+        sale_date: showsSale ? saleDate || null : null,
         notes: notes || null,
         visible,
       })
@@ -71,7 +84,7 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
 
   if (!isOpen || vins.length === 0) return null
 
-  const showFinancialFields = archiveReason === 'Sold' || archiveReason === 'Trade-in'
+  const showFinancialFields = showsSaleFields(archiveReason)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -109,16 +122,22 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
           {showFinancialFields && (
             <>
               <div>
-                <label className="block text-sm font-medium text-garage-text mb-2">
+                <label htmlFor="bulk-archive-sale-price" className="block text-sm font-medium text-garage-text mb-2">
                   {archiveReason === 'Sold' ? t('modal.salePrice') : t('modal.tradeInValue')} ({t('common:optional')})
                 </label>
-                <input
-                  type="number"
+                <NumberInput
+                  id="bulk-archive-sale-price"
                   value={salePrice}
                   onChange={(e) => setSalePrice(e.target.value)}
                   placeholder="25000"
-                  className="w-full px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text focus:outline-none focus:ring-2 focus:ring-primary"
+                  invalid={!!salePriceError}
+                  aria-describedby={salePriceError ? 'bulk-archive-sale-price-error' : undefined}
                 />
+                {salePriceError && (
+                  <p id="bulk-archive-sale-price-error" role="alert" className="mt-1 text-xs text-danger">
+                    {salePriceError}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-garage-text mb-2">

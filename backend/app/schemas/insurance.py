@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.utils.insurance_coverages import COVERAGE_BY_KEY
 
@@ -43,6 +44,20 @@ class NamedField(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+#: The catalogue's SHAPE, published on both coverage models so the frontend's
+#: copy of it can be checked rather than trusted. Without this the two can
+#: disagree silently and destructively: a slot the backend has and the frontend
+#: lacks renders no input, and saving the form then clears the stored amount.
+#: `frontend/src/constants/__tests__/insuranceCoverages.test.ts` compares
+#: against it.
+_COVERAGE_SLOTS_SCHEMA = {
+    "x-coverage-slots": {
+        key: {name: slot.kind for name, slot in coverage.slots()}
+        for key, coverage in COVERAGE_BY_KEY.items()
+    }
+}
+
+
 class CoverageEntry(BaseModel):
     """One standard coverage on one vehicle.
 
@@ -60,26 +75,12 @@ class CoverageEntry(BaseModel):
     """
 
     coverage_key: CoverageKey
-    limit_primary: Decimal | None = Field(None, ge=0, decimal_places=2)
-    limit_secondary: Decimal | None = Field(None, ge=0, decimal_places=2)
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
-    premium: Decimal | None = Field(None, ge=0, decimal_places=2)
+    limit_primary: OptionalMoney = Field(None, decimal_places=2)
+    limit_secondary: OptionalMoney = Field(None, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
+    premium: OptionalMoney = Field(None, decimal_places=2)
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        # The catalogue's SHAPE, published so the frontend's copy of it can be
-        # checked rather than trusted. Without this the two can disagree
-        # silently and destructively: a slot the backend has and the frontend
-        # lacks renders no input, and saving the form then clears the stored
-        # amount. `frontend/src/constants/__tests__/insuranceCoverages.test.ts`
-        # compares against it.
-        json_schema_extra={
-            "x-coverage-slots": {
-                key: {name: slot.kind for name, slot in coverage.slots()}
-                for key, coverage in COVERAGE_BY_KEY.items()
-            }
-        },
-    )
+    model_config = ConfigDict(from_attributes=True, json_schema_extra=_COVERAGE_SLOTS_SCHEMA)
 
     @model_validator(mode="after")
     def _only_the_slots_this_coverage_has(self):
@@ -97,6 +98,23 @@ class CoverageEntry(BaseModel):
             if slot.kind == "count" and value != value.to_integral_value():
                 raise ValueError(f"{self.coverage_key} {name} must be a whole number")
         return self
+
+
+class CoverageEntryResponse(BaseModel):
+    """One standard coverage on one vehicle, as stored.
+
+    `CoverageEntry`'s shape without its input rules: no bounds and no slot
+    check, so a stored amount those rules would refuse today still reads
+    instead of taking the whole policy read down with it.
+    """
+
+    coverage_key: CoverageKey
+    limit_primary: Decimal | None = Field(None, decimal_places=2)
+    limit_secondary: Decimal | None = Field(None, decimal_places=2)
+    deductible: Decimal | None = Field(None, decimal_places=2)
+    premium: Decimal | None = Field(None, decimal_places=2)
+
+    model_config = ConfigDict(from_attributes=True, json_schema_extra=_COVERAGE_SLOTS_SCHEMA)
 
 
 def no_repeated_coverage(entries: list[CoverageEntry] | None) -> list[CoverageEntry] | None:
@@ -126,10 +144,10 @@ class PolicyVehicleCreate(BaseModel):
 
     vin: str = Field(..., min_length=17, max_length=17)
     policy_type: PolicyType
-    premium_share: Decimal | None = Field(
-        None, ge=0, decimal_places=2, description="Per-period share; omit for an even split"
+    premium_share: OptionalMoney = Field(
+        None, decimal_places=2, description="Per-period share; omit for an even split"
     )
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
     notes: str | None = None
     coverages: list[CoverageEntry] = Field(default_factory=list)
     fields: list[NamedField] = Field(default_factory=list)
@@ -146,8 +164,8 @@ class PolicyVehicleUpdate(BaseModel):
     """
 
     policy_type: PolicyType | None = None
-    premium_share: Decimal | None = Field(None, ge=0, decimal_places=2)
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_share: OptionalMoney = Field(None, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
     notes: str | None = None
     effective_to: date_type | None = None
     coverages: list[CoverageEntry] | None = None
@@ -165,8 +183,8 @@ class PolicyVehicleUpsert(BaseModel):
 
     vin: str = Field(..., min_length=17, max_length=17)
     policy_type: PolicyType
-    premium_share: Decimal | None = Field(None, ge=0, decimal_places=2)
-    deductible: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_share: OptionalMoney = Field(None, decimal_places=2)
+    deductible: OptionalMoney = Field(None, decimal_places=2)
     notes: str | None = None
     effective_to: date_type | None = None
     coverages: list[CoverageEntry] | None = Field(
@@ -194,7 +212,7 @@ class PolicyVehicleResponse(BaseModel):
     notes: str | None = None
     effective_to: date_type | None = None
     #: In catalogue order, which IS the display order.
-    coverages: list[CoverageEntry] = Field(default_factory=list)
+    coverages: list[CoverageEntryResponse] = Field(default_factory=list)
     fields: list[NamedField] = Field(default_factory=list)
     can_edit: bool = False
 
@@ -221,9 +239,8 @@ class InsurancePolicyCreate(_PolicyDates):
     policy_number: str = Field(..., min_length=1, max_length=50)
     start_date: date_type
     end_date: date_type
-    premium_amount: Decimal | None = Field(
+    premium_amount: OptionalMoney = Field(
         None,
-        ge=0,
         decimal_places=2,
         description="Whole-policy amount per premium_frequency period",
     )
@@ -240,7 +257,7 @@ class InsurancePolicyUpdate(_PolicyDates):
     policy_number: str | None = Field(None, min_length=1, max_length=50)
     start_date: date_type | None = None
     end_date: date_type | None = None
-    premium_amount: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_amount: OptionalMoney = Field(None, decimal_places=2)
     premium_frequency: PremiumFrequency | None = None
     notes: str | None = None
     fields: list[NamedField] | None = None
@@ -266,7 +283,7 @@ class InsurancePolicyRenew(_PolicyDates):
 
     start_date: date_type | None = Field(None, description="Default: the current end_date")
     end_date: date_type | None = Field(None, description="Default: the same term length")
-    premium_amount: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_amount: OptionalMoney = Field(None, decimal_places=2)
     premium_frequency: PremiumFrequency | None = None
     notes: str | None = None
 
@@ -278,7 +295,7 @@ class InsurancePolicyReplace(_PolicyDates):
     policy_number: str = Field(..., min_length=1, max_length=50)
     start_date: date_type
     end_date: date_type
-    premium_amount: Decimal | None = Field(None, ge=0, decimal_places=2)
+    premium_amount: OptionalMoney = Field(None, decimal_places=2)
     premium_frequency: PremiumFrequency | None = None
     notes: str | None = None
     vins: list[str] | None = Field(

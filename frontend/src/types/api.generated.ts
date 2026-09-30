@@ -8800,7 +8800,7 @@ export interface components {
          *     so editing it moves no money between vehicles and needs only write access
          *     to the vehicle it is on.
          */
-        "CoverageEntry-Input": {
+        CoverageEntry: {
             /**
              * Coverage Key
              * @enum {string}
@@ -8816,22 +8816,14 @@ export interface components {
             premium?: number | string | null;
         };
         /**
-         * CoverageEntry
-         * @description One standard coverage on one vehicle.
+         * CoverageEntryResponse
+         * @description One standard coverage on one vehicle, as stored.
          *
-         *     Sending the entry at all is what says the coverage is carried, so every
-         *     amount may be omitted (roadside assistance usually has none). A slot the
-         *     catalogue does not give this coverage is REJECTED rather than ignored: a
-         *     stored "each accident" limit on a coverage whose card has no such line
-         *     would be money no screen ever shows.
-         *
-         *     `premium` is what the declarations page charges for this coverage alone.
-         *     It is a record of the bill, NOT part of the allocation: the policy premium
-         *     and the per-vehicle shares are what analytics and the even split work from,
-         *     so editing it moves no money between vehicles and needs only write access
-         *     to the vehicle it is on.
+         *     `CoverageEntry`'s shape without its input rules: no bounds and no slot
+         *     check, so a stored amount those rules would refuse today still reads
+         *     instead of taking the whole policy read down with it.
          */
-        "CoverageEntry-Output": {
+        CoverageEntryResponse: {
             /**
              * Coverage Key
              * @enum {string}
@@ -13549,7 +13541,7 @@ export interface components {
          */
         PolicyVehicleCreate: {
             /** Coverages */
-            coverages?: components["schemas"]["CoverageEntry-Input"][];
+            coverages?: components["schemas"]["CoverageEntry"][];
             /** Deductible */
             deductible?: number | string | null;
             /** Fields */
@@ -13580,7 +13572,7 @@ export interface components {
              */
             can_edit: boolean;
             /** Coverages */
-            coverages?: components["schemas"]["CoverageEntry-Output"][];
+            coverages?: components["schemas"]["CoverageEntryResponse"][];
             /** Deductible */
             deductible?: string | null;
             /**
@@ -13618,7 +13610,7 @@ export interface components {
          */
         PolicyVehicleUpdate: {
             /** Coverages */
-            coverages?: components["schemas"]["CoverageEntry-Input"][] | null;
+            coverages?: components["schemas"]["CoverageEntry"][] | null;
             /** Deductible */
             deductible?: number | string | null;
             /** Effective To */
@@ -13642,7 +13634,7 @@ export interface components {
              * Coverages
              * @description Omit to leave an existing vehicle's coverages alone
              */
-            coverages?: components["schemas"]["CoverageEntry-Input"][] | null;
+            coverages?: components["schemas"]["CoverageEntry"][] | null;
             /** Deductible */
             deductible?: number | string | null;
             /** Effective To */
@@ -14711,7 +14703,7 @@ export interface components {
             tax_amount?: number | string | null;
             /**
              * Total Cost
-             * @description Override total cost (otherwise calculated from line items)
+             * @description Ignored: the server always computes the total from line items, supplies, tax and fees. Accepted so existing clients don't 422.
              */
             total_cost?: number | string | null;
             /**
@@ -14872,7 +14864,7 @@ export interface components {
          * @description Schema for updating an existing service visit.
          * @example {
          *       "notes": "Updated notes",
-         *       "total_cost": 150
+         *       "tax_amount": 8.5
          *     }
          */
         ServiceVisitUpdate: {
@@ -14928,7 +14920,7 @@ export interface components {
             tax_amount?: number | string | null;
             /**
              * Total Cost
-             * @description Override total cost
+             * @description Ignored: the server always computes the total from line items, supplies, tax and fees. Accepted so existing clients don't 422.
              */
             total_cost?: number | string | null;
             /**

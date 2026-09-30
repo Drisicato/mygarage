@@ -18,6 +18,7 @@ from app.schemas.spot_rental import (
     SpotRentalUpdate,
 )
 from app.utils.logging_utils import sanitize_for_log
+from app.utils.money_fits import ensure_fits
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,21 @@ class SpotRentalService:
                     detail="Spot rentals are only available for RVs and Fifth Wheels",
                 )
 
+            # The first month's bill is computed, so it is checked before
+            # anything is written. The rental and its bill then commit together:
+            # a rental committed first was left without its bill when the bill
+            # failed, and a retry made a second rental (Codex R1-H1).
+            billing_total = None
+            if data.monthly_rate is not None and data.monthly_rate > 0:
+                billing_total = data.monthly_rate
+                if data.electric:
+                    billing_total += data.electric
+                if data.water:
+                    billing_total += data.water
+                if data.waste:
+                    billing_total += data.waste
+                ensure_fits(billing_total, "The first bill (monthly rate plus utilities)")
+
             rental = SpotRental(
                 vin=vin,
                 location_name=data.location_name,
@@ -176,19 +192,10 @@ class SpotRentalService:
             )
 
             self.db.add(rental)
-            await self.db.commit()
-            await self.db.refresh(rental)
 
             # Auto-create first billing entry if monthly rate is provided
-            if data.monthly_rate is not None and data.monthly_rate > 0:
-                billing_total = data.monthly_rate
-                if data.electric:
-                    billing_total += data.electric
-                if data.water:
-                    billing_total += data.water
-                if data.waste:
-                    billing_total += data.waste
-
+            if billing_total is not None:
+                await self.db.flush()  # the rental's id, for its bill
                 billing = SpotRentalBilling(
                     spot_rental_id=rental.id,
                     billing_date=data.check_in_date,
@@ -200,7 +207,9 @@ class SpotRentalService:
                     notes="Initial billing entry (auto-created)",
                 )
                 self.db.add(billing)
-                await self.db.commit()
+
+            await self.db.commit()
+            await self.db.refresh(rental)
 
             # Eager-load billings relationship to avoid lazy-load issues
             await self.db.refresh(rental, attribute_names=["billings"])

@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import type { TFunction } from 'i18next'
 import { makeDefRecordSchema } from '../def'
-import { INVALID_NUMBER } from '../shared'
+import { INVALID_NUMBER, UNIT_PRICE_MAX } from '../shared'
+import { IMPERIAL_UNITS, METRIC_UNITS } from '@/__tests__/factories'
 
 // Same shape as the global react-i18next mock in src/__tests__/setup.ts:
 // messages come back as their i18n key, which is all these tests need.
 const t = ((key: string) => key) as unknown as TFunction
 
-const defRecordSchema = makeDefRecordSchema(t)
+const defRecordSchema = makeDefRecordSchema(t, METRIC_UNITS)
 
 describe('DEF Record Schema', () => {
   const validDef = {
@@ -95,5 +96,27 @@ describe('DEF Record Schema', () => {
     if (!result.success) {
       expect(result.error.issues[0].message).toBe('common:validation.def.fillLevelInvalid')
     }
+  })
+})
+
+// money-fits: the API caps price_per_unit in $/L. DEF always posts
+// per_volume, so the typed value converts through the user's volume unit.
+describe('DEF Record Schema: the unit-price cap is in canonical units', () => {
+  const priceMessages = (schema: ReturnType<typeof makeDefRecordSchema>, price: unknown) => {
+    const result = schema.safeParse({ date: '2024-04-10', price_per_unit: price })
+    return result.success ? [] : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+  }
+
+  it('a litre price takes UNIT_PRICE_MAX and refuses a tenth of a cent more', () => {
+    expect(priceMessages(defRecordSchema, UNIT_PRICE_MAX)).toEqual([])
+    expect(priceMessages(defRecordSchema, UNIT_PRICE_MAX + 0.001)).toEqual([
+      'price_per_unit: common:validation.price.tooLarge',
+    ])
+  })
+
+  it('a gallon price is capped at what it converts to per litre', () => {
+    const gallons = makeDefRecordSchema(t, IMPERIAL_UNITS)
+    expect(priceMessages(gallons, 3_000_000_000)).toEqual([])
+    expect(priceMessages(gallons, 3_785_411_785)).toEqual(['price_per_unit: common:validation.price.tooLarge'])
   })
 })

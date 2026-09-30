@@ -15,7 +15,7 @@ import type { VehicleAnalytics, HoursEconomyDataPoint, HoursAccumulatedDataPoint
 // Analytics.tsx imports is stubbed too (pass-through or no-op) so nothing
 // touches real SVG/measurement code.
 // ─────────────────────────────────────────────────────────────────────────────
-const captured = vi.hoisted(() => ({ lineCharts: [] as unknown[] }))
+const captured = vi.hoisted(() => ({ lineCharts: [] as unknown[], tooltips: [] as unknown[] }))
 vi.mock('recharts', () => {
   const Pass = ({ children }: { children?: ReactNode }) => <>{children}</>
   return {
@@ -38,7 +38,11 @@ vi.mock('recharts', () => {
     XAxis: () => null,
     YAxis: () => null,
     CartesianGrid: () => null,
-    Tooltip: () => null,
+    // Keeps each tooltip's `content` so a test can run it with a hovered point.
+    Tooltip: ({ content }: { content?: unknown }) => {
+      captured.tooltips.push(content)
+      return null
+    },
     Legend: () => null,
   }
 })
@@ -62,9 +66,17 @@ vi.mock('../../hooks/useUnitPreference', () => ({
   useUnitPreference: () => unitPreferenceMock(),
   useAccountUnitPreference: () => unitPreferenceMock(),
 }))
+// Mutable so the rate-digits test can read the page in yen.
+const currencyMock = vi.hoisted(() => ({ code: 'USD' }))
 vi.mock('../../hooks/useCurrencyPreference', () => ({
-  useCurrencyPreference: () => ({ currencyCode: 'USD', locale: 'en-US' }),
+  useCurrencyPreference: () => ({ currencyCode: currencyMock.code, locale: 'en-US' }),
 }))
+// The real formatter, watched: the page's own `t` mock drops interpolated
+// values, so the tooltip's formatted figure is read off the formatter instead.
+vi.mock('../../utils/formatUtils', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../utils/formatUtils')>()
+  return { ...real, formatCurrencyZero: vi.fn(real.formatCurrencyZero) }
+})
 vi.mock('../../hooks/useCurrencySymbol', () => ({
   useCurrencySymbol: () => '$',
 }))
@@ -73,6 +85,7 @@ vi.mock('../../hooks/useDateLocale', () => ({
 }))
 
 import api from '../../services/api'
+import { formatCurrencyZero } from '../../utils/formatUtils'
 import Analytics from '../Analytics'
 
 const mockedApiGet = vi.mocked(api).get
@@ -173,6 +186,8 @@ function findChartData(key: string): unknown[] | undefined {
 beforeEach(() => {
   vi.clearAllMocks()
   captured.lineCharts = []
+  captured.tooltips = []
+  currencyMock.code = 'USD'
   unitPreferenceMock.mockReturnValue({ system: 'metric', showBoth: false, units: METRIC_UNITS })
 })
 
@@ -343,5 +358,36 @@ describe('Analytics — the plotted series follow the resolved tokens, like thei
     const data = findChartData('lPerHr') as { lPerHr: number | null; displayFuelRate: number | null }[]
     expect(data[0].lPerHr).toBe(3.8)
     expect(data[0].displayFuelRate).toBe(1.00385379896)
+  })
+})
+
+describe('Analytics — the cost per hour is a rate', () => {
+  it('formats a yen cost per hour with its decimals in the hours tooltip', async () => {
+    currencyMock.code = 'JPY'
+    mockAnalyticsResponse(baseAnalytics({
+      hours_economy: {
+        average_l_per_hr: '3.80', average_cost_per_hr: '170.50', best_l_per_hr: '3.80', worst_l_per_hr: '3.80',
+        recent_l_per_hr: '3.80', recent_cost_per_hr: '170.50', trend: 'stable',
+        data_points: [{ ...HOURS_ECONOMY_POINTS[0], cost_per_hr: '170.50' }],
+      },
+    }))
+    renderAnalytics()
+    await waitFor(() => expect(screen.getByText('vehicle.hoursEconomyAnalysis')).toBeInTheDocument())
+
+    // Hover a point on every chart; only the hours tooltip reads costPerHr.
+    vi.mocked(formatCurrencyZero).mockClear()
+    const hovered = { active: true, label: 'Jul 1', payload: [{ payload: { lPerHr: 3.8, costPerHr: 170.5 } }] }
+    for (const content of captured.tooltips) {
+      if (typeof content !== 'function') continue
+      try {
+        content(hovered)
+      } catch {
+        // Another chart's tooltip, handed a point shaped for the hours chart.
+      }
+    }
+
+    const shown = vi.mocked(formatCurrencyZero).mock.results.map((r) => r.value)
+    expect(shown).toContain('¥170.50')
+    expect(shown).not.toContain('¥171')
   })
 })

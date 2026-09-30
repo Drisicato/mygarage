@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import type { FuelRecord } from '../types/fuel'
 import type { Vehicle } from '../types/vehicle'
 import { formatDateForDisplay } from '../utils/dateUtils'
-import { formatCurrency } from '../utils/formatUtils'
+import { formatCurrency, RATE_DIGITS } from '../utils/formatUtils'
 import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
 import api from '../services/api'
 import { useAccountUnitPreference, useUnitPreference } from '../hooks/useUnitPreference'
@@ -248,7 +248,7 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
     // via priceToDisplay(…, r.price_basis), so a volume-only "Price/L" heading would
     // lie for per_weight/per_kwh/per_tank rows. "Unit price" is honest across all four.
     { id: 'price', header: t('fuelList.unitPrice'), align: 'right', mono: true,
-      render: (r) => r.price_per_unit ? formatCurrency(priceToDisplay(r.price_per_unit, units, r.price_basis) ?? 0, { currencyCode, locale }) : '-' },
+      render: (r) => r.price_per_unit ? formatCurrency(priceToDisplay(r.price_per_unit, units, r.price_basis) ?? 0, { currencyCode, locale, fractionDigits: RATE_DIGITS }) : '-' },
     { id: 'cost', header: t('fuelList.totalCost'), align: 'right', mono: true,
       render: (r) => r.cost ? formatCurrency(parseFloat(r.cost.toString()), { currencyCode, locale }) : '-' },
     ...(tracksDistance ? [{
@@ -443,7 +443,7 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
                 <div className="flex items-center gap-1 text-xs text-text-mute mb-1">
                   <span>{t('fuelList.costPerHour')}</span>
                 </div>
-                <Mono size="2xl" weight="bold">{formatCurrency(averageCostPerHr, { currencyCode, locale })}</Mono>
+                <Mono size="2xl" weight="bold">{formatCurrency(averageCostPerHr, { currencyCode, locale, fractionDigits: RATE_DIGITS })}</Mono>
               </Card>
             )}
           </div>

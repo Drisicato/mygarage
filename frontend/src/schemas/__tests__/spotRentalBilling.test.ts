@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { makeSpotRentalBillingSchema } from '../spotRentalBilling'
-import { INVALID_NUMBER } from '../shared'
+import { INVALID_NUMBER, MONEY_MAX } from '../shared'
 
 const t = ((key: string) => key) as unknown as Parameters<typeof makeSpotRentalBillingSchema>[0]
 const spotRentalBillingSchema = makeSpotRentalBillingSchema(t)
@@ -60,12 +60,10 @@ describe('Spot Rental Billing Schema', () => {
     expect(result.success).toBe(false)
   })
 
-  // Review-response round 2: monthly_rate/electric/water/waste must NOT
-  // have picked up makeOptionalCurrencySchema's $99,999.99 ceiling — none of
-  // the five fields on this schema had an upper bound before Task 8, and
-  // spot_rental_billing.py doesn't impose one either. A value above the
-  // borrowed-factory ceiling must still pass.
-  it('accepts a monthly_rate above the currency factory\'s ceiling (the field itself has no upper bound)', () => {
+  // 250,000 is past the old 99,999.99 currency cap, and a month of HUF rent
+  // gets there. The cap is the API's MONEY_MAX now, the same one the backend
+  // puts on every billing amount (money-fits).
+  it('accepts a monthly_rate past the old 99,999.99 cap', () => {
     const result = spotRentalBillingSchema.safeParse({
       ...validBilling,
       monthly_rate: 250_000,
@@ -73,13 +71,19 @@ describe('Spot Rental Billing Schema', () => {
     expect(result.success).toBe(true)
   })
 
-  // Final-review I6: an earlier ruling here claimed `total` had NO constraint
-  // at all pre-Task-8 and left it unbounded in both directions. That premise
-  // was wrong — `git show a920cbc:frontend/src/schemas/spotRentalBilling.ts`
-  // shows `total` DID have `.nonnegative()`, same as its four siblings; it
-  // lost its floor, it never lacked one. Restored: still no upper bound (the
-  // backend imposes none), but a negative total is rejected again.
-  it('accepts a total above the currency factory\'s ceiling (no upper bound) but rejects a negative one (the floor is real)', () => {
+  it('refuses a cent past MONEY_MAX on every billing amount', () => {
+    for (const field of ['monthly_rate', 'electric', 'water', 'waste', 'total']) {
+      expect(spotRentalBillingSchema.safeParse({ ...validBilling, [field]: MONEY_MAX }).success).toBe(true)
+      const result = spotRentalBillingSchema.safeParse({ ...validBilling, [field]: MONEY_MAX + 0.01 })
+      expect(result.success, field).toBe(false)
+      if (!result.success) expect(result.error.issues[0].message).toBe('common:validation.amount.tooLarge')
+    }
+  })
+
+  // Final-review I6: `total` had `.nonnegative()` before Task 8, same as its
+  // four siblings (`git show a920cbc:frontend/src/schemas/spotRentalBilling.ts`).
+  // It lost its floor and got it back.
+  it('accepts a total past the old 99,999.99 cap but rejects a negative one (the floor is real)', () => {
     expect(spotRentalBillingSchema.safeParse({ ...validBilling, total: 250_000 }).success).toBe(true)
     const result = spotRentalBillingSchema.safeParse({ ...validBilling, total: -50 })
     expect(result.success).toBe(false)

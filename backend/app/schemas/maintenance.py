@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.utils.maintenance_types import is_valid_code
 
@@ -149,7 +150,7 @@ class ReminderCompleteRequest(BaseModel):
     mode: CompletionMode = "create_visit"
     service_visit_id: int | None = None
     vendor_id: int | None = None
-    cost: Decimal | None = Field(None, ge=0)
+    cost: OptionalMoney = None
     notes: str | None = Field(None, max_length=5000)
 
     @model_validator(mode="after")

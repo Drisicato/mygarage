@@ -12,9 +12,9 @@ Two mechanisms stop it, and they are load-bearing in different ways:
 - the **partial unique index** `uq_drive_sessions_open_per_device`, which makes
   it a constraint rather than a convention.
 
-Lives in `tests/integration/` deliberately. This is one of the two paths CI runs
+Lives in `tests/integration/` deliberately. This is one of the paths CI runs
 under PostgreSQL (`pg-migrations-pytest-path: "tests/migrations/
-tests/integration/"`), and PostgreSQL is where both mechanisms actually
+tests/pg_migration_path_test.py tests/integration/"`), and PostgreSQL is where both mechanisms actually
 function: `SELECT ... FOR UPDATE` is a no-op under SQLite's single writer, so a
 SQLite-only run would exercise neither and pass regardless.
 

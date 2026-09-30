@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
@@ -125,3 +126,39 @@ class TestBuildAnomaliesBaseline:
         # Baseline stays the full-history mean, not the 3m mean
         july = next(a for a in all_anomalies if a.month == "2026-07")
         assert windowed[0].baseline == july.baseline
+
+
+def _spike_history() -> Any:
+    """Thirteen quiet months and one July spike, enough for the detector to fire."""
+    import pandas as pd
+
+    months = [(2025, m) for m in range(8, 13)] + [(2026, m) for m in range(1, 9)]
+    return pd.DataFrame(
+        [
+            {
+                "year": year,
+                "month": month,
+                "month_name": "July" if (year, month) == (2026, 7) else "Month",
+                "total_cost": 800.0 if (year, month) == (2026, 7) else 100.0,
+            }
+            for year, month in months
+        ]
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.analytics
+class TestAnomalyMessageCurrency:
+    """Records carry no currency, so the message can't assume dollars."""
+
+    def test_the_message_names_the_users_currency(self):
+        (spike,) = build_anomalies_from_monthly_df(_spike_history(), "HUF")
+        assert "$" not in spike.message
+        assert "was 800.00 HUF," in spike.message
+        assert f"average of {spike.baseline:.2f} HUF." in spike.message
+
+    def test_without_a_currency_the_amounts_are_bare(self):
+        (spike,) = build_anomalies_from_monthly_df(_spike_history())
+        assert "$" not in spike.message
+        assert "was 800.00," in spike.message
+        assert spike.message.endswith(f"average of {spike.baseline:.2f}.")

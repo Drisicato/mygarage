@@ -9,9 +9,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 
 SupplyUnitType = Literal["volume", "count"]
+
+#: The largest quantity a Numeric(12,3) supply ledger column holds (purchases
+#: and usages alike). What the column holds and no tighter: a household cap
+#: would be invented, and past the column PostgreSQL refuses the row.
+SUPPLY_QUANTITY_MAX = Decimal("999999999.999")
 
 
 class SupplyBase(BaseModel):
@@ -77,8 +83,10 @@ class SupplyReceiptSummary(BaseModel):
 
 class SupplyPurchaseCreate(BaseModel):
     date: date_type
-    quantity: Decimal = Field(..., gt=0, description="Canonical units (L or count)")
-    total_cost: Decimal | None = Field(None, ge=0)
+    quantity: Decimal = Field(
+        ..., gt=0, le=SUPPLY_QUANTITY_MAX, description="Canonical units (L or count)"
+    )
+    total_cost: OptionalMoney = None
     supplier_id: int | None = None
     part_number: str | None = Field(None, max_length=60)
     notes: str | None = Field(None, max_length=5000)
@@ -102,14 +110,16 @@ class SupplyPurchaseResponse(BaseModel):
 class SupplyAdjustmentCreate(BaseModel):
     """A standalone stock-out (not tied to a service line item)."""
 
-    quantity: Decimal = Field(..., gt=0, description="Canonical units")
+    quantity: Decimal = Field(..., gt=0, le=SUPPLY_QUANTITY_MAX, description="Canonical units")
 
 
 class SupplyUsageInput(BaseModel):
     """Consume-picker input carried on a service line item."""
 
     supply_id: int
-    quantity: Decimal = Field(..., gt=0, description="Canonical units (L or count)")
+    quantity: Decimal = Field(
+        ..., gt=0, le=SUPPLY_QUANTITY_MAX, description="Canonical units (L or count)"
+    )
 
 
 class SupplyUsageResponse(BaseModel):

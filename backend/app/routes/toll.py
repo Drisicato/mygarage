@@ -26,6 +26,7 @@ from app.schemas.toll import (
 from app.services.auth import get_vehicle_or_403, require_auth
 from app.services.toll_service import TollService
 from app.utils.csv_safe import sanitize_csv_row
+from app.utils.currency import normalize_pdf_currency_params
 from app.utils.household_time import household_today
 
 logger = logging.getLogger(__name__)
@@ -181,10 +182,15 @@ async def export_toll_transactions_csv(
     start_date: dt.date | None = None,
     end_date: dt.date | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_auth),
+    current_user: User | None = Depends(require_auth),
 ):
     """Export toll transactions as CSV."""
     vehicle = await get_vehicle_or_403(vin, current_user, db)
+    # Amounts go out bare and the header says the currency. With auth off
+    # there's no user, so fall back the same way the PDF reports do.
+    currency_code, _locale = normalize_pdf_currency_params(
+        current_user.currency_code if current_user else None, None
+    )
 
     # Build query
     query = (
@@ -212,7 +218,7 @@ async def export_toll_transactions_csv(
     writer.writerow(
         [
             "Date",
-            "Amount",
+            f"Amount ({currency_code})",
             "Location",
             "Toll System",
             "Tag Number",
@@ -228,7 +234,7 @@ async def export_toll_transactions_csv(
             sanitize_csv_row(
                 [
                     transaction.date.isoformat(),
-                    f"${float(transaction.amount):.2f}",
+                    f"{transaction.amount:.2f}",
                     transaction.location,
                     toll_tag.toll_system if toll_tag else "",
                     toll_tag.tag_number if toll_tag else "",

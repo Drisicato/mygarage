@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Vehicle cards and the vehicle hero flag reminders due within 30 days, by date or by projected mileage and hours, instead of every pending reminder; the fleet strip's count is the sum of those badges
 - The notification bell warns about mileage and hours reminders projected to come due within two weeks, not only dated ones
+- PostgreSQL money columns widen to hold the new maximums; the migration is forward-only and rewrites no data
 
 ### Fixed
 - Theme and accent apply before first paint in production: the CSP now allows the shell's inline script by hash instead of refusing it
@@ -45,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A blank OIDC scope or claim setting uses the default instead of blocking sign-in, and the full-name claim setting takes effect
 - A tire set can't be renamed to blank, a toll tag with an unlisted system can be re-saved, and a document needs a title
 - Server validation errors show on the field they belong to instead of a generic banner
+- Large amounts in forint, yen and other high-denomination currencies are accepted
+- Currencies without cents, like yen, no longer show ".00" on amounts
+- The toll CSV export, the insurance coverage CSV column and PDF charts no longer show "$" for other currencies
+- A number too large to store gets a clear error instead of a server error
+- Bulk archive keeps vehicles on the dashboard by default every time, not only the first time it opens
 
 ## [3.7.0] - 2026-09-24
 

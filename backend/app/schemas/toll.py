@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas._money import Money, OptionalMoney
 from app.schemas._nullability import reject_null
 
 
@@ -152,7 +153,7 @@ class TollTransactionBase(BaseModel):
     """Base toll transaction schema with common fields."""
 
     transaction_date: dt.date = Field(..., description="Transaction date")
-    amount: Decimal = Field(..., description="Toll amount", ge=0)
+    amount: Money = Field(..., description="Toll amount")
     location: str = Field(..., description="Toll location/plaza", min_length=1, max_length=200)
     toll_tag_id: int | None = Field(None, description="Associated toll tag ID")
     notes: str | None = Field(None, description="Additional notes")
@@ -183,7 +184,7 @@ class TollTransactionUpdate(BaseModel):
     """Schema for updating an existing toll transaction."""
 
     transaction_date: dt.date | None = Field(None, description="Transaction date")
-    amount: Decimal | None = Field(None, description="Toll amount", ge=0)
+    amount: OptionalMoney = Field(None, description="Toll amount")
     location: str | None = Field(
         None, description="Toll location/plaza", min_length=1, max_length=200
     )

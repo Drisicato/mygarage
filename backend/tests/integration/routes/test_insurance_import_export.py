@@ -5,6 +5,7 @@ property is that importing two vehicles' files rebuilds ONE household policy,
 and that an import can never rewrite money already recorded on a policy.
 """
 
+import csv
 import io
 import json
 from datetime import date
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.insurance import InsurancePolicy, InsurancePolicyVehicle
 from app.models.vehicle import Vehicle
+from app.schemas._money import MONEY_MAX
 
 RAM = "INSIMPEXP00000001"
 MIRAGE = "INSIMPEXP00000002"
@@ -499,7 +501,12 @@ async def test_the_csv_column_round_trips_the_coverages(
 
     exported = await client.get(f"/api/export/vehicles/{RAM}/insurance/csv", headers=auth_headers)
     assert exported.status_code == 200, exported.text
-    assert "each person" in exported.text
+    # The "$" file above goes back out bare, like the Premium and Deductible
+    # cells beside it, and the bare file is what re-imports below.
+    (exported_row,) = list(csv.DictReader(io.StringIO(exported.text)))
+    assert exported_row["Coverage Limits"] == (
+        "Bodily Injury Liability 100000.00 each person/300000.00 each accident"
+    )
 
     await db_session.execute(delete(InsurancePolicy))
     await db_session.commit()
@@ -591,3 +598,107 @@ async def test_an_import_refuses_a_fractional_count(
     assert response.status_code == 200, response.text
     assert response.json()["insurance_policies"]["errors"] == 1, response.json()
     assert await _policies(db_session) == []
+
+
+# ---------------------------------------------------------------------------
+# Amounts past the column (Plan B, B4)
+# ---------------------------------------------------------------------------
+
+TOO_MUCH = str(MONEY_MAX + Decimal("0.01"))
+BIG_LIMITS = "Bodily Injury Liability $100,000,000,000 each person/$300,000 each accident"
+
+
+async def _fresh_policies(sessionmaker) -> list[tuple[Decimal | None, set[str]]]:
+    """(premium, vins) per policy, read through a session the import never touched."""
+    async with sessionmaker() as session:
+        policies = (
+            (await session.execute(select(InsurancePolicy).order_by(InsurancePolicy.id)))
+            .scalars()
+            .unique()
+            .all()
+        )
+        return [(p.premium_amount, {link.vin for link in p.vehicle_links}) for p in policies]
+
+
+async def test_an_import_past_the_column_says_why(client, auth_headers, test_sessionmaker):
+    """The reason reaches the row error in BOTH insurance importers. The CSV
+    loop only caught its own row error ahead of a generic one (Codex R1-F5),
+    and the JSON loop turned every reason into "could not be imported" (Fable
+    F-B7)."""
+    result = await _import_csv(
+        client,
+        auth_headers,
+        RAM,
+        ROW.format(type="Liability", premium=TOO_MUCH, deductible="", notes=""),
+        ROW.format(type="Liability", premium="10.00", deductible=TOO_MUCH, notes="").replace(
+            "P-100", "P-101"
+        ),
+        f'Progressive,P-102,Liability,2026-01-01,2026-07-01,10.00,Semi-Annual,,"{BIG_LIMITS}",',
+    )
+    assert result["success_count"] == 0 and result["error_count"] == 3, result
+    premium, deductible, limit = result["errors"]
+    assert f"premium_share must be at most {MONEY_MAX}" in premium, premium
+    assert f"deductible must be at most {MONEY_MAX}" in deductible, deductible
+    assert f"limit_primary must be at most {MONEY_MAX}" in limit, limit
+    assert await _fresh_policies(test_sessionmaker) == []
+
+    entry = {
+        "provider": "Progressive",
+        "start_date": "2026-01-01",
+        "end_date": "2026-07-01",
+        "policy_type": "Liability",
+    }
+    backup = {
+        "export_version": "8",
+        "units": "metric",
+        "vehicle": {"vin": RAM},
+        "insurance_policies": [
+            {**entry, "policy_number": "P-J1", "premium_share": float(TOO_MUCH)},
+            {
+                **entry,
+                "policy_number": "P-J2",
+                "coverages": [{"coverage_key": "bodily_injury", "limit_primary": 1e11}],
+            },
+            # A reason of the importer's own, which the JSON loop lost too.
+            {**entry, "policy_number": "P-J3", "premium_share": 0.005},
+        ],
+    }
+    restored = await client.post(
+        f"/api/import/vehicles/{RAM}/json",
+        files={
+            "file": ("backup.json", io.BytesIO(json.dumps(backup).encode()), "application/json")
+        },
+        headers=auth_headers,
+    )
+    assert restored.status_code == 200, restored.text
+    data = restored.json()
+    assert data["insurance_policies"]["errors"] == 3, data
+    over, coverage, cents = data["errors"]
+    assert f"premium_share must be at most {MONEY_MAX}" in over, over
+    assert f"limit_primary must be at most {MONEY_MAX}" in coverage, coverage
+    assert "whole number of cents" in cents, cents
+    assert await _fresh_policies(test_sessionmaker) == []
+
+
+async def test_premiums_that_sum_past_the_column_fail_the_row_that_tips_it(
+    client, auth_headers, test_sessionmaker
+):
+    """Each vehicle's premium fits; together on one household policy they don't."""
+    first = await _import_csv(
+        client,
+        auth_headers,
+        RAM,
+        ROW.format(type="Liability", premium=str(MONEY_MAX), deductible="", notes=""),
+    )
+    assert first["success_count"] == 1, first
+
+    second = await _import_csv(
+        client,
+        auth_headers,
+        MIRAGE,
+        ROW.format(type="Liability", premium="0.01", deductible="", notes=""),
+    )
+    assert second["success_count"] == 0 and second["error_count"] == 1, second
+    assert "policy premium would exceed the largest amount" in second["errors"][0], second
+
+    assert await _fresh_policies(test_sessionmaker) == [(MONEY_MAX, {RAM})]

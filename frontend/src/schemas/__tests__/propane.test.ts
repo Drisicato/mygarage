@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { makePropaneRecordSchema } from '../propane'
-import { INVALID_NUMBER } from '../shared'
+import { INVALID_NUMBER, MONEY_MAX, UNIT_PRICE_MAX } from '../shared'
+import { IMPERIAL_UNITS, METRIC_UNITS } from '@/__tests__/factories'
 
 const t = ((key: string) => key) as unknown as Parameters<typeof makePropaneRecordSchema>[0]
-const propaneRecordSchema = makePropaneRecordSchema(t)
+const propaneRecordSchema = makePropaneRecordSchema(t, METRIC_UNITS)
 
 describe('Propane Record Schema', () => {
   const validPropane = {
@@ -143,5 +144,49 @@ describe('Propane Record Schema: the tank pair', () => {
   it('both or neither is fine', () => {
     expect(issuesAt({ tank_size_kg: 9.07, tank_quantity: 2 })).toEqual([])
     expect(issuesAt({})).toEqual([])
+  })
+})
+
+// money-fits: the cost takes the API's MONEY_MAX, and the price is capped
+// where the API caps it, in $/L. The form always posts per_volume, so the
+// typed value converts through the user's volume unit.
+describe('Propane Record Schema: money bounds', () => {
+  const base = { date: '2024-09-15' }
+  const messagesFor = (schema: ReturnType<typeof makePropaneRecordSchema>, input: Record<string, unknown>) => {
+    const result = schema.safeParse({ ...base, ...input })
+    return result.success ? [] : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+  }
+
+  it('the cost takes MONEY_MAX and refuses a cent more', () => {
+    expect(messagesFor(propaneRecordSchema, { cost: MONEY_MAX })).toEqual([])
+    expect(messagesFor(propaneRecordSchema, { cost: MONEY_MAX + 0.01 })).toEqual([
+      'cost: common:validation.amount.tooLarge',
+    ])
+  })
+
+  it('a litre price takes UNIT_PRICE_MAX and refuses a tenth of a cent more', () => {
+    expect(messagesFor(propaneRecordSchema, { price_per_unit: UNIT_PRICE_MAX })).toEqual([])
+    expect(messagesFor(propaneRecordSchema, { price_per_unit: UNIT_PRICE_MAX + 0.001 })).toEqual([
+      'price_per_unit: common:validation.price.tooLarge',
+    ])
+  })
+
+  it('a gallon price is capped at what it converts to per litre, not at the typed number', () => {
+    const gallons = makePropaneRecordSchema(t, IMPERIAL_UNITS)
+    // 3,000,000,000 $/gal is about 792,516,157 $/L: fine.
+    expect(messagesFor(gallons, { price_per_unit: 3_000_000_000 })).toEqual([])
+    // 3,785,411,785 $/gal is 1,000,000,000.26 $/L: over.
+    expect(messagesFor(gallons, { price_per_unit: 3_785_411_785 })).toEqual([
+      'price_per_unit: common:validation.price.tooLarge',
+    ])
+  })
+
+  it('a negative or unreadable price keeps its own message and gets no second one', () => {
+    expect(messagesFor(propaneRecordSchema, { price_per_unit: -1 })).toEqual([
+      'price_per_unit: common:validation.price.negative',
+    ])
+    expect(messagesFor(propaneRecordSchema, { price_per_unit: INVALID_NUMBER })).toEqual([
+      'price_per_unit: common:validation.price.invalid',
+    ])
   })
 })

@@ -30,6 +30,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { makeUnitSet } from '@/__tests__/factories'
 import {
   canonicalFromPriceField,
+  priceOverCanonicalMax,
   priceToDisplay,
   seedPriceField,
   toLitersWirePrecision,
@@ -284,5 +285,38 @@ describe('seedPriceField / canonicalFromPriceField — the origin', () => {
     // fires unconditionally.
     const origin = seedPriceField(2.899, US, 'per_tank')
     expect(canonicalFromPriceField('2.899', origin, US, 'per_tank')).toBe(2.899)
+  })
+})
+
+// money-fits: the API caps price_per_unit in canonical units, so the forms ask
+// this before they post. It must agree with what enteredPrice would post.
+describe('priceOverCanonicalMax — the cap, in the units the API checks', () => {
+  const MAX = 999_999_999.999
+
+  it('converts through the basis before comparing', () => {
+    // 3,785,411,785 $/gal is 1,000,000,000.26 $/L; 3,000,000,000 is about 792M.
+    expect(priceOverCanonicalMax(3_785_411_785, MAX, US, 'per_volume')).toBe(true)
+    expect(priceOverCanonicalMax(3_000_000_000, MAX, US, 'per_volume')).toBe(false)
+    // 453,592,370 $/lb is just over 1e9 $/kg.
+    expect(priceOverCanonicalMax(453_592_370, MAX, US, 'per_weight')).toBe(true)
+    expect(priceOverCanonicalMax(453_592_369, MAX, US, 'per_weight')).toBe(false)
+  })
+
+  it('agrees with the value a typed price posts as', () => {
+    for (const [typed, units, basis] of [
+      [3_785_411_785, US, 'per_volume'],
+      [453_592_370, US, 'per_weight'],
+      [4_546_090_000, UK, 'per_volume'],
+      [MAX, METRIC, 'per_volume'],
+    ] as const) {
+      expect(priceOverCanonicalMax(typed, MAX, units, basis)).toBe((enteredPrice(typed, units, basis) ?? 0) > MAX)
+    }
+  })
+
+  it('compares the typed number itself where nothing converts', () => {
+    for (const basis of ['per_kwh', 'per_tank', undefined]) {
+      expect(priceOverCanonicalMax(MAX, MAX, US, basis)).toBe(false)
+      expect(priceOverCanonicalMax(MAX + 0.001, MAX, US, basis)).toBe(true)
+    }
   })
 })

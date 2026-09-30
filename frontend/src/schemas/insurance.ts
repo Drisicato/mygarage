@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
-import { makeNumericField } from './shared'
+import { makeOptionalCurrencySchema } from './shared'
 
 /**
  * Insurance policy schema matching backend Pydantic validators.
@@ -29,23 +29,6 @@ export const PREMIUM_FREQUENCIES = [
   { value: 'Annual', labelKey: 'forms:premiumFrequencies.annual' },
 ] as const
 
-/**
- * Factory, not a module-level constant — see the header of schemas/auth.ts for
- * why. `premium_amount` and `deductible` are genuinely optional on the backend
- * (`Decimal | None`); the bug (#140) was that the form sent the raw string
- * `"528,25"` for a comma-decimal locale and `""` for an untouched optional
- * field, both of which the backend's 422 rejected with no per-field detail.
- * Routing them through the locale-aware `NumberInput`/`registerDecimal` fixes
- * both — it reports `common:validation.amount.invalid` instead of a bare
- * status code.
- *
- * NOT `makeOptionalCurrencySchema` though: that factory's 99,999.99 ceiling
- * doesn't exist on the backend (`insurance.py` — `ge=0`, no `le`), and
- * insurance is THE #140 form, so a client-side cap here would reject
- * legitimate values (a high-value collector-car policy, a commercial umbrella
- * premium) the API accepts. Bespoke min:0/max:Infinity via the exported
- * `makeNumericField`, same technique as `warranty.mileage_limit_km`.
- */
 /** Labels offered as one-tap chips in the named-fields editor. Suggestions
  *  only: the stored label is whatever text the user keeps, so these are
  *  translated for display and never persisted as keys. */
@@ -64,15 +47,6 @@ export const SUGGESTED_VEHICLE_FIELDS = [
   'forms:insuranceFieldLabels.discounts',
 ] as const
 
-const amountField = (t: TFunction) =>
-  makeNumericField(t, {
-    min: 0,
-    max: Infinity,
-    negativeKey: 'common:validation.amount.negative',
-    tooLargeKey: 'common:validation.amount.tooLarge',
-    invalidKey: 'common:validation.amount.invalid',
-  })
-
 const namedFieldSchema = (t: TFunction) =>
   z.object({
     label: z.string().trim().min(1, t('common:required')).max(60),
@@ -90,24 +64,38 @@ const coverageSchema = (t: TFunction) =>
   z.object({
     coverage_key: z.string().min(1),
     included: z.boolean(),
-    limit_primary: amountField(t),
-    limit_secondary: amountField(t),
-    deductible: amountField(t),
-    premium: amountField(t),
+    limit_primary: makeOptionalCurrencySchema(t),
+    limit_secondary: makeOptionalCurrencySchema(t),
+    deductible: makeOptionalCurrencySchema(t),
+    premium: makeOptionalCurrencySchema(t),
   })
 
 const policyVehicleSchema = (t: TFunction) =>
   z.object({
     vin: z.string().min(1),
     policy_type: z.string().min(1, t('common:validation.policyType.required')),
-    premium_share: amountField(t),
-    deductible: amountField(t),
+    premium_share: makeOptionalCurrencySchema(t),
+    deductible: makeOptionalCurrencySchema(t),
     notes: z.string().optional(),
     effective_to: z.string().optional(),
     coverages: z.array(coverageSchema(t)),
     fields: z.array(namedFieldSchema(t)),
   })
 
+/**
+ * Factory, not a module-level constant — see the header of schemas/auth.ts for
+ * why. `premium_amount` and `deductible` are genuinely optional on the backend
+ * (`Decimal | None`); the bug (#140) was that the form sent the raw string
+ * `"528,25"` for a comma-decimal locale and `""` for an untouched optional
+ * field, both of which the backend's 422 rejected with no per-field detail.
+ * Routing them through the locale-aware `NumberInput`/`registerDecimal` fixes
+ * both — it reports `common:validation.amount.invalid` instead of a bare
+ * status code.
+ *
+ * Every amount here is the shared currency factory: floor 0 and the API's
+ * MONEY_MAX, which covers a collector-car policy or a commercial umbrella
+ * premium in any currency (money-fits).
+ */
 export const makeInsuranceSchema = (t: TFunction) =>
   z
     .object({
@@ -115,7 +103,7 @@ export const makeInsuranceSchema = (t: TFunction) =>
       policy_number: z.string().min(1, t('common:validation.policyNumber.required')),
       start_date: z.string().min(1, t('common:validation.date.required')),
       end_date: z.string().min(1, t('common:validation.date.required')),
-      premium_amount: amountField(t),
+      premium_amount: makeOptionalCurrencySchema(t),
       premium_frequency: z.string().optional(),
       notes: z.string().optional(),
       fields: z.array(namedFieldSchema(t)),
@@ -141,7 +129,7 @@ export const makeRenewSchema = (t: TFunction, currentEnd: string) =>
     .object({
       start_date: z.string().min(1, t('common:validation.date.required')),
       end_date: z.string().min(1, t('common:validation.date.required')),
-      premium_amount: amountField(t),
+      premium_amount: makeOptionalCurrencySchema(t),
     })
     .refine((data) => data.end_date >= data.start_date, {
       path: ['end_date'],

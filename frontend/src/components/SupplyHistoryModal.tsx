@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useForm } from 'react-hook-form'
 import { AlertTriangle, Download, FileX, History, Plus, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
@@ -29,6 +30,8 @@ import type { components } from '@/types/api.generated'
 import { getActiveLocale } from '@/constants/i18n'
 import { applyServerErrors } from '@/hooks/useApiFormErrors'
 import { getActionErrorMessage } from '@/utils/httpErrorHandler'
+import { moneyError } from '@/schemas/shared'
+import { RATE_DIGITS } from '@/utils/formatUtils'
 
 type SupplyLedgerEntry = components['schemas']['SupplyLedgerEntry']
 
@@ -96,7 +99,7 @@ export default function SupplyHistoryModal({ supply, onClose }: SupplyHistoryMod
           </div>
           <div className="bg-garage-bg border border-garage-border rounded-lg p-3">
             <div className="text-xs text-garage-text-muted">{t('supplies.avgUnitCost')}</div>
-            <div className="text-lg font-semibold text-garage-text">{formatCurrency(avgUnitCost)}</div>
+            <div className="text-lg font-semibold text-garage-text">{formatCurrency(avgUnitCost, { fractionDigits: RATE_DIGITS })}</div>
           </div>
         </div>
 
@@ -399,19 +402,15 @@ function validateSupplyQuantity(value: unknown, message: string): true | string 
 }
 
 /**
- * `total_cost` is optional (unlike quantity, which is required) — an
- * `undefined` value must pass here, since `required` isn't set on this field
- * and there is no other rule to catch the empty case first. Anything typed
- * — including unparseable text (the INVALID_NUMBER sentinel) — must be a
- * real, non-negative number. Native `min="0"` used to be the only guard
- * before this field was migrated off `type="number"`; without an equivalent
- * `validate` rule a negative total_cost reaches the API with no client-side
- * error at all (the backend's `ge=0` still rejects it, but as a generic
- * banner instead of a field message).
+ * `total_cost` is optional (unlike quantity, which is required), so blank
+ * passes. Anything typed, unparseable text (the INVALID_NUMBER sentinel)
+ * included, gets the zod money fields' own check and messages: not a number,
+ * negative, or past the API's cap. Native `min="0"` used to be the only guard
+ * before this field left `type="number"`, and a negative total reached the API
+ * as a generic banner instead of a field message.
  */
-function validateNonNegativeCost(value: unknown, message: string): true | string {
-  if (value === undefined) return true
-  return typeof value === 'number' && !Number.isNaN(value) && value >= 0 ? true : message
+function validateCost(value: unknown, t: TFunction): true | string {
+  return moneyError(t, value) ?? true
 }
 
 interface PurchaseFormValues {
@@ -556,7 +555,7 @@ function PurchaseForm({
           <CurrencyInput
             id="purchase-cost"
             {...registerDecimal(register, 'total_cost', {
-              validate: (val) => validateNonNegativeCost(val, t('validation.amount.negative')),
+              validate: (val) => validateCost(val, t),
             })}
             invalid={!!errors.total_cost}
             disabled={isSubmitting}

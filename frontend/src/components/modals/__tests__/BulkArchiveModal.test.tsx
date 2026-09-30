@@ -34,6 +34,57 @@ describe('BulkArchiveModal', () => {
     }
   })
 
+  it('is still VISIBLE by default after a cancel and reopen', async () => {
+    // resetForm put visible back to false, so only the first bulk archive of a
+    // session got the default the test above pins.
+    render(<BulkArchiveModal {...PROPS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'common:cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls[0][1] as { visible?: boolean }).visible).toBe(true)
+  })
+
+  // money-fits: the API takes a sale price from 0 to MONEY_MAX
+  // (9,999,999,999.99). The field is optional; blank posts null.
+  it.each([
+    ['10000000000', 'common:validation.amount.tooLarge'],
+    ['-5', 'common:validation.amount.negative'],
+    ['abc', 'common:validation.amount.invalid'],
+  ])('refuses a sale price of %s on the field and posts nothing', async (typed, message) => {
+    render(<BulkArchiveModal {...PROPS} />)
+    fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: typed } })
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('posts a typed sale price as a number', async () => {
+    render(<BulkArchiveModal {...PROPS} />)
+    fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: '25000' } })
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls[0][1] as { sale_price: unknown }).sale_price).toBe(25000)
+  })
+
+  it('posts no sale price or date once the reason hides them', async () => {
+    // What was typed under Sold stays in state after a switch to Totaled. The
+    // check skipped the hidden field but the post still sent it, so -5 was a 422.
+    const { container } = render(<BulkArchiveModal {...PROPS} />)
+    fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: '-5' } })
+    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-01-15' } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Totaled' } })
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    const body = post.mock.calls[0][1] as { reason: unknown; sale_price: unknown; sale_date: unknown }
+    expect(body.reason).toBe('Totaled')
+    expect(body.sale_price).toBeNull()
+    expect(body.sale_date).toBeNull()
+    expect(screen.queryByText('common:validation.amount.negative')).not.toBeInTheDocument()
+  })
+
   it('renders over a translucent backdrop, not an opaque one', () => {
     // bg-opacity-50 was removed in Tailwind v4 and this project is on v4, so it
     // emitted no CSS at all and bg-black painted a solid sheet over the page.

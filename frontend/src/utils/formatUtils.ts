@@ -2,9 +2,41 @@
  * Shared formatting utilities for currency and numbers.
  */
 
-import { cachedCurrencyFormat } from './numberFormatCache'
+import { CURRENCY_DIGITS, cachedCurrencyFormat } from './numberFormatCache'
 
 const GENERIC_CURRENCY_SIGN = '¤'
+
+/**
+ * Fraction digits for a money rate: a unit price, an average unit cost, a cost
+ * per hour. A rate keeps its decimals in every currency, so ¥170.5/L never
+ * reads ¥171. Two is what these showed before plain amounts took the
+ * currency's own digits, and what the cost-per-volume and cost-per-distance
+ * cards use.
+ */
+export const RATE_DIGITS = 2
+
+/**
+ * Options for `formatCurrency`. `currencyCode` is required so a direct call
+ * can't quietly render dollars; `useCurrencyPreference` fills it in for you.
+ */
+export interface CurrencyFormatOptions {
+  /** Returned when the value is null, undefined, unparseable or zero (default: '-'). */
+  fallback?: string
+  /** Hide the fraction digits entirely (default: false). */
+  wholeDollars?: boolean
+  /**
+   * Show exactly this many fraction digits instead of the currency's own. For
+   * rates (pass `RATE_DIGITS`); a plain amount leaves it unset. Wins over
+   * `wholeDollars`.
+   */
+  fractionDigits?: number
+  /** Format 0 instead of returning the fallback (default: false). */
+  zeroIsValid?: boolean
+  /** ISO 4217 code. */
+  currencyCode: string
+  /** BCP 47 locale for number formatting (default: 'en-US'). */
+  locale?: string
+}
 
 /**
  * Build the Intl-formatted currency string, swapping the generic ¤ sign for
@@ -14,9 +46,8 @@ function formatWithIntl(
   num: number,
   currencyCode: string,
   locale: string,
-  wholeDollars: boolean
+  digits: number | typeof CURRENCY_DIGITS
 ): string {
-  const digits = wholeDollars ? 0 : 2
   try {
     // Inside the try, so an invalid currency code still throws where it always
     // did and still falls back below; the cache stores nothing on a throw, so a
@@ -28,42 +59,35 @@ function formatWithIntl(
     }
     return formatted
   } catch {
-    return `${currencyCode} ${num.toFixed(digits)}`
+    // Intl doesn't know this code, so it can't tell us its digits either.
+    return `${currencyCode} ${num.toFixed(digits === CURRENCY_DIGITS ? 2 : digits)}`
   }
+}
+
+/** The digits an options object asks for: explicit, none, or the currency's own. */
+function digitsFor(
+  options: Pick<CurrencyFormatOptions, 'fractionDigits' | 'wholeDollars'>
+): number | typeof CURRENCY_DIGITS {
+  if (options.fractionDigits !== undefined) return options.fractionDigits
+  return options.wholeDollars ? 0 : CURRENCY_DIGITS
 }
 
 /**
  * Format a value as currency using Intl.NumberFormat.
  *
- * Handles number, string (parseable), null, and undefined inputs.
- * Returns a formatted currency string or the fallback value.
+ * Handles number, string (parseable), null, and undefined inputs. A plain
+ * amount takes the currency's own fraction digits (yen 0, dollars 2) unless
+ * `wholeDollars` drops them; a rate passes `fractionDigits: RATE_DIGITS`.
  *
  * @param value - The value to format
- * @param options - Formatting options
- * @param options.fallback - Value to return when input is null/undefined/zero (default: '-')
- * @param options.wholeDollars - If true, hide cents (default: false)
- * @param options.zeroIsValid - If true, format 0 instead of returning fallback (default: false)
- * @param options.currencyCode - ISO 4217 currency code (default: 'USD')
- * @param options.locale - BCP 47 locale for number formatting (default: 'en-US')
- * @returns Formatted currency string
+ * @param options - Formatting options; see `CurrencyFormatOptions`
+ * @returns Formatted currency string, or the fallback
  */
 export function formatCurrency(
   value: number | string | null | undefined,
-  options: {
-    fallback?: string
-    wholeDollars?: boolean
-    zeroIsValid?: boolean
-    currencyCode?: string
-    locale?: string
-  } = {}
+  options: CurrencyFormatOptions
 ): string {
-  const {
-    fallback = '-',
-    wholeDollars = false,
-    zeroIsValid = false,
-    currencyCode = 'USD',
-    locale = 'en-US',
-  } = options
+  const { fallback = '-', zeroIsValid = false, currencyCode, locale = 'en-US' } = options
 
   if (value === null || value === undefined) return fallback
 
@@ -71,7 +95,7 @@ export function formatCurrency(
   if (isNaN(num)) return fallback
   if (num === 0 && !zeroIsValid) return fallback
 
-  return formatWithIntl(num, currencyCode, locale, wholeDollars)
+  return formatWithIntl(num, currencyCode, locale, digitsFor(options))
 }
 
 /**
@@ -79,11 +103,17 @@ export function formatCurrency(
  */
 export function formatCurrencyZero(
   value: number | string | null | undefined,
-  options: { currencyCode?: string; locale?: string } = {}
+  options: Pick<CurrencyFormatOptions, 'currencyCode' | 'locale' | 'fractionDigits'>
 ): string {
-  const { currencyCode = 'USD', locale = 'en-US' } = options
-  const zeroFormatted = formatWithIntl(0, currencyCode, locale, false)
-  return formatCurrency(value, { fallback: zeroFormatted, zeroIsValid: true, currencyCode, locale })
+  const { currencyCode, locale = 'en-US', fractionDigits } = options
+  const zeroFormatted = formatWithIntl(0, currencyCode, locale, digitsFor(options))
+  return formatCurrency(value, {
+    fallback: zeroFormatted,
+    zeroIsValid: true,
+    currencyCode,
+    locale,
+    fractionDigits,
+  })
 }
 
 /**
@@ -94,7 +124,7 @@ export function formatCurrencyZero(
  */
 export function formatStickerValue(
   raw: unknown,
-  { currencyCode, locale }: { currencyCode?: string; locale?: string } = {}
+  { currencyCode, locale }: Pick<CurrencyFormatOptions, 'currencyCode' | 'locale'>
 ): string | null {
   const text = Array.isArray(raw) ? raw.join(', ') : typeof raw === 'string' ? raw : null
   if (!text) return null

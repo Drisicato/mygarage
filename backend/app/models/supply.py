@@ -78,7 +78,7 @@ class SupplyPurchase(Base):
     )
     date: Mapped[dt.date] = mapped_column(Date, nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)  # canonical
-    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     supplier_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("address_book.id", ondelete="SET NULL")
     )
@@ -101,8 +101,8 @@ class SupplyUsage(Base):
         Integer, ForeignKey("supplies.id", ondelete="CASCADE"), nullable=False
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)  # canonical
-    unit_cost_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
-    cost_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    unit_cost_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(15, 4))
+    cost_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     service_line_item_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("service_line_items.id", ondelete="CASCADE")
     )  # NULL = standalone adjustment

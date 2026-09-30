@@ -11,9 +11,9 @@ import { toast } from 'sonner'
 import FormModalWrapper from '../FormModalWrapper'
 import { Button, Field, NumberInput, Select } from '../ui'
 import { POLICY_TYPES } from '../../schemas/insurance'
+import { moneyTextError } from '../../schemas/shared'
 import { useAttachPolicyVehicle } from '../../hooks/queries/useInsuranceRecords'
-import { parseDecimalInput } from '../../utils/decimalInput'
-import { getActiveLocale } from '../../constants/i18n'
+import { parseOptionalDecimal } from '../../utils/decimalInput'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
 import type { InsurancePolicy, PolicyVehicleCreate } from '../../types/insurance'
 
@@ -34,15 +34,14 @@ export default function AddToPolicyDialog({ vin, policies, onClose, onSuccess }:
   const [shareError, setShareError] = useState<string | null>(null)
 
   const submit = async (): Promise<void> => {
-    let premiumShare: number | null = null
     // The same locale-aware reading every other money field uses, so a comma
-    // decimal is a number here too (#140).
-    const parsed = parseDecimalInput(share, getActiveLocale())
-    if (parsed.kind === 'invalid' || (parsed.kind === 'value' && parsed.value < 0)) {
-      setShareError(t('common:validation.amount.invalid'))
+    // decimal is a number here too (#140), and the API's money bounds.
+    const problem = moneyTextError(t, share)
+    if (problem) {
+      setShareError(problem)
       return
     }
-    if (parsed.kind === 'value') premiumShare = parsed.value
+    const premiumShare = parseOptionalDecimal(share) ?? null
     setShareError(null)
     try {
       await attachMutation.mutateAsync({

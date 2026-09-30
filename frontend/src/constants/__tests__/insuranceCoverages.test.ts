@@ -14,14 +14,14 @@ const backendEntry = (
   openapi as unknown as {
     components: {
       schemas: {
-        'CoverageEntry-Output': {
+        CoverageEntryResponse: {
           properties: { coverage_key: { enum: string[] } }
           'x-coverage-slots': Record<string, Record<string, string>>
         }
       }
     }
   }
-).components.schemas['CoverageEntry-Output']
+).components.schemas.CoverageEntryResponse
 const backendOrder: string[] = backendEntry.properties.coverage_key.enum
 const backendSlots = backendEntry['x-coverage-slots']
 

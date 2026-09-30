@@ -1,10 +1,10 @@
 """The odometer repair tool must run to completion on the live dialect.
 
-This lives in `tests/integration/` deliberately. `ci.yml:25` sets
-`pg-migrations-pytest-path: "tests/migrations/ tests/integration/"`, so only
-tests under those two paths are executed against the PostgreSQL sidecar. The
-natural home for a tools test is `tests/unit/tools/`, which runs on SQLite
-only -- and on SQLite this test passes with the bug fully present, because
+This lives in `tests/integration/` deliberately. `ci.yml` sets
+`pg-migrations-pytest-path: "tests/migrations/ tests/pg_migration_path_test.py
+tests/integration/"`, so only tests under those paths are executed against the
+PostgreSQL sidecar. The natural home for a tools test is `tests/unit/tools/`,
+which runs on SQLite only -- and on SQLite this test passes with the bug fully present, because
 SQLite returns every DATE as a string. Placed there it would have been green,
 in CI, forever, while the tool remained unusable on PostgreSQL.
 

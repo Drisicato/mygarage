@@ -44,10 +44,10 @@ class ServiceVisit(Base):
     # Engine-hours reading at this service visit (hour-metered vehicles).
     # Dimensionless — no unit conversion. Migration 083.
     engine_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1))
-    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    shop_supplies: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    misc_fees: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    shop_supplies: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    misc_fees: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     notes: Mapped[str | None] = mapped_column(Text)
     service_category: Mapped[str | None] = mapped_column(String(30))
     insurance_claim_number: Mapped[str | None] = mapped_column(String(50))

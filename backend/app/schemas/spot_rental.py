@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.schemas.spot_rental_billing import SpotRentalBillingResponse
 
@@ -16,13 +17,13 @@ class SpotRentalBase(BaseModel):
     location_address: str | None = None
     check_in_date: date
     check_out_date: date | None = None
-    nightly_rate: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    weekly_rate: Decimal | None = Field(None, ge=0, le=99999.99, decimal_places=2)
-    monthly_rate: Decimal | None = Field(None, ge=0, le=99999.99, decimal_places=2)
-    electric: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    water: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    waste: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    total_cost: Decimal | None = Field(None, ge=0, le=99999.99, decimal_places=2)
+    nightly_rate: OptionalMoney = Field(None, decimal_places=2)
+    weekly_rate: OptionalMoney = Field(None, decimal_places=2)
+    monthly_rate: OptionalMoney = Field(None, decimal_places=2)
+    electric: OptionalMoney = Field(None, decimal_places=2)
+    water: OptionalMoney = Field(None, decimal_places=2)
+    waste: OptionalMoney = Field(None, decimal_places=2)
+    total_cost: OptionalMoney = Field(None, decimal_places=2)
     amenities: str | None = None
     notes: str | None = None
 
@@ -40,13 +41,13 @@ class SpotRentalUpdate(BaseModel):
     location_address: str | None = None
     check_in_date: date | None = None
     check_out_date: date | None = None
-    nightly_rate: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    weekly_rate: Decimal | None = Field(None, ge=0, le=99999.99, decimal_places=2)
-    monthly_rate: Decimal | None = Field(None, ge=0, le=99999.99, decimal_places=2)
-    electric: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    water: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    waste: Decimal | None = Field(None, ge=0, le=9999.99, decimal_places=2)
-    total_cost: Decimal | None = Field(None, ge=0, le=99999.99, decimal_places=2)
+    nightly_rate: OptionalMoney = Field(None, decimal_places=2)
+    weekly_rate: OptionalMoney = Field(None, decimal_places=2)
+    monthly_rate: OptionalMoney = Field(None, decimal_places=2)
+    electric: OptionalMoney = Field(None, decimal_places=2)
+    water: OptionalMoney = Field(None, decimal_places=2)
+    waste: OptionalMoney = Field(None, decimal_places=2)
+    total_cost: OptionalMoney = Field(None, decimal_places=2)
     amenities: str | None = None
     notes: str | None = None
 
@@ -57,6 +58,15 @@ class SpotRentalUpdate(BaseModel):
 class SpotRentalResponse(SpotRentalBase):
     """Schema for spot rental response."""
 
+    # Money without the input bounds, so a stored amount past today's rules
+    # still reads instead of 500ing (test_response_money_contract).
+    nightly_rate: Decimal | None = Field(None, decimal_places=2)
+    weekly_rate: Decimal | None = Field(None, decimal_places=2)
+    monthly_rate: Decimal | None = Field(None, decimal_places=2)
+    electric: Decimal | None = Field(None, decimal_places=2)
+    water: Decimal | None = Field(None, decimal_places=2)
+    waste: Decimal | None = Field(None, decimal_places=2)
+    total_cost: Decimal | None = Field(None, decimal_places=2)
     id: int
     vin: str
     created_at: datetime

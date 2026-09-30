@@ -208,7 +208,7 @@ export function priceToDisplay(
  * Posted exactly, at the wire's 12 significant digits: `price_per_unit`
  * declares no `decimal_places` in the API schema, so a client-side round would
  * be a second, invented authority on storage precision. See
- * `LITERS_WIRE_DECIMALS` for the rule. (The COLUMN is `Numeric(6, 3)`, so a
+ * `LITERS_WIRE_DECIMALS` for the rule. (The COLUMN is `Numeric(12, 3)`, so a
  * PostgreSQL instance rounds the tail off on arrival; that is the database's
  * contract to state, not the client's to anticipate.)
  *
@@ -226,6 +226,31 @@ function priceToCanonical(
   const factor = canonicalPerTypedUnit(units, basis)
   if (factor === null || factor === 1) return value
   return toWirePrecision(value / factor)
+}
+
+/**
+ * Whether a typed price is over `max` once it is in canonical units, which is
+ * where the API bounds it.
+ *
+ * A yes or no, not the canonical number. The number is what a writer would
+ * post, and writers go through `canonicalFromPriceField` so that an untouched
+ * field keeps its stored value; handing out `priceToCanonical` again would
+ * reopen the reconversion it was made private to close.
+ *
+ * @param value The price the user entered, per displayed unit.
+ * @param max The API's bound, in canonical units.
+ * @param units The client's resolved unit set.
+ * @param basis The basis the value will be posted under.
+ * @returns True when the posted canonical price would be over `max`.
+ */
+export function priceOverCanonicalMax(
+  value: number,
+  max: number,
+  units: UnitSet,
+  basis: PriceBasis | string | null | undefined,
+): boolean {
+  const canonical = priceToCanonical(value, units, basis)
+  return canonical !== null && canonical > max
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { TFunction } from 'i18next'
 import { makeInsuranceSchema, makeRenewSchema } from '../insurance'
+import { MONEY_MAX } from '../shared'
 
 // The i18n mock elsewhere in the suite echoes keys back; do the same here so
 // a failed assertion shows the offending key instead of a component-owned
@@ -70,10 +71,37 @@ describe('Insurance policy schema', () => {
     expect(schema.safeParse(policy({ vehicles: [vehicle({ deductible: 'abc' })] })).success).toBe(false)
   })
 
-  // The backend has `ge=0` and no ceiling: a collector-car or commercial
-  // premium over 99,999.99 must not be refused client-side.
-  it('accepts a premium above the generic currency ceiling', () => {
+  // A collector-car or commercial premium runs past the old 99,999.99
+  // currency cap. Both sides cap at MONEY_MAX now (money-fits).
+  it('accepts a premium past the old 99,999.99 cap', () => {
     expect(schema.safeParse(policy({ premium_amount: 250000 })).success).toBe(true)
+  })
+
+  it('refuses a cent past MONEY_MAX on the policy, a vehicle and a coverage', () => {
+    const coverage = (over: Record<string, unknown>) => ({ coverage_key: 'collision', included: true, ...over })
+    const at = [
+      policy({ premium_amount: MONEY_MAX }),
+      policy({ vehicles: [vehicle({ premium_share: MONEY_MAX, deductible: MONEY_MAX })] }),
+      policy({ vehicles: [vehicle({ coverages: [coverage({ limit_primary: MONEY_MAX, premium: MONEY_MAX })] })] }),
+    ]
+    for (const candidate of at) expect(schema.safeParse(candidate).success).toBe(true)
+
+    const over = MONEY_MAX + 0.01
+    expect(messages(policy({ premium_amount: over }))).toContain('common:validation.amount.tooLarge')
+    expect(messages(policy({ vehicles: [vehicle({ premium_share: over })] }))).toContain('common:validation.amount.tooLarge')
+    expect(messages(policy({ vehicles: [vehicle({ deductible: over })] }))).toContain('common:validation.amount.tooLarge')
+    for (const field of ['limit_primary', 'limit_secondary', 'deductible', 'premium']) {
+      expect(
+        messages(policy({ vehicles: [vehicle({ coverages: [coverage({ [field]: over })] })] })),
+        field,
+      ).toContain('common:validation.amount.tooLarge')
+    }
+    const renew = makeRenewSchema(t, '2026-01-01').safeParse({
+      start_date: '2026-01-01',
+      end_date: '2027-01-01',
+      premium_amount: over,
+    })
+    expect(renew.success).toBe(false)
   })
 
   it('refuses an end date before the start', () => {
