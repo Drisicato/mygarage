@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An SSO sign-in can no longer take over an account linked to a different sign-in
 - The member card shows which users sign in with SSO and drops the password reset that always failed for them; admins can still disable and delete them
 - The last active admin can't be disabled, demoted or deleted
-- Edit User names the SSO provider and locks an SSO user's email and name
+- Edit User names the SSO provider and locks an SSO user's name
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
