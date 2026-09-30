@@ -114,15 +114,15 @@ class WindowStickerData:
                 if diff > Decimal("100"):
                     warnings.append(
                         f"Price mismatch: Base + Options ({self.msrp_base} + {self.msrp_options}) "
-                        f"doesn't match Total ({self.msrp_total}), difference: ${diff}"
+                        f"doesn't match Total ({self.msrp_total}), difference: {diff}"
                     )
 
         # Check for unusually high/low MSRP
         if self.msrp_total:
             if self.msrp_total < Decimal("10000"):
-                warnings.append(f"Total MSRP seems unusually low: ${self.msrp_total}")
+                warnings.append(f"Total MSRP seems unusually low: {self.msrp_total}")
             elif self.msrp_total > Decimal("500000"):
-                warnings.append(f"Total MSRP seems unusually high: ${self.msrp_total}")
+                warnings.append(f"Total MSRP seems unusually high: {self.msrp_total}")
 
         # Check fuel economy reasonableness
         if self.fuel_economy_combined:
