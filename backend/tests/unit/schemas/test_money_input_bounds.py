@@ -425,6 +425,14 @@ def test_the_importers_check_the_money_they_import():
         ("DEFRecordCreate", "price_per_unit"),
         ("ServiceLineItemCreate", "cost"),
         ("TaxRecordCreate", "amount"),
+        # The insurance importers (B4): a vehicle's share and deductible, and
+        # each coverage's amounts.
+        ("PolicyVehicleCreate", "premium_share"),
+        ("PolicyVehicleCreate", "deductible"),
+        ("CoverageEntry", "limit_primary"),
+        ("CoverageEntry", "limit_secondary"),
+        ("CoverageEntry", "deductible"),
+        ("CoverageEntry", "premium"),
     } <= passed
 
 

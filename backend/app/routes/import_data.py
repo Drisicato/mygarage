@@ -66,9 +66,11 @@ from app.models import (
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.models.vendor import Vendor
+from app.schemas._money import MONEY_MAX
 from app.schemas.def_record import DEFRecordCreate
 from app.schemas.fuel import FuelRecordCreate, _validate_diesel_grade, _validate_octane
 from app.schemas.hours import HoursRecordCreate
+from app.schemas.insurance import CoverageEntry, PolicyVehicleCreate
 from app.schemas.odometer import OdometerRecordCreate
 from app.schemas.reminder import ReminderCreate
 from app.schemas.service_visit import ServiceLineItemCreate, ServiceVisitCreate
@@ -113,6 +115,7 @@ from app.utils.insurance_coverages import (
 )
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.maintenance_types import classify
+from app.utils.money_fits import too_large
 from app.utils.odometer_tolerance import KM_STEP, LITRE_STEP, conversion_tolerance
 from app.utils.units import UnitConverter
 
@@ -390,6 +393,36 @@ def _merge_converted(row: dict[str, Any], text: str | None) -> None:
         row["notes"] = "\n".join(filter(None, [(row.get("notes") or "").rstrip(), *notes])) or None
 
 
+def _insurance_amounts_within_api_bounds(row: dict[str, Any]) -> None:
+    """Hold a row's share, deductible and coverage amounts to the API's bounds.
+
+    Importers build ORM rows directly, so the Create schemas never ran on them,
+    and a number past its column was a 500 on PostgreSQL.
+    """
+    _within_api_bounds(
+        PolicyVehicleCreate, premium_share=row["premium"], deductible=row["deductible"]
+    )
+    for coverage in row.get("coverages") or []:
+        try:
+            _within_api_bounds(
+                CoverageEntry,
+                limit_primary=coverage.get("limit_primary"),
+                limit_secondary=coverage.get("limit_secondary"),
+                deductible=coverage.get("deductible"),
+                premium=coverage.get("premium"),
+            )
+        except _ImportBoundError as e:
+            raise _ImportBoundError(f"{coverage.get('coverage_key')} {e}") from e
+
+
+def _grown_premium(total: Decimal, premium: Decimal) -> Decimal:
+    """A policy's premium plus one more vehicle's. Each fits, the sum may not."""
+    grown = total + premium
+    if grown > MONEY_MAX:
+        raise _ImportBoundError(too_large("The policy premium"))
+    return grown
+
+
 async def _import_insurance_row(
     db: AsyncSession,
     access: Any,
@@ -418,6 +451,7 @@ async def _import_insurance_row(
     # then STORED as two 0.01 shares, which no longer fit it.
     premium: Decimal | None = _whole_cents(row["premium"], "Premium")
     row["deductible"] = _whole_cents(row["deductible"], "Deductible")
+    _insurance_amounts_within_api_bounds(row)
     frequency = row["premium_frequency"]
 
     candidates = (
@@ -514,12 +548,12 @@ async def _import_insurance_row(
                 )
         elif target.id in created_in_run:
             target.premium_amount = (
-                target.premium_amount + premium
+                _grown_premium(target.premium_amount, premium)
                 if target.premium_amount is not None and premium is not None
                 else None
             )
         elif target.premium_amount is not None and premium is not None:
-            target.premium_amount = target.premium_amount + premium
+            target.premium_amount = _grown_premium(target.premium_amount, premium)
 
         link = InsurancePolicyVehicle(
             vin=vin,
@@ -1402,7 +1436,7 @@ async def import_insurance_csv(
                 import_result.add_success()
             else:
                 import_result.add_skip()
-        except _InsuranceRowError as e:
+        except (_InsuranceRowError, _ImportBoundError) as e:
             import_result.add_error(row_num, str(e))
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
@@ -2092,6 +2126,9 @@ async def import_vehicle_json(
                 skip_duplicates=True,
             )
             results["insurance_policies"]["success" if imported else "skipped"] += 1
+        except (_InsuranceRowError, _ImportBoundError) as e:
+            results["insurance_policies"]["errors"] += 1
+            results["errors"].append(f"Insurance policy {idx}: {e}")
         except Exception as e:
             results["insurance_policies"]["errors"] += 1
             logger.warning("Import: insurance policy %s failed: %s", idx, sanitize_for_log(e))
