@@ -26,17 +26,19 @@ import { useUnitFormat } from '../hooks/useUnitFormat'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { defaultSelection, repeatedTypes, unsavableReason } from '../utils/packSavability'
 import { vehicleTypeOptions } from '../schemas/vehicle'
-import type { MaintenanceRuleResponse, SavePackBody } from '../types/reminder'
+import type { MaintenanceRuleResponse, ReminderPackSummary, SavePackBody } from '../types/reminder'
 
 type VehicleTypeValue = NonNullable<SavePackBody['vehicle_types']>[number]
+
+/** The pack being overwritten, as the pack list already holds it. */
+export type ExistingPack = Pick<ReminderPackSummary, 'id' | 'name' | 'description' | 'vehicle_types'>
 
 interface SavePackDialogProps {
   vin: string
   /** Prefills the vehicle-type picker; the source vehicle's own type. */
   vehicleType: string | null | undefined
   /** Set to overwrite an existing pack instead of creating one. */
-  existingPackId?: string
-  existingName?: string
+  existingPack?: ExistingPack
   onClose: () => void
   onSaved: () => void
 }
@@ -44,8 +46,7 @@ interface SavePackDialogProps {
 export default function SavePackDialog({
   vin,
   vehicleType,
-  existingPackId,
-  existingName,
+  existingPack,
   onClose,
   onSaved,
 }: SavePackDialogProps) {
@@ -56,11 +57,15 @@ export default function SavePackDialog({
   const overwriteMutation = useOverwritePack()
   const pending = saveMutation.isPending || overwriteMutation.isPending
 
-  const [name, setName] = useState(existingName ?? '')
-  const [description, setDescription] = useState('')
-  const [types, setTypes] = useState<VehicleTypeValue[]>(
-    vehicleType ? [vehicleType as VehicleTypeValue] : [],
-  )
+  // An overwrite replaces the whole pack, so it seeds from what the pack says.
+  // Seeding a blank description and this vehicle's type wiped the one and
+  // narrowed an all-types pack ([]) to a single type.
+  const [name, setName] = useState(existingPack?.name ?? '')
+  const [description, setDescription] = useState(existingPack?.description ?? '')
+  const [types, setTypes] = useState<VehicleTypeValue[]>(() => {
+    if (existingPack) return (existingPack.vehicle_types ?? []) as VehicleTypeValue[]
+    return vehicleType ? [vehicleType as VehicleTypeValue] : []
+  })
   const [checked, setChecked] = useState<Set<number> | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -95,8 +100,8 @@ export default function SavePackDialog({
       rule_ids: [...selection],
     }
     try {
-      if (existingPackId) {
-        await overwriteMutation.mutateAsync({ packId: existingPackId, body })
+      if (existingPack) {
+        await overwriteMutation.mutateAsync({ packId: existingPack.id, body })
         toast.success(t('savePack.overwritten'))
       } else {
         await saveMutation.mutateAsync(body)
@@ -141,7 +146,7 @@ export default function SavePackDialog({
 
   return (
     <FormModalWrapper
-      title={existingPackId ? t('savePack.overwriteTitle') : t('savePack.title')}
+      title={existingPack ? t('savePack.overwriteTitle') : t('savePack.title')}
       icon={PackagePlus}
       onClose={onClose}
       width="md"

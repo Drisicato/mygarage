@@ -30,7 +30,7 @@ import ReminderForm from './ReminderForm'
 import CompleteReminderDialog from './CompleteReminderDialog'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import ApplyPackDialog from './ApplyPackDialog'
-import SavePackDialog from './SavePackDialog'
+import SavePackDialog, { type ExistingPack } from './SavePackDialog'
 import RenamePackDialog from './RenamePackDialog'
 import ReconcileDuplicatesDialog from './ReconcileDuplicatesDialog'
 import SnoozeReminderDialog from './SnoozeReminderDialog'
@@ -82,7 +82,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
   //   false        = closed
   //   true         = saving a NEW pack
   //   {id, name}   = saving this vehicle OVER that pack
-  const [savingPack, setSavingPack] = useState<true | { id: string; name: string } | false>(
+  const [savingPack, setSavingPack] = useState<true | ExistingPack | false>(
     false,
   )
   const [renamingPack, setRenamingPack] = useState<{ id: string; name: string } | undefined>()
@@ -260,7 +260,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
               variant="secondary"
               size="sm"
               icon={PackagePlus}
-              onClick={() => setSavingPack({ id: editablePack.id, name: editablePack.name })}
+              onClick={() => setSavingPack(editablePack)}
             >
               {t('packList.overwrite')}
             </Button>
@@ -467,8 +467,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
         <SavePackDialog
           vin={vin}
           vehicleType={vehicle?.vehicle_type}
-          existingPackId={savingPack === true ? undefined : savingPack.id}
-          existingName={savingPack === true ? undefined : savingPack.name}
+          existingPack={savingPack === true ? undefined : savingPack}
           onClose={() => setSavingPack(false)}
           onSaved={() => setSavingPack(false)}
         />
