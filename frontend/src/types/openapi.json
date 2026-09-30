@@ -23992,6 +23992,11 @@
             ],
             "title": "Accent Color"
           },
+          "auth_method": {
+            "default": "local",
+            "title": "Auth Method",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -24085,6 +24090,18 @@
             "default": true,
             "title": "Mobile Quick Entry Enabled",
             "type": "boolean"
+          },
+          "oidc_relink_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Relink Until"
           },
           "relationship": {
             "anyOf": [
@@ -33193,6 +33210,100 @@
           }
         ],
         "summary": "Update User",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/auth/users/{user_id}/oidc-relink": {
+      "delete": {
+        "description": "Cancel an allowed SSO relink for a user (admin only).",
+        "operationId": "cancel_oidc_relink_api_auth_users__user_id__oidc_relink_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Oidc Relink",
+        "tags": [
+          "Authentication"
+        ]
+      },
+      "post": {
+        "description": "Allow a one-time SSO relink for a user (admin only).\n\nFor the next 30 minutes, the first SSO login whose email or username matches\nthis account links it to that sign-in without asking for a password, then the\nwindow closes. It's the way back in when the user's identity provider account\nwas re-created. Allowing it again restarts the window.",
+        "operationId": "allow_oidc_relink_api_auth_users__user_id__oidc_relink_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Allow Oidc Relink",
         "tags": [
           "Authentication"
         ]

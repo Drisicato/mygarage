@@ -2,7 +2,7 @@
 
 import logging
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from slowapi import Limiter
@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.constants.oidc import SSO_RELINK_WINDOW_MINUTES
 from app.database import get_db
 from app.models.csrf_token import CSRFToken
 from app.models.settings import Setting
@@ -27,6 +28,7 @@ from app.schemas.user import (
     UserResponse,
     UserSelfUpdate,
 )
+from app.services.audit_logger import AuditLogger
 from app.services.auth import (
     authenticate_user,
     create_access_token,
@@ -760,3 +762,82 @@ async def admin_reset_user_password(
         sanitize_for_log(current_user.username),
         sanitize_for_log(user.username),
     )
+
+
+async def _set_oidc_relink(
+    db: AsyncSession,
+    request: Request,
+    user_id: int,
+    until: datetime | None,
+    current_user: User | None,
+) -> User:
+    """Arm (a moment) or disarm (None) a user's SSO relink, audited in the same commit.
+
+    Args:
+        db: Database session
+        request: The request, for the audit row's IP and user agent
+        user_id: The account to arm or disarm
+        until: When the relink closes, or None to cancel it
+        current_user: The admin, or None when auth is off
+
+    Returns:
+        The updated user.
+
+    Raises:
+        HTTPException: 404 if there's no such user.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.oidc_relink_until = until
+    user.updated_at = utc_now()
+    # log_event commits, so the change and its audit row land together.
+    await AuditLogger.log_event(
+        db,
+        action="oidc_relink_allowed" if until else "oidc_relink_revoked",
+        user=current_user,
+        resource_type="user",
+        resource_id=str(user.id),
+        details={"username": user.username, "until": until.isoformat() if until else None},
+        request=request,
+    )
+    await db.refresh(user)
+
+    logger.info(
+        "Admin %s %s the SSO relink for user: %s",
+        sanitize_for_log(current_user.username) if current_user else "<auth disabled>",
+        "allowed" if until else "cancelled",
+        sanitize_for_log(user.username),
+    )
+    return user
+
+
+@router.post("/users/{user_id}/oidc-relink", response_model=UserResponse)
+async def allow_oidc_relink(
+    request: Request,
+    user_id: int,
+    current_user: User | None = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Allow a one-time SSO relink for a user (admin only).
+
+    For the next 30 minutes, the first SSO login whose email or username matches
+    this account links it to that sign-in without asking for a password, then the
+    window closes. It's the way back in when the user's identity provider account
+    was re-created. Allowing it again restarts the window.
+    """
+    until = utc_now() + timedelta(minutes=SSO_RELINK_WINDOW_MINUTES)
+    return await _set_oidc_relink(db, request, user_id, until, current_user)
+
+
+@router.delete("/users/{user_id}/oidc-relink", response_model=UserResponse)
+async def cancel_oidc_relink(
+    request: Request,
+    user_id: int,
+    current_user: User | None = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Cancel an allowed SSO relink for a user (admin only)."""
+    return await _set_oidc_relink(db, request, user_id, None, current_user)

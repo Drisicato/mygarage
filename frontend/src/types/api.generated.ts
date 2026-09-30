@@ -845,6 +845,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/users/{user_id}/oidc-relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allow Oidc Relink
+         * @description Allow a one-time SSO relink for a user (admin only).
+         *
+         *     For the next 30 minutes, the first SSO login whose email or username matches
+         *     this account links it to that sign-in without asking for a password, then the
+         *     window closes. It's the way back in when the user's identity provider account
+         *     was re-created. Allowing it again restarts the window.
+         */
+        post: operations["allow_oidc_relink_api_auth_users__user_id__oidc_relink_post"];
+        /**
+         * Cancel Oidc Relink
+         * @description Cancel an allowed SSO relink for a user (admin only).
+         */
+        delete: operations["cancel_oidc_relink_api_auth_users__user_id__oidc_relink_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/users/{user_id}/password": {
         parameters: {
             query?: never;
@@ -17404,6 +17433,11 @@ export interface components {
             /** Accent Color */
             accent_color?: string | null;
             /**
+             * Auth Method
+             * @default local
+             */
+            auth_method: string;
+            /**
              * Created At
              * Format: date-time
              */
@@ -17452,6 +17486,8 @@ export interface components {
              * @default true
              */
             mobile_quick_entry_enabled: boolean;
+            /** Oidc Relink Until */
+            oidc_relink_until?: string | null;
             /** Relationship */
             relationship?: string | null;
             /** Relationship Custom */
@@ -21239,6 +21275,68 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    allow_oidc_relink_api_auth_users__user_id__oidc_relink_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_oidc_relink_api_auth_users__user_id__oidc_relink_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

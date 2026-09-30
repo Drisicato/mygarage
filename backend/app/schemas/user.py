@@ -441,6 +441,11 @@ class UserResponse(UserBase):
     id: int
     is_active: bool
     is_admin: bool
+    # 'local' or 'oidc'. The admin user cards branch on it.
+    auth_method: str = "local"
+    # When an admin-approved SSO relink closes (naive UTC), or None if none was
+    # armed. A past value means it expired unused.
+    oidc_relink_until: datetime | None = None
     unit_preference: UnitPreference = "imperial"
     show_both_units: bool = False
     # Raw per-quantity overrides. NULL means "no override" (spec D3); the
