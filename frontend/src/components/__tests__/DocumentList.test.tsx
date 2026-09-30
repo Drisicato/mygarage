@@ -114,3 +114,16 @@ describe('DocumentList — uploaded timestamp', () => {
     expect(screen.queryByText(/Invalid Date/)).toBeNull()
   })
 })
+
+describe('DocumentList: a document needs a title', () => {
+  it('blanking the title shows an inline error and saves nothing', async () => {
+    const user = userEvent.setup()
+    render(<DocumentList {...PROPS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'common:edit' }))
+    await user.clear(screen.getByDisplayValue('Insurance Policy'))
+    await user.type(screen.getByLabelText('documentList.titleLabel *'), '   ')
+    fireEvent.click(screen.getByRole('button', { name: 'documentList.save' }))
+    expect(await screen.findByText('common:validation.document.titleRequired')).toBeInTheDocument()
+    expect(apiPut).not.toHaveBeenCalled()
+  })
+})

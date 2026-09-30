@@ -9,7 +9,6 @@ import type { TollTag, TollTagCreate, TollTagUpdate } from '../types/toll'
 import {
   makeTollTagSchema,
   type TollTagFormData,
-  type TollSystemValue,
   TOLL_SYSTEM_OPTIONS,
 } from '../schemas/tollTag'
 import { useCreateTollTag, useUpdateTollTag } from '../hooks/queries/useTollRecords'
@@ -33,7 +32,8 @@ export default function TollTagForm({ vin, tag, onClose, onSuccess }: TollTagFor
   // Zod bakes its messages in at construction, so the schema is rebuilt when
   // the language changes. Only the resolver depends on it — no fetch, no
   // reset() — so a rebuild can't discard what the user typed.
-  const schema = useMemo(() => makeTollTagSchema(t), [t])
+  const storedSystem = tag?.toll_system
+  const schema = useMemo(() => makeTollTagSchema(t, storedSystem), [t, storedSystem])
 
   const {
     register,
@@ -43,7 +43,7 @@ export default function TollTagForm({ vin, tag, onClose, onSuccess }: TollTagFor
   } = useForm<TollTagFormData>({
     resolver: zodResolver(schema),
     defaultValues: {
-      toll_system: (tag?.toll_system as TollSystemValue) ?? 'EZ TAG',
+      toll_system: tag?.toll_system ?? 'EZ TAG',
       tag_number: tag?.tag_number || '',
       status: (tag?.status as 'active' | 'inactive') || 'active',
       notes: tag?.notes || '',
@@ -120,7 +120,14 @@ export default function TollTagForm({ vin, tag, onClose, onSuccess }: TollTagFor
                 disabled={isSubmitting}
                 invalid={!!errors.toll_system}
                 placeholder={t('toll.selectTollSystem')}
-                options={TOLL_SYSTEM_OPTIONS.map((system) => ({ value: system.value, label: t(system.labelKey) }))}
+                options={[
+                  // A stored system outside the list stays selectable, or an
+                  // untouched save of that tag couldn't go through.
+                  ...(storedSystem && !TOLL_SYSTEM_OPTIONS.some((s) => s.value === storedSystem)
+                    ? [{ value: storedSystem, label: storedSystem }]
+                    : []),
+                  ...TOLL_SYSTEM_OPTIONS.map((system) => ({ value: system.value, label: t(system.labelKey) })),
+                ]}
               />
             </Field>
 

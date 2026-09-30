@@ -76,3 +76,15 @@ describe('TollTagForm — routing + exact payload (SDQ-C)', () => {
     expect(screen.getByLabelText('toll.tagNumber *')).toHaveAttribute('id', 'tag_number')
   })
 })
+
+describe('TollTagForm: a stored system outside the list', () => {
+  it('stays selected and re-saves unchanged', async () => {
+    const tag = { id: 4, vin: 'V1', toll_system: 'PikePass', tag_number: 'PP123', status: 'active', notes: '' } as unknown as TollTag
+    const user = userEvent.setup()
+    render(<TollTagForm vin="V1" tag={tag} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect((document.getElementById('toll_system') as HTMLSelectElement).value).toBe('PikePass')
+    await user.click(screen.getByRole('button', { name: 'toll.updateTag' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0]).toMatchObject({ toll_system: 'PikePass' })
+  })
+})

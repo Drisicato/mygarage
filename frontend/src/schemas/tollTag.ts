@@ -46,11 +46,19 @@ export const TOLL_SYSTEM_OPTIONS = [
   { value: 'Other', labelKey: 'forms:tollSystems.other' },
 ] as const satisfies readonly { value: TollSystemValue; labelKey: string }[]
 
-export const makeTollTagSchema = (t: TFunction) =>
+/**
+ * `storedSystem` is the tag's saved system. The API takes any string, so a tag
+ * can hold one outside this list; accepting it lets that tag be re-saved
+ * unchanged instead of failing "system required".
+ */
+export const makeTollTagSchema = (t: TFunction, storedSystem?: string | null) =>
   z.object({
-    toll_system: z.enum(TOLL_SYSTEMS, {
-      message: t('common:validation.tollTag.systemRequired'),
-    }),
+    toll_system: z
+      .string()
+      .refine(
+        (value) => (TOLL_SYSTEMS as readonly string[]).includes(value) || (!!storedSystem && value === storedSystem),
+        { message: t('common:validation.tollTag.systemRequired') },
+      ),
     tag_number: z
       .string()
       .min(1, t('common:validation.tollTag.tagNumberRequired'))
