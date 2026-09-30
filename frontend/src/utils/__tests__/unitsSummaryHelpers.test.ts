@@ -95,11 +95,11 @@ describe('UnitFormatter summary card helpers', () => {
 
   describe('formatCostPerVolume', () => {
     it('scales $/L by the resolved set\'s litres-per-unit', () => {
-      expect(UnitFormatter.formatCostPerVolume(1.0, METRIC)).toBe('$1.00')
+      expect(UnitFormatter.formatCostPerVolume(1.0, METRIC, 'USD')).toBe('$1.00')
       // $1/L x 3.785411784 = $3.79/gal; x 4.54609 = $4.55/gal. The card and the
       // row below it now agree, because both read the same resolved token.
-      expect(UnitFormatter.formatCostPerVolume(1.0, US)).toBe('$3.79')
-      expect(UnitFormatter.formatCostPerVolume(1.0, UK)).toBe('$4.55')
+      expect(UnitFormatter.formatCostPerVolume(1.0, US, 'USD')).toBe('$3.79')
+      expect(UnitFormatter.formatCostPerVolume(1.0, UK, 'USD')).toBe('$4.55')
     })
   })
 

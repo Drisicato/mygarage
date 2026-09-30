@@ -30,6 +30,7 @@ import { getActiveLocale } from '@/constants/i18n'
 import { applyServerErrors } from '@/hooks/useApiFormErrors'
 import { getActionErrorMessage } from '@/utils/httpErrorHandler'
 import { MONEY_MAX } from '@/schemas/shared'
+import { RATE_DIGITS } from '@/utils/formatUtils'
 
 type SupplyLedgerEntry = components['schemas']['SupplyLedgerEntry']
 
@@ -97,7 +98,7 @@ export default function SupplyHistoryModal({ supply, onClose }: SupplyHistoryMod
           </div>
           <div className="bg-garage-bg border border-garage-border rounded-lg p-3">
             <div className="text-xs text-garage-text-muted">{t('supplies.avgUnitCost')}</div>
-            <div className="text-lg font-semibold text-garage-text">{formatCurrency(avgUnitCost)}</div>
+            <div className="text-lg font-semibold text-garage-text">{formatCurrency(avgUnitCost, { fractionDigits: RATE_DIGITS })}</div>
           </div>
         </div>
 

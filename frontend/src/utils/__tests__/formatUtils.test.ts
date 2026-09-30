@@ -35,6 +35,37 @@ describe('an amount takes its currency\'s own digits', () => {
   })
 })
 
+describe('a rate asks for its digits and keeps them', () => {
+  // A unit price or a cost per hour is a rate: ¥170.5/L rounded to the yen's
+  // own zero digits would read ¥171 and no longer match what was entered.
+  it('shows a yen unit price with its decimals', () => {
+    expect(formatCurrency(170.5, { currencyCode: 'JPY', locale: 'en-US', fractionDigits: 2 })).toBe('¥170.50')
+  })
+
+  it('leaves a dollar rate where it was', () => {
+    expect(formatCurrency(3.459, { currencyCode: 'USD', locale: 'en-US', fractionDigits: 2 })).toBe('$3.46')
+  })
+
+  it('zero-fills a rate at its own digits', () => {
+    expect(formatCurrencyZero(null, { currencyCode: 'JPY', locale: 'en-US', fractionDigits: 2 })).toBe('¥0.00')
+    expect(formatCurrencyZero(170.5, { currencyCode: 'JPY', locale: 'en-US', fractionDigits: 2 })).toBe('¥170.50')
+  })
+
+  it('beats wholeDollars when both are given', () => {
+    expect(formatCurrency(170.5, { currencyCode: 'JPY', locale: 'en-US', fractionDigits: 2, wholeDollars: true })).toBe('¥170.50')
+  })
+
+  it('keeps its digits when Intl rejects the code', () => {
+    expect(formatCurrency(170.5, { currencyCode: 'BADX', fractionDigits: 3 })).toBe('BADX 170.500')
+  })
+
+  it('does not leak into a plain yen amount formatted next to it', () => {
+    expect(formatCurrency(170.5, { currencyCode: 'JPY', locale: 'en-US', fractionDigits: 2 })).toBe('¥170.50')
+    expect(formatCurrency(17500, { currencyCode: 'JPY', locale: 'en-US' })).toBe('¥17,500')
+    expect(formatCurrency(170.5, { currencyCode: 'JPY', locale: 'en-US' })).toBe('¥171')
+  })
+})
+
 // Never called. tsc reads it, and each directive fails the type-check if the
 // call it sits on ever compiles again, so a direct call can't quietly be USD.
 export function currencyIsRequired(): void {
@@ -46,6 +77,10 @@ export function currencyIsRequired(): void {
   formatCurrencyZero(1)
   // @ts-expect-error currencyCode is required
   formatStickerValue('1')
+  // @ts-expect-error currencyCode is required
+  formatCostPerDistance(makeUnitSet(), 0.1)
+  // @ts-expect-error currencyCode is required
+  UnitFormatter.formatCostPerVolume(1, makeUnitSet())
 }
 
 describe('formatCurrency', () => {

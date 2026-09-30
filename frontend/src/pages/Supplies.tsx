@@ -14,6 +14,7 @@ import { useQuickEntryVehicles } from '@/hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '@/utils/vehicleLabel'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
+import { RATE_DIGITS } from '@/utils/formatUtils'
 import { canonicalToDisplay, supplyUnitLabel } from '@/utils/supplyUnits'
 import { makeSupplySchema, SUPPLY_UNIT_TYPES, type SupplyFormData } from '@/schemas/supplies'
 import { Select, Field, Input, Textarea, Checkbox, Button } from '@/components/ui'
@@ -203,7 +204,7 @@ export default function Supplies() {
 
                     <div className="flex items-center justify-between">
                       <span className="text-garage-text-muted">{t('supplies.avgUnitCost')}</span>
-                      <span className="font-medium text-garage-text">{formatCurrency(supply.avg_unit_cost)}</span>
+                      <span className="font-medium text-garage-text">{formatCurrency(supply.avg_unit_cost, { fractionDigits: RATE_DIGITS })}</span>
                     </div>
 
                     {supply.is_negative && (

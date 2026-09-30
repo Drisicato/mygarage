@@ -25,12 +25,11 @@ vi.mock('../../hooks/queries/useSupplies', () => ({
 vi.mock('../../hooks/useUnitPreference', () => ({
   useUnitPreference: () => ({ system: 'metric', showBoth: false }),
 }))
-vi.mock('../../hooks/useCurrencyPreference', () => ({
-  useCurrencyPreference: () => ({
-    currencyCode: 'USD',
-    locale: 'en-US',
-    formatCurrency: () => '$5.25',
-  }),
+// The REAL currency hook runs, so a rate option has to survive it. Only the
+// signed-in user is faked, and the rate-digits test flips them to yen.
+const currencyMock = vi.hoisted(() => ({ code: 'USD' }))
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { currency_code: currencyMock.code } }),
 }))
 
 import SupplyHistoryModal from '../SupplyHistoryModal'
@@ -91,6 +90,7 @@ const mockEntries = [
 
 beforeEach(() => {
   vi.clearAllMocks()
+  currencyMock.code = 'USD'
   useSupplyHistoryMock.mockReturnValue({
     data: { supply_id: 1, on_hand: '3.500', avg_unit_cost: '5.25', entries: mockEntries },
     isLoading: false,
@@ -150,6 +150,21 @@ describe('SupplyHistoryModal', () => {
 
     expect(screen.getByText('3.50 L')).toBeInTheDocument()
     expect(screen.getAllByText('$5.25').length).toBeGreaterThan(0)
+  })
+
+  it('shows a yen average unit cost with its decimals, and ledger costs as whole yen', () => {
+    // The average unit cost is a rate; the ledger costs are totals.
+    currencyMock.code = 'JPY'
+    useSupplyHistoryMock.mockReturnValue({
+      data: { supply_id: 1, on_hand: '3.500', avg_unit_cost: '170.5', entries: mockEntries },
+      isLoading: false,
+      error: null,
+    })
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
+
+    expect(screen.getByText('¥170.50')).toBeInTheDocument()
+    expect(screen.queryByText('¥171')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog').textContent ?? '').toContain('¥25')
   })
 
   it('shows the loading state while history is fetching', () => {

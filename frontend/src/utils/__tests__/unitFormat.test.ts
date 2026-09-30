@@ -204,10 +204,10 @@ describe('cost per distance', () => {
     // unchanged. Both were already right and both must stay right, or the fix
     // is a different bug rather than a fix.
     // $0.10/km x 100 = $10.00 per 100 km.
-    expect(formatCostPerDistance(METRIC, 0.1)).toBe('$10.00')
+    expect(formatCostPerDistance(METRIC, 0.1, 'USD')).toBe('$10.00')
     expect(costPerDistanceUnitLabel(METRIC)).toBe('100 km')
     // $0.10/km x 1.609344 x 1000 = $160.93 per 1,000 mi.
-    expect(formatCostPerDistance(IMPERIAL, 0.1)).toBe('$160.93')
+    expect(formatCostPerDistance(IMPERIAL, 0.1, 'USD')).toBe('$160.93')
     expect(costPerDistanceUnitLabel(IMPERIAL)).toBe('1,000 mi')
   })
 
@@ -215,8 +215,8 @@ describe('cost per distance', () => {
     // The set the retired pair could not express: it read 'metric' off the
     // litres and answered '$10.00' under 'Cost/100 km' for an account whose
     // odometer, since task 6, reads miles.
-    expect(formatCostPerDistance(LITRES_MILES, 0.1)).toBe('$160.93')
-    expect(formatCostPerDistance(LITRES_MILES, 0.1)).not.toBe('$10.00')
+    expect(formatCostPerDistance(LITRES_MILES, 0.1, 'USD')).toBe('$160.93')
+    expect(formatCostPerDistance(LITRES_MILES, 0.1, 'USD')).not.toBe('$10.00')
     expect(costPerDistanceUnitLabel(LITRES_MILES)).toBe('1,000 mi')
   })
 
@@ -224,8 +224,8 @@ describe('cost per distance', () => {
     // The mirror, so nothing above is satisfied by an inverted branch. The
     // retired pair read 'imperial' off the gallons and answered '$160.93'
     // under 'Cost/1k Miles' for an account that chose kilometres.
-    expect(formatCostPerDistance(GALLONS_KM, 0.1)).toBe('$10.00')
-    expect(formatCostPerDistance(GALLONS_KM, 0.1)).not.toBe('$160.93')
+    expect(formatCostPerDistance(GALLONS_KM, 0.1, 'USD')).toBe('$10.00')
+    expect(formatCostPerDistance(GALLONS_KM, 0.1, 'USD')).not.toBe('$160.93')
     expect(costPerDistanceUnitLabel(GALLONS_KM)).toBe('100 km')
   })
 
@@ -235,7 +235,7 @@ describe('cost per distance', () => {
     // volume tokens, one distance token, one answer.
     const answers = new Set(
       (['L', 'gal_us', 'gal_uk'] as const).map((volume) =>
-        formatCostPerDistance({ ...IMPERIAL, volume }, 0.1)
+        formatCostPerDistance({ ...IMPERIAL, volume }, 0.1, 'USD')
       )
     )
     expect([...answers]).toStrictEqual(['$160.93'])
@@ -252,7 +252,7 @@ describe('cost per distance', () => {
     // A vehicle with no fuel records legitimately reports zero, and the
     // retired formatter printed it. `formatUtils.formatCurrency` would have
     // rendered '-' here, which is why this composes Intl directly.
-    expect(formatCostPerDistance(METRIC, 0)).toBe('$0.00')
+    expect(formatCostPerDistance(METRIC, 0, 'USD')).toBe('$0.00')
   })
 })
 

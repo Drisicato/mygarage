@@ -72,7 +72,7 @@ import AnalyticsHelpModal from '../components/AnalyticsHelpModal'
 import TireAnalyticsSection from '../components/TireAnalyticsSection'
 import ExportMenu from '../components/ExportMenu'
 import { Badge } from '../components/ui'
-import { formatCurrencyZero as formatCurrency } from '../utils/formatUtils'
+import { formatCurrencyZero as formatCurrency, RATE_DIGITS } from '../utils/formatUtils'
 import { formatDateForDisplay } from '../utils/dateUtils'
 import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
 import { useCurrencySymbol } from '../hooks/useCurrencySymbol'
@@ -1413,7 +1413,7 @@ export default function Analytics() {
                           </p>
                           {point.costPerHr != null && (
                             <p style={{ fontSize: '14px', color: '#9ca3af', marginTop: '4px' }}>
-                              {t('vehicle.costPerHourValue', { value: formatCurrency(point.costPerHr, { currencyCode, locale }) })}
+                              {t('vehicle.costPerHourValue', { value: formatCurrency(point.costPerHr, { currencyCode, locale, fractionDigits: RATE_DIGITS }) })}
                             </p>
                           )}
                         </div>
