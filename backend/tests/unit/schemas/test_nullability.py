@@ -6,9 +6,9 @@ while an explicit null is refused.
 """
 
 import pytest
-from app.schemas._nullability import reject_null
 from pydantic import BaseModel, ValidationError
 
+from app.schemas._nullability import reject_null
 from app.schemas.external_vehicle import ExternalVehicleUpdate
 
 
