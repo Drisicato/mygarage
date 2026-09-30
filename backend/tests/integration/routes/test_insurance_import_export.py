@@ -5,6 +5,7 @@ property is that importing two vehicles' files rebuilds ONE household policy,
 and that an import can never rewrite money already recorded on a policy.
 """
 
+import csv
 import io
 import json
 from datetime import date
@@ -500,7 +501,12 @@ async def test_the_csv_column_round_trips_the_coverages(
 
     exported = await client.get(f"/api/export/vehicles/{RAM}/insurance/csv", headers=auth_headers)
     assert exported.status_code == 200, exported.text
-    assert "each person" in exported.text
+    # The "$" file above goes back out bare, like the Premium and Deductible
+    # cells beside it, and the bare file is what re-imports below.
+    (exported_row,) = list(csv.DictReader(io.StringIO(exported.text)))
+    assert exported_row["Coverage Limits"] == (
+        "Bodily Injury Liability 100000.00 each person/300000.00 each accident"
+    )
 
     await db_session.execute(delete(InsurancePolicy))
     await db_session.commit()

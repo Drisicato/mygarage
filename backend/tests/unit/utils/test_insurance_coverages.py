@@ -31,10 +31,28 @@ Collision Actual Cash Value $995
 Rental Reimbursement up to $50 each day/maximum 30 days
 Roadside Assistance"""
 
+#: PROGRESSIVE as the CSV's Coverage Limits cell read before the amounts went
+#: bare. Files like this are out there, so the importer has to keep reading them.
+DOLLAR_EXPORT = """Bodily Injury Liability $100,000.00 each person/$300,000.00 each accident
+Property Damage Liability $100,000.00 each accident
+Uninsured/Underinsured Motorist Bodily Injury $100,000.00 each person/$300,000.00 each accident
+Uninsured/Underinsured Motorist Property Damage $100,000.00 each accident $250.00 deductible
+Personal Injury Protection $2,500.00 each person
+Comprehensive $995.00 deductible
+Collision $995.00 deductible
+Glass $0.00 deductible
+Rental Reimbursement $50.00 each day/30 maximum days
+Roadside Assistance"""
+
 
 def parsed(text: str) -> dict[str, object]:
     """The parse keyed by coverage, for assertions that name one coverage."""
     return {item.key: item for item in parse_coverage_lines(text).coverages}
+
+
+def amounts(coverages: list[ParsedCoverage]) -> list[tuple[object, ...]]:
+    """Every row's key and amounts, for comparing two parses."""
+    return [(c.key, c.limit_primary, c.limit_secondary, c.deductible, c.premium) for c in coverages]
 
 
 class TestCatalogue:
@@ -229,8 +247,46 @@ class TestFormatting:
 
     def test_a_line_names_the_word_that_pins_each_amount(self):
         text = format_coverage_lines(parse_coverage_lines(PROGRESSIVE).coverages)
-        assert "Bodily Injury Liability $100,000.00 each person/$300,000.00 each accident" in text
-        assert "Rental Reimbursement $50.00 each day/30 maximum days" in text
+        assert "Bodily Injury Liability 100000.00 each person/300000.00 each accident" in text
+        assert "Rental Reimbursement 50.00 each day/30 maximum days" in text
+
+    def test_the_amounts_are_bare_numbers(self):
+        """It's machine text in a CSV cell, like the Premium and Deductible
+        cells beside it: no currency sign, which was "$" for every currency,
+        and no grouping."""
+        text = format_coverage_lines(parse_coverage_lines(PROGRESSIVE).coverages)
+        assert "$" not in text
+        assert "," not in text
+
+    def test_a_bare_export_round_trips(self):
+        first = parse_coverage_lines(PROGRESSIVE).coverages
+        again = parse_coverage_lines(format_coverage_lines(first)).coverages
+        assert amounts(again) == amounts(first)
+        assert "$" not in format_coverage_lines(again)
+
+    def test_an_old_dollar_export_still_imports(self):
+        """A pre-bare file reads back as exactly the rows a bare one does."""
+        old = parse_coverage_lines(DOLLAR_EXPORT).coverages
+        bare = parse_coverage_lines(
+            format_coverage_lines(parse_coverage_lines(PROGRESSIVE).coverages)
+        ).coverages
+        assert amounts(old) == amounts(bare) == amounts(parse_coverage_lines(PROGRESSIVE).coverages)
+
+    def test_the_largest_amount_round_trips_bare(self):
+        """Ungrouped, a big limit reads through the plain-digits branch of the
+        amount pattern rather than the comma-grouped one."""
+        item = ParsedCoverage(
+            "bodily_injury",
+            limit_primary=Decimal("9999999999.99"),
+            limit_secondary=Decimal("9999999999.99"),
+            premium=Decimal("9999999999.99"),
+        )
+        text = format_coverage_lines([item])
+        assert text == (
+            "Bodily Injury Liability 9999999999.99 each person/9999999999.99 each accident "
+            "9999999999.99 premium"
+        )
+        assert parse_coverage_lines(text).coverages == [item]
 
     def test_a_coverage_with_no_amounts_is_just_its_name(self):
         text = format_coverage_lines(parse_coverage_lines("Roadside Assistance").coverages)

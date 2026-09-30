@@ -208,6 +208,7 @@ _PHRASES: tuple[tuple[str, str], ...] = tuple(
 
 #: `$1,234.56`, `1,234.56` or `1234`. The dollar sign is optional because a
 #: flattened column ("Comprehensive Actual Cash Value 1000 146.00") loses it.
+#: Keep accepting it: CSV exports wrote one before they went bare.
 _AMOUNT = re.compile(r"\$?\s?(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)")
 
 
@@ -440,11 +441,15 @@ def parse_coverage_lines(text: str | None) -> CoverageParse:
 def format_coverage_lines(coverages: list[ParsedCoverage]) -> str:
     """Render coverages as the text `parse_coverage_lines` reads back.
 
-    The flat exports (CSV) and the English-only PDF reports have one column for
-    a vehicle's coverage, so the rows are flattened to one line each. Every
+    The CSV export has one column for a vehicle's coverage, so the rows are
+    flattened to one line each. No PDF report renders this text. Every
     amount is written with the word that pins it to its slot, so a file
     exported and re-imported comes back as exactly the same rows rather than
     depending on column order.
+
+    Amounts are bare numbers ("100000.00"), like the CSV's other money cells.
+    Records carry no currency, so a "$" here was wrong for everyone else. The
+    parser still takes a leading "$", so older exports import unchanged.
     """
     lines = []
     for item in coverages:
@@ -454,9 +459,9 @@ def format_coverage_lines(coverages: list[ParsedCoverage]) -> str:
             value = getattr(item, name)
             if value is None:
                 continue
-            amount = f"${value:,.2f}" if slot.kind == "money" else f"{value:,.0f}"
+            amount = f"{value:.2f}" if slot.kind == "money" else f"{value:.0f}"
             qualifier = f" {slot.qualifiers[0]}" if slot.qualifiers else ""
-            # The limits read as one figure ("$100,000 each person/$300,000
+            # The limits read as one figure ("100000.00 each person/300000.00
             # each accident"); the deductible and the premium follow it.
             (limits if name.startswith("limit_") else extras).append(f"{amount}{qualifier}")
         rendered = " ".join(filter(None, ["/".join(limits), *extras]))
@@ -468,8 +473,8 @@ def coverage_text(rows: list[Any]) -> str:
     """Flatten stored coverage rows to text, in catalogue order.
 
     `rows` is anything carrying the columns (ORM rows, schema entries). The
-    flat surfaces -- the CSV export and the English-only PDF reports -- have
-    one column for a vehicle's coverage and this is what goes in it.
+    CSV export has one column for a vehicle's coverage and this is what goes
+    in it.
     """
     items = [
         ParsedCoverage(
