@@ -21,6 +21,7 @@ from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.unit_resolution import new_user_unit_kwargs
 
+from .config import effective_oidc_value
 from .state import store_oidc_state
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ async def create_authorization_url(
     if not auth_endpoint:
         raise ValueError("Provider metadata missing authorization_endpoint")
 
-    scopes = config.get("scopes", "openid profile email")
+    scopes = effective_oidc_value(config, "scopes")
 
     # Build query parameters
     params = {
@@ -154,9 +155,9 @@ async def create_or_update_user_from_oidc(
         all_claims.update(userinfo)
 
     # Extract user info from claims
-    username_claim = config.get("username_claim", "preferred_username")
-    email_claim = config.get("email_claim", "email")
-    name_claim = config.get("name_claim", "name")
+    username_claim = effective_oidc_value(config, "username_claim")
+    email_claim = effective_oidc_value(config, "email_claim")
+    name_claim = effective_oidc_value(config, "full_name_claim")
 
     username = all_claims.get(
         username_claim,

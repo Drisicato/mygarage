@@ -18,6 +18,28 @@ from app.utils.url_validation import validate_oidc_url
 
 logger = logging.getLogger(__name__)
 
+#: What an unset or blank setting means. Blank used to reach the IdP as
+#: `scope=`, or look up the claim '' and find no email for anyone.
+OIDC_DEFAULTS: dict[str, str] = {
+    "scopes": "openid profile email",
+    "username_claim": "preferred_username",
+    "email_claim": "email",
+    "full_name_claim": "name",
+}
+
+
+def effective_oidc_value(config: dict[str, str], key: str) -> str:
+    """The setting login actually uses: the stripped value, or the default when blank.
+
+    `full_name_claim` falls back to `name_claim` before "name". The admin page
+    writes the first, but `name_claim` has been seeded since the first release
+    and an instance may only have that one.
+    """
+    value = config.get(key, "").strip()
+    if not value and key == "full_name_claim":
+        value = config.get("name_claim", "").strip()
+    return value or OIDC_DEFAULTS[key]
+
 
 async def get_oidc_config(db: AsyncSession) -> dict[str, str]:
     """Get OIDC configuration from database settings.

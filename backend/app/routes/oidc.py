@@ -28,6 +28,7 @@ from app.models.csrf_token import CSRFToken
 from app.models.user import User
 from app.services import oidc as oidc_service
 from app.services.auth import create_access_token, get_current_admin_user, get_current_user
+from app.services.oidc.config import effective_oidc_value
 from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.request_scheme import get_cookie_secure, get_external_base_url
@@ -125,7 +126,7 @@ async def get_oidc_config(db: AsyncSession = Depends(get_db)):
         provider_name=config.get("provider_name", ""),
         issuer_url=config.get("issuer_url", ""),
         client_id=config.get("client_id", ""),
-        scopes=config.get("scopes", "openid profile email"),
+        scopes=effective_oidc_value(config, "scopes"),
     )
 
 
@@ -152,12 +153,12 @@ async def get_oidc_admin_config(
         issuer_url=config.get("issuer_url", ""),
         client_id=config.get("client_id", ""),
         client_secret=oidc_service.display_mask_secret(config.get("client_secret", "")),
-        scopes=config.get("scopes") or "openid profile email",
+        scopes=effective_oidc_value(config, "scopes"),
         auto_create_users=(config.get("auto_create_users", "true").lower() == "true"),
         admin_group=config.get("admin_group", ""),
-        username_claim=config.get("username_claim") or "preferred_username",
-        email_claim=config.get("email_claim") or "email",
-        full_name_claim=config.get("full_name_claim") or "name",
+        username_claim=effective_oidc_value(config, "username_claim"),
+        email_claim=effective_oidc_value(config, "email_claim"),
+        full_name_claim=effective_oidc_value(config, "full_name_claim"),
     )
 
 
@@ -193,12 +194,12 @@ async def put_oidc_admin_config(
             "issuer_url": issuer_url,
             "client_id": payload.client_id,
             "client_secret": client_secret,
-            "scopes": payload.scopes,
+            "scopes": payload.scopes.strip(),
             "auto_create_users": "true" if payload.auto_create_users else "false",
             "admin_group": payload.admin_group,
-            "username_claim": payload.username_claim,
-            "email_claim": payload.email_claim,
-            "full_name_claim": payload.full_name_claim,
+            "username_claim": payload.username_claim.strip(),
+            "email_claim": payload.email_claim.strip(),
+            "full_name_claim": payload.full_name_claim.strip(),
         },
     )
 
