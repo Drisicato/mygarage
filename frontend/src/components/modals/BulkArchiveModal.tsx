@@ -42,7 +42,7 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
     setSalePriceError(undefined)
     setSaleDate('')
     setNotes('')
-    setVisible(false)
+    setVisible(true)
   }
 
   const handleClose = () => {

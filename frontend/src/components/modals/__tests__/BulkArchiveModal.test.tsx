@@ -34,6 +34,17 @@ describe('BulkArchiveModal', () => {
     }
   })
 
+  it('is still VISIBLE by default after a cancel and reopen', async () => {
+    // resetForm put visible back to false, so only the first bulk archive of a
+    // session got the default the test above pins.
+    render(<BulkArchiveModal {...PROPS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'common:cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls[0][1] as { visible?: boolean }).visible).toBe(true)
+  })
+
   // money-fits: the API takes a sale price from 0 to MONEY_MAX
   // (9,999,999,999.99). The field is optional; blank posts null.
   it.each([

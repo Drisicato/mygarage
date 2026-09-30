@@ -1279,7 +1279,7 @@
     {
       "path": "src/components/modals/BulkArchiveModal.tsx",
       "disposition": "no unit behaviour",
-      "digest": "3ab3c7dc9481fc76c61bad169032790b5820600dc4e80e725e5963e5ff00cb5e",
+      "digest": "3e768a329b83c9d496e0c16563e30f8976fad8b273381e6c46ae999b687f4f36",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-30 (money-fits B6): the sale price is a NumberInput checked against the API money bounds; money only, still no unit token. 2026-09-30 (money-fits final wave F-5): a sale price and date the reason hides post null; money only, still no unit token."
     },
     {
