@@ -206,8 +206,10 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
             <label className="block text-sm font-medium text-garage-text mb-1.5">
               {t('modal.email')} <span className="text-danger">*</span>
             </label>
+            {/* The IdP's address may not pass the browser's email check, and that
+                would block every save. The server still checks a changed one. */}
             <input
-              type="email"
+              type={isOidc ? 'text' : 'email'}
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required

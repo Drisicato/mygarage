@@ -149,6 +149,18 @@ describe('AddEditUserModal SSO email and name', () => {
     expect(body).not.toHaveProperty('email')
   })
 
+  // The browser's own email check refuses addresses an IdP happily stores, and
+  // a blocked submit would stop even an Active-only save.
+  it("saves an SSO user whose IdP email the browser's email check refuses", async () => {
+    renderEdit(account({ email: 'jörg@example.com' }))
+
+    fireEvent.click(activeBox())
+    const body = await save()
+
+    expect(body).toHaveProperty('is_active', false)
+    expect(body).not.toHaveProperty('email')
+  })
+
   it("keeps an SSO user's name locked, with the only managed-by hint", () => {
     renderEdit(account())
 
