@@ -120,8 +120,22 @@ def _load_service_visits_query(vin: str):
     )
 
 
-def build_anomalies_from_monthly_df(monthly_df: Any) -> list[AnomalyAlert]:
-    """Detect spending anomalies from a monthly aggregation DataFrame."""
+def _anomaly_amount(amount: Decimal, currency_code: str | None) -> str:
+    """An amount for the anomaly message: bare, plus the reader's currency code.
+
+    Records carry no currency, so there's no symbol to pick. Same shape as the
+    toll CSV's amounts; with no reader (auth off) it's just the number.
+    """
+    return f"{amount:.2f} {currency_code}" if currency_code else f"{amount:.2f}"
+
+
+def build_anomalies_from_monthly_df(
+    monthly_df: Any, currency_code: str | None = None
+) -> list[AnomalyAlert]:
+    """Detect spending anomalies from a monthly aggregation DataFrame.
+
+    `currency_code` is the reader's, for the message text only.
+    """
     anomalies: list[AnomalyAlert] = []
     if monthly_df is None or getattr(monthly_df, "empty", True) or len(monthly_df) < 3:
         return anomalies
@@ -142,8 +156,9 @@ def build_anomalies_from_monthly_df(monthly_df: Any) -> list[AnomalyAlert]:
         severity = "critical" if abs(deviation_percent) >= 50 else "warning"
         direction = "above" if amount > baseline else "below"
         message = (
-            f"Spending in {row['month_name']} {int(row['year'])} was ${amount:.2f}, "
-            f"{abs(deviation_percent):.1f}% {direction} your average of ${baseline:.2f}."
+            f"Spending in {row['month_name']} {int(row['year'])} was "
+            f"{_anomaly_amount(amount, currency_code)}, {abs(deviation_percent):.1f}% "
+            f"{direction} your average of {_anomaly_amount(baseline, currency_code)}."
         )
         anomalies.append(
             AnomalyAlert(
@@ -217,8 +232,13 @@ def filter_anomalies_to_window(
 
 
 @cached(ttl_seconds=600)  # Cache for 10 minutes
-async def get_cost_analysis(db: AsyncSession, vin: str) -> CostAnalysis:
-    """Calculate cost analysis for a vehicle."""
+async def get_cost_analysis(
+    db: AsyncSession, vin: str, *, currency_code: str | None
+) -> CostAnalysis:
+    """Calculate cost analysis for a vehicle.
+
+    `currency_code` is the reader's (None with auth off), for the anomaly text.
+    """
 
     # Get vehicle to check type for spot rental filtering
     vehicle_result = await db.execute(select(Vehicle).where(Vehicle.vin == vin))
@@ -405,7 +425,7 @@ async def get_cost_analysis(db: AsyncSession, vin: str) -> CostAnalysis:
 
     # Detect cost anomalies against the full monthly history. Display
     # windows are applied in get_vehicle_analytics via filter_anomalies_to_window.
-    anomalies = build_anomalies_from_monthly_df(running_cost_df)
+    anomalies = build_anomalies_from_monthly_df(running_cost_df, currency_code)
 
     return CostAnalysis(
         total_service_cost=total_service_cost,
@@ -863,7 +883,9 @@ async def get_vehicle_analytics(
     is_fifth_wheel = vehicle.vehicle_type == "FifthWheel"
 
     # Get cost analysis
-    cost_analysis = await get_cost_analysis(db, vin)
+    cost_analysis = await get_cost_analysis(
+        db, vin, currency_code=current_user.currency_code if current_user else None
+    )
     # Detect on full history (already done inside get_cost_analysis), then
     # filter alerts to the display window so short ranges keep a stable
     # baseline (#130 / PR #144 review).
