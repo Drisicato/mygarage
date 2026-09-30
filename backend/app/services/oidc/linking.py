@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import OIDCLoginRefusedError
 from app.models.oidc_pending_link import OIDCPendingLink
 from app.models.settings import Setting
 from app.models.user import User
@@ -23,6 +24,9 @@ from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
+
+# The refusal message for a disabled target, the same one the login steps use.
+_DISABLED = "User account is disabled"
 
 
 async def _cleanup_expired_pending_links(db: AsyncSession) -> None:
@@ -43,14 +47,15 @@ async def create_pending_link_token(
     userinfo: dict[str, Any] | None,
     config: dict[str, str],
 ) -> str:
-    """Create pending link token for username-based OIDC account linking.
+    """Create a pending link token for a password-confirmed OIDC account link.
 
     This function creates a temporary token that allows a user to link their OIDC
-    account to an existing local account by verifying their password.
+    account to an existing local account by verifying their password. It's used
+    when the email or username claim matched an account that has a password.
 
     Args:
         db: Database session
-        username: The matched username requiring verification
+        username: The matched account's username (for an email match, not the claim's)
         claims: ID token claims from OIDC provider
         userinfo: Optional userinfo endpoint claims
         config: OIDC configuration
@@ -108,12 +113,17 @@ async def validate_and_consume_pending_link(
     This function validates the pending link token, verifies the user's password,
     and links the OIDC account to the existing local account.
 
-    Security checks:
+    Everything is re-checked here, since the account can change in the minutes
+    the token lives. Security checks, in order:
     - Token exists and not expired
     - Attempt count < max attempts
+    - User is active (before the password, and nothing is linked or counted)
     - User has password (not OIDC-only)
     - User not already linked to different oidc_subject
     - Password verification passes
+
+    Every refusal deletes the pending link, except a wrong password with
+    attempts left.
 
     Args:
         db: Database session
@@ -123,6 +133,10 @@ async def validate_and_consume_pending_link(
     Returns:
         Tuple of (User, error_message). If User is None, error_message contains
         specific error for display.
+
+    Raises:
+        OIDCLoginRefusedError: The matched account is disabled. The pending
+            link is already deleted and committed when it's raised.
     """
     # Clean up expired tokens first
     await _cleanup_expired_pending_links(db)
@@ -168,6 +182,15 @@ async def validate_and_consume_pending_link(
         await db.delete(pending_link)
         await db.commit()
         return (None, "Link expired, please log in again")
+
+    # A disabled account is refused before its password is checked, so the answer
+    # never depends on the password, and nothing gets linked or counted.
+    if not user.is_active:
+        username = user.username
+        logger.warning("Pending link refused, account disabled: %s", sanitize_for_log(username))
+        await db.delete(pending_link)
+        await db.commit()
+        raise OIDCLoginRefusedError(_DISABLED, username=username)
 
     # Security check: user must have a password (not OIDC-only)
     if user.hashed_password is None:

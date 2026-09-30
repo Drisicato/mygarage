@@ -590,15 +590,16 @@ export interface paths {
          * Link Oidc Account
          * @description Link OIDC account to existing local account with password verification.
          *
-         *     This endpoint is called after OIDC login when a username match is found
-         *     but no OIDC link exists. The user must verify their password to link
-         *     the accounts.
+         *     This endpoint is called after an OIDC login whose email or username matches
+         *     an existing account that has a password and no OIDC link. The user must
+         *     enter that account's password to link the accounts.
          *
          *     Security:
          *     - Rate limited (5/minute via settings.rate_limit_auth)
          *     - Max 3 password attempts per token (configured in settings)
          *     - Token expires after 5 minutes (configured in settings)
-         *     - Audited (success and failure)
+         *     - A disabled account is refused before the password is checked
+         *     - Audited (success, failure and refusal)
          *     - CSRF protected (middleware)
          *
          *     Args:
