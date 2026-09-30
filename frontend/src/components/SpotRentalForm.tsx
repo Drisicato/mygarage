@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Save } from 'lucide-react'
@@ -16,6 +16,57 @@ import { toast } from 'sonner'
 import { formatDateForInput } from '../utils/dateUtils'
 import { applyServerErrors } from '../hooks/useApiFormErrors'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { useOnUserEdit } from '../hooks/useOnUserEdit'
+
+type RateType = 'nightly' | 'weekly' | 'monthly'
+
+const RATE_FIELD = {
+  nightly: 'nightly_rate',
+  weekly: 'weekly_rate',
+  monthly: 'monthly_rate',
+} as const satisfies Record<RateType, keyof SpotRentalFormData>
+
+// Inputs the suggested total is built from. A user edit to any of them
+// recomputes it; opening a record never does.
+const TOTAL_INPUTS = [
+  'nightly_rate',
+  'weekly_rate',
+  'monthly_rate',
+  'electric',
+  'water',
+  'waste',
+  'check_in_date',
+  'check_out_date',
+] as const
+
+const toAmount = (value: unknown): number | undefined => {
+  if (value == null || value === '') return undefined
+  const num = typeof value === 'number' ? value : parseFloat(String(value))
+  return Number.isFinite(num) ? num : undefined
+}
+
+// Whole nights between two YYYY-MM-DD dates, or 0 when either is missing.
+const nightsBetween = (checkIn: string | undefined, checkOut: string | undefined): number => {
+  if (!checkIn || !checkOut) return 0
+  const days = (Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`)) / 86_400_000
+  return Number.isFinite(days) ? Math.round(days) : 0
+}
+
+/**
+ * The rate plus utilities, or undefined when none of them is entered. A
+ * nightly stay with both dates is charged per night; an ongoing one, and
+ * weekly or monthly rates, suggest one period because a part period is the
+ * user's call.
+ */
+function suggestTotal(values: SpotRentalFormData, rateType: RateType): number | undefined {
+  const rate = toAmount(values[RATE_FIELD[rateType]])
+  const utilities = [values.electric, values.water, values.waste].map(toAmount)
+  if (rate === undefined && utilities.every((u) => u === undefined)) return undefined
+  const nights = rateType === 'nightly' ? nightsBetween(values.check_in_date, values.check_out_date) : 0
+  const base = (rate ?? 0) * (nights > 0 ? nights : 1)
+  const total = utilities.reduce<number>((sum, u) => sum + (u ?? 0), base)
+  return parseFloat(total.toFixed(2))
+}
 
 interface SpotRentalFormProps {
   vin: string
@@ -33,7 +84,7 @@ export default function SpotRentalForm({ vin, rental, onClose, onSuccess }: Spot
   const [selectedAddressEntry, setSelectedAddressEntry] = useState<AddressBookEntry | null>(null)
   const [showSaveToAddressBook, setShowSaveToAddressBook] = useState(false)
   const [pendingLocationData, setPendingLocationData] = useState<{name: string, address: string} | null>(null)
-  const [rateType, setRateType] = useState<'nightly' | 'weekly' | 'monthly'>(() => {
+  const [rateType, setRateType] = useState<RateType>(() => {
     if (rental?.monthly_rate) return 'monthly'
     if (rental?.weekly_rate) return 'weekly'
     return 'nightly'
@@ -49,6 +100,8 @@ export default function SpotRentalForm({ vin, rental, onClose, onSuccess }: Spot
     handleSubmit,
     watch,
     setValue,
+    getValues,
+    subscribe,
     formState: { errors, isSubmitting },
     setError: setFieldError,
   } = useForm<SpotRentalFormData>({
@@ -70,41 +123,11 @@ export default function SpotRentalForm({ vin, rental, onClose, onSuccess }: Spot
     },
   })
 
-  // Auto-calculate total cost from rate + utilities
-  const nightlyRate = watch('nightly_rate')
-  const weeklyRate = watch('weekly_rate')
-  const monthlyRate = watch('monthly_rate')
-  const electric = watch('electric')
-  const water = watch('water')
-  const waste = watch('waste')
-
-  useEffect(() => {
-    // Convert all values to numbers, handling both string and number inputs
-    const toNumber = (val: number | string | undefined): number => {
-      if (!val) return 0
-      const num = typeof val === 'string' ? parseFloat(val) : val
-      return isNaN(num) ? 0 : num
-    }
-
-    let baseRate = 0
-
-    if (rateType === 'nightly' && nightlyRate) {
-      baseRate = toNumber(nightlyRate)
-    } else if (rateType === 'weekly' && weeklyRate) {
-      baseRate = toNumber(weeklyRate)
-    } else if (rateType === 'monthly' && monthlyRate) {
-      baseRate = toNumber(monthlyRate)
-    }
-
-    const elec = toNumber(electric)
-    const wat = toNumber(water)
-    const wst = toNumber(waste)
-    const calculatedTotal = baseRate + elec + wat + wst
-
-    if (calculatedTotal > 0) {
-      setValue('total_cost', parseFloat(calculatedTotal.toFixed(2)))
-    }
-  }, [rateType, nightlyRate, weeklyRate, monthlyRate, electric, water, waste, setValue])
+  // total_cost is read-only and derived, but only from what the user changes.
+  // Recomputing on open replaced a ten-night total with one night's rate.
+  useOnUserEdit(subscribe, TOTAL_INPUTS, (values) => {
+    setValue('total_cost', suggestTotal(values, rateType))
+  })
 
   const handleAddressBookSelect = (entry: AddressBookEntry | null) => {
     setSelectedAddressEntry(entry)
@@ -154,21 +177,23 @@ export default function SpotRentalForm({ vin, rental, onClose, onSuccess }: Spot
     setError(null)
 
     try {
-      // Zod has already parsed and validated all numeric fields - no parseFloat needed!
+      // The update route keeps any key that isn't sent, so on edit an emptied
+      // field must be null or it keeps its old value. Create stays as it was.
+      const cleared = isEdit ? null : undefined
       const payload: SpotRentalCreate | SpotRentalUpdate = {
-        location_name: data.location_name || undefined,
-        location_address: data.location_address || undefined,
+        location_name: data.location_name || cleared,
+        location_address: data.location_address || cleared,
         check_in_date: data.check_in_date,
-        check_out_date: data.check_out_date || undefined,
-        nightly_rate: data.nightly_rate,
-        weekly_rate: data.weekly_rate,
-        monthly_rate: data.monthly_rate,
-        electric: data.electric,
-        water: data.water,
-        waste: data.waste,
-        total_cost: data.total_cost,
-        amenities: data.amenities || undefined,
-        notes: data.notes || undefined,
+        check_out_date: data.check_out_date || cleared,
+        nightly_rate: data.nightly_rate ?? cleared,
+        weekly_rate: data.weekly_rate ?? cleared,
+        monthly_rate: data.monthly_rate ?? cleared,
+        electric: data.electric ?? cleared,
+        water: data.water ?? cleared,
+        waste: data.waste ?? cleared,
+        total_cost: data.total_cost ?? cleared,
+        amenities: data.amenities || cleared,
+        notes: data.notes || cleared,
       }
 
       if (isEdit) {
@@ -284,18 +309,14 @@ export default function SpotRentalForm({ vin, rental, onClose, onSuccess }: Spot
                 id="rate_type"
                 value={rateType}
                 onChange={(e) => {
-                  const newType = e.target.value as 'nightly' | 'weekly' | 'monthly'
+                  const newType = e.target.value as RateType
                   setRateType(newType)
-                  if (newType === 'nightly') {
-                    setValue('weekly_rate', undefined)
-                    setValue('monthly_rate', undefined)
-                  } else if (newType === 'weekly') {
-                    setValue('nightly_rate', undefined)
-                    setValue('monthly_rate', undefined)
-                  } else {
-                    setValue('nightly_rate', undefined)
-                    setValue('weekly_rate', undefined)
+                  for (const type of ['nightly', 'weekly', 'monthly'] as const) {
+                    if (type !== newType) setValue(RATE_FIELD[type], undefined)
                   }
+                  // setValue isn't a user edit, so useOnUserEdit won't see the
+                  // switch. Recompute here, and let an empty sum clear the total.
+                  setValue('total_cost', suggestTotal(getValues(), newType))
                 }}
                 disabled={isSubmitting}
                 options={[
