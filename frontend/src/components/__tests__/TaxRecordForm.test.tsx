@@ -124,3 +124,40 @@ describe('TaxRecordForm — amount field on NumberInput (Task 8)', () => {
     expect(createMutateAsync).not.toHaveBeenCalled()
   })
 })
+
+describe('TaxRecordForm: the renewal date and type are optional and can be cleared', () => {
+  it('creates a record with neither', async () => {
+    const user = userEvent.setup()
+    render(<TaxRecordForm vin="V1" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.type(screen.getByLabelText('common:amount *'), '40')
+    await user.click(screen.getByRole('button', { name: 'common:create' }))
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1))
+    expect(createMutateAsync.mock.calls[0][0]).toMatchObject({ amount: 40 })
+    expect(createMutateAsync.mock.calls[0][0].renewal_date).toBeUndefined()
+    expect(createMutateAsync.mock.calls[0][0].tax_type).toBeUndefined()
+  })
+
+  it('re-saves an untouched record that has neither', async () => {
+    const record = {
+      id: 8, date: '2026-01-10', tax_type: null, amount: 50, renewal_date: null, notes: null,
+    } as unknown as TaxRecord
+    const user = userEvent.setup()
+    render(<TaxRecordForm vin="V1" record={record} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'common:update' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0]).toMatchObject({ renewal_date: null, tax_type: null })
+  })
+
+  it('clearing both on edit posts null', async () => {
+    const record = {
+      id: 6, date: '2026-01-10', tax_type: 'Inspection', amount: 50, renewal_date: '2027-01-10', notes: 'y',
+    } as unknown as TaxRecord
+    const user = userEvent.setup()
+    render(<TaxRecordForm vin="V1" record={record} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.clear(screen.getByLabelText('tax.renewalDate'))
+    await user.selectOptions(screen.getByLabelText('taxRecordForm.type'), '')
+    await user.click(screen.getByRole('button', { name: 'common:update' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0]).toMatchObject({ renewal_date: null, tax_type: null })
+  })
+})

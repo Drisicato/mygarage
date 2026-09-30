@@ -53,13 +53,15 @@ export default function RecallForm({ vin, recall, onClose, onSuccess }: RecallFo
     setError(null)
 
     try {
+      // On edit an emptied date must be null, or the update keeps the old one.
+      const cleared = isEdit ? null : undefined
       const payload: RecallCreate | RecallUpdate = {
         nhtsa_campaign_number: data.nhtsa_campaign_number,
         component: data.component,
         summary: data.summary,
         consequence: data.consequence,
         remedy: data.remedy,
-        date_announced: data.date_announced,
+        date_announced: data.date_announced || cleared,
         is_resolved: data.is_resolved,
         notes: data.notes,
       }

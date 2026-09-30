@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
-import { makeDateSchema, makeNotesSchema } from './shared'
+import { makeNotesSchema, makeOptionalDateSchema } from './shared'
 
 /**
  * Recall schema matching backend Pydantic validators.
@@ -31,7 +31,7 @@ export const makeRecallSchema = (t: TFunction) =>
       .string()
       .max(2000, t('common:validation.recall.remedyTooLong'))
       .optional(),
-    date_announced: makeDateSchema(t).optional(),
+    date_announced: makeOptionalDateSchema(t),
     is_resolved: z.boolean(),
     notes: makeNotesSchema(t).optional(),
   })
