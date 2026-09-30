@@ -1042,8 +1042,8 @@
     {
       "path": "src/components/insurance/AddToPolicyDialog.tsx",
       "disposition": "no unit behaviour",
-      "digest": "1a8c00d7fbb9e998477f713eaff8e08cc6582e94af5097988388f8ad3493775f",
-      "reason": "no unit behaviour: household insurance (2026-09-19, migration 107), puts a vehicle on an existing policy. Reviewed by reading it: currency amounts, dates and text only; no distance, volume, mass, pressure, temperature or consumption value is read, converted or displayed."
+      "digest": "0a559b0653a87e9c18c85d7e677f4b4cdfe35082e5017fc94d6876fe551b3b2a",
+      "reason": "no unit behaviour: household insurance (2026-09-19, migration 107), puts a vehicle on an existing policy. Reviewed by reading it: currency amounts, dates and text only; no distance, volume, mass, pressure, temperature or consumption value is read, converted or displayed. 2026-09-30 (money-fits B6): the premium share is checked against the API money bounds (moneyTextError); money only, no unit decision."
     },
     {
       "path": "src/components/insurance/CoverageEditor.tsx",
