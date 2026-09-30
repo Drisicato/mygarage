@@ -181,3 +181,15 @@ describe('DeviceRow controls by source', () => {
     expect(onUpdate).toHaveBeenCalledWith(device.device_id, { vin: '' })
   })
 })
+
+describe('DeviceRow label', () => {
+  it('clearing the label sends null, which clears it', () => {
+    const onUpdate = vi.fn()
+    renderRow(undefined, { onUpdate })
+    fireEvent.click(screen.getByRole('button', { name: 'Truck dongle' }))
+    const input = screen.getByPlaceholderText('modal.livelink.labelPlaceholder')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(input.nextElementSibling as HTMLElement)
+    expect(onUpdate).toHaveBeenCalledWith(device.device_id, { label: null })
+  })
+})

@@ -118,7 +118,8 @@ export default function DeviceRow({
   }, [device.device_id, choosesOdometerParam])
 
   const handleSaveLabel = (): void => {
-    onUpdate(device.device_id, { label: label || undefined })
+    // null clears; undefined would be dropped from the JSON and keep the old label.
+    onUpdate(device.device_id, { label: label || null })
     setEditing(false)
   }
 
