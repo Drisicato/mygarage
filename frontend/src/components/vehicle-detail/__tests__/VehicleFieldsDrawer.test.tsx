@@ -124,4 +124,38 @@ describe('VehicleFieldsDrawer', () => {
     expect(payload).toEqual({ make: 'Nissan' })
     expect(Object.prototype.hasOwnProperty.call(payload, 'year')).toBe(false)
   })
+
+  describe('clearing Exterior color clears the colour the overview shows', () => {
+    // The overview shows `exterior_color || color`, and this field seeds from
+    // the same pair, so a clear that left `color` behind brought it back.
+    const clearAndSave = async (): Promise<Record<string, unknown>> => {
+      fireEvent.change(screen.getByLabelText('detail.misc.exteriorColor'), { target: { value: '' } })
+      fireEvent.click(screen.getByRole('button', { name: 'common:save' }))
+      await waitFor(() => expect(mockedUpdate).toHaveBeenCalledTimes(1))
+      return mockedUpdate.mock.calls[0][1] as Record<string, unknown>
+    }
+
+    it('seeded from color: the clear nulls both', async () => {
+      renderDrawer({ vehicle: { ...baseVehicle, color: 'Red', exterior_color: null } as Vehicle })
+      expect(await clearAndSave()).toStrictEqual({ exterior_color: null, color: null })
+    })
+
+    it('masking color: the clear nulls both', async () => {
+      renderDrawer({ vehicle: { ...baseVehicle, color: 'Red', exterior_color: 'Blue' } as Vehicle })
+      expect(await clearAndSave()).toStrictEqual({ exterior_color: null, color: null })
+    })
+
+    it('with no color stored: only exterior_color', async () => {
+      renderDrawer({ vehicle: { ...baseVehicle, color: null, exterior_color: 'Blue' } as unknown as Vehicle })
+      expect(await clearAndSave()).toStrictEqual({ exterior_color: null })
+    })
+
+    it('an edit, not a clear, posts only exterior_color', async () => {
+      renderDrawer({ vehicle: { ...baseVehicle, color: 'Red', exterior_color: null } as Vehicle })
+      fireEvent.change(screen.getByLabelText('detail.misc.exteriorColor'), { target: { value: 'Green' } })
+      fireEvent.click(screen.getByRole('button', { name: 'common:save' }))
+      await waitFor(() => expect(mockedUpdate).toHaveBeenCalledTimes(1))
+      expect(mockedUpdate.mock.calls[0][1]).toStrictEqual({ exterior_color: 'Green' })
+    })
+  })
 })
