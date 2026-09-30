@@ -245,7 +245,7 @@ describe('SupplyHistoryModal', () => {
     await user.click(screen.getByRole('button', { name: 'save' }))
 
     await waitFor(() => {
-      expect(screen.getByText('validation.amount.negative')).toBeInTheDocument()
+      expect(screen.getByText('common:validation.amount.negative')).toBeInTheDocument()
     })
   })
 
@@ -260,10 +260,12 @@ describe('SupplyHistoryModal', () => {
     await user.click(screen.getByRole('button', { name: 'save' }))
 
     await waitFor(() => {
-      expect(screen.getByText('validation.amount.tooLarge')).toBeInTheDocument()
+      expect(screen.getByText('common:validation.amount.tooLarge')).toBeInTheDocument()
     })
   })
 
+  // Text that isn't a number says so. It used to get the "cannot be negative"
+  // message, which is wrong for "abc"; moneyError gives the invalid one.
   it('rejects unparseable text in the purchase total_cost field without crashing', async () => {
     const user = userEvent.setup()
     render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
@@ -274,7 +276,7 @@ describe('SupplyHistoryModal', () => {
     await user.click(screen.getByRole('button', { name: 'save' }))
 
     await waitFor(() => {
-      expect(screen.getByText('validation.amount.negative')).toBeInTheDocument()
+      expect(screen.getByText('common:validation.amount.invalid')).toBeInTheDocument()
     })
   })
 })
