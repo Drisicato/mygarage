@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
+import type { UnitSet } from '@/types/units'
 import {
+  checkUnitPriceCap,
   makeDateSchema,
   makeOptionalOdometerSchema,
   makeOptionalVolumeSchema,
@@ -22,6 +24,12 @@ import {
  * See: backend/app/schemas/fuel.py
  *
  * Factory, not a constant — see the header of schemas/auth.ts for why.
+ *
+ * `units` is the client's resolved set. The API caps `price_per_unit` in $/L
+ * or $/kg, and the `price_basis` select on this same form decides which unit
+ * the typed number is per, so the cap is an object-level check that reads the
+ * basis off the parse (Fable F-B4). The form rebuilds the schema when `units`
+ * changes.
  */
 
 export const PRICE_BASIS_VALUES = ['per_volume', 'per_weight', 'per_kwh', 'per_tank'] as const
@@ -43,7 +51,7 @@ const optionalEnum = <T extends readonly [string, ...string[]]>(values: T) =>
     .optional()
     .transform((v) => (v === '' || v === undefined ? undefined : v))
 
-export const makeFuelRecordSchema = (t: TFunction) =>
+export const makeFuelRecordSchema = (t: TFunction, units: UnitSet) =>
   z.object({
     date: makeDateSchema(t),
     filled_at: z.string().optional(),
@@ -165,6 +173,7 @@ export const makeFuelRecordSchema = (t: TFunction) =>
       .optional()
       .or(z.literal('')),
   })
+  .superRefine((data, ctx) => checkUnitPriceCap(t, ctx, data.price_per_unit, units, data.price_basis))
 
 // Export both input and output types for Zod v4 zodResolver compatibility
 // z.input = what the form supplies (unknown for coerce fields)

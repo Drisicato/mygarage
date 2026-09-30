@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
 import { makeVehicleEditSchema, VEHICLE_TYPES } from '../vehicle'
-import { INVALID_NUMBER } from '../shared'
+import { INVALID_NUMBER, MONEY_MAX } from '../shared'
 
 // Same shape as the global react-i18next mock in src/__tests__/setup.ts:
 // messages come back as their i18n key, which is all these tests need.
@@ -350,13 +350,11 @@ describe('vehicleEditSchema — purchase_price/sold_price stay absent when omitt
 // becomes INVALID_NUMBER. Task 8b then widened the shared invalid-number
 // guard (which numericOrNullField mirrors) to treat any NaN that DOES still
 // arrive as invalid input rather than empty — so these four fields now
-// REJECT NaN instead of silently collapsing it to null. `sold_price` is
-// unaffected: it's driven by PricingDrawer's own plain controlled
-// value/onChange inputs, never registerDecimal, so it can still receive a
-// genuine valueAsNumber-style NaN and still collapses it to null exactly as
-// before. A legitimate zero (e.g. a free vehicle, or 0 doors on a trailer)
+// REJECT NaN instead of silently collapsing it to null. `sold_price` has
+// the same money field since money-fits (nothing registers it against this
+// schema). A legitimate zero (e.g. a free vehicle, or 0 doors on a trailer)
 // must still survive as 0, not become null: the backend accepts 0 on all of
-// these (no lower-bound constraints).
+// these.
 describe('vehicleEditSchema — numeric fields null-on-clear (blank vs. zero)', () => {
   it('rejects a NaN purchase_price as invalid rather than silently nulling it', () => {
     const result = vehicleEditSchema.safeParse({ ...base, purchase_price: NaN })
@@ -378,9 +376,13 @@ describe('vehicleEditSchema — numeric fields null-on-clear (blank vs. zero)', 
     expect(result.purchase_price).toBe(15000)
   })
 
-  it('sold_price (unaffected — PricingDrawer, not registerDecimal) still transforms NaN to null and preserves zero', () => {
-    expect(vehicleEditSchema.parse({ ...base, sold_price: NaN }).sold_price).toBeNull()
+  // No form registers sold_price against this schema (PricingDrawer posts it
+  // without one), so it takes purchase_price's money field rather than a
+  // shape of its own: a NaN is refused, and a zero survives.
+  it('sold_price takes the same money field: NaN refused, zero kept, null kept', () => {
+    expect(vehicleEditSchema.safeParse({ ...base, sold_price: NaN }).success).toBe(false)
     expect(vehicleEditSchema.parse({ ...base, sold_price: 0 }).sold_price).toBe(0)
+    expect(vehicleEditSchema.parse({ ...base, sold_price: null }).sold_price).toBeNull()
   })
 
   it('rejects a NaN year as invalid rather than silently nulling it', () => {
@@ -403,8 +405,25 @@ describe('vehicleEditSchema — numeric fields null-on-clear (blank vs. zero)', 
 // these six fields used couldn't recognize INVALID_NUMBER (the sentinel
 // registerDecimal emits for unparseable text) and leaked zod's raw "Invalid
 // input: expected number, received symbol" instead of a translated message.
-// `sold_price` is excluded — it's never wired through registerDecimal (see
-// above) and can't receive the sentinel.
+// `sold_price` is excluded: no form wires it through registerDecimal, so it
+// can't receive the sentinel.
+// money-fits (B3/B6): the API takes 0 to MONEY_MAX on both prices. The wizard
+// used to accept a negative purchase price, which B3's `ge=0` now refuses.
+describe('vehicleEditSchema: purchase_price/sold_price money bounds', () => {
+  it.each(['purchase_price', 'sold_price'])('%s takes 0 to MONEY_MAX and refuses either side', (field) => {
+    expect(vehicleEditSchema.safeParse({ ...base, [field]: 0 }).success).toBe(true)
+    expect(vehicleEditSchema.safeParse({ ...base, [field]: MONEY_MAX }).success).toBe(true)
+
+    const negative = vehicleEditSchema.safeParse({ ...base, [field]: -5 })
+    expect(negative.success).toBe(false)
+    if (!negative.success) expect(negative.error.issues[0].message).toBe('common:validation.amount.negative')
+
+    const over = vehicleEditSchema.safeParse({ ...base, [field]: MONEY_MAX + 0.01 })
+    expect(over.success).toBe(false)
+    if (!over.success) expect(over.error.issues[0].message).toBe('common:validation.amount.tooLarge')
+  })
+})
+
 describe('vehicleEditSchema — INVALID_NUMBER sentinel (Task 8 critical fix)', () => {
   it('rejects the sentinel on every converted numeric field with a translated message, not a raw zod union error', () => {
     const result = vehicleEditSchema.safeParse({

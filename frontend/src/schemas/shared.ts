@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
+import { getActiveLocale } from '@/constants/i18n'
+import type { UnitSet } from '@/types/units'
+import { parseDecimalInput } from '@/utils/decimalInput'
+import { priceOverCanonicalMax, type PriceBasis } from '@/utils/decimalSafe'
 
 /**
  * Shared validation schemas for common field types across the application.
@@ -22,6 +26,17 @@ import type { TFunction } from 'i18next'
  * leaving it blank and the value was silently dropped on save.
  */
 export const INVALID_NUMBER: unique symbol = Symbol('INVALID_NUMBER')
+
+/**
+ * The API's money bounds, from backend `app/schemas/_money.py`.
+ *
+ * Records carry no currency, so one cap serves forint and dollars alike: it is
+ * what the column holds. Every stored amount is Numeric(12,2) and every
+ * `price_per_unit` Numeric(12,3). moneyBounds.test.ts checks both against the
+ * maxima in openapi.json.
+ */
+export const MONEY_MAX = 9_999_999_999.99
+export const UNIT_PRICE_MAX = 999_999_999.999
 
 interface NumericFieldOptions {
   min: number
@@ -112,7 +127,7 @@ export const makeOdometerSchema = (t: TFunction) =>
 export const makeCurrencySchema = (t: TFunction) =>
   makeNumericField(t, {
     min: 0,
-    max: 99999.99,
+    max: MONEY_MAX,
     negativeKey: 'common:validation.amount.negative',
     tooLargeKey: 'common:validation.amount.tooLarge',
     invalidKey: 'common:validation.amount.invalid',
@@ -127,16 +142,6 @@ export const makeVolumeSchema = (t: TFunction) =>
     tooLargeKey: 'common:validation.volume.tooLarge',
     invalidKey: 'common:validation.volume.invalid',
     requiredKey: 'common:validation.volume.required',
-  })
-
-export const makePricePerUnitSchema = (t: TFunction) =>
-  makeNumericField(t, {
-    min: 0,
-    max: 999.99,
-    negativeKey: 'common:validation.price.negative',
-    tooLargeKey: 'common:validation.price.tooLarge',
-    invalidKey: 'common:validation.price.invalid',
-    requiredKey: 'common:validation.price.required',
   })
 
 // Date validators
@@ -195,7 +200,7 @@ export const makeOptionalOdometerSchema = (t: TFunction) =>
 export const makeOptionalCurrencySchema = (t: TFunction) =>
   makeNumericField(t, {
     min: 0,
-    max: 99999.99,
+    max: MONEY_MAX,
     negativeKey: 'common:validation.amount.negative',
     tooLargeKey: 'common:validation.amount.tooLarge',
     invalidKey: 'common:validation.amount.invalid',
@@ -210,14 +215,67 @@ export const makeOptionalVolumeSchema = (t: TFunction) =>
     invalidKey: 'common:validation.volume.invalid',
   })
 
+/**
+ * A price per unit, with no ceiling of its own.
+ *
+ * The API caps it in canonical units ($/L, $/kg), and the unit the typed
+ * number is per depends on the price basis, which on the fuel form is a
+ * select in the same form. So the cap is `checkUnitPriceCap`, run from the
+ * record schema where the basis can be read. Capping the typed number here
+ * would refuse a gallon price that converts under the API's max.
+ */
 export const makeOptionalPricePerUnitSchema = (t: TFunction) =>
   makeNumericField(t, {
     min: 0,
-    max: 999.99,
+    max: Infinity,
     negativeKey: 'common:validation.price.negative',
     tooLargeKey: 'common:validation.price.tooLarge',
     invalidKey: 'common:validation.price.invalid',
   })
+
+/**
+ * The unit-price cap, checked where the API checks it: in canonical units.
+ *
+ * Call it from a record schema's `superRefine` with the basis the form will
+ * post. Only a number can be over the cap, so a price that failed its own
+ * field check (negative, unreadable) keeps that one message.
+ */
+export const checkUnitPriceCap = (
+  t: TFunction,
+  ctx: z.RefinementCtx,
+  price: unknown,
+  units: UnitSet,
+  basis: PriceBasis | string | null | undefined,
+): void => {
+  if (typeof price !== 'number') return
+  if (!priceOverCanonicalMax(price, UNIT_PRICE_MAX, units, basis)) return
+  ctx.addIssue({
+    code: 'custom',
+    path: ['price_per_unit'],
+    message: t('common:validation.price.tooLarge'),
+  })
+}
+
+/**
+ * The first thing `makeOptionalCurrencySchema` says about `value`, or
+ * undefined when it would pass. For forms that check amounts by hand, so they
+ * get the same cap and the same messages as the zod forms.
+ */
+export const moneyError = (t: TFunction, value: unknown): string | undefined => {
+  const result = makeOptionalCurrencySchema(t).safeParse(value)
+  return result.success ? undefined : result.error.issues[0]?.message
+}
+
+/**
+ * `moneyError` for an amount still held as typed text, read the way
+ * NumberInput's `registerDecimal` reads it: blank is no amount, and text that
+ * isn't a number is invalid rather than dropped.
+ */
+export const moneyTextError = (t: TFunction, raw: string): string | undefined => {
+  const parsed = parseDecimalInput(raw, getActiveLocale())
+  if (parsed.kind === 'empty') return undefined
+  return moneyError(t, parsed.kind === 'value' ? parsed.value : INVALID_NUMBER)
+}
 
 // kWh validator for electric vehicles
 export const makeOptionalKwhSchema = (t: TFunction) =>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { TFunction } from 'i18next'
 import { makeTaxRecordSchema, TAX_TYPES, TAX_TYPE_VALUES } from '../tax'
+import { MONEY_MAX } from '../shared'
 
 // Same shape as the global react-i18next mock in src/__tests__/setup.ts:
 // messages come back as their i18n key, which is all these tests need.
@@ -45,12 +46,20 @@ describe('Tax Record Schema', () => {
     expect(result.success).toBe(false)
   })
 
+  // The cap moved from 99,999.99 to the API's MONEY_MAX (money-fits): a
+  // registration tax in forint or yen runs past the old one.
   it('rejects amount exceeding max', () => {
     const result = taxRecordSchema.safeParse({
       ...validTax,
-      amount: 100000,
+      amount: MONEY_MAX + 0.01,
     })
     expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues[0].message).toBe('common:validation.amount.tooLarge')
+  })
+
+  it('accepts an amount at MONEY_MAX and past the old 99,999.99 cap', () => {
+    expect(taxRecordSchema.safeParse({ ...validTax, amount: MONEY_MAX }).success).toBe(true)
+    expect(taxRecordSchema.safeParse({ ...validTax, amount: 100000 }).success).toBe(true)
   })
 
   it('accepts all valid tax types', () => {

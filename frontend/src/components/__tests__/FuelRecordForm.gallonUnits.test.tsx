@@ -492,3 +492,32 @@ describe('FuelRecordForm — the gallon comes from the user, not the instance', 
     expect(payload.liters).toBe(22.712)
   })
 })
+
+describe('FuelRecordForm: the price cap is in $/L or $/kg, as the basis select says', () => {
+  // money-fits (audit §6): the API caps price_per_unit at UNIT_PRICE_MAX in
+  // canonical units, and the old form capped the TYPED number at 999.99, so a
+  // $/lb price that converts past the API's cap passed the form and came back
+  // a 422. The schema now reads the basis off the same form.
+  it('refuses a per-pound price that converts past the API max, and posts the same number per gallon', async () => {
+    unitPrefMock.units = IMPERIAL_UNITS
+
+    render(<FuelRecordForm {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
+    fireEvent.change(field('date'), { target: { value: '2026-02-10' } })
+    fireEvent.change(field('price_basis'), { target: { value: 'per_weight' } })
+    // 453,592,370 $/lb is just over 1,000,000,000 $/kg.
+    fireEvent.change(field('price_per_unit'), { target: { value: '453592370' } })
+    fireEvent.submit(drawerForm())
+
+    expect(await screen.findByText('common:validation.price.tooLarge')).toBeInTheDocument()
+    expect(mockedApiPost.mock.calls.some((c) => String(c[0]).endsWith('/fuel'))).toBe(false)
+
+    // The same characters per gallon are about 119,826,592 $/L: fine.
+    fireEvent.change(field('price_basis'), { target: { value: 'per_volume' } })
+    fireEvent.submit(drawerForm())
+
+    await waitFor(() => expect(mockedApiPost.mock.calls.some((c) => String(c[0]).endsWith('/fuel'))).toBe(true))
+    expect(postedPayload().price_basis).toBe('per_volume')
+    expect(postedPayload().price_per_unit).toBeCloseTo(453_592_370 / 3.785411784, 2)
+  })
+})

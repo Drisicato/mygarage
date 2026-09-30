@@ -2,9 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import {
   INVALID_NUMBER,
+  MONEY_MAX,
+  UNIT_PRICE_MAX,
   makeOptionalCurrencySchema,
   makeCurrencySchema,
   makeOptionalVolumeSchema,
+  moneyError,
+  moneyTextError,
 } from '@/schemas/shared'
 
 const t = ((key: string) => key) as unknown as Parameters<typeof makeCurrencySchema>[0]
@@ -79,5 +83,54 @@ describe('required numeric factory', () => {
     const r = optObj.safeParse({ amount: NaN })
     expect(r.success).toBe(false)
     if (!r.success) expect(r.error.issues[0].message).toBe('common:validation.amount.invalid')
+  })
+})
+
+// Plan B (money-fits): the API bounds every stored amount at what a
+// Numeric(12,2) column holds, whatever the currency. The old 99,999.99 cap
+// refused a forint car payment the API takes.
+describe('money bounds', () => {
+  it('match the API policy in backend app/schemas/_money.py', () => {
+    expect(MONEY_MAX).toBe(9_999_999_999.99)
+    expect(UNIT_PRICE_MAX).toBe(999_999_999.999)
+  })
+
+  it('an amount takes MONEY_MAX and refuses a cent more, required or not', () => {
+    for (const schema of [optObj, reqObj]) {
+      expect(schema.safeParse({ amount: MONEY_MAX }).success).toBe(true)
+      const over = schema.safeParse({ amount: MONEY_MAX + 0.01 })
+      expect(over.success).toBe(false)
+      if (!over.success) expect(over.error.issues[0].message).toBe('common:validation.amount.tooLarge')
+    }
+  })
+
+  it('an amount past the old 99,999.99 cap is accepted', () => {
+    // A HUF payment of about $300.
+    expect(reqObj.safeParse({ amount: 110_000 }).success).toBe(true)
+    expect(optObj.safeParse({ amount: 110_000 }).success).toBe(true)
+  })
+})
+
+describe('moneyError (for forms that check by hand)', () => {
+  it('gives the currency factory message, or undefined when the amount is fine', () => {
+    expect(moneyError(t, undefined)).toBeUndefined()
+    expect(moneyError(t, 0)).toBeUndefined()
+    expect(moneyError(t, MONEY_MAX)).toBeUndefined()
+    expect(moneyError(t, MONEY_MAX + 0.01)).toBe('common:validation.amount.tooLarge')
+    expect(moneyError(t, -0.01)).toBe('common:validation.amount.negative')
+    expect(moneyError(t, NaN)).toBe('common:validation.amount.invalid')
+    expect(moneyError(t, INVALID_NUMBER)).toBe('common:validation.amount.invalid')
+  })
+})
+
+describe('moneyTextError (a typed amount)', () => {
+  it('reads the text the way NumberInput does, then applies the same cap', () => {
+    expect(moneyTextError(t, '')).toBeUndefined()
+    expect(moneyTextError(t, '  ')).toBeUndefined()
+    expect(moneyTextError(t, '25000')).toBeUndefined()
+    expect(moneyTextError(t, '9999999999.99')).toBeUndefined()
+    expect(moneyTextError(t, '10000000000')).toBe('common:validation.amount.tooLarge')
+    expect(moneyTextError(t, '-5')).toBe('common:validation.amount.negative')
+    expect(moneyTextError(t, 'abc')).toBe('common:validation.amount.invalid')
   })
 })

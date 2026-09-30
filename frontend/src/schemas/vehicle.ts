@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { TFunction } from 'i18next'
 import { FUEL_TYPE_VALUES } from '../constants/fuel'
 import { getActiveLocale } from '../constants/i18n'
-import { INVALID_NUMBER } from './shared'
+import { INVALID_NUMBER, MONEY_MAX } from './shared'
 
 /**
  * Vehicle schema for VehicleEdit and VehicleWizard forms.
@@ -75,21 +75,14 @@ export function defaultUsageUnitForType(
 // unchanged" — so a blank/cleared field must submit `null` (not
 // `undefined`, which JSON.stringify/axios would drop) for the backend to
 // actually clear it. Every field schema below funnels its blank case
-// through one of these two helpers so a cleared field actually persists.
+// through nullOnBlank or numericOrNullField so a cleared field actually
+// persists.
 // Safe on the create path too (VehicleWizard POST): that endpoint calls
 // `.model_dump()` without `exclude_unset`, so every field is always present
 // regardless — an explicit `null` there is identical to omitting it.
 
 // Empty string / null / undefined -> null. For string & date fields.
 const nullOnBlank = <T,>(val: T | '' | null | undefined): T | null => val || null
-
-// NaN (react-hook-form's `valueAsNumber` on a blanked input) / null /
-// undefined -> null, but a legitimate 0 survives. Still used by
-// soldPriceSchema below, which stays on the pre-Task-8 shape (see its own
-// comment) — every other numeric field in this file now goes through
-// numericOrNullField instead.
-const numberOrNull = (val: number | null | undefined): number | null =>
-  val == null || Number.isNaN(val) ? null : val
 
 interface NullableNumericFieldOptions {
   min: number
@@ -172,27 +165,29 @@ const cylindersSchema = (t: TFunction) =>
     integerKey: 'common:validation.vehicle.cylindersNotWhole',
   })
 
-// No bound at all before (not even non-negative) — negativeKey/tooLargeKey
-// are structurally required but provably unreachable at min:-Infinity/
-// max:Infinity, so they just point at the same message as invalidKey.
+// Both prices are money: floor 0 and the API's MONEY_MAX (money-fits). The
+// wizard used to take a negative purchase price, which the API now refuses.
+// The keys stay literal, one call each, so validate-i18n-usage can see them.
 const purchasePriceSchema = (t: TFunction) =>
   numericOrNullField(t, {
-    min: -Infinity,
-    max: Infinity,
-    negativeKey: 'common:validation.vehicle.purchasePriceInvalid',
-    tooLargeKey: 'common:validation.vehicle.purchasePriceInvalid',
+    min: 0,
+    max: MONEY_MAX,
+    negativeKey: 'common:validation.amount.negative',
+    tooLargeKey: 'common:validation.amount.tooLarge',
     invalidKey: 'common:validation.vehicle.purchasePriceInvalid',
   })
 
-// sold_price is NOT wired through registerDecimal anywhere in the current
-// UI (not one of Task 8's 46 sites), so it can never receive INVALID_NUMBER
-// — left on the original bespoke shape.
-const soldPriceSchema = z
-  .number()
-  .or(z.nan())
-  .nullable()
-  .transform(numberOrNull)
-  .optional()
+// Nothing registers sold_price against this schema (PricingDrawer posts it
+// without one), so it takes the same money field rather than a shape of its
+// own.
+const soldPriceSchema = (t: TFunction) =>
+  numericOrNullField(t, {
+    min: 0,
+    max: MONEY_MAX,
+    negativeKey: 'common:validation.amount.negative',
+    tooLargeKey: 'common:validation.amount.tooLarge',
+    invalidKey: 'common:validation.amount.invalid',
+  })
 
 // Engine-hour reading for hour-metered vehicles. Float ≥ 0, no prior upper
 // bound. Previously kept an inverted `.optional()`-before-`.transform()`
@@ -309,7 +304,7 @@ export const makeVehicleEditSchema = (t: TFunction) =>
 
     // Sale Information
     sold_date: optionalDateSchema,
-    sold_price: soldPriceSchema,
+    sold_price: soldPriceSchema(t),
 
     // DEF Tracking — canonical liters. Reuses the volume message-key family
     // (same reasoning as propane_liters/def_tank_capacity in def.ts): it's

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
-import { makeNumericField } from './shared'
+import { makeCurrencySchema } from './shared'
 
 const tollTagIdSchema = z
   .number()
@@ -21,24 +21,14 @@ const tollTagIdSchema = z
  * deliberately: its <Select> only ever emits a numeric string or '', which
  * `valueAsNumber` still turns into a number or NaN, never the sentinel.
  *
- * NOT `makeOptionalCurrencySchema` though: that factory's 99,999.99 ceiling
- * doesn't exist on the backend (`toll.py` — `ge=0`, no `le`). Bespoke
- * min:0/max:Infinity via the exported `makeNumericField`, same technique as
- * `warranty.mileage_limit_km` and `insurance.premium_amount`/`deductible`.
+ * `amount` is the required currency factory: floor 0 and the API's MONEY_MAX
+ * (money-fits). The field is labelled required; without the required check an
+ * emptied amount was left out of the edit and the old one kept.
  */
 export const makeTollTransactionSchema = (t: TFunction) =>
   z.object({
     transaction_date: z.string().min(1, 'Transaction date is required'),
-    amount: makeNumericField(t, {
-      min: 0,
-      max: Infinity,
-      negativeKey: 'common:validation.amount.negative',
-      tooLargeKey: 'common:validation.amount.tooLarge',
-      invalidKey: 'common:validation.amount.invalid',
-      // The field is labelled required. Without this an emptied amount was
-      // left out of the edit and the old one kept.
-      requiredKey: 'common:validation.amount.required',
-    }),
+    amount: makeCurrencySchema(t),
     location: z.string().min(1, 'Location is required'),
     toll_tag_id: tollTagIdSchema,
     notes: z.string().optional(),

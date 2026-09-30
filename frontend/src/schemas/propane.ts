@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
-import { makeNumericField } from './shared'
+import type { UnitSet } from '@/types/units'
+import {
+  checkUnitPriceCap,
+  makeNumericField,
+  makeOptionalCurrencySchema,
+  makeOptionalPricePerUnitSchema,
+} from './shared'
 
 /**
  * Factory, not a constant — see the header of schemas/auth.ts for why.
@@ -10,14 +16,16 @@ import { makeNumericField } from './shared'
  * sentinel for unparseable text — the old `.or(z.nan())` shape only
  * recognized number/NaN, so a sentinel failed the union and zod reported its
  * raw "expected number, received symbol" instead of a translated message.
- * Routed through the shared makeNumericField, preserving each field's exact
- * original bound (none of these had an upper bound, so `max: Infinity`
- * reproduces "no ceiling" rather than inventing one).
+ * Routed through the shared makeNumericField. The volume and the tank count
+ * never had an upper bound, so `max: Infinity` keeps "no ceiling" there. The
+ * cost and the price are money and take the API's caps (money-fits): the
+ * price in $/L, because this form always posts `per_volume`, so `units` is
+ * the client's resolved set for that conversion.
  *
  * `tank_size_kg` stays on the old shape deliberately: its <Select> stays on
  * valueAsNumber and never produces the sentinel.
  */
-export const makePropaneRecordSchema = (t: TFunction) =>
+export const makePropaneRecordSchema = (t: TFunction, units: UnitSet) =>
   z.object({
     date: z.string().min(1, 'Date is required'),
     propane_liters: makeNumericField(t, {
@@ -43,20 +51,8 @@ export const makePropaneRecordSchema = (t: TFunction) =>
       invalidKey: 'common:validation.tankQuantity.invalid',
       integerKey: 'common:validation.tankQuantity.notWhole',
     }),
-    price_per_unit: makeNumericField(t, {
-      min: 0,
-      max: Infinity,
-      negativeKey: 'common:validation.price.negative',
-      tooLargeKey: 'common:validation.price.tooLarge',
-      invalidKey: 'common:validation.price.invalid',
-    }),
-    cost: makeNumericField(t, {
-      min: 0,
-      max: Infinity,
-      negativeKey: 'common:validation.amount.negative',
-      tooLargeKey: 'common:validation.amount.tooLarge',
-      invalidKey: 'common:validation.amount.invalid',
-    }),
+    price_per_unit: makeOptionalPricePerUnitSchema(t),
+    cost: makeOptionalCurrencySchema(t),
     vendor: z.string().max(100).optional(),
     notes: z.string().max(1000).optional(),
   })
@@ -75,6 +71,7 @@ export const makePropaneRecordSchema = (t: TFunction) =>
       message: t('common:validation.tankPair.bothOrNeither'),
     })
   })
+  .superRefine((data, ctx) => checkUnitPriceCap(t, ctx, data.price_per_unit, units, 'per_volume'))
 
 export type PropaneRecordInput = z.input<ReturnType<typeof makePropaneRecordSchema>>
 export type PropaneRecordFormData = z.output<ReturnType<typeof makePropaneRecordSchema>>

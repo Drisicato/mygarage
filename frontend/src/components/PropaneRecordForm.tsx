@@ -155,8 +155,9 @@ export default function PropaneRecordForm({
 
   // Zod bakes its messages in at construction, so the schema is rebuilt when
   // the language changes. Only the resolver depends on it — no fetch, no
-  // reset() — so a rebuild can't discard what the user typed.
-  const schema = useMemo(() => makePropaneRecordSchema(t), [t])
+  // reset() — so a rebuild can't discard what the user typed. `units` is in
+  // there too: the price cap converts the typed price to $/L or $/kg first.
+  const schema = useMemo(() => makePropaneRecordSchema(t, units), [t, units])
 
   const {
     register,
