@@ -49,6 +49,35 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 # Initialize rate limiter for auth endpoints
 limiter = Limiter(key_func=get_remote_address)
 
+_LAST_ADMIN_UPDATE = "Cannot disable or demote the last active admin"
+_LAST_ADMIN_DELETE = "Cannot delete the last active admin"
+
+
+async def _locked_active_admin_count(db: AsyncSession) -> int:
+    """Count the active admins, row-locking them on PostgreSQL.
+
+    The last-admin guard's one pre-read. PostgreSQL rejects `count(*) ... FOR
+    UPDATE`, so it selects the ids and counts them here. SQLite drops the
+    FOR UPDATE; the guard's flush and re-count cover it there.
+    """
+    result = await db.execute(
+        select(User.id).where(User.is_admin.is_(True), User.is_active.is_(True)).with_for_update()
+    )
+    return len(result.all())
+
+
+async def _active_admin_count(db: AsyncSession) -> int:
+    """Count the active admins with a plain count.
+
+    The last-admin guard's re-count, run after its write is flushed. It's a
+    separate function from the pre-read on purpose: tests patch the pre-read
+    to a stale value and need this one to still see the truth.
+    """
+    result = await db.execute(
+        select(func.count(User.id)).where(User.is_admin.is_(True), User.is_active.is_(True))
+    )
+    return result.scalar_one()
+
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit(settings.rate_limit_auth)
@@ -534,7 +563,10 @@ async def update_user(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update a user (admin only)."""
+    """Update a user (admin only).
+
+    Cannot disable or demote the last active admin.
+    """
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
@@ -558,6 +590,19 @@ async def update_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered",
             )
+
+    # Turning off an active admin could leave none. Lock and count the active
+    # admins first, then re-count after the flush below; that catches another
+    # request that got in between. The dialog re-sends true on an untouched
+    # save, so only an actual false counts.
+    drops_an_admin = (
+        user.is_admin
+        and user.is_active
+        and (changes.get("is_active") is False or changes.get("is_admin") is False)
+    )
+    if drops_an_admin and await _locked_active_admin_count(db) <= 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_UPDATE)
+
     relationship_custom_sent = "relationship_custom" in changes
     relationship_custom = changes.pop("relationship_custom", None)
     for field, value in changes.items():
@@ -570,6 +615,14 @@ async def update_user(
         user.relationship_custom = relationship_custom
 
     user.updated_at = utc_now()
+
+    if drops_an_admin:
+        # On SQLite the flush waits for the write lock, so the re-count sees a
+        # competitor's commit. PostgreSQL got the same from the row lock.
+        await db.flush()
+        if await _active_admin_count(db) == 0:
+            await db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_UPDATE)
 
     await db.commit()
     await db.refresh(user)
@@ -591,7 +644,7 @@ async def delete_user(
 ):
     """Delete a user (admin only).
 
-    Cannot delete yourself or the last admin.
+    Cannot delete yourself or the last active admin.
     """
     if user_id == current_user.id:
         raise HTTPException(
@@ -608,16 +661,12 @@ async def delete_user(
             detail="User not found",
         )
 
-    # Check if this is the last admin
-    if user.is_admin:
-        result = await db.execute(select(func.count(User.id)).where(User.is_admin.is_(True)))
-        admin_count = result.scalar_one()
-
-        if admin_count <= 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete the last admin user",
-            )
+    # The caller is never the target, so this only takes out the last active
+    # admin when the caller's own disable or demote landed after it got past
+    # auth. Same guard as update_user; a disabled admin can still be deleted.
+    drops_an_admin = user.is_admin and user.is_active
+    if drops_an_admin and await _locked_active_admin_count(db) <= 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_DELETE)
 
     # FK hygiene: shares GRANTED by this user (shared_by) and transfer-history
     # rows naming this user carry NOT NULL FKs with no ON DELETE action, so an
@@ -642,6 +691,13 @@ async def delete_user(
     )
 
     await db.delete(user)
+
+    if drops_an_admin:
+        await db.flush()
+        if await _active_admin_count(db) == 0:
+            await db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_DELETE)
+
     await db.commit()
 
     logger.info(

@@ -33057,7 +33057,7 @@
     },
     "/api/auth/users/{user_id}": {
       "delete": {
-        "description": "Delete a user (admin only).\n\nCannot delete yourself or the last admin.",
+        "description": "Delete a user (admin only).\n\nCannot delete yourself or the last active admin.",
         "operationId": "delete_user_api_auth_users__user_id__delete",
         "parameters": [
           {
@@ -33142,7 +33142,7 @@
         ]
       },
       "put": {
-        "description": "Update a user (admin only).",
+        "description": "Update a user (admin only).\n\nCannot disable or demote the last active admin.",
         "operationId": "update_user_api_auth_users__user_id__put",
         "parameters": [
           {

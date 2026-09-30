@@ -828,6 +828,8 @@ export interface paths {
         /**
          * Update User
          * @description Update a user (admin only).
+         *
+         *     Cannot disable or demote the last active admin.
          */
         put: operations["update_user_api_auth_users__user_id__put"];
         post?: never;
@@ -835,7 +837,7 @@ export interface paths {
          * Delete User
          * @description Delete a user (admin only).
          *
-         *     Cannot delete yourself or the last admin.
+         *     Cannot delete yourself or the last active admin.
          */
         delete: operations["delete_user_api_auth_users__user_id__delete"];
         options?: never;
