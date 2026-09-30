@@ -17264,10 +17264,9 @@ export interface components {
          * UnitPreferenceUpdate
          * @description Schema for the dedicated unit-preference mutation (spec D9b).
          *
-         *     `PUT /auth/me` guards every field with `if ... is not None`, so it cannot
-         *     express "clear this column". D3 requires that selecting a preset writes
-         *     eleven explicit nulls, which is why unit preferences do not ride the
-         *     generic profile route.
+         *     D3 requires that selecting a preset writes eleven explicit nulls in one
+         *     step, derived from the preset rather than sent field by field, which is
+         *     why unit preferences do not ride the generic profile route.
          *
          *     The `units` field is required for `custom` and forbidden otherwise. A
          *     partial custom would leave some columns resolving from the base preset,
@@ -17534,9 +17533,8 @@ export interface components {
          * UserSelfUpdate
          * @description Schema for users updating their own profile. Rejects privileged fields.
          *
-         *     Carries no `unit_preference` (D9b). Its route guards every field with
-         *     `if ... is not None`, so it cannot express "clear this column", and a
-         *     preset written here would leave the eleven override columns masking it.
+         *     Carries no `unit_preference` (D9b). A preset written here would leave the
+         *     eleven override columns masking it.
          *     Units are set through `PUT /auth/me/units` and `UnitPreferenceUpdate`,
          *     which writes all eleven or clears all eleven. `show_both_units` stays: it
          *     is a display toggle, not a choice of unit.
@@ -19875,13 +19873,17 @@ export interface components {
         };
         /**
          * WindowStickerDataUpdate
-         * @description Schema for updating window sticker extracted data.
+         * @description The review's edits. Omitted keeps, null clears; widths match the columns.
          */
         WindowStickerDataUpdate: {
             /** Assembly Location */
             assembly_location?: string | null;
             /** Destination Charge */
             destination_charge?: number | string | null;
+            /** Environmental Rating Ghg */
+            environmental_rating_ghg?: string | null;
+            /** Environmental Rating Smog */
+            environmental_rating_smog?: string | null;
             /** Exterior Color */
             exterior_color?: string | null;
             /** Fuel Economy City L Per 100Km */
@@ -19906,10 +19908,20 @@ export interface components {
             standard_equipment?: {
                 [key: string]: unknown;
             } | null;
+            /** Sticker Drivetrain */
+            sticker_drivetrain?: string | null;
+            /** Sticker Engine Description */
+            sticker_engine_description?: string | null;
+            /** Sticker Transmission Description */
+            sticker_transmission_description?: string | null;
+            /** Tire Specs */
+            tire_specs?: string | null;
             /** Warranty Basic */
             warranty_basic?: string | null;
             /** Warranty Powertrain */
             warranty_powertrain?: string | null;
+            /** Wheel Specs */
+            wheel_specs?: string | null;
         };
         /**
          * WindowStickerResponse
@@ -19948,6 +19960,8 @@ export interface components {
             standard_equipment: {
                 [key: string]: unknown;
             } | null;
+            /** Sticker Drivetrain */
+            sticker_drivetrain: string | null;
             /** Sticker Engine Description */
             sticker_engine_description: string | null;
             /** Sticker Transmission Description */
