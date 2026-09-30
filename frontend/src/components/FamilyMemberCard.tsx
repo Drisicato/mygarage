@@ -164,8 +164,8 @@ export default function FamilyMemberCard({
   const canToggleDashboard = showActions && !isInactive && membersLoaded && !!onToggleDashboard
   const canEdit = showActions && !!onEdit
   const canResetPassword = showActions && !isOidc && !isInactive && !!onResetPassword
-  const canToggleActive = showActions && !isOidc && !isLastAdmin && !!onToggleActive
-  const canDeleteUser = showActions && !isOidc && !isSelf && !!onDelete
+  const canToggleActive = showActions && !isLastAdmin && !!onToggleActive
+  const canDeleteUser = showActions && !isSelf && !!onDelete
   // Offered to SSO users; an open one can be cancelled whoever it's on.
   const canToggleRelink = showActions && (isOidc || relinkOpen) && !!onToggleRelink
   const canReorder = showActions && !isInactive && membersLoaded && !!(onMoveUp || onMoveDown)
@@ -323,7 +323,7 @@ export default function FamilyMemberCard({
               </button>
             )}
 
-            {/* Toggle Active (not OIDC, not last admin) */}
+            {/* Toggle Active (not the last active admin) */}
             {canToggleActive && (
               <button
                 type="button"
@@ -340,7 +340,7 @@ export default function FamilyMemberCard({
               </button>
             )}
 
-            {/* Delete (not OIDC, not self) */}
+            {/* Delete (not self) */}
             {canDeleteUser && (
               <button
                 type="button"

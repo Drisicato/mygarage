@@ -16,8 +16,6 @@ interface User {
   is_active: boolean
   is_admin: boolean
   auth_method: 'local' | 'oidc'
-  oidc_subject: string | null
-  oidc_provider: string | null
   created_at: string
   updated_at: string
   last_login: string | null

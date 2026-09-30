@@ -22,6 +22,9 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
   const { t } = useTranslation('forms')
   const isEditMode = !!user
   const isOidc = isEditMode && user?.auth_method === 'oidc'
+  // The last active admin can't be disabled, whoever it is, not only you.
+  // The server refuses it too.
+  const isLastActiveAdmin = !!user && user.is_admin && user.is_active && activeAdminCount === 1
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -107,13 +110,13 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
 
     try {
       if (isEditMode) {
-        // Update user — OIDC users only get role + relationship updates
+        // The IdP owns an SSO user's email and name, so those stay local-only.
         await api.put(`/auth/users/${user.id}`, {
           ...(!isOidc && {
             email: formData.email,
             full_name: formData.full_name || null,
-            is_active: formData.is_active,
           }),
+          is_active: formData.is_active,
           is_admin: formData.is_admin,
           relationship: formData.relationship || null,
           relationship_custom: formData.relationship === 'other' ? formData.relationship_custom || null : null,
@@ -331,12 +334,12 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
 
           {/* Active Status */}
           <div>
-            <label className={`flex items-center gap-3 ${isOidc ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+            <label className={`flex items-center gap-3 ${isLastActiveAdmin ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
                 checked={formData.is_active}
                 onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                disabled={isOidc}
+                disabled={isLastActiveAdmin}
                 className="w-4 h-4 text-primary bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <span className="text-sm font-medium text-garage-text">
@@ -344,15 +347,18 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
               </span>
             </label>
             <p className="mt-1 ml-7 text-sm text-garage-text-muted">
-              {isOidc ? t('modal.managedByOidc') : t('modal.inactiveUsersCannotLogin')}
+              {t('modal.inactiveUsersCannotLogin')}
             </p>
+            {isLastActiveAdmin && (
+              <p className="mt-1 ml-7 text-xs text-warning">{t('modal.lastActiveAdminDisableWarning')}</p>
+            )}
           </div>
 
           {/* OIDC Badge */}
           {isOidc && (
             <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
               <p className="text-sm text-garage-text">
-                <strong>{t('modal.oidcUser')}</strong> - {t('modal.oidcUserDescription', { provider: user?.oidc_provider || t('modal.externalProvider') })}
+                <strong>{t('modal.oidcUser')}</strong> - {t('modal.oidcUserDescriptionEditable', { provider: user?.oidc_provider || t('modal.externalProvider') })}
               </p>
             </div>
           )}

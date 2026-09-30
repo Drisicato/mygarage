@@ -1,5 +1,6 @@
 /**
- * The admin's SSO relink action on a family member card.
+ * The admin actions on a family member card: the SSO relink, and disable,
+ * delete and password reset for SSO users.
  *
  * An SSO user whose identity provider account was re-created can't sign in
  * until an admin allows a one-time relink. The card offers that to SSO users,
@@ -56,7 +57,6 @@ const user = (overrides: Partial<User> = {}): User => ({
   is_active: true,
   is_admin: false,
   auth_method: 'oidc',
-  oidc_subject: null,
   oidc_provider: null,
   oidc_relink_until: null,
   created_at: '2026-01-01T00:00:00',
@@ -131,5 +131,61 @@ describe('FamilyMemberCard SSO relink', () => {
     renderCard(user({ auth_method: 'local', oidc_relink_until: naiveUtc(minutesFromNow(20)) }))
     expect(screen.getByText(/familyCard\.relinkOpenUntil/)).toBeInTheDocument()
     expect(screen.getByTitle('familyCard.cancelSsoRelink')).toBeInTheDocument()
+  })
+})
+
+/** A card with every admin action wired, for the actions that aren't the relink. */
+const renderActions = (u: User, { currentUserId = 1, activeAdminCount = 2 } = {}): void => {
+  render(
+    <FamilyMemberCard
+      member={member}
+      user={u}
+      currentUserId={currentUserId}
+      activeAdminCount={activeAdminCount}
+      showActions
+      onToggleActive={vi.fn()}
+      onDelete={vi.fn()}
+      onResetPassword={vi.fn()}
+    />,
+  )
+}
+
+// Disabling is MyGarage's own kill switch and ends a live session at once.
+// The IdP never sets it, so SSO users get it like everyone else.
+describe('FamilyMemberCard disable and delete', () => {
+  it('offers disable for an active SSO user who is not the last admin', () => {
+    renderActions(user())
+    expect(screen.getByTitle('familyCard.disableUser')).toBeInTheDocument()
+  })
+
+  it('offers enable for a disabled SSO user', () => {
+    renderActions(user({ is_active: false }))
+    expect(screen.getByTitle('familyCard.enableUser')).toBeInTheDocument()
+  })
+
+  it.each(['local', 'oidc'] as const)('offers no disable for the last active admin (%s)', (authMethod) => {
+    renderActions(user({ auth_method: authMethod, is_admin: true }), { activeAdminCount: 1 })
+    expect(screen.queryByTitle('familyCard.disableUser')).not.toBeInTheDocument()
+  })
+
+  it('offers delete for an SSO user who is not you', () => {
+    renderActions(user())
+    expect(screen.getByTitle('familyCard.deleteUser')).toBeInTheDocument()
+  })
+
+  it.each(['local', 'oidc'] as const)('offers no delete on your own card (%s)', (authMethod) => {
+    renderActions(user({ auth_method: authMethod }), { currentUserId: 7 })
+    expect(screen.queryByTitle('familyCard.deleteUser')).not.toBeInTheDocument()
+  })
+
+  it('offers a password reset to a local user', () => {
+    renderActions(user({ auth_method: 'local' }))
+    expect(screen.getByTitle('familyCard.resetPassword')).toBeInTheDocument()
+  })
+
+  // The backend refuses a password reset for SSO users, so the card doesn't offer one.
+  it('offers no password reset to an SSO user', () => {
+    renderActions(user())
+    expect(screen.queryByTitle('familyCard.resetPassword')).not.toBeInTheDocument()
   })
 })

@@ -12,7 +12,6 @@ export interface User {
   is_active: boolean
   is_admin: boolean
   auth_method: AuthMethod
-  oidc_subject: string | null
   oidc_provider: string | null
   // When an admin-approved SSO relink closes. Naive UTC, so read it with
   // parseAPITimestamp. Past or null means none is open.
