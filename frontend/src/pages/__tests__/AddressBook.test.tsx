@@ -64,7 +64,8 @@ describe('AddressBookForm — submit never serializes poi_category', () => {
     await waitFor(() => expect(put).toHaveBeenCalled())
     const body = put.mock.calls.at(-1)?.[1] as Record<string, unknown>
     expect('poi_category' in body).toBe(false)
-    expect(body.category).toBe('Service')
+    // Untouched, so not sent at all: omitted keeps it.
+    expect('category' in body).toBe(false)
   })
 
   it('adding routes to create with the chosen category and no poi_category', async () => {
@@ -98,5 +99,55 @@ describe('AddressBookForm — delete + notes placeholder', () => {
     const notes = document.getElementById('notes') as HTMLTextAreaElement
     expect(notes.placeholder).toBe('addressBook.notesPlaceholder')
     expect(notes.placeholder).not.toContain('object Object')
+  })
+})
+
+describe('AddressBookForm: an untouched edit writes nothing it did not load', () => {
+  const lastPut = () => put.mock.calls.at(-1)?.[1] as Record<string, unknown>
+
+  it('keeps a custom stored category as the selected option and does not post it', async () => {
+    render(<AddressBookForm entry={{ id: 4, business_name: 'Shine Co', category: 'Detailer', poi_category: null } as never} onClose={() => {}} onSuccess={() => {}} />)
+    expect(categorySelect().value).toBe('Detailer')
+    fireEvent.submit(formEl())
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect('category' in lastPut()).toBe(false)
+  })
+
+  it('does not post a category derived from the POI type', async () => {
+    render(<AddressBookForm entry={{ id: 1, business_name: 'Shell', category: null, poi_category: 'gas_station' } as never} onClose={() => {}} onSuccess={() => {}} />)
+    fireEvent.submit(formEl())
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect('category' in lastPut()).toBe(false)
+  })
+
+  it('does not rewrite where the entry came from', async () => {
+    render(<AddressBookForm entry={{ id: 5, business_name: 'Found It', category: null, poi_category: null, source: 'osm' } as never} onClose={() => {}} onSuccess={() => {}} />)
+    fireEvent.submit(formEl())
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect('source' in lastPut()).toBe(false)
+  })
+
+  it('posts a changed category, and null for a cleared one', async () => {
+    render(<AddressBookForm entry={{ id: 3, business_name: 'Summit', category: 'Service', poi_category: null } as never} onClose={() => {}} onSuccess={() => {}} />)
+    fireEvent.change(categorySelect(), { target: { value: '' } })
+    fireEvent.submit(formEl())
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect(lastPut().category).toBeNull()
+  })
+
+  it('sends an emptied email, which the server stores as cleared', async () => {
+    render(<AddressBookForm entry={{ id: 6, business_name: 'Mail Co', email: 'a@b.co', category: null, poi_category: null } as never} onClose={() => {}} onSuccess={() => {}} />)
+    fireEvent.change(document.getElementById('email') as HTMLInputElement, { target: { value: '' } })
+    fireEvent.submit(formEl())
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect(lastPut().email).toBe('')
+  })
+
+  it('still marks a new entry as manual', async () => {
+    render(<AddressBookForm entry={null} onClose={() => {}} onSuccess={() => {}} />)
+    fireEvent.change(businessInput(), { target: { value: 'New Place' } })
+    fireEvent.submit(formEl())
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    expect((post.mock.calls.at(-1)?.[1] as Record<string, unknown>).source).toBe('manual')
   })
 })
