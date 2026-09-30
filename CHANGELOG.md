@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move Up and Move Down reorder the family dashboard
 - A blank OIDC scope or claim setting uses the default instead of blocking sign-in, and the full-name claim setting takes effect
 - A tire set can't be renamed to blank, a toll tag with an unlisted system can be re-saved, and a document needs a title
+- Server validation errors show on the field they belong to instead of a generic banner
 
 ## [3.7.0] - 2026-09-24
 
