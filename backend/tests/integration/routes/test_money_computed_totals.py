@@ -467,6 +467,8 @@ async def test_a_parsed_amount_outside_its_column_is_dropped(
         "msrp_base": Decimal("-1.00"),
         "msrp_options": Decimal("1500.00"),
         "destination_charge": MONEY_MAX,
+        # Not a number at all: Decimal() raises on it, and the drop catches that.
+        "fuel_economy_combined_l_per_100km": "twelve",
         "exterior_color": "Blue",
     }
     with patch("app.routes.window_sticker.WindowStickerOCRService") as ocr_class:
@@ -486,13 +488,15 @@ async def test_a_parsed_amount_outside_its_column_is_dropped(
     assert body["msrp_base"] is None
     assert Decimal(str(body["msrp_options"])) == Decimal("1500.00")
     assert Decimal(str(body["destination_charge"])) == MONEY_MAX
+    assert body["fuel_economy_combined_l_per_100km"] is None
     assert body["exterior_color"] == "Blue"
 
     row = Vehicle.vin == own_vin
     assert await _fresh(test_sessionmaker, select(Vehicle.msrp_total).where(row)) is None
     assert await _fresh(test_sessionmaker, select(Vehicle.msrp_base).where(row)) is None
     dropped = " ".join(r.getMessage() for r in caplog.records)
-    assert "msrp_total" in dropped and "msrp_base" in dropped, dropped
+    for key in ("msrp_total", "msrp_base", "fuel_economy_combined_l_per_100km"):
+        assert key in dropped, dropped
 
 
 # ---------------------------------------------------------------------------
