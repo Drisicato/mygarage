@@ -35,6 +35,9 @@ export const makeTollTransactionSchema = (t: TFunction) =>
       negativeKey: 'common:validation.amount.negative',
       tooLargeKey: 'common:validation.amount.tooLarge',
       invalidKey: 'common:validation.amount.invalid',
+      // The field is labelled required. Without this an emptied amount was
+      // left out of the edit and the old one kept.
+      requiredKey: 'common:validation.amount.required',
     }),
     location: z.string().min(1, 'Location is required'),
     toll_tag_id: tollTagIdSchema,
