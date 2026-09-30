@@ -6,7 +6,9 @@ these, so a fresh create_all has to land on the same types or the two drift.
 
 The registry (`MONEY_COLUMNS`) holds the list, and a scan of every Numeric
 column keeps it complete: a money-named column the registry lacks fails here the
-day it's added. No database needed.
+day it's added. A column with money's decimal places and no money word in its
+name (a `surcharge`) is caught by the second scan: it's registered, or it's
+listed in `NOT_MONEY_COLUMNS` with a reason. No database needed.
 """
 
 from decimal import Decimal
@@ -22,7 +24,24 @@ from tests.unit.schemas._money_names import (
     MONEY_TYPE,
     UNIT_COST_TYPE,
     UNIT_PRICE_TYPE,
+    UNIT_WORDS,
     is_money_name,
+)
+
+#: Decimal places a money column has: cents, a unit price's tenth of a cent,
+#: the unit-cost snapshot's four.
+MONEY_SCALES = frozenset({2, 3, 4})
+
+#: Columns with money's decimal places that aren't money.
+NOT_MONEY_COLUMNS = frozenset(
+    {
+        "address_book.rating",  # a star rating
+        "def_records.fill_level",  # a tank fraction, 0 to 1
+        "location_points.speed",  # a GPS fix's speed
+        "supply_purchases.quantity",  # a supply amount, Numeric(12,3)
+        "supply_usages.quantity",  # same
+        "vehicles.window_sticker_confidence_score",  # the OCR parser's score
+    }
 )
 
 
@@ -49,6 +68,34 @@ def test_every_numeric_column_is_money_exactly_when_registered():
     }
     assert sorted(called_money - MONEY_COLUMNS.keys()) == [], "money by name, not registered"
     assert sorted(MONEY_COLUMNS.keys() - called_money) == [], "registered, missed by name"
+
+
+def _money_shaped(column: Column[Any]) -> bool:
+    """Money's decimal places, and no unit word in the name."""
+    words = set(column.name.lower().split("_"))
+    return column.type.scale in MONEY_SCALES and not words & UNIT_WORDS
+
+
+def test_every_money_shaped_column_is_registered_or_excused():
+    # The name check only sees money words. A `surcharge` has none, so it would
+    # pass there as not money and never get the policy type.
+    columns = _numeric_columns()
+    unclaimed = sorted(
+        qualified
+        for qualified, column in columns.items()
+        if _money_shaped(column)
+        and qualified not in MONEY_COLUMNS
+        and qualified not in NOT_MONEY_COLUMNS
+    )
+    assert unclaimed == [], "money-shaped: register it, or add it to NOT_MONEY_COLUMNS"
+    # Each excuse still has to be needed, so the list can't collect dead rows.
+    stale = sorted(
+        qualified
+        for qualified in NOT_MONEY_COLUMNS
+        if qualified not in columns or not _money_shaped(columns[qualified])
+    )
+    assert stale == [], "in NOT_MONEY_COLUMNS but not a money-shaped column"
+    assert NOT_MONEY_COLUMNS.isdisjoint(MONEY_COLUMNS)
 
 
 def test_every_money_column_has_its_policy_type():
