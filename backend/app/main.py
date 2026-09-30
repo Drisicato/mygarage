@@ -267,22 +267,11 @@ app.add_middleware(CSRFProtectionMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware, script_hashes=inline_script_hashes(_index_shell))
 
-# Add error handlers
-from fastapi.exceptions import RequestValidationError
-from sqlalchemy.exc import SQLAlchemyError
+# Add error handlers: the secure ones in production, and a numeric overflow
+# is a 422 in either mode.
+from app.utils.error_handlers import register_error_handlers
 
-from app.utils.error_handlers import (
-    handle_database_error,
-    handle_generic_exception,
-    handle_validation_error,
-)
-
-if not settings.debug:
-    # In production, use secure error handlers
-    app.add_exception_handler(Exception, handle_generic_exception)  # type: ignore[arg-type]
-    app.add_exception_handler(SQLAlchemyError, handle_database_error)  # type: ignore[arg-type]
-
-app.add_exception_handler(RequestValidationError, handle_validation_error)  # type: ignore[arg-type]
+register_error_handlers(app, debug=settings.debug)
 
 # Configure CORS
 app.add_middleware(
