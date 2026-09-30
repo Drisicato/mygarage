@@ -229,7 +229,6 @@
     "oidcAuth": "Autenticação OIDC",
     "oidcConfiguration": "Configuração do OIDC",
     "oidcUser": "Usuário OIDC",
-    "oidcUserDescription": "Identidade gerenciada por {{provider}}. Apenas a função e o vínculo podem ser editados.",
     "onDashboard": "No painel",
     "overdue": "Atrasado",
     "password": "Senha",

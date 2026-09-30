@@ -2,7 +2,7 @@
 
 import logging
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from slowapi import Limiter
@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.constants.oidc import SSO_RELINK_WINDOW_MINUTES
 from app.database import get_db
 from app.models.csrf_token import CSRFToken
 from app.models.settings import Setting
@@ -27,6 +28,7 @@ from app.schemas.user import (
     UserResponse,
     UserSelfUpdate,
 )
+from app.services.audit_logger import AuditLogger
 from app.services.auth import (
     authenticate_user,
     create_access_token,
@@ -48,6 +50,58 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 # Initialize rate limiter for auth endpoints
 limiter = Limiter(key_func=get_remote_address)
+
+_LAST_ADMIN_UPDATE = "Cannot disable or demote the last active admin"
+_LAST_ADMIN_DELETE = "Cannot delete the last active admin"
+
+
+async def _locked_active_admin_count(db: AsyncSession) -> int:
+    """Count the active admins, row-locking them on PostgreSQL.
+
+    The last-admin guard's one pre-read. PostgreSQL rejects `count(*) ... FOR
+    UPDATE`, so it selects the ids and counts them here. SQLite drops the
+    FOR UPDATE; the guard's flush and re-count cover it there. The rows lock
+    in id order, so two guards queue on them instead of deadlocking.
+    """
+    result = await db.execute(
+        select(User.id)
+        .where(User.is_admin.is_(True), User.is_active.is_(True))
+        .order_by(User.id)
+        .with_for_update()
+    )
+    return len(result.all())
+
+
+async def _active_admin_count(db: AsyncSession) -> int:
+    """Count the active admins with a plain count.
+
+    The last-admin guard's re-count, run after its write is flushed. It's a
+    separate function from the pre-read on purpose: tests patch the pre-read
+    to a stale value and need this one to still see the truth.
+    """
+    result = await db.execute(
+        select(func.count(User.id)).where(User.is_admin.is_(True), User.is_active.is_(True))
+    )
+    return result.scalar_one()
+
+
+async def _locked_target(db: AsyncSession, user_id: int) -> User:
+    """Re-read the guard's target after the pre-read, row-locked on PostgreSQL.
+
+    The route's first read can be stale: a disabled admin might have been
+    enabled since. PostgreSQL holds this lock to commit, so the flags can't
+    move again; on SQLite the re-count after the flush covers it.
+    """
+    result = await db.execute(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -531,10 +585,13 @@ async def get_user(
 async def update_user(
     user_id: int,
     user_update: AdminUserUpdate,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User | None = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update a user (admin only)."""
+    """Update a user (admin only).
+
+    Cannot disable or demote the last active admin.
+    """
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
@@ -558,6 +615,20 @@ async def update_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered",
             )
+
+    # Turning off an active admin could leave none. Any false flag takes the
+    # lock, even when the first read says the target isn't an active admin:
+    # it might have been enabled since, so it's judged from the re-read. The
+    # dialog re-sends true on an untouched save, so only an actual false counts.
+    active_admins = 0
+    if changes.get("is_active") is False or changes.get("is_admin") is False:
+        active_admins = await _locked_active_admin_count(db)
+        # On PostgreSQL a target enabled between the two reads isn't in the
+        # locked count, so this can 400 it. That fails closed; a retry works.
+        user = await _locked_target(db, user_id)
+        if user.is_admin and user.is_active and active_admins <= 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_UPDATE)
+
     relationship_custom_sent = "relationship_custom" in changes
     relationship_custom = changes.pop("relationship_custom", None)
     for field, value in changes.items():
@@ -571,12 +642,22 @@ async def update_user(
 
     user.updated_at = utc_now()
 
+    if active_admins >= 1:
+        # The flush takes SQLite's write lock (PostgreSQL has its row locks),
+        # so this count is current. Admins at the pre-read and none now means
+        # this write took the last one. None at the pre-read is the recovery
+        # path, and it's left alone.
+        await db.flush()
+        if await _active_admin_count(db) == 0:
+            await db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_UPDATE)
+
     await db.commit()
     await db.refresh(user)
 
     logger.info(
         "Admin %s updated user: %s",
-        sanitize_for_log(current_user.username),
+        sanitize_for_log(current_user.username) if current_user else "<auth disabled>",
         sanitize_for_log(user.username),
     )
 
@@ -586,38 +667,29 @@ async def update_user(
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User | None = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a user (admin only).
 
-    Cannot delete yourself or the last admin.
+    Cannot delete yourself or the last active admin.
     """
-    if user_id == current_user.id:
+    # None means auth is off, so there's no caller to compare against.
+    if current_user is not None and user_id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete your own account",
         )
 
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    # Check if this is the last admin
-    if user.is_admin:
-        result = await db.execute(select(func.count(User.id)).where(User.is_admin.is_(True)))
-        admin_count = result.scalar_one()
-
-        if admin_count <= 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete the last admin user",
-            )
+    # Same guard as update_user, and every delete takes it: a target that reads
+    # as a disabled admin or a plain user might have been enabled or promoted
+    # since. The locked re-read is also the 404. A disabled admin can still go.
+    active_admins = await _locked_active_admin_count(db)
+    # Same PostgreSQL race as update_user: a target enabled since the count can
+    # 400 here. Fail closed, and a retry works.
+    user = await _locked_target(db, user_id)
+    if user.is_admin and user.is_active and active_admins <= 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_DELETE)
 
     # FK hygiene: shares GRANTED by this user (shared_by) and transfer-history
     # rows naming this user carry NOT NULL FKs with no ON DELETE action, so an
@@ -642,11 +714,18 @@ async def delete_user(
     )
 
     await db.delete(user)
+
+    if active_admins >= 1:
+        await db.flush()
+        if await _active_admin_count(db) == 0:
+            await db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_DELETE)
+
     await db.commit()
 
     logger.info(
         "Admin %s deleted user: %s",
-        sanitize_for_log(current_user.username),
+        sanitize_for_log(current_user.username) if current_user else "<auth disabled>",
         sanitize_for_log(user.username),
     )
 
@@ -691,3 +770,82 @@ async def admin_reset_user_password(
         sanitize_for_log(current_user.username),
         sanitize_for_log(user.username),
     )
+
+
+async def _set_oidc_relink(
+    db: AsyncSession,
+    request: Request,
+    user_id: int,
+    until: datetime | None,
+    current_user: User | None,
+) -> User:
+    """Arm (a moment) or disarm (None) a user's SSO relink, audited in the same commit.
+
+    Args:
+        db: Database session
+        request: The request, for the audit row's IP and user agent
+        user_id: The account to arm or disarm
+        until: When the relink closes, or None to cancel it
+        current_user: The admin, or None when auth is off
+
+    Returns:
+        The updated user.
+
+    Raises:
+        HTTPException: 404 if there's no such user.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.oidc_relink_until = until
+    user.updated_at = utc_now()
+    # log_event commits, so the change and its audit row land together.
+    await AuditLogger.log_event(
+        db,
+        action="oidc_relink_allowed" if until else "oidc_relink_revoked",
+        user=current_user,
+        resource_type="user",
+        resource_id=str(user.id),
+        details={"username": user.username, "until": until.isoformat() if until else None},
+        request=request,
+    )
+    await db.refresh(user)
+
+    logger.info(
+        "Admin %s %s the SSO relink for user: %s",
+        sanitize_for_log(current_user.username) if current_user else "<auth disabled>",
+        "allowed" if until else "cancelled",
+        sanitize_for_log(user.username),
+    )
+    return user
+
+
+@router.post("/users/{user_id}/oidc-relink", response_model=UserResponse)
+async def allow_oidc_relink(
+    request: Request,
+    user_id: int,
+    current_user: User | None = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Allow a one-time SSO relink for a user (admin only).
+
+    For the next 30 minutes, the first SSO login whose email or username matches
+    this account links it to that sign-in without asking for a password, then the
+    window closes. It's the way back in when the user's identity provider account
+    was re-created. Allowing it again restarts the window.
+    """
+    until = utc_now() + timedelta(minutes=SSO_RELINK_WINDOW_MINUTES)
+    return await _set_oidc_relink(db, request, user_id, until, current_user)
+
+
+@router.delete("/users/{user_id}/oidc-relink", response_model=UserResponse)
+async def cancel_oidc_relink(
+    request: Request,
+    user_id: int,
+    current_user: User | None = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Cancel an allowed SSO relink for a user (admin only)."""
+    return await _set_oidc_relink(db, request, user_id, None, current_user)

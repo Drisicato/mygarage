@@ -22,7 +22,9 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.constants.oidc import SSO_ACCOUNT_DISABLED
 from app.database import get_db
+from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError
 from app.models.audit_log import AuditLog
 from app.models.csrf_token import CSRFToken
 from app.models.user import User
@@ -54,6 +56,45 @@ def _frontend_base(request: Request) -> str:
 
 # Initialize rate limiter for auth endpoints
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _request_origin(request: Request) -> tuple[str | None, str]:
+    """The request's client IP and user agent, as the audit rows record them."""
+    ip_address = request.client.host if request.client else None
+    return ip_address, request.headers.get("user-agent", "")
+
+
+async def _audit_login_refused(
+    db: AsyncSession, request: Request, reason: str, username: str | None
+) -> None:
+    """Record a refused SSO login and commit it.
+
+    The caller raises a 403 right after, and ``get_db`` rolls back on an
+    exception, so the row only survives because it's committed here. Anything
+    the refused step left uncommitted is rolled back first, so this commit
+    carries the audit row and nothing else.
+
+    Args:
+        db: Database session
+        request: The request, for the IP and user agent
+        reason: Why the login was refused (the 403 detail)
+        username: The matched account's username, or None if none matched
+    """
+    await db.rollback()
+    ip_address, user_agent = _request_origin(request)
+    db.add(
+        AuditLog(
+            user_id=None,
+            username=username,
+            action="oidc_login_refused",
+            details={"reason": reason},
+            success=0,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            timestamp=utc_now(),
+        )
+    )
+    await db.commit()
 
 
 class OIDCConfigResponse(BaseModel):
@@ -351,35 +392,36 @@ async def oidc_callback(
     if access_token:
         userinfo = await oidc_service.get_userinfo(access_token, metadata)
 
-    # Create or update user from OIDC claims
+    # Create or update user from OIDC claims. Anything other than these two
+    # exceptions propagates untouched. The origin goes along for the audit row
+    # an armed relink writes.
+    ip_address, user_agent = _request_origin(request)
     try:
-        user = await oidc_service.create_or_update_user_from_oidc(db, claims, userinfo, config)
-    except Exception as e:
-        # Import PendingLinkRequiredError here to avoid circular import
-        from app.exceptions import PendingLinkRequiredError
+        user = await oidc_service.create_or_update_user_from_oidc(
+            db, claims, userinfo, config, ip_address=ip_address, user_agent=user_agent
+        )
+    except PendingLinkRequiredError as e:
+        # Email or username matched a password account, so confirm it with that password first
+        logger.info("Pending link required for username: %s", sanitize_for_log(e.username))
 
-        if isinstance(e, PendingLinkRequiredError):
-            # Username match requires password verification
-            logger.info("Pending link required for username: %s", sanitize_for_log(e.username))
+        # Create pending link token
+        pending_token = await oidc_service.create_pending_link_token(
+            db,
+            e.username,
+            e.claims,
+            e.userinfo,
+            e.config,
+        )
 
-            # Create pending link token
-            pending_token = await oidc_service.create_pending_link_token(
-                db,
-                e.username,
-                e.claims,
-                e.userinfo,
-                e.config,
-            )
+        # Redirect to link account page with token (#107: prefix-aware)
+        frontend_url = _frontend_base(request)
+        redirect_url = f"{frontend_url}/auth/link-account?token={pending_token}"
 
-            # Redirect to link account page with token (#107: prefix-aware)
-            frontend_url = _frontend_base(request)
-            redirect_url = f"{frontend_url}/auth/link-account?token={pending_token}"
-
-            logger.info("Redirecting to link account page: %s", redirect_url)
-            return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
-        else:
-            # Re-raise other exceptions
-            raise
+        logger.info("Redirecting to link account page: %s", redirect_url)
+        return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+    except OIDCLoginRefusedError as e:
+        await _audit_login_refused(db, request, e.message, e.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
 
     if not user:
         raise HTTPException(
@@ -387,11 +429,11 @@ async def oidc_callback(
             detail="Failed to create or update user from OIDC claims",
         )
 
+    # Backstop: the service refuses a disabled account itself, so this only
+    # fires when an admin disables it while the login is in flight.
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is disabled",
-        )
+        await _audit_login_refused(db, request, SSO_ACCOUNT_DISABLED, user.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SSO_ACCOUNT_DISABLED)
 
     # Clean up expired CSRF tokens for this user
     await db.execute(
@@ -506,15 +548,16 @@ async def link_oidc_account(
 ):
     """Link OIDC account to existing local account with password verification.
 
-    This endpoint is called after OIDC login when a username match is found
-    but no OIDC link exists. The user must verify their password to link
-    the accounts.
+    This endpoint is called after an OIDC login whose email or username matches
+    an existing account that has a password and no OIDC link. The user must
+    enter that account's password to link the accounts.
 
     Security:
     - Rate limited (5/minute via settings.rate_limit_auth)
     - Max 3 password attempts per token (configured in settings)
     - Token expires after 5 minutes (configured in settings)
-    - Audited (success and failure)
+    - A disabled account is refused before the password is checked
+    - Audited (success, failure and refusal)
     - CSRF protected (middleware)
 
     Args:
@@ -531,20 +574,26 @@ async def link_oidc_account(
         HTTPException: 403 if user account is disabled
     """
     # Validate and consume pending link token
-    user, error_message = await oidc_service.validate_and_consume_pending_link(
-        db,
-        link_request.token,
-        link_request.password,
-    )
+    try:
+        user, error_message = await oidc_service.validate_and_consume_pending_link(
+            db,
+            link_request.token,
+            link_request.password,
+        )
+    except OIDCLoginRefusedError as e:
+        # A disabled target, refused before its password was checked
+        await _audit_login_refused(db, request, e.message, e.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
 
+    ip_address, user_agent = _request_origin(request)
     if user is None:
         # Failed - create audit log
         audit_log = AuditLog(
             user_id=None,
             action="oidc_link_failed",
             details=error_message,
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent", ""),
+            ip_address=ip_address,
+            user_agent=user_agent,
             timestamp=utc_now(),
         )
         db.add(audit_log)
@@ -556,21 +605,20 @@ async def link_oidc_account(
             detail=error_message,
         )
 
-    # Check if user is active
+    # Backstop: the link step refuses a disabled account up front, so this only
+    # fires when an admin disables it while the link is being committed.
     if not user.is_active:
         logger.warning("OIDC link attempt for inactive user: %s", sanitize_for_log(user.username))
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is disabled",
-        )
+        await _audit_login_refused(db, request, SSO_ACCOUNT_DISABLED, user.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SSO_ACCOUNT_DISABLED)
 
     # Success - create audit log
     audit_log = AuditLog(
         user_id=user.id,
         action="oidc_account_linked",
         details=f"Linked OIDC account to username: {user.username}, provider: {user.oidc_provider}, oidc_subject: {user.oidc_subject}",
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent", ""),
+        ip_address=ip_address,
+        user_agent=user_agent,
         timestamp=utc_now(),
     )
     db.add(audit_log)

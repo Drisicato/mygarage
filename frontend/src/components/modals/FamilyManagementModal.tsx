@@ -230,6 +230,23 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
     }
   }
 
+  const handleToggleRelink = async (u: User, arm: boolean): Promise<void> => {
+    setUpdatingUserId(u.id)
+    try {
+      if (arm) {
+        await api.post(`/auth/users/${u.id}/oidc-relink`)
+      } else {
+        await api.delete(`/auth/users/${u.id}/oidc-relink`)
+      }
+      toast.success(arm ? t('modal.ssoRelinkAllowed') : t('modal.ssoRelinkCancelled'))
+      await reloadUsers()
+    } catch (err) {
+      toast.error(getActionErrorMessage(err, t('modal.updateSsoRelinkAction')))
+    } finally {
+      setUpdatingUserId(null)
+    }
+  }
+
   const handleToggleDashboard = async (u: User) => {
     setUpdatingUserId(u.id)
     try {
@@ -519,6 +536,7 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
                               onToggleActive={() => void handleToggleActive(u)}
                               onToggleDashboard={() => void handleToggleDashboard(u)}
                               onResetPassword={() => handleResetPassword(u)}
+                              onToggleRelink={(arm) => void handleToggleRelink(u, arm)}
                               onMoveUp={() => void handleMoveUp(u.id, index)}
                               onMoveDown={() => void handleMoveDown(u.id, index)}
                               canMoveUp={index > 0}
@@ -552,6 +570,7 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
                               onToggleActive={() => void handleToggleActive(u)}
                               onToggleDashboard={() => void handleToggleDashboard(u)}
                               onResetPassword={() => handleResetPassword(u)}
+                              onToggleRelink={(arm) => void handleToggleRelink(u, arm)}
                             />
                           ))}
                         </div>
@@ -579,6 +598,7 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
                               onEdit={() => handleEditUser(u)}
                               onDelete={() => handleDeleteUser(u)}
                               onToggleActive={() => void handleToggleActive(u)}
+                              onToggleRelink={(arm) => void handleToggleRelink(u, arm)}
                             />
                           ))}
                         </div>

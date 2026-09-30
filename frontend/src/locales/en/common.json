@@ -330,6 +330,8 @@
     "other": "Other"
   },
   "familyCard": {
+    "allowSsoRelink": "Allow SSO relink for 30 minutes",
+    "cancelSsoRelink": "Cancel SSO relink",
     "columnLastService": "Last Service",
     "columnNextMaintenance": "Next Maintenance",
     "columnVehicle": "Vehicle",
@@ -343,6 +345,7 @@
     "noMaintenanceScheduled": "No maintenance scheduled",
     "noServiceRecords": "No service records",
     "noVehicles": "No vehicles",
+    "relinkOpenUntil": "Relink open until {{time}}",
     "resetPassword": "Reset password",
     "showOnDashboard": "Show on dashboard"
   },

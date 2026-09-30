@@ -590,15 +590,16 @@ export interface paths {
          * Link Oidc Account
          * @description Link OIDC account to existing local account with password verification.
          *
-         *     This endpoint is called after OIDC login when a username match is found
-         *     but no OIDC link exists. The user must verify their password to link
-         *     the accounts.
+         *     This endpoint is called after an OIDC login whose email or username matches
+         *     an existing account that has a password and no OIDC link. The user must
+         *     enter that account's password to link the accounts.
          *
          *     Security:
          *     - Rate limited (5/minute via settings.rate_limit_auth)
          *     - Max 3 password attempts per token (configured in settings)
          *     - Token expires after 5 minutes (configured in settings)
-         *     - Audited (success and failure)
+         *     - A disabled account is refused before the password is checked
+         *     - Audited (success, failure and refusal)
          *     - CSRF protected (middleware)
          *
          *     Args:
@@ -827,6 +828,8 @@ export interface paths {
         /**
          * Update User
          * @description Update a user (admin only).
+         *
+         *     Cannot disable or demote the last active admin.
          */
         put: operations["update_user_api_auth_users__user_id__put"];
         post?: never;
@@ -834,9 +837,38 @@ export interface paths {
          * Delete User
          * @description Delete a user (admin only).
          *
-         *     Cannot delete yourself or the last admin.
+         *     Cannot delete yourself or the last active admin.
          */
         delete: operations["delete_user_api_auth_users__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/users/{user_id}/oidc-relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allow Oidc Relink
+         * @description Allow a one-time SSO relink for a user (admin only).
+         *
+         *     For the next 30 minutes, the first SSO login whose email or username matches
+         *     this account links it to that sign-in without asking for a password, then the
+         *     window closes. It's the way back in when the user's identity provider account
+         *     was re-created. Allowing it again restarts the window.
+         */
+        post: operations["allow_oidc_relink_api_auth_users__user_id__oidc_relink_post"];
+        /**
+         * Cancel Oidc Relink
+         * @description Cancel an allowed SSO relink for a user (admin only).
+         */
+        delete: operations["cancel_oidc_relink_api_auth_users__user_id__oidc_relink_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -17401,6 +17433,11 @@ export interface components {
             /** Accent Color */
             accent_color?: string | null;
             /**
+             * Auth Method
+             * @default local
+             */
+            auth_method: string;
+            /**
              * Created At
              * Format: date-time
              */
@@ -17449,6 +17486,10 @@ export interface components {
              * @default true
              */
             mobile_quick_entry_enabled: boolean;
+            /** Oidc Provider */
+            oidc_provider?: string | null;
+            /** Oidc Relink Until */
+            oidc_relink_until?: string | null;
             /** Relationship */
             relationship?: string | null;
             /** Relationship Custom */
@@ -21236,6 +21277,68 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    allow_oidc_relink_api_auth_users__user_id__oidc_relink_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_oidc_relink_api_auth_users__user_id__oidc_relink_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

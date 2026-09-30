@@ -23992,6 +23992,11 @@
             ],
             "title": "Accent Color"
           },
+          "auth_method": {
+            "default": "local",
+            "title": "Auth Method",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -24085,6 +24090,29 @@
             "default": true,
             "title": "Mobile Quick Entry Enabled",
             "type": "boolean"
+          },
+          "oidc_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Provider"
+          },
+          "oidc_relink_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Relink Until"
           },
           "relationship": {
             "anyOf": [
@@ -32732,7 +32760,7 @@
     },
     "/api/auth/oidc/link-account": {
       "post": {
-        "description": "Link OIDC account to existing local account with password verification.\n\nThis endpoint is called after OIDC login when a username match is found\nbut no OIDC link exists. The user must verify their password to link\nthe accounts.\n\nSecurity:\n- Rate limited (5/minute via settings.rate_limit_auth)\n- Max 3 password attempts per token (configured in settings)\n- Token expires after 5 minutes (configured in settings)\n- Audited (success and failure)\n- CSRF protected (middleware)\n\nArgs:\n    link_request: Token and password for verification\n    request: FastAPI request for audit logging\n    response: FastAPI response for setting cookies\n    db: Database session\n\nReturns:\n    JSON with CSRF token and redirect URL\n\nRaises:\n    HTTPException: 401 if token invalid/expired or password wrong\n    HTTPException: 403 if user account is disabled",
+        "description": "Link OIDC account to existing local account with password verification.\n\nThis endpoint is called after an OIDC login whose email or username matches\nan existing account that has a password and no OIDC link. The user must\nenter that account's password to link the accounts.\n\nSecurity:\n- Rate limited (5/minute via settings.rate_limit_auth)\n- Max 3 password attempts per token (configured in settings)\n- Token expires after 5 minutes (configured in settings)\n- A disabled account is refused before the password is checked\n- Audited (success, failure and refusal)\n- CSRF protected (middleware)\n\nArgs:\n    link_request: Token and password for verification\n    request: FastAPI request for audit logging\n    response: FastAPI response for setting cookies\n    db: Database session\n\nReturns:\n    JSON with CSRF token and redirect URL\n\nRaises:\n    HTTPException: 401 if token invalid/expired or password wrong\n    HTTPException: 403 if user account is disabled",
         "operationId": "link_oidc_account_api_auth_oidc_link_account_post",
         "requestBody": {
           "content": {
@@ -33057,7 +33085,7 @@
     },
     "/api/auth/users/{user_id}": {
       "delete": {
-        "description": "Delete a user (admin only).\n\nCannot delete yourself or the last admin.",
+        "description": "Delete a user (admin only).\n\nCannot delete yourself or the last active admin.",
         "operationId": "delete_user_api_auth_users__user_id__delete",
         "parameters": [
           {
@@ -33142,7 +33170,7 @@
         ]
       },
       "put": {
-        "description": "Update a user (admin only).",
+        "description": "Update a user (admin only).\n\nCannot disable or demote the last active admin.",
         "operationId": "update_user_api_auth_users__user_id__put",
         "parameters": [
           {
@@ -33193,6 +33221,100 @@
           }
         ],
         "summary": "Update User",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/auth/users/{user_id}/oidc-relink": {
+      "delete": {
+        "description": "Cancel an allowed SSO relink for a user (admin only).",
+        "operationId": "cancel_oidc_relink_api_auth_users__user_id__oidc_relink_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Oidc Relink",
+        "tags": [
+          "Authentication"
+        ]
+      },
+      "post": {
+        "description": "Allow a one-time SSO relink for a user (admin only).\n\nFor the next 30 minutes, the first SSO login whose email or username matches\nthis account links it to that sign-in without asking for a password, then the\nwindow closes. It's the way back in when the user's identity provider account\nwas re-created. Allowing it again restarts the window.",
+        "operationId": "allow_oidc_relink_api_auth_users__user_id__oidc_relink_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Allow Oidc Relink",
         "tags": [
           "Authentication"
         ]

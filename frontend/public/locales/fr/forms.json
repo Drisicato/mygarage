@@ -232,7 +232,6 @@
     "oidcAuth": "Authentification OIDC",
     "oidcConfiguration": "Configuration OIDC",
     "oidcUser": "Utilisateur OIDC",
-    "oidcUserDescription": "Identité gérée par {{provider}}. Seuls le rôle et la relation peuvent être modifiés.",
     "onDashboard": "Sur le tableau de bord",
     "overdue": "En retard",
     "password": "Mot de passe",

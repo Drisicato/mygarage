@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Fifth wheel and travel trailer cards show the tow vehicle and average propane use per month, in the slots where motorized cards show the odometer and fuel economy
 - Financing tracking for lease and loan payments and upfront fees, with a Financing tab and cost analytics
+- Admins can allow an SSO account to relink after its identity-provider account was re-created, from the member card; `tools/oidc_allow_relink.py` does it when the only admin is locked out
 
 ### Changed
 - Vehicle cards and the vehicle hero flag reminders due within 30 days, by date or by projected mileage and hours, instead of every pending reminder; the fleet strip's count is the sum of those badges
@@ -51,6 +52,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The toll CSV export, the insurance coverage CSV column and PDF charts no longer show "$" for other currencies
 - A number too large to store gets a clear error instead of a server error
 - Bulk archive keeps vehicles on the dashboard by default every time, not only the first time it opens
+- An SSO sign-in can no longer take over an account linked to a different sign-in
+- The member card shows which users sign in with SSO and drops the password reset that always failed for them; admins can still disable and delete them
+- The last active admin can't be disabled, demoted or deleted
+- Edit User names the SSO provider and locks an SSO user's name
+
+### Security
+- An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
 
 ## [3.7.0] - 2026-09-24
 

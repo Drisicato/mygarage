@@ -229,7 +229,6 @@
     "oidcAuth": "Аутентифікація OIDC",
     "oidcConfiguration": "Конфігурація OIDC",
     "oidcUser": "Користувач OIDC",
-    "oidcUserDescription": "Обліковий запис керується {{provider}}. Можна змінити лише роль і відношення.",
     "onDashboard": "На панелі керування",
     "overdue": "Прострочено",
     "password": "Пароль",

@@ -229,7 +229,6 @@
     "oidcAuth": "Uwierzytelnianie OIDC",
     "oidcConfiguration": "Konfiguracja OIDC",
     "oidcUser": "Użytkownik OIDC",
-    "oidcUserDescription": "Tożsamość zarządzana przez {{provider}}. Można edytować tylko rolę i relację.",
     "onDashboard": "Na panelu sterowania",
     "overdue": "Zaległe",
     "password": "Hasło",

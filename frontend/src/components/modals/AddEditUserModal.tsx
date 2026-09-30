@@ -22,6 +22,12 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
   const { t } = useTranslation('forms')
   const isEditMode = !!user
   const isOidc = isEditMode && user?.auth_method === 'oidc'
+  // The last active admin can't be disabled, whoever it is, not only you.
+  // The server refuses it too.
+  const isLastActiveAdmin = !!user && user.is_admin && user.is_active && activeAdminCount === 1
+  // You can't change your own role when you're that last admin. With auth on
+  // it's the same as isLastActiveAdmin; with auth off the server refuses it.
+  const isSelfLastActiveAdmin = isLastActiveAdmin && user?.id === currentUserId
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -107,13 +113,15 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
 
     try {
       if (isEditMode) {
-        // Update user — OIDC users only get role + relationship updates
+        // The IdP resets an SSO user's name on every sign-in, so it isn't sent.
+        // Nothing syncs their email, so an admin can change it. It's only sent
+        // when changed, since the IdP's address can be one the server's email
+        // check refuses (admin@localhost), and that would block every save.
+        const emailChanged = formData.email !== user.email
         await api.put(`/auth/users/${user.id}`, {
-          ...(!isOidc && {
-            email: formData.email,
-            full_name: formData.full_name || null,
-            is_active: formData.is_active,
-          }),
+          ...((!isOidc || emailChanged) && { email: formData.email }),
+          ...(!isOidc && { full_name: formData.full_name || null }),
+          is_active: formData.is_active,
           is_admin: formData.is_admin,
           relationship: formData.relationship || null,
           relationship_custom: formData.relationship === 'other' ? formData.relationship_custom || null : null,
@@ -198,15 +206,15 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
             <label className="block text-sm font-medium text-garage-text mb-1.5">
               {t('modal.email')} <span className="text-danger">*</span>
             </label>
+            {/* The IdP's address may not pass the browser's email check, and that
+                would block every save. The server still checks a changed one. */}
             <input
-              type="email"
+              type={isOidc ? 'text' : 'email'}
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required
-              disabled={isOidc}
               className="w-full px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            {isOidc && <p className="text-xs text-garage-text-muted mt-1">{t('modal.managedByOidc')}</p>}
           </div>
 
           {/* Full Name */}
@@ -318,25 +326,25 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
             <Select
               value={formData.is_admin ? 'admin' : 'user'}
               onChange={(e) => setFormData({ ...formData, is_admin: e.target.value === 'admin' })}
-              disabled={isEditMode && user?.id === currentUserId && user?.is_admin && user?.is_active && activeAdminCount === 1}
+              disabled={isSelfLastActiveAdmin}
               options={[
                 { value: 'user', label: t('common:user') },
                 { value: 'admin', label: t('common:admin') },
               ]}
             />
-            {isEditMode && user?.id === currentUserId && user?.is_admin && user?.is_active && activeAdminCount === 1 && (
+            {isSelfLastActiveAdmin && (
               <p className="text-xs text-warning mt-1">{t('modal.lastActiveAdminWarning')}</p>
             )}
           </div>
 
           {/* Active Status */}
           <div>
-            <label className={`flex items-center gap-3 ${isOidc ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+            <label className={`flex items-center gap-3 ${isLastActiveAdmin ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
                 checked={formData.is_active}
                 onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                disabled={isOidc}
+                disabled={isLastActiveAdmin}
                 className="w-4 h-4 text-primary bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <span className="text-sm font-medium text-garage-text">
@@ -344,15 +352,18 @@ export default function AddEditUserModal({ isOpen, onClose, user, onSave, curren
               </span>
             </label>
             <p className="mt-1 ml-7 text-sm text-garage-text-muted">
-              {isOidc ? t('modal.managedByOidc') : t('modal.inactiveUsersCannotLogin')}
+              {t('modal.inactiveUsersCannotLogin')}
             </p>
+            {isLastActiveAdmin && (
+              <p className="mt-1 ml-7 text-xs text-warning">{t('modal.lastActiveAdminDisableWarning')}</p>
+            )}
           </div>
 
           {/* OIDC Badge */}
           {isOidc && (
             <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
               <p className="text-sm text-garage-text">
-                <strong>{t('modal.oidcUser')}</strong> - {t('modal.oidcUserDescription', { provider: user?.oidc_provider || t('modal.externalProvider') })}
+                <strong>{t('modal.oidcUser')}</strong> - {t('modal.oidcUserDescriptionEditable', { provider: user?.oidc_provider || t('modal.externalProvider') })}
               </p>
             </div>
           )}

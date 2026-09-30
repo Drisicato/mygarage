@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""OIDC pending link model for username-based account linking with password verification."""
+"""OIDC pending link model for password-confirmed account linking (email or username match)."""
 
 from datetime import datetime, timedelta
 from typing import Any
@@ -14,11 +14,13 @@ from app.utils.datetime_utils import utc_now
 
 
 class OIDCPendingLink(Base):
-    """OIDC pending link model for username-based account linking.
+    """OIDC pending link model for password-confirmed account linking.
 
     Stores temporary tokens for linking OIDC accounts to existing local accounts
-    when usernames match but no OIDC subject link exists. Requires password
-    verification before linking.
+    when the email or username claim matches an account that has a password and
+    no OIDC subject link. ``username`` is the matched account's, which for an
+    email match can differ from the claim's. Requires password verification
+    before linking.
 
     Security features:
     - Short expiration (5 minutes default)

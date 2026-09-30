@@ -256,7 +256,6 @@
     "oidcAuth": "OIDC-Authentifizierung",
     "oidcConfiguration": "OIDC-Konfiguration",
     "oidcUser": "OIDC-Benutzer",
-    "oidcUserDescription": "Identität verwaltet durch {{provider}}. Nur Rolle und Beziehung können bearbeitet werden.",
     "onDashboard": "Auf dem Dashboard",
     "overdue": "Überfällig",
     "password": "Passwort",

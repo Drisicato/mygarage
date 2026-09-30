@@ -132,3 +132,4 @@ migrations must swallow their own operational errors.
 | `120_add_dashboard_sort` | **FATAL** — Add users.dashboard_sort: the order this person's dashboard opens in. |
 | `121_add_financing_records` | Create financing_records table for lease, loan, and upfront-fee costs. |
 | `122_widen_money_columns` | **FATAL** — Widen every money column to its policy type on PostgreSQL. |
+| `123_add_user_oidc_relink_until` | **FATAL** — Add users.oidc_relink_until: when an admin-approved SSO relink closes. |

@@ -40,6 +40,10 @@ class User(Base):
     auth_method: Mapped[str] = mapped_column(
         String(20), default="local", nullable=False, index=True
     )  # 'local' or 'oidc'
+    # Admin-approved SSO relink (migration 123). Until this moment, the next SSO
+    # login matching this account by email or username links it with no
+    # password, then clears it. NULL or past means not armed. Naive UTC.
+    oidc_relink_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Unit preference
     unit_preference: Mapped[str] = mapped_column(
