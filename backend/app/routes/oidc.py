@@ -647,7 +647,7 @@ async def link_oidc_account(
         )
     except OIDCLoginRefusedError as e:
         # A disabled target, refused before its password was checked
-        await _audit_login_refused(db, request, e.message, e.username)
+        await _audit_login_refused(db, request, e.message, e.username, details=e.details)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
 
     if user is None:
