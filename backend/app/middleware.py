@@ -16,6 +16,7 @@ import os
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address
 
 from sqlalchemy import select
 from starlette.datastructures import MutableHeaders
@@ -24,6 +25,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.database import get_db_context
 from app.models.csrf_token import CSRFToken
 from app.utils.datetime_utils import utc_now
+from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -412,6 +414,183 @@ class MaintenanceModeMiddleware:
                     "Readings buffered on the device will be delivered once it exits."
                 )
             },
+        )
+
+
+_FORWARDED_FOR = b"x-forwarded-for"
+_PROXY_HEADERS = frozenset({_FORWARDED_FOR, b"x-forwarded-proto", b"x-forwarded-host"})
+
+# [v6] and [v6]:port, and a.b.c.d:port. Anything else goes to ip_address as written.
+_BRACKETED_ADDRESS = re.compile(r"\[([^\]]*)\](?::[0-9]{1,5})?")
+_IPV4_WITH_PORT = re.compile(r"([^:]*):[0-9]{1,5}")
+
+
+def _parse_address(text: str) -> IPv4Address | IPv6Address | None:
+    """Parse a peer or forwarded address, dropping any port, brackets or zone id.
+
+    IPv4-mapped IPv6 comes back as IPv4. Returns None for anything that isn't
+    an address, and never raises.
+    """
+    # This chews on whatever the client wrote, so any exception at all is just
+    # junk, not a 500.
+    try:
+        value = text.strip()
+        addr: IPv4Address | IPv6Address
+        if bracketed := _BRACKETED_ADDRESS.fullmatch(value):
+            addr = IPv6Address(bracketed.group(1))
+        elif with_port := _IPV4_WITH_PORT.fullmatch(value):
+            addr = IPv4Address(with_port.group(1))
+        else:
+            addr = ip_address(value)
+        if isinstance(addr, IPv6Address):
+            if addr.ipv4_mapped is not None:
+                return addr.ipv4_mapped
+            # Rebuilding from the int drops the zone id.
+            return IPv6Address(int(addr))
+        return addr
+    except Exception:
+        return None
+
+
+def _is_trusted(
+    addr: IPv4Address | IPv6Address, networks: Sequence[IPv4Network | IPv6Network]
+) -> bool:
+    """Whether ``addr`` is in one of the trusted networks."""
+    return any(addr in net for net in networks)
+
+
+def _peer_address(scope: Scope) -> IPv4Address | IPv6Address | None:
+    """The connecting peer, or None when there's no client or it isn't an IP."""
+    client = scope.get("client")
+    return _parse_address(client[0]) if client else None
+
+
+def _header_values(headers: Sequence[tuple[bytes, bytes]], name: bytes) -> list[bytes]:
+    """Every value of header ``name`` (lowercase), compared case-insensitively."""
+    return [value for key, value in headers if key.lower() == name]
+
+
+def _walk_forwarded_for(
+    values: Sequence[bytes], networks: Sequence[IPv4Network | IPv6Network]
+) -> IPv4Address | IPv6Address | None:
+    """The client from X-Forwarded-For: the first untrusted hop from the right.
+
+    Junk ends the walk with no answer rather than getting skipped, since
+    skipping it would let a client-written entry past a trusted proxy's.
+    """
+    joined = b",".join(values).decode("latin-1")
+    entries = [entry.strip() for entry in joined.split(",") if entry.strip()]
+    addr: IPv4Address | IPv6Address | None = None
+    for entry in reversed(entries):
+        addr = _parse_address(entry)
+        if addr is None or not _is_trusted(addr, networks):
+            return addr
+    # Every hop was trusted, so the leftmost one is the client.
+    return addr
+
+
+class TrustedProxyMiddleware:
+    """Set the ASGI client to the real one when a trusted proxy says who it is.
+
+    A peer in ``settings.trusted_proxies`` gets its configured client IP header
+    or its X-Forwarded-For believed. Anyone else has those headers stripped, so
+    nothing downstream can be fooled by them. With no trusted proxies at all,
+    nothing changes.
+
+    Settings are read per request, like ``MaintenanceModeMiddleware``, so tests
+    can flip them without rebuilding the app. Pure ASGI so streaming responses
+    are not buffered.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        # One shot each. No await between the check and the set, so one event
+        # loop can't log twice.
+        self._warned_unconfigured = False
+        self._warned_dropped = False
+        self._warned_nothing_forwarded = False
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        from app.config import settings
+
+        if scope["type"] in ("http", "websocket"):
+            self._resolve_client(scope, settings.trusted_proxies, settings.client_ip_header)
+        await self.app(scope, receive, send)
+
+    def _resolve_client(
+        self,
+        scope: Scope,
+        networks: Sequence[IPv4Network | IPv6Network],
+        client_ip_header: str,
+    ) -> None:
+        """Rewrite ``scope`` in place: Granian's access log reads the same dict afterwards."""
+        if not networks:
+            # The default setup, so once this has fired there's nothing left to look at.
+            if not self._warned_unconfigured and _get_header(scope, _FORWARDED_FOR) is not None:
+                self._warned_unconfigured = True
+                peer = _peer_address(scope)
+                logger.warning(
+                    "Got X-Forwarded-For from %s, but MYGARAGE_TRUSTED_PROXIES is empty, so rate "
+                    "limits and audit logs see that address as the client. If it's your reverse "
+                    "proxy, set MYGARAGE_TRUSTED_PROXIES to it (see Reverse-Proxy in the wiki). "
+                    "Logged once.",
+                    sanitize_for_log(str(peer) if peer is not None else "unknown"),
+                )
+            return
+
+        peer = _peer_address(scope)
+        headers: list[tuple[bytes, bytes]] = list(scope.get("headers") or ())
+        header_name = client_ip_header.encode("latin-1")
+
+        if peer is None or not _is_trusted(peer, networks):
+            dropped = (_PROXY_HEADERS | {header_name}) if header_name else _PROXY_HEADERS
+            kept = [(name, value) for name, value in headers if name.lower() not in dropped]
+            # A new list, never an edit of the server's.
+            scope["headers"] = kept
+            if len(kept) != len(headers) and not self._warned_dropped:
+                self._warned_dropped = True
+                logger.warning(
+                    "Dropped proxy headers from %s, which isn't in MYGARAGE_TRUSTED_PROXIES. If "
+                    "it's your reverse proxy, add it. Logged once.",
+                    sanitize_for_log(str(peer) if peer is not None else "unknown"),
+                )
+            return
+
+        forwarded_for = _header_values(headers, _FORWARDED_FOR)
+        client_ips = _header_values(headers, header_name) if header_name else []
+        if not forwarded_for and not client_ips and not self._warned_nothing_forwarded:
+            self._warned_nothing_forwarded = True
+            logger.warning(
+                "Trusted proxy %s sent no X-Forwarded-For or client IP header, so rate limits and "
+                "audit logs see it as the client. If it's your reverse proxy, have it send "
+                "X-Forwarded-For (see Reverse-Proxy in the wiki); if it's a service calling "
+                "MyGarage directly, ignore this. Logged once.",
+                sanitize_for_log(str(peer)),
+            )
+
+        # Two copies of the client IP header means something appended instead of
+        # replacing, and there's no telling which one the trusted layer wrote.
+        addr = _parse_address(client_ips[0].decode("latin-1")) if len(client_ips) == 1 else None
+        if addr is None:
+            addr = _walk_forwarded_for(forwarded_for, networks)
+        if addr is not None:
+            # Headers stay put, so request_scheme still sees the proxy's Proto and Host.
+            scope["client"] = (str(addr), 0)
+
+
+def log_proxy_settings() -> None:
+    """Log at startup who MyGarage takes the client's address from."""
+    from app.config import settings
+
+    if settings.trusted_proxies:
+        logger.info(
+            "Trusting proxy headers from %s; client IP header: %s",
+            ", ".join(str(net) for net in settings.trusted_proxies),
+            settings.client_ip_header or "none, using X-Forwarded-For",
+        )
+    elif settings.client_ip_header:
+        logger.warning(
+            "MYGARAGE_CLIENT_IP_HEADER is set but MYGARAGE_TRUSTED_PROXIES is empty, so it's ignored"
         )
 
 
