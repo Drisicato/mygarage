@@ -53,6 +53,11 @@ class RecallUpdate(BaseModel):
 class RecallResponse(RecallBase):
     """Schema for recall response."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    nhtsa_campaign_number: str | None = Field(None, description="NHTSA campaign number")
+    component: str = Field(..., description="Component affected by recall")
+    summary: str = Field(..., description="Summary of the recall issue")
     id: int
     vin: str
     is_resolved: bool

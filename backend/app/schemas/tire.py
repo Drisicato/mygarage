@@ -320,6 +320,13 @@ class TireResponse(TireBase):
     min_tread_mm: Decimal | None = Field(
         Decimal("2.0"), description="Wear-out threshold in mm; drives reminder hooks"
     )
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    brand: str | None = None
+    model_name: str | None = None
+    size: str | None = None
+    dot_code: str | None = None
+    storage_location: str | None = None
     id: int
     vin: str
     # None means in storage, not mounted.

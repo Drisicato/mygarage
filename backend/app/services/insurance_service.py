@@ -47,6 +47,7 @@ from app.schemas.insurance import (
     InsurancePolicyResponse,
     InsurancePolicyUpdate,
     NamedField,
+    NamedFieldResponse,
     PolicyHistoryEntry,
     PolicyStatus,
     PolicyVehicleCreate,
@@ -300,7 +301,7 @@ class InsuranceService:
                     notes=link.notes,
                     coverages=_coverage_responses(link),
                     effective_to=link.effective_to,
-                    fields=[NamedField.model_validate(f) for f in link.fields],
+                    fields=[NamedFieldResponse.model_validate(f) for f in link.fields],
                     can_edit=access.can_write_vin(link.vin),
                 )
             )
@@ -332,7 +333,7 @@ class InsuranceService:
                     has_successor=policy.id in successor_starts,
                     created_by_user_id=policy.created_by_user_id,
                     created_at=policy.created_at,
-                    fields=[NamedField.model_validate(f) for f in policy.fields],
+                    fields=[NamedFieldResponse.model_validate(f) for f in policy.fields],
                     vehicles=links,
                     other_vehicle_count=hidden,
                     can_edit=access.can_write(policy),
@@ -502,9 +503,13 @@ class InsuranceService:
     def _set_fields(
         policy: InsurancePolicy,
         link: InsurancePolicyVehicle | None,
-        fields: list[NamedField],
+        fields: Iterable[NamedField | NamedFieldResponse],
     ) -> None:
-        """Replace the named fields at one level (the policy, or one link)."""
+        """Replace the named fields at one level (the policy, or one link).
+
+        Takes the read model too, like `_set_coverages`: `renew` copies the
+        stored fields through it.
+        """
         for existing in list(policy.all_fields):
             if existing.policy_vehicle is link and (
                 link is not None or existing.policy_vehicle_id is None
@@ -909,8 +914,10 @@ class InsuranceService:
             # way, and validating it here answered 500 and left the household
             # with no next term at all.
             self._set_coverages(copy, _coverage_responses(link))
-            self._set_fields(new, copy, [NamedField.model_validate(f) for f in link.fields])
-        policy_level = [NamedField.model_validate(f) for f in old.fields]
+            # The fields too, as stored: through the input rules, an imported
+            # empty label answered 500 here the same way.
+            self._set_fields(new, copy, [NamedFieldResponse.model_validate(f) for f in link.fields])
+        policy_level = [NamedFieldResponse.model_validate(f) for f in old.fields]
         for order, item in enumerate(policy_level):
             new.all_fields.append(
                 InsurancePolicyField(label=item.label, value=item.value, sort_order=order)

@@ -44,6 +44,20 @@ class NamedField(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class NamedFieldResponse(BaseModel):
+    """A user-named field, as stored.
+
+    `NamedField`'s shape without its length rules, so a stored field those
+    rules would refuse today (an imported empty label, say) still reads
+    instead of taking the whole policy read down with it.
+    """
+
+    label: str
+    value: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 #: The catalogue's SHAPE, published on both coverage models so the frontend's
 #: copy of it can be checked rather than trusted. Without this the two can
 #: disagree silently and destructively: a slot the backend has and the frontend
@@ -213,7 +227,7 @@ class PolicyVehicleResponse(BaseModel):
     effective_to: date_type | None = None
     #: In catalogue order, which IS the display order.
     coverages: list[CoverageEntryResponse] = Field(default_factory=list)
-    fields: list[NamedField] = Field(default_factory=list)
+    fields: list[NamedFieldResponse] = Field(default_factory=list)
     can_edit: bool = False
 
 
@@ -327,7 +341,7 @@ class InsurancePolicyResponse(BaseModel):
     has_successor: bool = False
     created_by_user_id: int | None = None
     created_at: datetime | None = None
-    fields: list[NamedField] = Field(default_factory=list)
+    fields: list[NamedFieldResponse] = Field(default_factory=list)
     vehicles: list[PolicyVehicleResponse] = Field(default_factory=list)
     other_vehicle_count: int = Field(
         0, description="Covered vehicles the caller has no access to see"

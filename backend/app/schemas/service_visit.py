@@ -155,6 +155,16 @@ class ServiceLineItemResponse(ServiceLineItemBase):
     # Money without the input bounds, so a stored amount past today's rules
     # still reads instead of 500ing (test_response_contract).
     cost: Decimal | None = Field(None, description="Cost for this line item")
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    description: str = Field(..., description="Service description")
+    maintenance_type: str | None = Field(
+        None,
+        description=(
+            "Canonical maintenance type code; classified from the description when omitted"
+        ),
+    )
+    notes: str | None = Field(None, description="Additional notes")
     id: int
     visit_id: int
     created_at: datetime
@@ -384,6 +394,10 @@ class ServiceVisitResponse(ServiceVisitBase):
     tax_amount: Decimal | None = Field(None, description="Sales tax")
     shop_supplies: Decimal | None = Field(None, description="Shop supplies/environmental fee")
     misc_fees: Decimal | None = Field(None, description="Miscellaneous fees (disposal, etc.)")
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    notes: str | None = Field(None, description="Visit notes")
+    insurance_claim_number: str | None = Field(None, description="Insurance claim number")
     id: int
     vin: str
     total_cost: Decimal | None = None

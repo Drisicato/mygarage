@@ -441,6 +441,12 @@ class AdminPasswordReset(BaseModel):
 class UserResponse(UserBase):
     """Schema for user response."""
 
+    # Text without the input rules, so SSO's account reads back as the identity
+    # provider gave it: a two-letter username, or an email at a local domain
+    # that EmailStr refuses (test_response_contract).
+    username: str
+    email: str
+    full_name: str | None = None
     id: int
     is_active: bool
     is_admin: bool

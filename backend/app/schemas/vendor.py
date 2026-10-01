@@ -64,6 +64,14 @@ class VendorUpdate(BaseModel):
 class VendorResponse(VendorBase):
     """Schema for vendor response."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    name: str = Field(..., description="Vendor/shop name")
+    address: str | None = Field(None, description="Street address")
+    city: str | None = Field(None, description="City")
+    state: str | None = Field(None, description="State/province")
+    zip_code: str | None = Field(None, description="ZIP/postal code")
+    phone: str | None = Field(None, description="Phone number")
     id: int
     created_at: datetime
     updated_at: datetime | None = None

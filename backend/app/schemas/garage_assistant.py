@@ -33,8 +33,10 @@ class AssistantCitation(BaseModel):
         "dtc_definition",
         "trailer",
     ]
-    label: str = Field(..., max_length=120)
-    detail: str | None = Field(None, max_length=300)
+    # No length rules: _coerce_citations clips both already, and a rule here
+    # could only turn a long one into a 500.
+    label: str
+    detail: str | None = None
 
 
 class GarageAssistantChatResponse(BaseModel):

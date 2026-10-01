@@ -102,6 +102,21 @@ class AddressBookEntryUpdate(BaseModel):
 class AddressBookEntryResponse(AddressBookEntryBase):
     """Schema for address book entry response."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract). The email too:
+    # one at a local domain is a real address that EmailStr refuses.
+    business_name: str
+    name: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
+    category: str | None = None
+    source: str | None = "manual"
+    external_id: str | None = None
+    poi_category: str | None = None
     id: int
     created_at: datetime
     updated_at: datetime

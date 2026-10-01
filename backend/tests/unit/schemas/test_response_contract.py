@@ -1,4 +1,4 @@
-"""Responses carry no bounds on any number.
+"""Responses carry no bounds on any number, and no rules on any text.
 
 A response validates what the database hands it. A number that inherits an
 input bound (`le=100`, `ge=0`) turns a stored value past that bound into a 500
@@ -15,6 +15,11 @@ model is covered without registering it. The one way out is a CHECK constraint
 that already keeps the column inside the bound (`CHECK_BACKED_BOUNDS`): then no
 stored row can break it.
 
+Text is the same trap. A length or pattern rule, or an `EmailStr`, refuses a
+stored string past it: SQLite never holds a string to its column's width, and
+SSO sign-in, the importers and the sticker OCR write some of these columns
+without the input schema. So no response may carry one either.
+
 A response drops a bound by redeclaring the field without it (a twin). A twin
 must otherwise match the field it shadows, so the read side can't drift from
 the write side's type, default or description.
@@ -29,10 +34,10 @@ import annotationlib
 import typing
 from collections.abc import Iterable, Iterator
 from decimal import Decimal
-from typing import Annotated, Any, TypeAliasType
+from typing import Annotated, Any, Literal, TypeAliasType
 
 from fastapi.routing import APIRoute, iter_route_contexts
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from pydantic.fields import FieldInfo
 from sqlalchemy import CheckConstraint
 
@@ -42,6 +47,7 @@ from app.schemas._money import OptionalMoney
 from tests.unit.schemas._schema_walk import NUMBER_TYPES, unwrap, walk
 
 _BOUND_ATTRS = ("ge", "gt", "le", "lt", "multiple_of", "max_digits", "decimal_places")
+_TEXT_ATTRS = ("min_length", "max_length", "pattern")
 
 #: Bounds a CHECK constraint guarantees, so a stored row can't break them: (model, field) -> (table, check).
 CHECK_BACKED_BOUNDS: dict[tuple[str, str], tuple[str, str]] = {
@@ -58,16 +64,17 @@ CHECK_BACKED_BOUNDS: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
-def _bounds(metadata: Iterable[Any]) -> list[str]:
-    """Every bound or digit rule in a metadata list, including a nested FieldInfo's own."""
+def _bounds(metadata: Iterable[Any], attrs: tuple[str, ...] = _BOUND_ATTRS) -> list[str]:
+    """Every rule in `attrs` (a bound or digit rule by default) in a metadata
+    list, including a nested FieldInfo's own."""
     found = []
     for item in metadata:
-        for attr in _BOUND_ATTRS:
+        for attr in attrs:
             value = getattr(item, attr, None)
             if value is not None:
                 found.append(f"{attr}={value}")
         if isinstance(item, FieldInfo):
-            found += _bounds(item.metadata)
+            found += _bounds(item.metadata, attrs)
     return found
 
 
@@ -160,17 +167,62 @@ def test_a_check_backed_bound_names_a_real_check():
 
 
 def test_the_insurance_input_model_is_not_a_response():
-    # The response has its own unbounded twin, so the input model's bounds can
-    # tighten without reaching a read.
+    # The responses have their own unbounded twins, so the input models' rules
+    # can tighten without reaching a read.
     names = {model.__name__ for model in RESPONSE_MODELS}
     assert "CoverageEntryResponse" in names
     assert "CoverageEntry" not in names
+    assert "NamedFieldResponse" in names
+    assert "NamedField" not in names
+
+
+# Text. A length, a pattern or an email check refuses a stored string the same way.
+
+
+def _mentions(annotation: Any, target: Any) -> bool:
+    """Whether `target` sits anywhere in the annotation: inside an Optional, a
+    list, an Annotated or a `type` alias."""
+    if annotation is target:
+        return True
+    if isinstance(annotation, TypeAliasType):
+        return _mentions(annotation.__value__, target)
+    return any(_mentions(arg, target) for arg in typing.get_args(annotation))
+
+
+def _constrained_text(models: Iterable[type[BaseModel]]) -> dict[str, dict[str, list[str]]]:
+    """Model name -> {field: its length, pattern and email rules}, for the
+    models that carry one."""
+    found = {}
+    for model in models:
+        constrained = {}
+        for name, info in model.model_fields.items():
+            rules = _bounds(info.metadata, _TEXT_ATTRS) + _bounds(
+                unwrap(info.annotation)[1], _TEXT_ATTRS
+            )
+            if _mentions(info.annotation, EmailStr):
+                rules.append("EmailStr")
+            if rules:
+                constrained[name] = rules
+        if constrained:
+            found[model.__name__] = constrained
+    return found
+
+
+def test_no_response_constrains_text():
+    reads = [model for model in RESPONSE_MODELS if model.__name__ not in INPUT_MODELS_REUSED]
+    assert _constrained_text(reads) == {}, (
+        "a response inherits an input rule on text: redeclare the field on the "
+        "response without it, or move the rule off the shared base"
+    )
 
 
 # A twin: a response redeclares a field to drop its bound, and copies the rest.
 
 #: Twins that differ from the field they shadow on purpose: (model, field) -> why.
-DELIBERATE_TWINS: dict[tuple[str, str], str] = {}
+DELIBERATE_TWINS: dict[tuple[str, str], str] = {
+    ("AddressBookEntryResponse", "email"): "a plain str: EmailStr refuses a local-domain address",
+    ("UserResponse", "email"): "a plain str: EmailStr refuses an SSO email at a local domain",
+}
 
 
 def _plain(annotation: Any) -> Any:
@@ -246,9 +298,9 @@ def test_a_twin_matches_the_field_it_shadows():
     twin's description (`FuelRecordResponse.cost`, say).
     """
     count, drift, stale = _twins(RESPONSE_MODELS, DELIBERATE_TWINS)
-    # 60 today. A floor, so a change in how annotations are read can't turn
+    # 147 today. A floor, so a change in how annotations are read can't turn
     # this into a pass over nothing.
-    assert count >= 50
+    assert count >= 140
     assert drift == {}, "a twin drifted from the field it shadows: copy it again, bound aside"
     assert stale == [], "these match their field now: drop their DELIBERATE_TWINS entries"
 
@@ -435,6 +487,34 @@ def test_the_detector_sees_every_form():
             "aliased": ["ge=1"],
         },
         "_Nested": {"cost": ["ge=0"]},
+    }
+
+
+class _TextProbe(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    color: Annotated[str, Field(max_length=30)] | None = None
+    code: str | None = Field(None, pattern=r"^[A-Z]+$")
+    email: EmailStr
+    backup_email: EmailStr | None = None
+    # No rule, so they stay out.
+    notes: str | None = None
+    kind: Literal["shop", "dealer"] = "shop"
+
+
+def test_the_text_detector_sees_every_form():
+    """A guard: true the day it lands, next to its RED (test_no_response_constrains_text).
+
+    Mutants: drop "pattern" from _TEXT_ATTRS, or stop looking for EmailStr in
+    `_constrained_text`.
+    """
+    assert _constrained_text([_TextProbe]) == {
+        "_TextProbe": {
+            "name": ["min_length=1", "max_length=100"],
+            "color": ["max_length=30"],
+            "code": ["pattern=^[A-Z]+$"],
+            "email": ["EmailStr"],
+            "backup_email": ["EmailStr"],
+        }
     }
 
 

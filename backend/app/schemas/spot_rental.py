@@ -67,6 +67,9 @@ class SpotRentalResponse(SpotRentalBase):
     water: Decimal | None = None
     waste: Decimal | None = None
     total_cost: Decimal | None = None
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    location_name: str | None = None
     id: int
     vin: str
     created_at: datetime

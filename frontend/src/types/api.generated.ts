@@ -11626,7 +11626,7 @@ export interface components {
              */
             end_date: string;
             /** Fields */
-            fields?: components["schemas"]["NamedField"][];
+            fields?: components["schemas"]["NamedFieldResponse"][];
             /**
              * Has Successor
              * @default false
@@ -12847,6 +12847,20 @@ export interface components {
             value: string;
         };
         /**
+         * NamedFieldResponse
+         * @description A user-named field, as stored.
+         *
+         *     `NamedField`'s shape without its length rules, so a stored field those
+         *     rules would refuse today (an imported empty label, say) still reads
+         *     instead of taking the whole policy read down with it.
+         */
+        NamedFieldResponse: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /**
          * NearestOdometerResponse
          * @description The reading closest to a requested day, for the tire dialogs' suggestion.
          */
@@ -13627,7 +13641,7 @@ export interface components {
             /** Effective To */
             effective_to?: string | null;
             /** Fields */
-            fields?: components["schemas"]["NamedField"][];
+            fields?: components["schemas"]["NamedFieldResponse"][];
             /** Id */
             id: number;
             /** Notes */
@@ -17468,10 +17482,7 @@ export interface components {
             default_payment_method?: string | null;
             /** Default Trip Type */
             default_trip_type?: string | null;
-            /**
-             * Email
-             * Format: email
-             */
+            /** Email */
             email: string;
             /**
              * Family Dashboard Order

@@ -56,6 +56,9 @@ class SpotRentalBillingResponse(SpotRentalBillingBase):
     water: Decimal | None = Field(None, description="Water charge")
     waste: Decimal | None = Field(None, description="Waste charge")
     total: Decimal | None = Field(None, description="Total for this billing entry")
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    notes: str | None = Field(None, description="Billing notes")
     id: int
     spot_rental_id: int
     created_at: datetime

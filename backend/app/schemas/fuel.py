@@ -697,6 +697,36 @@ class FuelRecordResponse(FuelRecordBase):
     obc_trip_duration_s: int | None = Field(
         None, description="OBC reported trip duration in seconds"
     )
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    charge_level: str | None = Field(None, description="Charger level: L1 / L2 / DCFC")
+    charge_location: str | None = Field(None, description="Charge location: home / public")
+    price_basis: str | None = Field(
+        None, description="Price denominator: per_volume / per_weight / per_tank / per_kwh"
+    )
+    fuel_type_used: str | None = Field(
+        None,
+        description=(
+            "Actual fuel dispensed for this fill-up (canonical enum). Only "
+            "surfaced in UI when the vehicle has a secondary fuel capability."
+        ),
+    )
+    diesel_grade: str | None = Field(
+        None, description="Diesel grade: 'onroad' (clear) or 'offroad' (dyed/farm)"
+    )
+    station_name_freetext: str | None = Field(
+        None,
+        description="Freetext station name (one-time visit, no address-book entry created)",
+    )
+    driver_name_freetext: str | None = Field(
+        None, description="Freetext driver name (non-account household member)"
+    )
+    payment_method: str | None = Field(
+        None, description=f"Payment method, one of {PAYMENT_METHOD_VALUES}"
+    )
+    trip_type: str | None = Field(
+        None, description=f"Trip type for this fuel cycle, one of {TRIP_TYPE_VALUES}"
+    )
     id: int
     vin: str
     created_at: datetime

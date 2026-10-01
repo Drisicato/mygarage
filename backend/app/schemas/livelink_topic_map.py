@@ -86,6 +86,14 @@ class TopicMapResponse(TopicMapBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    device_id: str
+    topic: str
+    param_key: str | None = None
+    value_path: str | None = None
+    unit: str | None = None
+    param_class: str | None = None
     id: int
 
 

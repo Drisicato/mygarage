@@ -98,6 +98,10 @@ class TollTagUpdate(BaseModel):
 class TollTagResponse(TollTagBase):
     """Schema for toll tag response."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    toll_system: str = Field(..., description="Toll system name")
+    tag_number: str = Field(..., description="Transponder/tag number")
     id: int
     vin: str
     created_at: dt.datetime
