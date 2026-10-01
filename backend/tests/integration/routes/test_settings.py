@@ -810,6 +810,67 @@ class TestPOIProviderBodies:
         assert await _stored_or_none(db_session, f"{_PROVIDER}_enabled") == "false"
 
 
+async def _committed_provider_rows(test_sessionmaker) -> dict[str, str | None]:
+    """The test provider's rows as another connection sees them: committed only."""
+    async with test_sessionmaker() as fresh:
+        result = await fresh.execute(
+            select(Setting.key, Setting.value).where(Setting.key.in_(_PROVIDER_KEYS))
+        )
+        return {row.key: row.value for row in result}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("provider_rows")
+class TestPOIProviderPersistence:
+    """The provider routes only flushed, and get_db doesn't commit, so every
+    change was rolled back when the request's session closed. The test client
+    shares one session, which is why nothing here noticed: these read through
+    a fresh one."""
+
+    async def test_adding_a_provider_is_saved(
+        self, client: AsyncClient, auth_headers, test_sessionmaker
+    ):
+        response = await client.post(
+            "/api/settings/poi-providers",
+            headers=auth_headers,
+            json={"name": _PROVIDER, "api_key": "a-real-looking-key", "enabled": True},
+        )
+        assert response.status_code == 200, response.text
+        assert await _committed_provider_rows(test_sessionmaker) == {
+            f"{_PROVIDER}_enabled": "true",
+            f"{_PROVIDER}_api_key": "a-real-looking-key",
+            f"{_PROVIDER}_api_usage": "0",
+        }
+
+    async def test_editing_a_provider_is_saved(
+        self, client: AsyncClient, auth_headers, db_session, test_sessionmaker
+    ):
+        await _set_setting(db_session, f"{_PROVIDER}_enabled", "true")
+        await _set_setting(db_session, f"{_PROVIDER}_api_key", "old-key-123456")
+        response = await client.put(
+            f"/api/settings/poi-providers/{_PROVIDER}",
+            headers=auth_headers,
+            json={"enabled": False, "api_key": "new-key-123456"},
+        )
+        assert response.status_code == 200, response.text
+        assert await _committed_provider_rows(test_sessionmaker) == {
+            f"{_PROVIDER}_enabled": "false",
+            f"{_PROVIDER}_api_key": "new-key-123456",
+        }
+
+    async def test_removing_a_provider_is_saved(
+        self, client: AsyncClient, auth_headers, db_session, test_sessionmaker
+    ):
+        await _set_setting(db_session, f"{_PROVIDER}_enabled", "true")
+        await _set_setting(db_session, f"{_PROVIDER}_api_key", "old-key-123456")
+        response = await client.delete(
+            f"/api/settings/poi-providers/{_PROVIDER}", headers=auth_headers
+        )
+        assert response.status_code == 204, response.text
+        assert await _committed_provider_rows(test_sessionmaker) == {}
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestSettingsBatchKeyWidth:

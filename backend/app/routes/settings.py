@@ -373,6 +373,8 @@ async def add_poi_provider(
     usage_setting = await SettingsService.get(db, f"{provider_name}_api_usage")
     if not usage_setting:
         await SettingsService.set(db, f"{provider_name}_api_usage", "0")
+    # SettingsService only flushes and get_db never commits.
+    await db.commit()
 
     logger.info("Updated POI provider %s (enabled=%s)", sanitize_for_log(provider_name), enabled)
 
@@ -427,6 +429,7 @@ async def update_poi_provider(
 
     if api_key is not None:
         await SettingsService.set(db, f"{provider_name}_api_key", api_key)
+    await db.commit()
 
     logger.info("Updated POI provider %s", sanitize_for_log(provider_name))
 
@@ -462,6 +465,7 @@ async def delete_poi_provider(
     # Delete provider settings
     await SettingsService.delete(db, f"{provider_name}_enabled")
     await SettingsService.delete(db, f"{provider_name}_api_key")
+    await db.commit()
 
     logger.info("Deleted POI provider %s", sanitize_for_log(provider_name))
 
