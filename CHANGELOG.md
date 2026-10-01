@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
 - With `MYGARAGE_TRUSTED_PROXIES` set, `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only count when they come from a trusted proxy
+- The SSO sign-in start and callback are rate limited per client like password login, and a limited attempt returns to the login page with a reason
 
 ## [3.7.0] - 2026-09-24
 

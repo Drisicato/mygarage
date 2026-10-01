@@ -30,7 +30,7 @@ import datetime as dt
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator, Generator, Iterator
+from collections.abc import AsyncIterator, Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -40,13 +40,14 @@ from urllib.parse import parse_qs, urlparse, urlsplit
 import httpx
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, Response
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import delete, event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.constants.oidc import SSOError
 from app.exceptions import OIDCLoginRefusedError
+from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.csrf_token import CSRFToken
 from app.models.oidc_pending_link import OIDCPendingLink
@@ -113,7 +114,10 @@ async def _oidc_rows(db_session: AsyncSession):
 
 @pytest.fixture(autouse=True)
 def _fresh_link_limit() -> Iterator[None]:
-    """/link-account allows 5 a minute per address, and every request here is one address."""
+    """The SSO start, the callback and /link-account each allow 5 a minute per address.
+
+    Nearly every request here comes from one address, 127.0.0.1.
+    """
     oidc_route_limiter.reset()
     yield
     oidc_route_limiter.reset()
@@ -1038,3 +1042,87 @@ class TestArmedRelinkThroughTheCallback:
         assert rows[0].username == target.username
         assert rows[0].ip_address == "127.0.0.1"
         assert rows[0].details == {"old_subject": None, "new_subject": claims["sub"]}
+
+
+_AUTH_LIMIT = int(settings.rate_limit_auth.split("/")[0])
+
+
+class TestSSORateLimit:
+    """The SSO start and the callback are limited per client like password login.
+
+    Both are full-page navigations, so a limited attempt lands on the login page
+    like every other SSO failure. Other limited routes keep slowapi's JSON 429.
+    """
+
+    @pytest.mark.parametrize(
+        ("path", "params", "code"),
+        [
+            ("/api/auth/oidc/login", {}, "failed"),
+            ("/api/auth/oidc/callback", {"error": "access_denied"}, "cancelled"),
+        ],
+        ids=["login", "callback"],
+    )
+    async def test_each_client_behind_a_trusted_proxy_has_its_own_sso_budget(
+        self,
+        trust_proxies: Callable[..., None],
+        client_via: Callable[[str], AsyncClient],
+        path: str,
+        params: dict[str, str],
+        code: str,
+    ) -> None:
+        """The start fails with no oidc_* settings; the callback has no state to spend."""
+        trust_proxies("10.0.0.0/8")
+        proxy = client_via("10.0.0.2")
+
+        async def visit(client_ip: str) -> Response:
+            return await proxy.get(
+                path,
+                params=params,
+                headers={"X-Forwarded-For": client_ip},
+                follow_redirects=False,
+            )
+
+        for _ in range(_AUTH_LIMIT):
+            assert_sent_to_login(await visit("198.51.100.7"), code)
+        assert_sent_to_login(await visit("198.51.100.7"), "rate_limited")
+
+        # Same proxy, different client: a budget of its own.
+        assert_sent_to_login(await visit("198.51.100.8"), code)
+
+    async def test_a_limited_sso_attempt_behind_a_subpath_keeps_the_prefix(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Asks for ``client`` for its get_db override. The path carries the prefix here."""
+        monkeypatch.setattr(settings, "root_path", "/mygarage")
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app, root_path="/mygarage"), base_url="http://test"
+        ) as subpath:
+            for _ in range(_AUTH_LIMIT):
+                await subpath.get(
+                    "/mygarage/api/auth/oidc/callback",
+                    params={"error": "access_denied"},
+                    follow_redirects=False,
+                )
+            response = await subpath.get(
+                "/mygarage/api/auth/oidc/callback",
+                params={"error": "access_denied"},
+                follow_redirects=False,
+            )
+
+        assert response.status_code == 302, response.text
+        location = urlsplit(response.headers["location"])
+        assert location.path == "/mygarage/login"
+        assert parse_qs(location.query) == {"sso_error": ["rate_limited"]}
+        assert not sets_auth_cookie(response)
+
+    async def test_other_limited_routes_still_answer_429_json(
+        self, client: AsyncClient, user_agent: str
+    ) -> None:
+        """/link-account shares the limiter, but it's an XHR, so it keeps slowapi's JSON."""
+        for _ in range(_AUTH_LIMIT):
+            await _link(client, uuid.uuid4().hex, _PASSWORD, user_agent)
+        response = await _link(client, uuid.uuid4().hex, _PASSWORD, user_agent)
+
+        assert response.status_code == 429, response.text
+        assert response.json()["error"].startswith("Rate limit exceeded")
