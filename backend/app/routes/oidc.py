@@ -25,7 +25,7 @@ from app.config import settings
 from app.constants.oidc import SSO_ACCOUNT_DISABLED
 from app.database import get_db
 from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError
-from app.models.audit_log import AuditLog
+from app.models.audit_log import USER_AGENT_MAX_LENGTH, AuditLog
 from app.models.csrf_token import CSRFToken
 from app.models.user import User
 from app.services import oidc as oidc_service
@@ -59,9 +59,13 @@ limiter = Limiter(key_func=get_remote_address)
 
 
 def _request_origin(request: Request) -> tuple[str | None, str]:
-    """The request's client IP and user agent, as the audit rows record them."""
+    """The request's client IP and user agent, as the audit rows record them.
+
+    The user agent is cut to the audit column's length, since PostgreSQL refuses
+    a longer one and that would fail the commit it rides in.
+    """
     ip_address = request.client.host if request.client else None
-    return ip_address, request.headers.get("user-agent", "")
+    return ip_address, request.headers.get("user-agent", "")[:USER_AGENT_MAX_LENGTH]
 
 
 async def _audit_login_refused(
@@ -557,7 +561,7 @@ async def link_oidc_account(
     - Max 3 password attempts per token (configured in settings)
     - Token expires after 5 minutes (configured in settings)
     - A disabled account is refused before the password is checked
-    - Audited (success, failure and refusal)
+    - Audited (success, failure and refusal); the link's own row commits with it
     - CSRF protected (middleware)
 
     Args:
@@ -573,25 +577,27 @@ async def link_oidc_account(
         HTTPException: 401 if token invalid/expired or password wrong
         HTTPException: 403 if user account is disabled
     """
-    # Validate and consume pending link token
+    # Validate and consume pending link token. A link writes its own audit row.
+    ip_address, user_agent = _request_origin(request)
     try:
         user, error_message = await oidc_service.validate_and_consume_pending_link(
             db,
             link_request.token,
             link_request.password,
+            ip_address=ip_address,
+            user_agent=user_agent,
         )
     except OIDCLoginRefusedError as e:
         # A disabled target, refused before its password was checked
         await _audit_login_refused(db, request, e.message, e.username)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
 
-    ip_address, user_agent = _request_origin(request)
     if user is None:
         # Failed - create audit log
         audit_log = AuditLog(
             user_id=None,
             action="oidc_link_failed",
-            details=error_message,
+            details={"reason": error_message},
             ip_address=ip_address,
             user_agent=user_agent,
             timestamp=utc_now(),
@@ -606,22 +612,12 @@ async def link_oidc_account(
         )
 
     # Backstop: the link step refuses a disabled account up front, so this only
-    # fires when an admin disables it while the link is being committed.
+    # fires when an admin disables it while the link is being committed. The link
+    # and its audit row are already in, so this just refuses the login.
     if not user.is_active:
         logger.warning("OIDC link attempt for inactive user: %s", sanitize_for_log(user.username))
         await _audit_login_refused(db, request, SSO_ACCOUNT_DISABLED, user.username)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SSO_ACCOUNT_DISABLED)
-
-    # Success - create audit log
-    audit_log = AuditLog(
-        user_id=user.id,
-        action="oidc_account_linked",
-        details=f"Linked OIDC account to username: {user.username}, provider: {user.oidc_provider}, oidc_subject: {user.oidc_subject}",
-        ip_address=ip_address,
-        user_agent=user_agent,
-        timestamp=utc_now(),
-    )
-    db.add(audit_log)
 
     # Clean up expired CSRF tokens for this user
     await db.execute(

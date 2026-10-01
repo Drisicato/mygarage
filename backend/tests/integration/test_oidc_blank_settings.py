@@ -20,6 +20,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditLog
 from app.models.oidc_state import OIDCState
 from app.models.settings import Setting
 from app.models.user import User
@@ -62,10 +63,13 @@ async def _oidc_rows(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def made_users(db_session: AsyncSession):
-    """Collects users a test creates and deletes them afterwards."""
+    """Collects users a test creates and deletes them, and their link audit rows, afterwards."""
     ids: list[int] = []
     yield ids
     await db_session.rollback()
+    await db_session.execute(
+        delete(AuditLog).where(AuditLog.action == "oidc_account_linked", AuditLog.user_id.in_(ids))
+    )
     for user_id in ids:
         user = await db_session.get(User, user_id)
         if user is not None:

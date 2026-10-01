@@ -85,12 +85,14 @@ async def _oidc_rows(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def made_users(db_session: AsyncSession):
-    """Collects users a test creates and deletes them, and their relink audit rows, afterwards."""
+    """Collects users a test creates and deletes them, and their link audit rows, afterwards."""
     ids: list[int] = []
     yield ids
     await db_session.rollback()
     await db_session.execute(
-        delete(AuditLog).where(AuditLog.action == _RELINK_USED, AuditLog.user_id.in_(ids))
+        delete(AuditLog).where(
+            AuditLog.action.in_((_RELINK_USED, "oidc_account_linked")), AuditLog.user_id.in_(ids)
+        )
     )
     for user_id in ids:
         user = await db_session.get(User, user_id)
