@@ -4,10 +4,14 @@ Integration tests for POI discovery routes.
 Tests POI search, save, and recommendations endpoints.
 """
 
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import delete, select
+
+from app.models.address_book import AddressBookEntry
 
 
 @pytest.mark.integration
@@ -185,6 +189,34 @@ class TestPOIRoutes:
         # Should succeed (201) or may validate (400 if poi_category not in schema)
         # The route adds poi_category directly to the model
         assert response.status_code in [201, 400]
+
+    async def test_an_empty_poi_category_is_saved_as_none(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """An empty poi_category used to skip the category check and land as "",
+        which the POI list counts as categorised."""
+        name = f"Empty POI Category {uuid.uuid4().hex[:8]}"
+        try:
+            response = await client.post(
+                "/api/poi/save",
+                headers=auth_headers,
+                json={"business_name": name, "poi_category": ""},
+            )
+            assert response.status_code == 201, response.text
+            stored = (
+                await db_session.execute(
+                    select(AddressBookEntry.poi_category).where(
+                        AddressBookEntry.id == response.json()["id"]
+                    )
+                )
+            ).one()
+            assert stored.poi_category is None
+        finally:
+            await db_session.rollback()
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            await db_session.commit()
 
     async def test_save_poi_invalid_category(self, client: AsyncClient, auth_headers):
         """Test saving POI with invalid poi_category.

@@ -41,7 +41,9 @@ class AddressBookEntryBase(BaseModel):
     poi_category: str | None = Field(None, max_length=50)
     poi_metadata: str | None = None
 
-    @field_validator("email", "website", mode="before")
+    # An empty poi_category skipped the save route's check and then counted as
+    # categorised in the POI list, so it's none like the other two.
+    @field_validator("email", "website", "poi_category", mode="before")
     @classmethod
     def empty_str_to_none(cls, v: str) -> str | None:
         """Convert empty strings to None for optional fields."""

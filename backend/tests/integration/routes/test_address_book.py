@@ -4,10 +4,15 @@ Integration tests for address book routes.
 Tests address book CRUD operations and vendor sync side-effects.
 """
 
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import delete, select
+
+from app.models.address_book import AddressBookEntry
+from app.models.vendor import Vendor
 
 
 @pytest.mark.integration
@@ -464,6 +469,35 @@ class TestAddressBookRoutes:
         assert resp.status_code == 200
         names = [e["business_name"] for e in resp.json()["entries"]]
         assert "Canonical Fuel" in names
+
+    async def test_create_with_an_empty_poi_category_stores_none(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """The update route already mapped "" to NULL; create stored it as is."""
+        name = f"Empty Create Category {uuid.uuid4().hex[:8]}"
+        try:
+            response = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "poi_category": ""},
+                headers=auth_headers,
+            )
+            assert response.status_code == 201, response.text
+            stored = (
+                await db_session.execute(
+                    select(AddressBookEntry.poi_category).where(
+                        AddressBookEntry.id == response.json()["id"]
+                    )
+                )
+            ).one()
+            assert stored.poi_category is None
+        finally:
+            await db_session.rollback()
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            # The create syncs a vendor of the same name.
+            await db_session.execute(delete(Vendor).where(Vendor.name == name))
+            await db_session.commit()
 
     async def test_update_empty_string_poi_category_normalizes_to_null(
         self, client: AsyncClient, auth_headers
