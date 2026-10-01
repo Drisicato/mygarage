@@ -10,16 +10,15 @@ JSON.
 
 import logging
 from unittest.mock import AsyncMock, patch
-from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
-from httpx import AsyncClient, Response
+from httpx import AsyncClient
 from joserfc.errors import JoseError
 from sqlalchemy import delete, select
 
-from app.config import settings
 from app.models.settings import Setting
+from tests.integration._oidc_refusals import assert_sent_to_login
 
 
 async def set_settings(db_session, settings_dict: dict[str, str]) -> None:
@@ -51,19 +50,8 @@ async def clear_oidc_settings(db_session) -> None:
     await db_session.commit()
 
 
-def assert_sent_to_login(response: Response, code: str) -> None:
-    """A 302 to the login page carrying the code and nothing else, and no auth cookie."""
-    assert response.status_code == 302, response.text
-    location = urlsplit(response.headers["location"])
-    assert location.path == "/login"
-    assert parse_qs(location.query) == {"sso_error": [code]}
-    assert not any(
-        cookie.startswith(f"{settings.jwt_cookie_name}=")
-        for cookie in response.headers.get_list("set-cookie")
-    )
-
-
 def route_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The WARNING-and-up messages the OIDC routes logged."""
     return [
         r.getMessage()
         for r in caplog.records
@@ -254,6 +242,7 @@ class TestOIDCRoutes:
         assert_sent_to_login(response, "failed")
 
     async def test_login_metadata_unavailable(self, client: AsyncClient, db_session):
+        """Login with no provider metadata goes back to the login page as a failure."""
         await set_settings(db_session, ENABLED)
 
         with patch(

@@ -57,6 +57,13 @@ from app.routes.oidc import limiter as oidc_route_limiter
 from app.services.oidc import create_pending_link_token, store_oidc_state
 from app.services.oidc import linking as oidc_linking
 from app.utils.datetime_utils import utc_now
+from tests.integration._oidc_refusals import (
+    DISABLED,
+    NO_ACCOUNT,
+    REFUSAL_CODES,
+    assert_sent_to_login,
+    sets_auth_cookie,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -64,22 +71,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 _HASH = "$argon2id$v=19$m=102400,t=2,p=8$NNbLa8SMLODWY2Es68EvLw$hiGLA+DtO213EMAMi8D8gXvvyjP8EVMFIHWp7SlUVnI"
 _PASSWORD = "testpassword123"
 _LAST_LOGIN = dt.datetime(2024, 1, 2, 3, 4, 5)
-_DISABLED = "User account is disabled"
-_NO_ACCOUNT = (
-    "No MyGarage account matches this sign-in, and automatic account creation is off. "
-    "Ask an administrator to create your account."
-)
 _WATCHED = ("oidc_subject", "oidc_provider", "auth_method", "last_login", "full_name")
-
-# Every code a refusal can send the login page, as the frontend matches them.
-_REFUSAL_CODES = (
-    "account_disabled",
-    "email_linked_elsewhere",
-    "email_no_password",
-    "username_linked_elsewhere",
-    "username_no_password",
-    "no_account",
-)
 
 _STATE = {
     "redirect_uri": "http://test/api/auth/oidc/callback",
@@ -319,22 +311,6 @@ async def _link(client: AsyncClient, token: str, password: str, user_agent: str)
     )
 
 
-def _sets_auth_cookie(response: Response) -> bool:
-    return any(
-        cookie.startswith(f"{settings.jwt_cookie_name}=")
-        for cookie in response.headers.get_list("set-cookie")
-    )
-
-
-def _assert_sent_to_login(response: Response, code: str) -> None:
-    """A 302 to the login page carrying the code and nothing else, and no auth cookie."""
-    assert response.status_code == 302, response.text
-    location = urlsplit(response.headers["location"])
-    assert location.path == "/login"
-    assert parse_qs(location.query) == {"sso_error": [code]}
-    assert not _sets_auth_cookie(response)
-
-
 def _snapshot(user: User) -> dict[str, Any]:
     return {field: getattr(user, field) for field in _WATCHED}
 
@@ -407,7 +383,7 @@ def _assert_refusal_row(rows: list[AuditLog], *, reason: str, username: str | No
 
 
 class TestCallbackRefusal:
-    @pytest.mark.parametrize("code", _REFUSAL_CODES)
+    @pytest.mark.parametrize("code", REFUSAL_CODES)
     @pytest.mark.parametrize("matched", [False, True], ids=["no-match", "matched-account"])
     async def test_a_refused_login_goes_to_the_login_page_with_its_code(
         self,
@@ -430,7 +406,7 @@ class TestCallbackRefusal:
         ):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, code)
+        assert_sent_to_login(response, code)
         # The audit commit rolls back first, so the row is only here if the route committed it.
         _assert_refusal_row(
             await _refusal_rows(test_sessionmaker, user_agent), reason="x", username=username
@@ -453,7 +429,7 @@ class TestCallbackRefusal:
             user.oidc_subject = "sub-half-applied"
             user.auth_method = "oidc"
             raise OIDCLoginRefusedError(
-                _DISABLED, code=SSOError.ACCOUNT_DISABLED, username=target.username
+                DISABLED, code=SSOError.ACCOUNT_DISABLED, username=target.username
             )
 
         with (
@@ -465,11 +441,11 @@ class TestCallbackRefusal:
         ):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, "account_disabled")
+        assert_sent_to_login(response, "account_disabled")
         assert _snapshot(await _stored_user(test_sessionmaker, target.id)) == target.row
         _assert_refusal_row(
             await _refusal_rows(test_sessionmaker, user_agent),
-            reason=_DISABLED,
+            reason=DISABLED,
             username=target.username,
         )
 
@@ -495,10 +471,10 @@ class TestCallbackRefusal:
         ):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, "account_disabled")
+        assert_sent_to_login(response, "account_disabled")
         _assert_refusal_row(
             await _refusal_rows(test_sessionmaker, user_agent),
-            reason=_DISABLED,
+            reason=DISABLED,
             username=target.username,
         )
 
@@ -516,9 +492,9 @@ class TestCallbackRefusal:
         with _idp(claims):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, "no_account")
+        assert_sent_to_login(response, "no_account")
         _assert_refusal_row(
-            await _refusal_rows(test_sessionmaker, user_agent), reason=_NO_ACCOUNT, username=None
+            await _refusal_rows(test_sessionmaker, user_agent), reason=NO_ACCOUNT, username=None
         )
         async with test_sessionmaker() as fresh:
             created = await fresh.execute(select(User).where(User.oidc_subject == claims["sub"]))
@@ -547,17 +523,18 @@ class TestCallbackFailure:
             follow_redirects=False,
         )
 
-        _assert_sent_to_login(response, "cancelled")
+        assert_sent_to_login(response, "cancelled")
         assert "said no" not in response.headers["location"]
         assert await _stored_state(test_sessionmaker, state) is None, "the state is still live"
 
     @pytest.mark.parametrize("error", ["server_error", "login_required", "ACCESS_DENIED"])
     async def test_any_other_idp_error_is_a_failure(self, client: AsyncClient, error: str):
+        """Only an exact access_denied is a cancel; any other IdP error is a failure."""
         response = await client.get(
             "/api/auth/oidc/callback", params={"error": error}, follow_redirects=False
         )
 
-        _assert_sent_to_login(response, "failed")
+        assert_sent_to_login(response, "failed")
 
     @pytest.mark.parametrize(
         ("send_code", "send_state"),
@@ -580,7 +557,7 @@ class TestCallbackFailure:
             "/api/auth/oidc/callback", params=params, follow_redirects=False
         )
 
-        _assert_sent_to_login(response, "failed")
+        assert_sent_to_login(response, "failed")
         if send_state:
             assert await _stored_state(test_sessionmaker, params["state"]) is None, (
                 "the state is still live"
@@ -597,7 +574,7 @@ class TestCallbackFailure:
             follow_redirects=False,
         )
 
-        _assert_sent_to_login(response, "failed")
+        assert_sent_to_login(response, "failed")
         assert "555" not in response.headers["location"]
         warnings = [
             r
@@ -633,7 +610,7 @@ class TestCallbackFailure:
         with _idp(claims, **step):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, "failed")
+        assert_sent_to_login(response, "failed")
 
     async def test_behind_a_subpath_the_redirect_keeps_the_prefix(
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
@@ -668,7 +645,7 @@ class TestCallbackProviderFailureThatRaises:
         with _idp_over_http({_DISCOVERY_URL: (200, discovery)}):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, "failed")
+        assert_sent_to_login(response, "failed")
 
     @pytest.mark.parametrize(
         "jwks", [(503, b"unavailable"), (200, _json({}))], ids=["jwks-503", "jwks-empty-object"]
@@ -684,7 +661,7 @@ class TestCallbackProviderFailureThatRaises:
         with _idp_over_http(answers):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, "failed")
+        assert_sent_to_login(response, "failed")
 
     async def test_an_issuer_on_a_blocked_address_is_a_failure(
         self,
@@ -709,7 +686,7 @@ class TestCallbackProviderFailureThatRaises:
         ):
             response = await _callback(client, user_agent)
 
-        _assert_sent_to_login(response, "failed")
+        assert_sent_to_login(response, "failed")
 
 
 class TestCallbackGuards:
@@ -735,7 +712,7 @@ class TestCallbackGuards:
         location = urlsplit(response.headers["location"])
         assert location.path == "/auth/oidc/success"
         assert set(parse_qs(location.query)) == {"csrf_token"}
-        assert _sets_auth_cookie(response)
+        assert sets_auth_cookie(response)
         assert await _refusal_rows(test_sessionmaker, user_agent) == []
 
     async def test_an_unexpected_service_error_still_surfaces(
@@ -776,8 +753,8 @@ class TestLinkStepInactiveTarget:
 
         # 403, never 401: a wrong password would only 401 if the password were checked first.
         assert response.status_code == 403, response.text
-        assert response.json()["detail"] == _DISABLED
-        assert not _sets_auth_cookie(response)
+        assert response.json()["detail"] == DISABLED
+        assert not sets_auth_cookie(response)
 
         stored = await _stored_user(test_sessionmaker, target.id)
         assert stored.oidc_subject is None
@@ -788,7 +765,7 @@ class TestLinkStepInactiveTarget:
         assert await _stored_pending_link(test_sessionmaker, token) is None
         _assert_refusal_row(
             await _refusal_rows(test_sessionmaker, user_agent),
-            reason=_DISABLED,
+            reason=DISABLED,
             username=target.username,
         )
 
@@ -822,12 +799,12 @@ class TestLinkStepInactiveTarget:
             response = await _link(client, token, _PASSWORD, user_agent)
 
         assert response.status_code == 403, response.text
-        assert response.json()["detail"] == _DISABLED
-        assert not _sets_auth_cookie(response)
+        assert response.json()["detail"] == DISABLED
+        assert not sets_auth_cookie(response)
         # The link committed with its row, then the backstop refused the login.
         rows = await _audit_rows(test_sessionmaker, user_agent)
         assert [r.action for r in rows] == ["oidc_account_linked", "oidc_login_refused"]
-        _assert_refusal_row(rows[1:], reason=_DISABLED, username=target.username)
+        _assert_refusal_row(rows[1:], reason=DISABLED, username=target.username)
 
 
 class TestLinkAudit:
@@ -953,7 +930,7 @@ class TestEmailStepEndToEnd:
             response = await _callback(client, user_agent)
 
         assert response.status_code == 302, response.text
-        assert not _sets_auth_cookie(response)
+        assert not sets_auth_cookie(response)
         location = urlsplit(response.headers["location"])
         assert location.path == "/auth/link-account"
         token = parse_qs(location.query)["token"][0]
@@ -967,7 +944,7 @@ class TestEmailStepEndToEnd:
         response = await _link(client, token, _PASSWORD, user_agent)
 
         assert response.status_code == 200, response.text
-        assert _sets_auth_cookie(response)
+        assert sets_auth_cookie(response)
         linked = await _stored_user(test_sessionmaker, target.id)
         assert linked.oidc_subject == claims["sub"]
         assert linked.auth_method == "oidc"
@@ -995,7 +972,7 @@ class TestArmedRelinkThroughTheCallback:
 
         assert response.status_code == 302, response.text
         assert urlsplit(response.headers["location"]).path == "/auth/oidc/success"
-        assert _sets_auth_cookie(response)
+        assert sets_auth_cookie(response)
         linked = await _stored_user(test_sessionmaker, target.id)
         assert linked.oidc_subject == claims["sub"]
         assert linked.oidc_relink_until is None

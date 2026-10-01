@@ -10,6 +10,10 @@ from decimal import Decimal
 
 import pytest
 
+# The shared OIDC assertions aren't in a test module, so pytest only rewrites
+# them if asked. Without it a failure there is a bare AssertionError.
+pytest.register_assert_rewrite("tests.integration._oidc_refusals")
+
 # Seed dates for `test_vehicle_with_records` are FIXED, never relative to today.
 #
 # The test database is session-scoped and `db_session` does not roll back, so
