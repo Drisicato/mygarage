@@ -48,12 +48,6 @@ class ServiceLineItemBase(BaseModel):
         None, description="ID of inspection that triggered this repair"
     )
 
-    @field_validator("maintenance_type")
-    @classmethod
-    def validate_maintenance_type_code(cls, v: str | None) -> str | None:
-        """A stored code is lowercase snake_case."""
-        return validate_maintenance_type(v)
-
     @field_validator("inspection_result")
     @classmethod
     def validate_inspection_result(cls, v: str | None) -> str | None:
@@ -87,6 +81,14 @@ class ServiceLineItemCreate(ServiceLineItemBase):
     supplies_used: list[SupplyUsageInput] = Field(
         default_factory=list, description="Supplies consumed by this line item"
     )
+
+    # Here and not on the base: the response shares it, and a legacy row with a
+    # free-text type ("Oil Change") would 500 the visit.
+    @field_validator("maintenance_type")
+    @classmethod
+    def validate_maintenance_type_code(cls, v: str | None) -> str | None:
+        """A stored code is lowercase snake_case."""
+        return validate_maintenance_type(v)
 
     @model_validator(mode="after")
     def validate_temp_id(self) -> ServiceLineItemCreate:

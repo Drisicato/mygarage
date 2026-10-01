@@ -64,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A refused or failed SSO sign-in returns to the login page with a reason instead of a page of raw JSON
 - The SSO test connection explains an issuer blocked as a private address and names `MYGARAGE_TRUSTED_HOSTS`, and asks for a full URL when the issuer isn't one, instead of failing with a server error
 - A record holding a number outside today's input range (a LiveLink state of charge over 100%, a negative odometer, a model year before 1900) no longer breaks the page that lists it
+- SSO users whose identity provider username has a dot or another character a local username can't have no longer get a server error after signing in
+- An imported fill-up with an unknown price basis, charge level or charge location, or a webhook fill-up with an unknown price basis or fuel type, is refused instead of stored, and one already stored no longer breaks the fuel list
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

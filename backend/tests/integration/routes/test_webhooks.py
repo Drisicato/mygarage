@@ -6,7 +6,7 @@ from io import BytesIO
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.fuel import FuelRecord
 from app.models.settings import Setting
@@ -139,6 +139,28 @@ class TestWebhookIngest:
         assert record.charge_location == "home"
         assert record.price_basis == "per_kwh"
         assert record.fuel_type_used == "electric"
+
+    @pytest.mark.parametrize(
+        "field,value", [("price_basis", "per_gal"), ("fuel_type_used", "rocket")]
+    )
+    async def test_fuel_refuses_a_word_outside_the_vocabulary(
+        self, client: AsyncClient, own_vehicle, db_session, field, value
+    ):
+        """The fuel form refuses these, so the webhook does too: a stored one
+        used to break the fuel list."""
+        # Read before the request: a refused one rolls the session back.
+        vin = own_vehicle.vin
+        await _set_setting(db_session, "webhook_ingest_token", "secret-webhook")
+        response = await client.post(
+            "/api/v1/webhooks/fuel",
+            json={"vin": vin, "odometer_km": "45000", "liters": "40", field: value},
+            headers={"X-Webhook-Token": "secret-webhook"},
+        )
+        assert response.status_code == 422, response.text
+        stored = await db_session.scalar(
+            select(func.count()).select_from(FuelRecord).where(FuelRecord.vin == vin)
+        )
+        assert stored == 0
 
     async def test_odometer_webhook(self, client: AsyncClient, test_vehicle, db_session):
         await _set_setting(db_session, "webhook_ingest_token", "secret-webhook")

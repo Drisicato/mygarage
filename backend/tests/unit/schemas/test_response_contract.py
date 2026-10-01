@@ -18,6 +18,11 @@ stored row can break it.
 A response drops a bound by redeclaring the field without it (a twin). A twin
 must otherwise match the field it shadows, so the read side can't drift from
 the write side's type, default or description.
+
+A validator is the same trap: one on a shared base runs on every response
+built from it, so a stored value it refuses 500s the read too. Each one a
+response runs has to be read-tolerant, held by a CHECK, or on an input model a
+response reuses on purpose. Anything else belongs on the input schemas.
 """
 
 import annotationlib
@@ -246,6 +251,139 @@ def test_a_twin_matches_the_field_it_shadows():
     assert count >= 50
     assert drift == {}, "a twin drifted from the field it shadows: copy it again, bound aside"
     assert stale == [], "these match their field now: drop their DELIBERATE_TWINS entries"
+
+
+# Validators. One a response runs sees every stored row it reads.
+
+#: Validators a stored row can't trip, and why.
+READ_TOLERANT: dict[tuple[str, str], str] = {
+    ("AddressBookEntryBase", "empty_str_to_none"): "turns an empty string into None",
+    ("DTCDefinitionResponse", "_parse_json_list"): "returns None for anything it can't parse",
+    ("FuelRecordBase", "_parse_obc_trip_duration_create"): (
+        "an Integer column hands it an int, which passes straight through"
+    ),
+    ("TollTagBase", "validate_toll_system"): "only rewrites a known spelling, never raises",
+    ("TopicMapBase", "canonicalize"): "uppercases, never raises",
+    ("UserResponse", "discard_out_of_vocabulary_unit"): "built to drop a bad stored unit",
+    ("UserResponse", "discard_out_of_vocabulary_unit_preference"): (
+        "built to read a bad stored preference as imperial"
+    ),
+}
+#: Validators a CHECK guarantees: (owner, validator) -> (table, column, (check, ...)).
+#: The column is None for a model validator, which spans several.
+CHECK_BACKED_VALIDATORS: dict[tuple[str, str], tuple[str, str | None, tuple[str, ...]]] = {
+    ("ReminderPackItem", "fill_key_and_check_intervals"): (
+        "reminder_pack_items",
+        None,
+        ("check_pack_item_has_interval", "check_pack_item_distance_or_hours"),
+    ),
+    ("ServiceLineItemBase", "validate_inspection_result"): (
+        "service_line_items",
+        "inspection_result",
+        ("check_inspection_result",),
+    ),
+    ("ServiceLineItemBase", "validate_inspection_severity"): (
+        "service_line_items",
+        "inspection_severity",
+        ("check_inspection_severity",),
+    ),
+    ("ServiceVisitBase", "validate_service_category"): (
+        "service_visits",
+        "service_category",
+        ("check_service_visit_category",),
+    ),
+    ("TrailerDetailsBase", "validate_brake_type"): (
+        "trailer_details",
+        "brake_type",
+        ("check_brake_type",),
+    ),
+    ("TrailerDetailsBase", "validate_hitch_type"): (
+        "trailer_details",
+        "hitch_type",
+        ("check_hitch_type",),
+    ),
+}
+#: Input models a response reuses on purpose: model -> why its own rules stay.
+INPUT_MODELS_REUSED: dict[str, str] = {
+    "ReminderPackItem": (
+        "the pack format the apply pipeline consumes, reused as the response. Apply "
+        "must fail closed on a bad type, and a saved pack copies its type from a rule "
+        "that only validated schemas write"
+    ),
+}
+
+
+def _owner(model: type[BaseModel], name: str) -> str:
+    """The class in the model's MRO that declares the validator."""
+    return next(cls.__name__ for cls in model.__mro__ if name in cls.__dict__)
+
+
+def _validators(model: type[BaseModel]) -> dict[tuple[str, str], tuple[str, ...]]:
+    """Each validator the model runs, keyed (owner, name), with the fields it
+    checks. A model validator checks none by name."""
+    decorators = model.__pydantic_decorators__
+    found = {
+        (_owner(model, name), name): decorator.info.fields
+        for name, decorator in decorators.field_validators.items()
+    }
+    for name in decorators.model_validators:
+        found[(_owner(model, name), name)] = ()
+    return found
+
+
+def test_every_response_validator_is_accounted_for():
+    unaccounted = sorted(
+        f"{model.__name__}: {owner}.{name}"
+        for model in RESPONSE_MODELS
+        if model.__name__ not in INPUT_MODELS_REUSED
+        for owner, name in _validators(model)
+        if (owner, name) not in READ_TOLERANT and (owner, name) not in CHECK_BACKED_VALIDATORS
+    )
+    assert unaccounted == [], (
+        "a stored row can trip these and 500 the read: move them to the input "
+        "schemas, or register why no stored row can"
+    )
+
+
+def test_a_check_backed_validator_names_real_checks():
+    """A guard: each CHECK_BACKED_VALIDATORS entry names CHECKs that exist on its
+    table, about the column its validator checks.
+
+    Mutants: rename `check_hitch_type` in `models/vehicle.py`, or give the
+    ReminderPackItem entry the column `interval_km`.
+    """
+    seen = {key: fields for model in RESPONSE_MODELS for key, fields in _validators(model).items()}
+    for (owner, name), (table, column, names) in CHECK_BACKED_VALIDATORS.items():
+        checks = {
+            constraint.name: str(constraint.sqltext)
+            for constraint in Base.metadata.tables[table].constraints
+            if isinstance(constraint, CheckConstraint)
+        }
+        for check in names:
+            assert check in checks, f"{table} has no CHECK named {check}"
+            if column is not None:
+                assert column in checks[check], f"{check} doesn't mention {column}"
+        assert column is None or column in seen.get((owner, name), ()), (
+            f"{owner}.{name} doesn't check {column}"
+        )
+
+
+def test_no_stale_validator_entries():
+    """A guard: every registry entry still names a validator a response runs,
+    and every reused input model is still a response with validators of its own.
+
+    Mutants: add a READ_TOLERANT entry for a validator that doesn't exist, or
+    an INPUT_MODELS_REUSED entry for a model that isn't a response.
+    """
+    seen = {key for model in RESPONSE_MODELS for key in _validators(model)}
+    validated = {model.__name__ for model in RESPONSE_MODELS if _validators(model)}
+    stale = [
+        f"{owner}.{name}"
+        for owner, name in (*READ_TOLERANT, *CHECK_BACKED_VALIDATORS)
+        if (owner, name) not in seen
+    ]
+    stale += [model for model in INPUT_MODELS_REUSED if model not in validated]
+    assert stale == [], "no response runs these now: drop their entries"
 
 
 # The detector itself, on one field per way a bound can be written.

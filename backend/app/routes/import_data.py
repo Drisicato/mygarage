@@ -68,7 +68,14 @@ from app.models.vehicle import Vehicle
 from app.models.vendor import Vendor
 from app.schemas._money import MONEY_MAX
 from app.schemas.def_record import DEFRecordCreate
-from app.schemas.fuel import FuelRecordCreate, _validate_diesel_grade, _validate_octane
+from app.schemas.fuel import (
+    CHARGE_LEVEL_VALUES,
+    CHARGE_LOCATION_VALUES,
+    PRICE_BASIS_VALUES,
+    FuelRecordCreate,
+    _validate_diesel_grade,
+    _validate_octane,
+)
 from app.schemas.hours import HoursRecordCreate
 from app.schemas.insurance import CoverageEntry, PolicyVehicleCreate
 from app.schemas.odometer import OdometerRecordCreate
@@ -349,6 +356,18 @@ def _within_api_bounds(schema: type[BaseModel], **values: Decimal | int | None) 
                     raise _ImportBoundError(
                         f"{name} must be {reads} {exact}, not {format(number, 'f')}"
                     )
+
+
+def _in_vocabulary(value: Any, field: str, vocabulary: tuple[str, ...]) -> str | None:
+    """The value, or a row error when it's a word the API would refuse.
+
+    A stored one used to break the fuel list. Blank stays allowed: that's an
+    empty cell, not a word. The reason never quotes the cell, so nothing
+    imported reaches the response or a log through it.
+    """
+    if value is None or value == "" or value in vocabulary:
+        return value
+    raise _RowError(f"{field} must be one of {', '.join(vocabulary)}")
 
 
 def _coverages_from_rows(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1813,6 +1832,9 @@ async def import_vehicle_json(
                 cost=imported_cost,
                 rebate=imported_rebate,
             )
+            imported_basis = _in_vocabulary(
+                record_data.get("price_basis"), "price_basis", PRICE_BASIS_VALUES
+            )
 
             # The export has always written fuel_type_used and is_hauling but
             # this constructor silently dropped both, so a restored backup
@@ -1851,8 +1873,7 @@ async def import_vehicle_json(
                 liters=imported_liters,
                 price_per_unit=imported_ppu,
                 price_basis=(
-                    record_data.get("price_basis")
-                    or _derive_price_basis(imported_ppu, liters=imported_liters)
+                    imported_basis or _derive_price_basis(imported_ppu, liters=imported_liters)
                 ),
                 cost=imported_cost,
                 rebate=imported_rebate,
@@ -1877,7 +1898,7 @@ async def import_vehicle_json(
             async with db.begin_nested():
                 db.add(record)
             results["fuel_records"]["success"] += 1
-        except _ImportBoundError as e:
+        except _RowError as e:
             results["fuel_records"]["errors"] += 1
             results["errors"].append(f"Fuel record {idx}: {e.reason}")
         except Exception as e:
@@ -2392,6 +2413,13 @@ async def _persist_parsed_fuel(
                 soc_end_pct=row.get("soc_end_pct"),
                 battery_soh_pct=row.get("battery_soh_pct"),
             )
+            price_basis = _in_vocabulary(row.get("price_basis"), "price_basis", PRICE_BASIS_VALUES)
+            charge_level = _in_vocabulary(
+                row.get("charge_level"), "charge_level", CHARGE_LEVEL_VALUES
+            )
+            charge_location = _in_vocabulary(
+                row.get("charge_location"), "charge_location", CHARGE_LOCATION_VALUES
+            )
             if skip_duplicates:
                 existing = await db.execute(
                     select(FuelRecord).where(*_third_party_duplicate_conditions(vin, row, last_id))
@@ -2410,7 +2438,7 @@ async def _persist_parsed_fuel(
                 kwh=row.get("kwh"),
                 cost=row.get("cost"),
                 price_per_unit=row.get("price_per_unit"),
-                price_basis=row.get("price_basis"),
+                price_basis=price_basis,
                 is_full_tank=bool(row.get("is_full_tank", True)),
                 notes=row.get("notes"),
                 # v4-and-older backups carry the retired free-text "fuel_type"
@@ -2420,8 +2448,8 @@ async def _persist_parsed_fuel(
                 or _normalized_fuel_type(row.get("fuel_type")),
                 soc_start_pct=row.get("soc_start_pct"),
                 soc_end_pct=row.get("soc_end_pct"),
-                charge_level=row.get("charge_level"),
-                charge_location=row.get("charge_location"),
+                charge_level=charge_level,
+                charge_location=charge_location,
                 battery_soh_pct=row.get("battery_soh_pct"),
             )
             # Savepoint per row: the flush below populates record.id, and a bare
@@ -2434,7 +2462,7 @@ async def _persist_parsed_fuel(
                 if best is None or record.odometer_km > best[0]:
                     best_per_date[record.date] = (record.odometer_km, record)
             import_result.add_success()
-        except _ImportBoundError as e:
+        except _RowError as e:
             import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("External fuel import row %d failed: %s", row_num, e)

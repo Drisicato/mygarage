@@ -57,6 +57,24 @@ def _validate_fuel_type_enum(v: str | None) -> str | None:
     return v
 
 
+def _validate_price_basis(v: str | None) -> str | None:
+    if v is not None and v not in PRICE_BASIS_VALUES:
+        raise ValueError(f"price_basis must be one of {PRICE_BASIS_VALUES}, got {v!r}")
+    return v
+
+
+def _validate_charge_level(v: str | None) -> str | None:
+    if v is not None and v not in CHARGE_LEVEL_VALUES:
+        raise ValueError(f"charge_level must be one of {CHARGE_LEVEL_VALUES}, got {v!r}")
+    return v
+
+
+def _validate_charge_location(v: str | None) -> str | None:
+    if v is not None and v not in CHARGE_LOCATION_VALUES:
+        raise ValueError(f"charge_location must be one of {CHARGE_LOCATION_VALUES}, got {v!r}")
+    return v
+
+
 DIESEL_GRADE_VALUES = ("onroad", "offroad")
 
 
@@ -255,9 +273,10 @@ class FuelRecordBase(BaseModel):
         ),
         max_length=20,
     )
-    # #164 — tolerant here (no bounds) per the base-schema convention below:
-    # the response schema inherits these and must accept whatever the DB
-    # returns. The input schemas wire _validate_octane/_validate_diesel_grade.
+    # #164: no rules here, per the note at the bottom of this class. The
+    # response inherits these and must read whatever the DB holds, so the inputs
+    # wire _validate_octane/_validate_diesel_grade, like price_basis,
+    # charge_level and charge_location above.
     octane: int | None = Field(
         None, description="Octane rating for gasoline/E85 fill-ups (AKI or RON)"
     )
@@ -326,37 +345,16 @@ class FuelRecordBase(BaseModel):
         ge=0,
     )
 
-    @field_validator("charge_level")
-    @classmethod
-    def _check_charge_level(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LEVEL_VALUES:
-            raise ValueError(f"charge_level must be one of {CHARGE_LEVEL_VALUES}, got {v!r}")
-        return v
-
-    @field_validator("charge_location")
-    @classmethod
-    def _check_charge_location(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LOCATION_VALUES:
-            raise ValueError(f"charge_location must be one of {CHARGE_LOCATION_VALUES}, got {v!r}")
-        return v
-
-    @field_validator("price_basis")
-    @classmethod
-    def _check_price_basis(cls, v: str | None) -> str | None:
-        if v is not None and v not in PRICE_BASIS_VALUES:
-            raise ValueError(f"price_basis must be one of {PRICE_BASIS_VALUES}, got {v!r}")
-        return v
-
     @field_validator("obc_trip_duration_s", mode="before")
     @classmethod
     def _parse_obc_trip_duration_create(cls, v: object) -> int | None:
         return _parse_obc_trip_duration(v)
 
-    # Note: enum validators for fuel_type_used / payment_method / trip_type
-    # live on FuelRecordCreate / FuelRecordUpdate (input schemas) only.
-    # FuelRecordResponse (which inherits from this base) must accept whatever
-    # the DB returns, since legacy records may carry pre-migration values
-    # that were mirrored into fuel_type_used during the compatibility window.
+    # Note: the enum validators (fuel_type_used, payment_method, trip_type,
+    # price_basis, charge_level, charge_location) live on FuelRecordCreate and
+    # FuelRecordUpdate only. FuelRecordResponse inherits this base and has to
+    # read whatever the DB holds: legacy rows carry pre-migration fuel types,
+    # and imports and the webhook used to store some of the others unchecked.
 
 
 class FuelRecordCreate(FuelRecordBase):
@@ -381,6 +379,21 @@ class FuelRecordCreate(FuelRecordBase):
     @classmethod
     def _check_fuel_type_used_create(cls, v: str | None) -> str | None:
         return _validate_fuel_type_enum(v)
+
+    @field_validator("charge_level")
+    @classmethod
+    def _check_charge_level_create(cls, v: str | None) -> str | None:
+        return _validate_charge_level(v)
+
+    @field_validator("charge_location")
+    @classmethod
+    def _check_charge_location_create(cls, v: str | None) -> str | None:
+        return _validate_charge_location(v)
+
+    @field_validator("price_basis")
+    @classmethod
+    def _check_price_basis_create(cls, v: str | None) -> str | None:
+        return _validate_price_basis(v)
 
     @field_validator("octane")
     @classmethod
@@ -581,23 +594,17 @@ class FuelRecordUpdate(BaseModel):
     @field_validator("charge_level")
     @classmethod
     def _check_charge_level_update(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LEVEL_VALUES:
-            raise ValueError(f"charge_level must be one of {CHARGE_LEVEL_VALUES}, got {v!r}")
-        return v
+        return _validate_charge_level(v)
 
     @field_validator("charge_location")
     @classmethod
     def _check_charge_location_update(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LOCATION_VALUES:
-            raise ValueError(f"charge_location must be one of {CHARGE_LOCATION_VALUES}, got {v!r}")
-        return v
+        return _validate_charge_location(v)
 
     @field_validator("price_basis")
     @classmethod
     def _check_price_basis(cls, v: str | None) -> str | None:
-        if v is not None and v not in PRICE_BASIS_VALUES:
-            raise ValueError(f"price_basis must be one of {PRICE_BASIS_VALUES}, got {v!r}")
-        return v
+        return _validate_price_basis(v)
 
     @field_validator("fuel_type_used")
     @classmethod

@@ -215,3 +215,28 @@ def test_obc_trip_duration_update_accepts_int_and_hhmm(raw, expected):
 def test_obc_trip_duration_update_rejects_malformed(raw):
     with pytest.raises(ValidationError):
         FuelRecordUpdate(obc_trip_duration_s=raw)
+
+
+# ---------------------------------------------------------------------------
+# Vocabularies the response doesn't share
+# ---------------------------------------------------------------------------
+
+
+def _create(**fields: object) -> FuelRecordCreate:
+    return FuelRecordCreate(**_base_kwargs(), odometer_km=12345.6, kwh=40.0, **fields)
+
+
+@pytest.mark.parametrize("build", [_create, FuelRecordUpdate])
+@pytest.mark.parametrize(
+    "field,value",
+    [("charge_level", "Level 2"), ("charge_location", "work"), ("price_basis", "per_gal")],
+)
+def test_input_refuses_a_word_outside_the_vocabulary(build, field, value):
+    """A guard: true today. These left the shared base so a stored one can't 500
+    a read, which means the inputs carry them on their own.
+
+    Mutants: delete the base's three validators without adding them to the
+    create, or have the update's three return the value unchecked.
+    """
+    with pytest.raises(ValidationError, match=field):
+        build(**{field: value})

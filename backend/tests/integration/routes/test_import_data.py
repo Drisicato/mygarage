@@ -1091,6 +1091,54 @@ class TestImportFuelPriceBasis:
         )
         assert result.scalars().one().price_basis == "per_kwh"
 
+    async def test_json_import_refuses_an_unknown_basis(
+        self, client: AsyncClient, auth_headers, own_vehicle, db_session
+    ):
+        """A basis the app doesn't know is a row error. Stored, it broke the fuel list."""
+        import json
+
+        from sqlalchemy import func, select
+
+        from app.models.fuel import FuelRecord
+
+        payload = {
+            "export_version": "3",
+            "units": "metric",
+            "fuel_records": [
+                {
+                    "date": "2024-04-01",
+                    "odometer_km": 100.0,
+                    "liters": 40.0,
+                    "price_per_unit": 0.5,
+                    "price_basis": "per_gal",
+                    "cost": 20.0,
+                }
+            ],
+        }
+
+        response = await client.post(
+            f"/api/import/vehicles/{own_vehicle.vin}/json",
+            headers=auth_headers,
+            files={
+                "file": (
+                    "backup.json",
+                    BytesIO(json.dumps(payload).encode()),
+                    "application/json",
+                )
+            },
+            data={"skip_duplicates": "false"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["fuel_records"]["error_count"] == 1
+        assert body["errors"] == [
+            "Fuel record 0: price_basis must be one of per_volume, per_weight, per_tank, per_kwh"
+        ]
+        stored = await db_session.scalar(
+            select(func.count()).select_from(FuelRecord).where(FuelRecord.vin == own_vehicle.vin)
+        )
+        assert stored == 0
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio

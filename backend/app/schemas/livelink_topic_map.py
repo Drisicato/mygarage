@@ -32,24 +32,11 @@ class TopicMapBase(BaseModel):
     value_offset: Decimal = Decimal(0)
     enabled: bool = True
 
-    @field_validator("topic")
-    @classmethod
-    def reject_wildcards(cls, v: str) -> str:
-        """Mapped topics are exact. See LiveLinkTopicMap's docstring."""
-        return _exact_topic(v)
-
     @field_validator("param_key")
     @classmethod
     def canonicalize(cls, v: str | None) -> str | None:
         """Match the uppercase canonicalization every ingest path applies."""
         return v.upper().replace(" ", "_") if v else v
-
-    @model_validator(mode="after")
-    def param_key_required_for_telemetry(self) -> TopicMapBase:
-        """Only a status row may omit param_key."""
-        if self.role == "telemetry" and not self.param_key:
-            raise ValueError("param_key is required when role is 'telemetry'")
-        return self
 
 
 class TopicMapCreate(TopicMapBase):
@@ -59,6 +46,22 @@ class TopicMapCreate(TopicMapBase):
     #: pattern there would run on every stored row during response validation,
     #: so one row written before this rule existed would 500 the whole list.
     device_id: str = Field(..., max_length=20, pattern=DEVICE_ID_PATTERN)
+
+    # Here for the same reason as device_id: no CHECK holds either rule, so a
+    # stored row can break them. The PATCH revalidates the merged row through
+    # this class, so it keeps both.
+    @field_validator("topic")
+    @classmethod
+    def reject_wildcards(cls, v: str) -> str:
+        """Mapped topics are exact. See LiveLinkTopicMap's docstring."""
+        return _exact_topic(v)
+
+    @model_validator(mode="after")
+    def param_key_required_for_telemetry(self) -> TopicMapCreate:
+        """Only a status row may omit param_key."""
+        if self.role == "telemetry" and not self.param_key:
+            raise ValueError("param_key is required when role is 'telemetry'")
+        return self
 
 
 class TopicMapUpdate(BaseModel):

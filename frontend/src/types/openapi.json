@@ -29451,6 +29451,7 @@
           "fuel_type_used": {
             "anyOf": [
               {
+                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -29540,6 +29541,7 @@
           "price_basis": {
             "anyOf": [
               {
+                "maxLength": 12,
                 "type": "string"
               },
               {
