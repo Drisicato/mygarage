@@ -417,6 +417,46 @@ class TestOIDCRoutes:
         assert "MYGARAGE_TRUSTED_HOSTS" in detail
         assert "127.0.0.1" not in detail
 
+    @pytest.mark.parametrize(
+        "issuer_url",
+        [
+            "auth.example.com",
+            "ftp://auth.example.com",
+            "https:///realms/mygarage",
+            "https://[auth.example.com",
+        ],
+        ids=["no-scheme", "ftp", "no-host", "unparseable"],
+    )
+    async def test_test_connection_issuer_that_isnt_a_url(
+        self,
+        client: AsyncClient,
+        auth_headers,
+        monkeypatch: pytest.MonkeyPatch,
+        issuer_url: str,
+    ):
+        """A malformed issuer asks for a full URL; trusting its host would never fix it."""
+        # Already trusted, as an admin following the blocked hint would have it.
+        monkeypatch.setenv("MYGARAGE_TRUSTED_HOSTS", "auth.example.com")
+
+        response = await client.post(
+            "/api/auth/oidc/test",
+            headers=auth_headers,
+            json={
+                "issuer_url": issuer_url,
+                "client_id": "test-id",
+                "client_secret": "test-secret",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["ok"] is False
+        assert data["error"] == "unreachable"
+        detail = data.get("detail") or ""
+        assert detail == "Issuer URL must be a full URL starting with https:// (or http://)."
+        assert "MYGARAGE_TRUSTED_HOSTS" not in detail
+        assert "auth.example.com" not in detail
+
     # -------------------------------------------------------------------------
     # /config/admin endpoint tests (dedicated admin OIDC config — plan §5.4)
     # -------------------------------------------------------------------------

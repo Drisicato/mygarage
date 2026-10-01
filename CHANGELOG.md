@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Edit User names the SSO provider and locks an SSO user's name
 - SSO account linking writes its audit row in the same transaction as the link, and an overlong User-Agent no longer fails audit writes on PostgreSQL
 - A refused or failed SSO sign-in returns to the login page with a reason instead of a page of raw JSON
-- The SSO test connection explains an issuer blocked as a private address and names `MYGARAGE_TRUSTED_HOSTS`, instead of failing with a server error
+- The SSO test connection explains an issuer blocked as a private address and names `MYGARAGE_TRUSTED_HOSTS`, and asks for a full URL when the issuer isn't one, instead of failing with a server error
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
