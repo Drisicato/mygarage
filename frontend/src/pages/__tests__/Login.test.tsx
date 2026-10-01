@@ -1,7 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from '../../__tests__/test-utils'
+import commonEn from '../../locales/en/common.json'
+
+// The SSO sentences resolve against the real English bundle, so these tests read
+// what a person sees and a typo in common.json fails here. Every other key stays
+// raw, which is what the older tests below match on. A miss returns the key, as
+// i18next does, and that's the leak the unknown-code test watches for.
+vi.mock('react-i18next', () => {
+  const t = (key: string): string => {
+    if (!key.startsWith('login.ssoError.')) return key
+    const found = key.split('.').reduce<unknown>(
+      (node, part) => (node && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined),
+      commonEn,
+    )
+    return typeof found === 'string' ? found : key
+  }
+  const i18n = { language: 'en', changeLanguage: (): Promise<void> => Promise.resolve() }
+  return {
+    useTranslation: () => ({ t, i18n }),
+    Trans: ({ children }: { children: ReactNode }) => children,
+    initReactI18next: { type: '3rdParty', init: () => {} },
+  }
+})
 
 // Bypass AuthProvider by mocking the hook directly.
 vi.mock('../../contexts/AuthContext', () => ({
@@ -118,5 +141,79 @@ describe('Login Page — progressive disclosure', () => {
     })
     expect(screen.getByPlaceholderText(PASSWORD_PLACEHOLDER)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: SSO_BUTTON })).not.toBeInTheDocument()
+  })
+})
+
+// What each sso_error code should put on the page. The five refusals and
+// no_account are the backend's own English messages (SSO_ACCOUNT_DISABLED in
+// app/constants/oidc.py, the rest in app/services/oidc/users.py), word for word.
+const SSO_SENTENCES: Record<string, string> = {
+  account_disabled: 'User account is disabled',
+  email_linked_elsewhere:
+    'This email belongs to an account that is linked to a different sign-in. Ask an administrator to allow an SSO relink for it.',
+  email_no_password:
+    'An account with this email exists but has no password to confirm it. Ask an administrator to allow an SSO relink for it.',
+  username_linked_elsewhere:
+    'This username belongs to an account that is linked to a different sign-in. Ask an administrator to allow an SSO relink for it.',
+  username_no_password:
+    'An account with this username exists but has no password to confirm it. Ask an administrator to allow an SSO relink for it.',
+  no_account:
+    'No MyGarage account matches this sign-in, and automatic account creation is off. Ask an administrator to create your account.',
+  cancelled: 'Sign-in was cancelled.',
+  expired: 'This sign-in took too long or was already used. Please try again.',
+  failed: "Single sign-on didn't work. Please try again, or ask an administrator to check the SSO settings.",
+}
+
+describe('Login Page: SSO error from the redirect', () => {
+  // The helper wraps BrowserRouter, which reads the real window URL.
+  function visit(search: string): void {
+    window.history.replaceState(null, '', `/login${search}`)
+  }
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it.each(Object.entries(SSO_SENTENCES))('?sso_error=%s shows its sentence', async (code, sentence) => {
+    mockOidcConfig({ enabled: true, provider_name: 'Rauthy' })
+    visit(`?sso_error=${code}`)
+    render(<Login />)
+
+    expect(await screen.findByText(sentence)).toBeInTheDocument()
+  })
+
+  it('an unknown code shows the generic sentence, never its own text', async () => {
+    mockOidcConfig({ enabled: true, provider_name: 'Rauthy' })
+    visit('?sso_error=Call%20555')
+    render(<Login />)
+
+    await screen.findByRole('button', { name: SSO_BUTTON })
+    expect(document.body.textContent).not.toContain('Call 555')
+    expect(screen.getByText(SSO_SENTENCES.failed)).toBeInTheDocument()
+  })
+
+  it('no sso_error shows no SSO sentence', async () => {
+    mockOidcConfig({ enabled: true, provider_name: 'Rauthy' })
+    visit('')
+    render(<Login />)
+
+    await screen.findByRole('button', { name: SSO_BUTTON })
+    for (const sentence of Object.values(SSO_SENTENCES)) {
+      expect(screen.queryByText(sentence)).not.toBeInTheDocument()
+    }
+    expect(document.body.textContent).not.toContain('login.ssoError')
+  })
+
+  it('drops sso_error from the URL after mount and keeps the sentence', async () => {
+    mockOidcConfig({ enabled: true, provider_name: 'Rauthy' })
+    visit('?sso_error=expired')
+    render(<Login />)
+
+    expect(await screen.findByText(SSO_SENTENCES.expired)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.search).toBe('')
+    })
+    expect(window.location.pathname).toBe('/login')
+    expect(screen.getByText(SSO_SENTENCES.expired)).toBeInTheDocument()
   })
 })
