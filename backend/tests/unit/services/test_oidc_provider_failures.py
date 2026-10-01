@@ -13,6 +13,7 @@ import logging
 from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from unittest.mock import patch
+from urllib.parse import urlparse
 
 import httpx
 import pytest
@@ -35,12 +36,13 @@ type _Answer = Callable[[httpx.Request], httpx.Response]
 def _provider(answer: _Answer) -> Generator[None]:
     """Every provider request gets this answer.
 
-    URL validation is skipped, since the example host doesn't resolve.
+    URL validation is skipped, since the example host doesn't resolve. Discovery
+    fetches what the validator returns, so its stand-in still parses.
     """
     real_client = httpx.AsyncClient
     transport = httpx.MockTransport(answer)
     with (
-        patch("app.services.oidc.config.validate_oidc_url"),
+        patch("app.services.oidc.config.validate_oidc_url", side_effect=urlparse),
         patch("app.services.oidc.tokens.validate_oidc_url"),
         patch.object(httpx, "AsyncClient", lambda *_a, **_kw: real_client(transport=transport)),
     ):
