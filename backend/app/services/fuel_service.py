@@ -1096,7 +1096,7 @@ class FuelRecordService:
                 except Exception as e:
                     logger.warning(
                         "Failed to auto-sync odometer for fuel record %s (rolling back): %s",
-                        record_id,
+                        sanitize_for_log(record_id),
                         sanitize_for_log(e),
                     )
                     raise
@@ -1123,7 +1123,7 @@ class FuelRecordService:
                 except Exception as e:
                     logger.warning(
                         "Failed to auto-sync engine hours for fuel record %s (rolling back): %s",
-                        record_id,
+                        sanitize_for_log(record_id),
                         sanitize_for_log(e),
                     )
                     raise
@@ -1149,7 +1149,7 @@ class FuelRecordService:
                 except Exception as e:
                     logger.warning(
                         "Failed to auto-sync DEF for fuel record %s (rolling back): %s",
-                        record_id,
+                        sanitize_for_log(record_id),
                         sanitize_for_log(e),
                     )
                     raise
@@ -1160,7 +1160,9 @@ class FuelRecordService:
             value = await self._economy_for(vin, record)
             hours_value = await self._hours_economy_for(vin, record)
 
-            logger.info("Updated fuel record %s for %s", record_id, sanitize_for_log(vin))
+            logger.info(
+                "Updated fuel record %s for %s", sanitize_for_log(record_id), sanitize_for_log(vin)
+            )
 
             await invalidate_cache_for_vehicle(vin)
 
@@ -1172,7 +1174,7 @@ class FuelRecordService:
             await self.db.rollback()
             logger.error(
                 "Database constraint violation updating fuel record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -1181,7 +1183,7 @@ class FuelRecordService:
             await self.db.rollback()
             logger.error(
                 "Database connection error updating fuel record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -1225,7 +1227,9 @@ class FuelRecordService:
             )
             await self.db.commit()
 
-            logger.info("Deleted fuel record %s for %s", record_id, sanitize_for_log(vin))
+            logger.info(
+                "Deleted fuel record %s for %s", sanitize_for_log(record_id), sanitize_for_log(vin)
+            )
 
             await invalidate_cache_for_vehicle(vin)
 
@@ -1235,7 +1239,7 @@ class FuelRecordService:
             await self.db.rollback()
             logger.error(
                 "Database constraint violation deleting fuel record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -1244,7 +1248,7 @@ class FuelRecordService:
             await self.db.rollback()
             logger.error(
                 "Database connection error deleting fuel record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )

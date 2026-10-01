@@ -194,7 +194,9 @@ class DEFRecordService:
             await self.db.commit()
             await self.db.refresh(record)
 
-            logger.info("Updated DEF record %s for %s", record_id, sanitize_for_log(vin))
+            logger.info(
+                "Updated DEF record %s for %s", sanitize_for_log(record_id), sanitize_for_log(vin)
+            )
 
             # Auto-sync odometer if odometer_km and date are present
             if record.date and record.odometer_km:
@@ -211,7 +213,7 @@ class DEFRecordService:
                 except Exception as e:
                     logger.warning(
                         "Failed to auto-sync odometer for DEF record %s: %s",
-                        record_id,
+                        sanitize_for_log(record_id),
                         sanitize_for_log(e),
                     )
             elif "odometer_km" in update_data and not record.odometer_km:
@@ -223,7 +225,7 @@ class DEFRecordService:
                 except Exception as e:
                     logger.warning(
                         "Failed to remove the synced odometer for DEF record %s: %s",
-                        record_id,
+                        sanitize_for_log(record_id),
                         sanitize_for_log(e),
                     )
 
@@ -237,7 +239,7 @@ class DEFRecordService:
             await self.db.rollback()
             logger.error(
                 "Database constraint violation updating DEF record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -246,7 +248,7 @@ class DEFRecordService:
             await self.db.rollback()
             logger.error(
                 "Database connection error updating DEF record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -274,7 +276,9 @@ class DEFRecordService:
             )
             await self.db.commit()
 
-            logger.info("Deleted DEF record %s for %s", record_id, sanitize_for_log(vin))
+            logger.info(
+                "Deleted DEF record %s for %s", sanitize_for_log(record_id), sanitize_for_log(vin)
+            )
 
             await invalidate_cache_for_vehicle(vin)
 
@@ -284,7 +288,7 @@ class DEFRecordService:
             await self.db.rollback()
             logger.error(
                 "Database constraint violation deleting DEF record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -293,7 +297,7 @@ class DEFRecordService:
             await self.db.rollback()
             logger.error(
                 "Database connection error deleting DEF record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
