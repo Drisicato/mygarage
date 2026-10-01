@@ -264,7 +264,20 @@ VALID_SERVICE_CATEGORIES = {"Maintenance", "Inspection", "Collision", "Upgrades"
 limiter = Limiter(key_func=get_remote_address)
 
 
-class _InsuranceRowError(ValueError):
+class _RowError(ValueError):
+    """A row that cannot be imported, with a reason the user sees.
+
+    Handlers send `e.reason`, not the exception itself: CodeQL reads any
+    exception text in a response as a leaked stack trace, and the reason is
+    always our own.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class _InsuranceRowError(_RowError):
     """An insurance row that cannot be imported, with a user-facing reason."""
 
 
@@ -302,7 +315,7 @@ _API_BOUNDS = (
 )
 
 
-class _ImportBoundError(ValueError):
+class _ImportBoundError(_RowError):
     """An imported number the API would refuse, with a reason the user sees."""
 
 
@@ -413,7 +426,7 @@ def _insurance_amounts_within_api_bounds(row: dict[str, Any]) -> None:
                 premium=coverage.get("premium"),
             )
         except _ImportBoundError as e:
-            raise _ImportBoundError(f"{coverage.get('coverage_key')} {e}") from e
+            raise _ImportBoundError(f"{coverage.get('coverage_key')} {e.reason}") from e
 
 
 def _grown_premium(total: Decimal, premium: Decimal) -> Decimal:
@@ -829,7 +842,7 @@ async def import_service_csv(
             import_result.add_success()
 
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             # Intentional catch-all: per-row errors should not stop the import
             logger.error("Service import row %d failed: %s", row_num, e)
@@ -1013,7 +1026,7 @@ async def import_fuel_csv(
             import_result.add_success()
 
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("Fuel import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid fuel record data")
@@ -1116,7 +1129,7 @@ async def import_def_csv(
             import_result.add_success()
 
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("DEF import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid DEF record data")
@@ -1199,7 +1212,7 @@ async def import_odometer_csv(
             import_result.add_success()
 
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
@@ -1290,7 +1303,7 @@ async def import_hours_csv(
             import_result.add_success()
 
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("Hours import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid hours record data")
@@ -1375,7 +1388,7 @@ async def import_warranties_csv(
             import_result.add_success()
 
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
@@ -1438,7 +1451,7 @@ async def import_insurance_csv(
             else:
                 import_result.add_skip()
         except (_InsuranceRowError, _ImportBoundError) as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
@@ -1517,7 +1530,7 @@ async def import_tax_csv(
             import_result.add_success()
 
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
@@ -1768,7 +1781,7 @@ async def import_vehicle_json(
             results["service_records"]["success"] += 1
         except _ImportBoundError as e:
             results["service_records"]["errors"] += 1
-            results["errors"].append(f"Service record {idx}: {e}")
+            results["errors"].append(f"Service record {idx}: {e.reason}")
         except Exception as e:
             results["service_records"]["errors"] += 1
             logger.warning("Import: service record %s failed: %s", idx, sanitize_for_log(e))
@@ -1866,7 +1879,7 @@ async def import_vehicle_json(
             results["fuel_records"]["success"] += 1
         except _ImportBoundError as e:
             results["fuel_records"]["errors"] += 1
-            results["errors"].append(f"Fuel record {idx}: {e}")
+            results["errors"].append(f"Fuel record {idx}: {e.reason}")
         except Exception as e:
             results["fuel_records"]["errors"] += 1
             logger.warning("Import: fuel record %s failed: %s", idx, sanitize_for_log(e))
@@ -1945,7 +1958,7 @@ async def import_vehicle_json(
             results["def_records"]["success"] += 1
         except _ImportBoundError as e:
             results["def_records"]["errors"] += 1
-            results["errors"].append(f"DEF record {idx}: {e}")
+            results["errors"].append(f"DEF record {idx}: {e.reason}")
         except Exception as e:
             results["def_records"]["errors"] += 1
             logger.warning("Import: DEF record %s failed: %s", idx, sanitize_for_log(e))
@@ -1994,7 +2007,7 @@ async def import_vehicle_json(
             results["odometer_records"]["success"] += 1
         except _ImportBoundError as e:
             results["odometer_records"]["errors"] += 1
-            results["errors"].append(f"Odometer record {idx}: {e}")
+            results["errors"].append(f"Odometer record {idx}: {e.reason}")
         except Exception as e:
             results["odometer_records"]["errors"] += 1
             logger.warning("Import: odometer record %s failed: %s", idx, sanitize_for_log(e))
@@ -2058,7 +2071,7 @@ async def import_vehicle_json(
             results["reminders"]["success"] += 1
         except _ImportBoundError as e:
             results["reminders"]["errors"] += 1
-            results["errors"].append(f"Reminder {idx}: {e}")
+            results["errors"].append(f"Reminder {idx}: {e.reason}")
         except Exception as e:
             results["reminders"]["errors"] += 1
             logger.warning("Import: reminder %s failed: %s", idx, sanitize_for_log(e))
@@ -2129,7 +2142,7 @@ async def import_vehicle_json(
             results["insurance_policies"]["success" if imported else "skipped"] += 1
         except (_InsuranceRowError, _ImportBoundError) as e:
             results["insurance_policies"]["errors"] += 1
-            results["errors"].append(f"Insurance policy {idx}: {e}")
+            results["errors"].append(f"Insurance policy {idx}: {e.reason}")
         except Exception as e:
             results["insurance_policies"]["errors"] += 1
             logger.warning("Import: insurance policy %s failed: %s", idx, sanitize_for_log(e))
@@ -2422,7 +2435,7 @@ async def _persist_parsed_fuel(
                     best_per_date[record.date] = (record.odometer_km, record)
             import_result.add_success()
         except _ImportBoundError as e:
-            import_result.add_error(row_num, str(e))
+            import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("External fuel import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid fuel record data")
