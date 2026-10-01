@@ -69,8 +69,9 @@ def get_external_base_url(request: Request) -> str:
     that and treat this as the fallback. With MYGARAGE_TRUSTED_PROXIES set,
     TrustedProxyMiddleware drops X-Forwarded-Proto and X-Forwarded-Host from
     any peer outside it before this runs; unset, they're read from anyone, as
-    before. The value is only ever rendered back to an already-authenticated
-    user for copy-paste, never used to make a server-side request.
+    before. The LiveLink pages show it to a signed-in user for copy-paste. SSO
+    sends it to the IdP as the redirect_uri, which the IdP checks against its
+    registered list, so a forged host gets refused there.
 
     Returns:
         e.g. "https://garage.example.com" — no trailing slash unless
