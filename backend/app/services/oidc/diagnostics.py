@@ -9,9 +9,17 @@ from typing import Any
 
 import httpx
 
+from app.exceptions import SSRFProtectionError
+
 from .config import get_provider_metadata
 
 logger = logging.getLogger(__name__)
+
+# Fixed on purpose: the exception's own text would put internals in the response.
+ISSUER_BLOCKED = (
+    "Issuer URL is on a private or internal address and was blocked. If your identity "
+    "provider runs on your own network, add its host to MYGARAGE_TRUSTED_HOSTS."
+)
 
 
 async def test_oidc_connection(config: dict[str, str]) -> dict[str, Any]:
@@ -69,6 +77,9 @@ async def test_oidc_connection(config: dict[str, str]) -> dict[str, Any]:
             ),
         }
 
+    except SSRFProtectionError:
+        # get_provider_metadata already logged which check blocked it.
+        result["errors"].append(ISSUER_BLOCKED)
     except httpx.TimeoutException:
         result["errors"].append("Connection test timed out")
     except httpx.ConnectError as e:

@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.oidc import SSO_ACCOUNT_DISABLED
+from app.constants.oidc import SSO_ACCOUNT_DISABLED, SSOError
 from app.exceptions import OIDCLoginRefusedError
 from app.models.audit_log import AuditLog
 from app.models.oidc_pending_link import OIDCPendingLink
@@ -197,7 +197,9 @@ async def validate_and_consume_pending_link(
         logger.warning("Pending link refused, account disabled: %s", sanitize_for_log(username))
         await db.delete(pending_link)
         await db.commit()
-        raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=username)
+        raise OIDCLoginRefusedError(
+            SSO_ACCOUNT_DISABLED, code=SSOError.ACCOUNT_DISABLED, username=username
+        )
 
     # Security check: user must have a password (not OIDC-only)
     if user.hashed_password is None:

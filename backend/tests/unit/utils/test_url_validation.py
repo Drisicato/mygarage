@@ -369,6 +369,17 @@ class TestSSRFProtectionError:
         error = SSRFProtectionError("test")
         assert isinstance(error, Exception)
 
+    def test_validators_raise_the_class_the_services_catch(self):
+        """Every service catches app.exceptions.SSRFProtectionError.
+
+        A second class of the same name here slipped past all of them, so a
+        blocked URL escaped as a 500 instead of being handled.
+        """
+        from app.exceptions import SSRFProtectionError as CaughtByServices
+
+        with pytest.raises(CaughtByServices):
+            validate_oidc_url("http://127.0.0.1/", trusted_hosts=set())
+
 
 @pytest.mark.unit
 class TestSecurityScenarios:

@@ -2,14 +2,23 @@
 Integration tests for OIDC authentication routes.
 
 Tests OIDC endpoints with mocked external providers.
+
+The login start and the callback are full-page navigations, so a failure at
+either sends the browser to `/login?sso_error=<code>` instead of a page of raw
+JSON.
 """
 
+import logging
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
+from joserfc.errors import JoseError
 from sqlalchemy import delete, select
 
+from app.config import settings
 from app.models.settings import Setting
 
 
@@ -40,6 +49,33 @@ async def clear_oidc_settings(db_session) -> None:
     ]
     await db_session.execute(delete(Setting).where(Setting.key.in_(oidc_keys)))
     await db_session.commit()
+
+
+def assert_sent_to_login(response: Response, code: str) -> None:
+    """A 302 to the login page carrying the code and nothing else, and no auth cookie."""
+    assert response.status_code == 302, response.text
+    location = urlsplit(response.headers["location"])
+    assert location.path == "/login"
+    assert parse_qs(location.query) == {"sso_error": [code]}
+    assert not any(
+        cookie.startswith(f"{settings.jwt_cookie_name}=")
+        for cookie in response.headers.get_list("set-cookie")
+    )
+
+
+def route_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "app.routes.oidc" and r.levelno >= logging.WARNING
+    ]
+
+
+ENABLED = {
+    "oidc_enabled": "true",
+    "oidc_issuer_url": "https://auth.example.com/",
+    "oidc_client_id": "test-client-id",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -97,23 +133,26 @@ class TestOIDCRoutes:
     # /login endpoint tests
     # -------------------------------------------------------------------------
 
-    async def test_login_disabled(self, client: AsyncClient):
-        """Test login redirect when OIDC is disabled."""
+    async def test_login_disabled(self, client: AsyncClient, caplog: pytest.LogCaptureFixture):
+        """Login with OIDC off goes back to the login page, and leaves a trace in the log."""
+        caplog.set_level(logging.WARNING, logger="app.routes.oidc")
+
         response = await client.get("/api/auth/oidc/login", follow_redirects=False)
 
-        assert response.status_code == 400
-        data = response.json()
-        assert "not enabled" in data["detail"].lower()
+        assert_sent_to_login(response, "failed")
+        assert len(route_warnings(caplog)) == 1
 
-    async def test_login_not_configured(self, client: AsyncClient, db_session):
-        """Test login redirect when OIDC is enabled but not configured."""
+    async def test_login_not_configured(
+        self, client: AsyncClient, db_session, caplog: pytest.LogCaptureFixture
+    ):
+        """Login with OIDC on but no issuer or client ID goes back to the login page."""
+        caplog.set_level(logging.WARNING, logger="app.routes.oidc")
         await set_settings(db_session, {"oidc_enabled": "true"})
 
         response = await client.get("/api/auth/oidc/login", follow_redirects=False)
 
-        assert response.status_code == 500
-        data = response.json()
-        assert "not properly configured" in data["detail"].lower()
+        assert_sent_to_login(response, "failed")
+        assert len(route_warnings(caplog)) == 1
 
     async def test_login_redirect(self, client: AsyncClient, db_session):
         """Test login redirects to OIDC provider."""
@@ -157,8 +196,6 @@ class TestOIDCRoutes:
 
     async def test_login_provider_timeout(self, client: AsyncClient, db_session):
         """Test login when provider times out."""
-        import httpx
-
         await set_settings(
             db_session,
             {
@@ -182,22 +219,74 @@ class TestOIDCRoutes:
 
                 response = await client.get("/api/auth/oidc/login", follow_redirects=False)
 
-        assert response.status_code == 504
+        assert_sent_to_login(response, "failed")
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            httpx.ConnectError("refused"),
+            JoseError("bad key"),
+            ValueError("bad config"),
+            KeyError("authorization_endpoint"),
+        ],
+        ids=["connect", "jose", "value", "key"],
+    )
+    async def test_login_authorization_url_errors(
+        self, client: AsyncClient, db_session, error: Exception
+    ):
+        """These were a 503, a 401 and two 500s of raw JSON."""
+        await set_settings(db_session, ENABLED)
+
+        with (
+            patch(
+                "app.services.oidc.get_provider_metadata",
+                new_callable=AsyncMock,
+                return_value={"authorization_endpoint": "https://auth.example.com/authorize"},
+            ),
+            patch(
+                "app.services.oidc.create_authorization_url",
+                new_callable=AsyncMock,
+                side_effect=error,
+            ),
+        ):
+            response = await client.get("/api/auth/oidc/login", follow_redirects=False)
+
+        assert_sent_to_login(response, "failed")
+
+    async def test_login_metadata_unavailable(self, client: AsyncClient, db_session):
+        await set_settings(db_session, ENABLED)
+
+        with patch(
+            "app.services.oidc.get_provider_metadata", new_callable=AsyncMock, return_value=None
+        ):
+            response = await client.get("/api/auth/oidc/login", follow_redirects=False)
+
+        assert_sent_to_login(response, "failed")
+
+    async def test_login_blocked_issuer(
+        self, client: AsyncClient, db_session, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The metadata service raises SSRFProtectionError for it; that was a 500."""
+        monkeypatch.delenv("MYGARAGE_TRUSTED_HOSTS", raising=False)
+        await set_settings(db_session, {**ENABLED, "oidc_issuer_url": "http://127.0.0.1:9000"})
+
+        response = await client.get("/api/auth/oidc/login", follow_redirects=False)
+
+        assert_sent_to_login(response, "failed")
 
     # -------------------------------------------------------------------------
     # /callback endpoint tests
     # -------------------------------------------------------------------------
 
     async def test_callback_invalid_state(self, client: AsyncClient):
-        """Test callback with invalid state parameter."""
+        """An unknown or expired state goes back to the login page as expired."""
         response = await client.get(
             "/api/auth/oidc/callback",
             params={"code": "test-code", "state": "invalid-state"},
+            follow_redirects=False,
         )
 
-        assert response.status_code == 400
-        data = response.json()
-        assert "invalid" in data["detail"].lower() or "expired" in data["detail"].lower()
+        assert_sent_to_login(response, "expired")
 
     # -------------------------------------------------------------------------
     # /test endpoint tests
@@ -314,6 +403,30 @@ class TestOIDCRoutes:
         assert data["ok"] is False
         assert data["error"] == "unreachable"
         assert "fetch provider metadata" in (data.get("detail") or "")
+
+    async def test_test_connection_blocked_issuer(
+        self, client: AsyncClient, auth_headers, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A blocked issuer is a fixed hint naming the env var, not a 500 or the exception text."""
+        monkeypatch.delenv("MYGARAGE_TRUSTED_HOSTS", raising=False)
+
+        response = await client.post(
+            "/api/auth/oidc/test",
+            headers=auth_headers,
+            json={
+                "issuer_url": "http://127.0.0.1:9000",
+                "client_id": "test-id",
+                "client_secret": "test-secret",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["ok"] is False
+        assert data["error"] == "unreachable"
+        detail = data.get("detail") or ""
+        assert "MYGARAGE_TRUSTED_HOSTS" in detail
+        assert "127.0.0.1" not in detail
 
     # -------------------------------------------------------------------------
     # /config/admin endpoint tests (dedicated admin OIDC config — plan §5.4)

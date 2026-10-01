@@ -15,6 +15,8 @@ from joserfc.jwk import KeySet
 from app.exceptions import SSRFProtectionError
 from app.utils.url_validation import validate_oidc_url
 
+from .config import provider_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,7 +82,8 @@ async def exchange_code_for_tokens(
             in the authorization request
 
     Returns:
-        Token response dictionary or None if exchange fails
+        Token response dictionary, or None if the exchange fails or the response
+        isn't a JSON object
     """
     token_endpoint = metadata.get("token_endpoint")
     if not token_endpoint:
@@ -125,10 +128,10 @@ async def exchange_code_for_tokens(
                 )
 
             response.raise_for_status()
-            tokens = response.json()
-
-            logger.info("Successfully exchanged authorization code for tokens")
-            return tokens
+            tokens = provider_json(response, "Token exchange")
+            if tokens is not None:
+                logger.info("Successfully exchanged authorization code for tokens")
+            return tokens  # Intentional fallback: None when it isn't a JSON object
 
     except httpx.HTTPStatusError as e:
         logger.error(
@@ -141,6 +144,9 @@ async def exchange_code_for_tokens(
         return None  # Intentional fallback
     except httpx.ConnectError as e:
         logger.error("Cannot connect to OIDC provider for token exchange: %s", str(e))
+        return None  # Intentional fallback
+    except httpx.HTTPError as e:
+        logger.error("Token exchange request failed: %s", type(e).__name__)
         return None  # Intentional fallback
 
 
@@ -180,10 +186,17 @@ async def verify_id_token(
             # codeql[py/partial-ssrf] - URL validated by validate_oidc_url above
             response = await client.get(jwks_uri, timeout=10.0)
             response.raise_for_status()
-            jwks = response.json()
+            jwks = provider_json(response, "JWKS")
+        if jwks is None:
+            return None  # Intentional fallback: not a JSON object
 
-        # Create key set
-        key_set = KeySet.import_key_set(jwks)
+        # Create key set. A JWKS of the wrong shape ({} or a non-list "keys")
+        # fails in here with a plain KeyError or TypeError.
+        try:
+            key_set = KeySet.import_key_set(jwks)
+        except (KeyError, TypeError) as e:
+            logger.error("JWKS has the wrong shape: %s", type(e).__name__)
+            return None  # Intentional fallback
 
         # Decode and verify signature with an explicit algorithm allowlist.
         # Rauthy issues EdDSA by default; we also accept RS256 for providers
@@ -224,6 +237,12 @@ async def verify_id_token(
     except httpx.ConnectError as e:
         logger.error("Cannot fetch JWKS for ID token verification: %s", str(e))
         return None  # Intentional fallback
+    except httpx.HTTPStatusError as e:
+        logger.error("JWKS fetch failed with status %s", e.response.status_code)
+        return None  # Intentional fallback
+    except httpx.HTTPError as e:
+        logger.error("JWKS fetch failed: %s", type(e).__name__)
+        return None  # Intentional fallback
 
 
 async def get_userinfo(
@@ -237,7 +256,8 @@ async def get_userinfo(
         metadata: Provider metadata
 
     Returns:
-        Userinfo claims or None if fetch fails
+        Userinfo claims, or None if the fetch fails or the response isn't a
+        JSON object
     """
     userinfo_endpoint = metadata.get("userinfo_endpoint")
     if not userinfo_endpoint:
@@ -264,10 +284,10 @@ async def get_userinfo(
                 timeout=10.0,
             )
             response.raise_for_status()
-            userinfo = response.json()
-
-            logger.info("Successfully fetched userinfo from provider")
-            return userinfo
+            userinfo = provider_json(response, "Userinfo", level=logging.WARNING)
+            if userinfo is not None:
+                logger.info("Successfully fetched userinfo from provider")
+            return userinfo  # Intentional fallback: None when it isn't a JSON object
 
     except httpx.TimeoutException:
         logger.warning("Userinfo request timed out (non-critical)")
@@ -277,4 +297,7 @@ async def get_userinfo(
         return None  # Intentional fallback
     except httpx.HTTPStatusError as e:
         logger.warning("Userinfo endpoint returned error (non-critical): %s", str(e))
+        return None  # Intentional fallback
+    except httpx.HTTPError as e:
+        logger.warning("Userinfo request failed (non-critical): %s", type(e).__name__)
         return None  # Intentional fallback

@@ -58,6 +58,20 @@ _USERNAME_NO_PASSWORD = (
     "An account with this username exists but has no password to confirm it. "
     "Ask an administrator to allow an SSO relink for it."
 )
+_NO_ACCOUNT = (
+    "No MyGarage account matches this sign-in, and automatic account creation is off. "
+    "Ask an administrator to create your account."
+)
+
+# The code each refusal sends the login page, as the frontend matches it.
+_CODES = {
+    _DISABLED: "account_disabled",
+    _EMAIL_LINKED_ELSEWHERE: "email_linked_elsewhere",
+    _EMAIL_NO_PASSWORD: "email_no_password",
+    _USERNAME_LINKED_ELSEWHERE: "username_linked_elsewhere",
+    _USERNAME_NO_PASSWORD: "username_no_password",
+    _NO_ACCOUNT: "no_account",
+}
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -166,9 +180,10 @@ async def _assert_untouched(db_session: AsyncSession, user: User, before: dict[s
     assert _snapshot(user) == before, "the matched row changed in the database"
 
 
-def _assert_refused(outcome: object, message: str, username: str) -> None:
+def _assert_refused(outcome: object, message: str, username: str | None) -> None:
     assert isinstance(outcome, OIDCLoginRefusedError), f"expected a refusal, got {outcome!r}"
     assert outcome.message == message
+    assert outcome.code == _CODES[message]
     assert outcome.username == username
 
 
@@ -350,6 +365,41 @@ async def test_no_match_auto_creates_the_user(db_session: AsyncSession, made_use
     assert outcome.hashed_password is None
     assert outcome.is_active is True
     assert outcome.full_name == "Claimed Name"
+
+
+# 8b. No match with auto-create off: refused like the others, so it's audited too.
+async def test_no_match_with_auto_create_off_is_refused_as_no_account(db_session: AsyncSession):
+    claims = _claims()
+
+    try:
+        outcome: object = await create_or_update_user_from_oidc(
+            db_session, claims, None, {"auto_create_users": "false"}
+        )
+    except OIDCLoginRefusedError as exc:
+        outcome = exc
+
+    _assert_refused(outcome, _NO_ACCOUNT, None)
+    created = await db_session.execute(select(User).where(User.oidc_subject == claims["sub"]))
+    assert created.scalar_one_or_none() is None
+
+
+# 8c. The link step refuses a disabled target with the same code as the callback.
+async def test_a_disabled_link_target_is_refused_as_account_disabled(
+    db_session: AsyncSession, made_users: list[int]
+):
+    account = await _account(db_session, made_users, active=False)
+    token = await create_pending_link_token(
+        db_session, account.username, _claims(email=account.email), None, {}
+    )
+
+    try:
+        outcome: object = await validate_and_consume_pending_link(
+            db_session, token, "testpassword123"
+        )
+    except OIDCLoginRefusedError as exc:
+        outcome = exc
+
+    _assert_refused(outcome, _DISABLED, account.username)
 
 
 # 9. An admin-armed relink: the one way an email or username match links.

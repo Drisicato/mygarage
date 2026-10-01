@@ -28,17 +28,10 @@ import os
 import socket
 from urllib.parse import ParseResult, urlparse
 
-
-class SSRFProtectionError(Exception):
-    """Raised when a URL fails SSRF validation checks.
-
-    This exception indicates that a URL was blocked for security reasons,
-    either because it points to a private/internal resource or violates
-    other SSRF protection policies.
-    """
-
-    pass
-
+# The one class every service catches, re-exported for importers of this module.
+# This module used to define its own of the same name, so a blocked URL slipped
+# past every one of those excepts.
+from app.exceptions import SSRFProtectionError
 
 # Private IP ranges (RFC 1918, RFC 4193, and other reserved ranges)
 PRIVATE_IP_RANGES = [
