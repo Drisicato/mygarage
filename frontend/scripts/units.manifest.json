@@ -1309,8 +1309,8 @@
     {
       "path": "src/components/modals/FamilyManagementModal.tsx",
       "disposition": "no unit behaviour",
-      "digest": "33a37be15496be899080a16de2c7be102ad65286dd242e01fa6be88e6191e322",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-29 (clear-means-clear): Move Up/Down writes each member's new position; no quantity, unit or conversion code changed. 2026-09-30 (oidc-email-linking O6): posts or deletes the SSO relink for a member and toasts. No quantity, unit or conversion code."
+      "digest": "2d7e9c2197b1eba38145d78392413195079bf42fb0c32b17a0408a247300239a",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-29 (clear-means-clear): Move Up/Down writes each member's new position; no quantity, unit or conversion code changed. 2026-09-30 (oidc-email-linking O6): posts or deletes the SSO relink for a member and toasts. No quantity, unit or conversion code. 2026-10-01 (plan-ab-leftovers E8): dashboard ties sort by lowercased name, then as typed, by code point, matching the backend. No quantity, unit or conversion code."
     },
     {
       "path": "src/components/modals/LocalAuthModal.tsx",
