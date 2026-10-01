@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Family dashboard members with the same position appear in the same order on the dashboard and in the family management dialog
 - Adding or editing a POI provider with a missing or wrong-typed value, or saving a setting with a key longer than 50 characters, is a validation error instead of a server error or a silently stored value
 - Adding, changing or removing a POI search provider in Settings now saves
+- An address book email over 100 characters is refused instead of failing with a server error on PostgreSQL
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

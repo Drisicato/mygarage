@@ -48,6 +48,7 @@
             "anyOf": [
               {
                 "format": "email",
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -525,6 +526,7 @@
             "anyOf": [
               {
                 "format": "email",
+                "maxLength": 100,
                 "type": "string"
               },
               {

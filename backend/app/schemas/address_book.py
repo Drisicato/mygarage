@@ -18,7 +18,9 @@ class AddressBookEntryBase(BaseModel):
     state: str | None = Field(None, max_length=50)
     zip_code: str | None = Field(None, max_length=20)
     phone: str | None = Field(None, max_length=20)
-    email: EmailStr | None = None
+    # The column holds 100. EmailStr takes 254, so a longer one passed here and
+    # then 500'd the insert on PostgreSQL.
+    email: EmailStr | None = Field(None, max_length=100)
     website: str | None = Field(None, max_length=200)
     category: str | None = Field(None, max_length=50)
     notes: str | None = None
@@ -68,7 +70,7 @@ class AddressBookEntryUpdate(BaseModel):
     state: str | None = Field(None, max_length=50)
     zip_code: str | None = Field(None, max_length=20)
     phone: str | None = Field(None, max_length=20)
-    email: EmailStr | None = None
+    email: EmailStr | None = Field(None, max_length=100)  # the column's width, as on the base
     website: str | None = Field(None, max_length=200)
     category: str | None = Field(None, max_length=50)
     notes: str | None = None
