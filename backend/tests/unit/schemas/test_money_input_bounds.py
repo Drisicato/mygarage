@@ -14,14 +14,19 @@ zero. The importers read the same bounds off the FieldInfo through
 
 import ast
 import inspect
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
 import pytest
+from fastapi import Body, Depends, FastAPI, Query
+from fastapi._compat import ModelField
+from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute, iter_route_contexts
 from pydantic import BaseModel, ValidationError
 from pydantic.fields import FieldInfo
+from starlette.routing import BaseRoute
 
 from app.main import app
 from app.routes import import_data
@@ -230,19 +235,28 @@ KEEP_TWO_PLACES = {
 # ---------------------------------------------------------------------------
 
 
-def _request_roots() -> tuple[list[Any], list[str]]:
+def _dependant_params(dependant: Dependant) -> Iterator[ModelField]:
+    """The body and query params of a dependant and of every Depends() under it."""
+    yield from dependant.body_params
+    yield from dependant.query_params
+    for sub in dependant.dependencies:
+        yield from _dependant_params(sub)
+
+
+def _request_roots(routes: Sequence[BaseRoute] = app.routes) -> tuple[list[Any], list[str]]:
     """Every body and query annotation, and any money that arrives bare.
 
     A money parameter outside a model has no row to go in, so it is listed
-    on its own for the test to refuse.
+    on its own for the test to refuse. `routes` is the app's unless a test
+    hands it a probe.
     """
     roots: list[Any] = []
     bare: list[str] = []
-    for ctx in iter_route_contexts(app.routes):
+    for ctx in iter_route_contexts(routes):
         route = ctx.original_route
         if not isinstance(route, APIRoute):
             continue
-        for param in (*route.dependant.body_params, *route.dependant.query_params):
+        for param in _dependant_params(route.dependant):
             roots.append(param.field_info.annotation)
             if _is_money(param.name, param.field_info):
                 bare.append(f"{sorted(route.methods)[0]} {ctx.path} {param.name}")
@@ -271,6 +285,26 @@ def test_every_money_input_has_a_row():
 
 def test_no_money_arrives_outside_a_model():
     assert BARE_MONEY == []
+
+
+def test_the_walk_sees_a_sub_dependency():
+    # A Depends() keeps its params on its own dependant, not the route's, so a
+    # walk of the route's lists alone would miss money that arrives this way.
+    class _ProbeBody(BaseModel):
+        cost: Decimal
+
+    def _dep(cost: Decimal = Query(...), body: _ProbeBody = Body(...)) -> None:
+        return None
+
+    probe = FastAPI()
+
+    @probe.post("/probe")
+    def _probe(_: None = Depends(_dep)) -> None:
+        return None
+
+    roots, bare = _request_roots(probe.routes)
+    assert "POST /probe cost" in bare
+    assert _ProbeBody in set(walk(roots))
 
 
 def test_each_row_lists_every_money_field_of_its_schema():
