@@ -6,6 +6,10 @@ services:
       - "8686:8686"
     volumes:
       - ./data:/data
+    # Behind a reverse proxy? Read "Client IP and Rate Limits" on the wiki's Reverse-Proxy page first.
+    # environment:
+    #   MYGARAGE_TRUSTED_PROXIES: "172.18.0.0/16"      # your proxy's address or Docker network
+    #   MYGARAGE_CLIENT_IP_HEADER: "CF-Connecting-IP"  # only if every request comes through Cloudflare
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8686/health"]
