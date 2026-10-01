@@ -39,6 +39,9 @@ class AttachmentCreate(AttachmentBase):
 class AttachmentResponse(AttachmentBase):
     """Schema for attachment response."""
 
+    # No input bound, so a stored size past today's rules still reads
+    # instead of 500ing (test_response_contract).
+    file_size: int | None = Field(None, description="File size in bytes")
     id: int
     record_type: str
     record_id: int

@@ -1016,6 +1016,22 @@ async def update_reminder_recurrence(
 # ============================================================================
 
 
+#: The line item's own width, read off the model so the two can't drift.
+_DESCRIPTION_WIDTH: int | None = getattr(
+    ServiceLineItem.__table__.c.description.type, "length", None
+)
+
+
+def _line_item_description(title: str, maintenance_type: str | None) -> str:
+    """The text a completion's line item carries for the reminder's title.
+
+    The import stores a title raw, so it can be empty, or on SQLite longer than
+    a line item holds. Both modes go through here so they write the same text.
+    """
+    description = title.strip()[:_DESCRIPTION_WIDTH]
+    return description or label_for(maintenance_type) or "Completed reminder"
+
+
 async def complete_reminder(
     db: AsyncSession, vin: str, reminder_id: int, req: ReminderCompleteRequest
 ) -> ReminderCompleteResponse:
@@ -1066,7 +1082,7 @@ async def complete_reminder(
             service_category="Maintenance",
             line_items=[
                 ServiceLineItemCreate(
-                    description=reminder.title,
+                    description=_line_item_description(reminder.title, maintenance_type),
                     category="Maintenance",
                     maintenance_type=maintenance_type,
                     cost=req.cost,
@@ -1112,7 +1128,7 @@ async def complete_reminder(
         if existing_item is None:
             existing_item = ServiceLineItem(
                 visit_id=visit.id,
-                description=reminder.title,
+                description=_line_item_description(reminder.title, maintenance_type),
                 category="Maintenance",
                 maintenance_type=maintenance_type,
                 cost=req.cost,

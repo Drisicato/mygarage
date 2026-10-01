@@ -240,7 +240,10 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
                   <NumberInput
                     id="archive-sale-price"
                     value={salePrice}
-                    onChange={(e) => setSalePrice(e.target.value)}
+                    onChange={(e) => {
+                      setSalePrice(e.target.value)
+                      setSalePriceError(undefined)
+                    }}
                     placeholder="25000"
                     invalid={!!salePriceError}
                     aria-describedby={salePriceError ? 'archive-sale-price-error' : undefined}

@@ -60,6 +60,19 @@ describe('BulkArchiveModal', () => {
     expect(post).not.toHaveBeenCalled()
   })
 
+  it('the sale price error clears when the price is edited', async () => {
+    render(<BulkArchiveModal {...PROPS} />)
+    const price = screen.getByLabelText(/modal\.salePrice/)
+    fireEvent.change(price, { target: { value: '-5' } })
+    fireEvent.click(screen.getByRole('button', { name: /archive/i }))
+    expect(await screen.findByText('common:validation.amount.negative')).toBeInTheDocument()
+
+    fireEvent.change(price, { target: { value: '25000' } })
+    expect(screen.queryByText('common:validation.amount.negative')).not.toBeInTheDocument()
+    expect(price).not.toHaveAttribute('aria-invalid')
+    expect(post).not.toHaveBeenCalled()
+  })
+
   it('posts a typed sale price as a number', async () => {
     render(<BulkArchiveModal {...PROPS} />)
     fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: '25000' } })

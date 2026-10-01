@@ -209,6 +209,50 @@ class TestThirdPartyFuelImport:
         assert corrected["success_count"] == 0
         assert corrected["skipped_count"] == 1
 
+    @pytest.mark.parametrize(
+        "field,value,reason",
+        [
+            ("charge_level", "Level 2", "charge_level must be one of L1, L2, DCFC"),
+            ("charge_location", "work", "charge_location must be one of home, public"),
+            (
+                "price_basis",
+                "per_gal",
+                "price_basis must be one of per_volume, per_weight, per_tank, per_kwh",
+            ),
+        ],
+    )
+    async def test_a_word_outside_the_vocabulary_is_a_row_error(
+        self, own_vehicle, db_session, field, value, reason
+    ):
+        """The parsers only map to known words, but a stored unknown one broke
+        the fuel list, so the writer checks too. The reason never echoes the cell."""
+        from app.routes.import_data import _persist_parsed_fuel
+
+        row = {"date": date(2027, 8, 1), "odometer_km": Decimal("1000"), "kwh": Decimal("40")}
+        result = await _persist_parsed_fuel(
+            own_vehicle.vin, [{**row, field: value}], False, db_session
+        )
+        assert result["success_count"] == 0
+        assert result["errors"] == [f"Row 2: {reason}"]
+        assert value not in result["errors"][0]
+        stored = await db_session.scalar(
+            select(func.count()).select_from(FuelRecord).where(FuelRecord.vin == own_vehicle.vin)
+        )
+        assert stored == 0
+
+    async def test_a_blank_word_still_imports(self, own_vehicle, db_session):
+        """A guard: an empty cell isn't a word outside the vocabulary.
+
+        Mutant: drop the `""` allowance from the import's vocabulary check.
+        """
+        from app.routes.import_data import _persist_parsed_fuel
+
+        row = {"date": date(2027, 8, 2), "odometer_km": Decimal("1000"), "kwh": Decimal("40")}
+        blank = dict.fromkeys(("charge_level", "charge_location", "price_basis"), "")
+        result = await _persist_parsed_fuel(own_vehicle.vin, [{**row, **blank}], False, db_session)
+        assert result["errors"] == []
+        assert result["success_count"] == 1
+
     async def test_tesla_export_preserves_the_charge_time(self):
         """The time is the field that separates same-day sessions."""
         from app.services.import_adapters.fuel_csv import parse_tesla

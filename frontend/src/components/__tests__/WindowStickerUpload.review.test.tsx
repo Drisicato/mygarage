@@ -107,8 +107,8 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     const user = userEvent.setup({ applyAccept: false })
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await reachReview(user)
-    await user.clear(screen.getByLabelText('detail.misc.basePrice'))
-    await user.type(screen.getByLabelText('detail.misc.basePrice'), '528,25')
+    await user.clear(screen.getByLabelText('detail.misc.basePrice ($)'))
+    await user.type(screen.getByLabelText('detail.misc.basePrice ($)'), '528,25')
     await save(user)
     expect(await patched()).toStrictEqual({ msrp_base: 528.25 })
   })
@@ -117,8 +117,8 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     const user = userEvent.setup({ applyAccept: false })
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await reachReview(user)
-    await user.clear(screen.getByLabelText('detail.misc.basePrice'))
-    await user.type(screen.getByLabelText('detail.misc.basePrice'), 'abc')
+    await user.clear(screen.getByLabelText('detail.misc.basePrice ($)'))
+    await user.type(screen.getByLabelText('detail.misc.basePrice ($)'), 'abc')
     await save(user)
     expect(await screen.findByRole('alert')).toHaveTextContent('common:validation.amount.invalid')
     expect(apiPatch).not.toHaveBeenCalled()
@@ -132,10 +132,33 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     const user = userEvent.setup({ applyAccept: false })
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await reachReview(user)
-    await user.clear(screen.getByLabelText('detail.misc.totalMsrp'))
-    await user.type(screen.getByLabelText('detail.misc.totalMsrp'), typed)
+    await user.clear(screen.getByLabelText('detail.misc.totalMsrp ($)'))
+    await user.type(screen.getByLabelText('detail.misc.totalMsrp ($)'), typed)
     await save(user)
     expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(apiPatch).not.toHaveBeenCalled()
+  })
+
+  it('a field error clears when the field is edited', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    // By id: the label carries the currency symbol now.
+    const base = document.getElementById('sticker-msrp_base') as HTMLInputElement
+    const total = document.getElementById('sticker-msrp_total') as HTMLInputElement
+    await user.clear(base)
+    await user.type(base, '-5')
+    await user.clear(total)
+    await user.type(total, '-5')
+    await save(user)
+    expect(await screen.findAllByText('common:validation.amount.negative')).toHaveLength(2)
+
+    await user.clear(base)
+    await user.type(base, '31000')
+    expect(base).not.toHaveAttribute('aria-invalid')
+    // The total is still -5, so its error is the only one left.
+    expect(screen.getAllByText('common:validation.amount.negative')).toHaveLength(1)
+    expect(total).toHaveAttribute('aria-invalid', 'true')
     expect(apiPatch).not.toHaveBeenCalled()
   })
 
@@ -190,5 +213,82 @@ describe('WindowStickerUpload review: fuel economy in the user\'s unit', () => {
     await user.type(screen.getByLabelText('detail.misc.interiorColor'), 'Gray')
     await save(user)
     expect(await patched()).toStrictEqual({ interior_color: 'Gray' })
+  })
+})
+
+describe('WindowStickerUpload review: economy and ratings the OCR missed', () => {
+  const missed = {
+    ...extracted,
+    fuel_economy_city_l_per_100km: null,
+    fuel_economy_highway_l_per_100km: null,
+    fuel_economy_combined_l_per_100km: null,
+    environmental_rating_ghg: null,
+    environmental_rating_smog: null,
+  }
+
+  const byId = (id: string): HTMLInputElement | null => document.querySelector<HTMLInputElement>(`#${id}`)
+
+  it('the review offers fuel economy and ratings the OCR missed', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    apiPost.mockResolvedValue({ data: missed })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    expect(byId('sticker-fuel_economy_city_l_per_100km')).not.toBeNull()
+    expect(byId('sticker-environmental_rating_ghg')).not.toBeNull()
+  })
+
+  it('an economy and a rating typed into an empty review are sent', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    apiPost.mockResolvedValue({ data: missed })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    const city = byId('sticker-fuel_economy_city_l_per_100km')
+    const ghg = byId('sticker-environmental_rating_ghg')
+    expect(city).not.toBeNull()
+    expect(ghg).not.toBeNull()
+    await user.type(city!, '30')
+    await user.type(ghg!, '8')
+    await save(user)
+    const body = await patched()
+    // The empty economy fields it didn't touch stay out of the PATCH.
+    expect(Object.keys(body).sort()).toEqual(['environmental_rating_ghg', 'fuel_economy_city_l_per_100km'])
+    expect(body.environmental_rating_ghg).toBe('8')
+    // 30 US mpg is 235.215 / 30 = 7.84 L/100 km.
+    expect(Math.abs((body.fuel_economy_city_l_per_100km as number) - 7.84)).toBeLessThan(0.01)
+  })
+})
+
+describe('WindowStickerUpload review: money in the user\'s currency', () => {
+  it('option prices show in the user\'s currency and Included stays a word', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    apiPost.mockResolvedValue({
+      data: { ...extracted, window_sticker_options_detail: { Sunroof: '1500.00', 'Floor mats': 'Included' } },
+    })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    expect(screen.getByText('$1,500.00')).toBeInTheDocument()
+    expect(screen.getByText('Floor mats')).toBeInTheDocument()
+    expect(screen.queryByText('$Included')).not.toBeInTheDocument()
+  })
+
+  it('the MSRP inputs name the currency', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    expect(screen.getByLabelText('detail.misc.basePrice ($)')).toBeInTheDocument()
+  })
+
+  it('MSRP placeholders carry no grouping', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    // By id, so this fails on the comma and not on the label it also changes.
+    // A comma is the decimal point in most of the supported locales.
+    for (const key of ['msrp_base', 'msrp_options', 'destination_charge', 'msrp_total']) {
+      const input = document.getElementById(`sticker-${key}`) as HTMLInputElement | null
+      expect(input, key).not.toBeNull()
+      expect(input!.placeholder, key).not.toBe('')
+      expect(input!.placeholder, key).not.toContain(',')
+    }
   })
 })

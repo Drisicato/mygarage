@@ -141,6 +141,23 @@ describe('PricingDrawer', () => {
     expect(mockedUpdate).not.toHaveBeenCalled()
   })
 
+  it('a price error clears when that price is edited, and only that one', async () => {
+    renderDrawer()
+    const errorOf = (id: string): HTMLElement | null => document.getElementById(`${id}-error`)
+    fireEvent.change(screen.getByLabelText('edit.purchasePrice'), { target: { value: '-5' } })
+    fireEvent.change(screen.getByLabelText('detail.misc.salePrice'), { target: { value: '-5' } })
+    save()
+    await waitFor(() => expect(errorOf('pricing_purchase_price')).toHaveTextContent('common:validation.amount.negative'))
+    expect(errorOf('pricing_sold_price')).toHaveTextContent('common:validation.amount.negative')
+
+    fireEvent.change(screen.getByLabelText('edit.purchasePrice'), { target: { value: '16000' } })
+    expect(errorOf('pricing_purchase_price')).toBeNull()
+    expect(screen.getByLabelText('edit.purchasePrice')).not.toHaveAttribute('aria-invalid')
+    // The sale price wasn't touched, so its error is still true and stays put.
+    expect(errorOf('pricing_sold_price')).toHaveTextContent('common:validation.amount.negative')
+    expect(mockedUpdate).not.toHaveBeenCalled()
+  })
+
   it('takes MONEY_MAX itself', async () => {
     renderDrawer()
     fireEvent.change(screen.getByLabelText('detail.misc.totalMsrp'), { target: { value: '9999999999.99' } })

@@ -856,6 +856,35 @@ class TestLinkStepInactiveTarget:
         _assert_refusal_row(rows[1:], reason=DISABLED, username=target.username)
 
 
+class TestLinkStepRefusalDetails:
+    async def test_a_link_step_refusals_details_join_its_audit_row(
+        self,
+        client: AsyncClient,
+        test_sessionmaker: async_sessionmaker[AsyncSession],
+        user_agent: str,
+    ):
+        """The callback already audited a refusal's details; the link step dropped them."""
+        refusal = OIDCLoginRefusedError(
+            "x",
+            code=SSOError.ACCOUNT_DISABLED,
+            username="u",
+            details={"claimed_email": "who@example.com"},
+        )
+        with patch(
+            "app.services.oidc.validate_and_consume_pending_link",
+            new=AsyncMock(side_effect=refusal),
+        ):
+            response = await _link(client, "any-token", _PASSWORD, user_agent)
+
+        assert response.status_code == 403, response.text
+        _assert_refusal_row(
+            await _refusal_rows(test_sessionmaker, user_agent),
+            reason="x",
+            username="u",
+            extra={"claimed_email": "who@example.com"},
+        )
+
+
 class TestLinkAudit:
     async def test_a_link_writes_one_row_with_the_username_and_dict_details(
         self,

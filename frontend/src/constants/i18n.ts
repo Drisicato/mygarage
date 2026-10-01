@@ -43,6 +43,18 @@ export const SUPPORTED_CURRENCIES: SupportedCurrency[] = [
   { code: 'INR', name: 'Indian Rupee' },
 ]
 
+const SUPPORTED_CURRENCY_CODES: ReadonlySet<string> = new Set(SUPPORTED_CURRENCIES.map((c) => c.code))
+
+/**
+ * The code when the backend would accept it, else null.
+ *
+ * Exact match, same as the backend's validator. Intl throws on a malformed
+ * code and two of the cost formatters don't catch it.
+ */
+export function supportedCurrencyCode(code: string | null | undefined): string | null {
+  return code != null && SUPPORTED_CURRENCY_CODES.has(code) ? code : null
+}
+
 /** Map language code to locale for Intl.NumberFormat / Intl.DateTimeFormat */
 export function languageToLocale(lang: string): string {
   const map: Record<string, string> = {

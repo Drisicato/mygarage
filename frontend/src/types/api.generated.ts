@@ -8109,7 +8109,11 @@ export interface components {
             baseline: string;
             /** Deviation Percent */
             deviation_percent: string;
-            /** Message */
+            /**
+             * Message
+             * @deprecated
+             * @description English-only sentence, kept until the next API version. Build your own from amount, baseline and deviation_percent.
+             */
             message: string;
             /** Month */
             month: string;
@@ -10404,7 +10408,7 @@ export interface components {
             driver_user_id?: number | null;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: number | string | null;
             /**
@@ -10662,7 +10666,7 @@ export interface components {
             driver_user_id?: number | null;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: string | null;
             /**
@@ -11622,7 +11626,7 @@ export interface components {
              */
             end_date: string;
             /** Fields */
-            fields?: components["schemas"]["NamedField"][];
+            fields?: components["schemas"]["NamedFieldResponse"][];
             /**
              * Has Successor
              * @default false
@@ -12843,6 +12847,20 @@ export interface components {
             value: string;
         };
         /**
+         * NamedFieldResponse
+         * @description A user-named field, as stored.
+         *
+         *     `NamedField`'s shape without its length rules, so a stored field those
+         *     rules would refuse today (an imported empty label, say) still reads
+         *     instead of taking the whole policy read down with it.
+         */
+        NamedFieldResponse: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /**
          * NearestOdometerResponse
          * @description The reading closest to a requested day, for the tire dialogs' suggestion.
          */
@@ -13209,6 +13227,37 @@ export interface components {
              * @description Odometer reading in kilometers
              */
             odometer_km?: number | string | null;
+        };
+        /**
+         * POIProviderCreate
+         * @description Adding a POI provider. The route keeps its own 400s for the name and key.
+         */
+        POIProviderCreate: {
+            /**
+             * Api Key
+             * @default
+             */
+            api_key: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+        };
+        /**
+         * POIProviderUpdate
+         * @description Editing a POI provider: an omitted field keeps its stored value.
+         */
+        POIProviderUpdate: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /**
          * POIRecommendation
@@ -13623,7 +13672,7 @@ export interface components {
             /** Effective To */
             effective_to?: string | null;
             /** Fields */
-            fields?: components["schemas"]["NamedField"][];
+            fields?: components["schemas"]["NamedFieldResponse"][];
             /** Id */
             id: number;
             /** Notes */
@@ -14698,7 +14747,7 @@ export interface components {
             date: string;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: number | string | null;
             /**
@@ -14820,7 +14869,7 @@ export interface components {
             date: string;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: string | null;
             /**
@@ -17464,10 +17513,7 @@ export interface components {
             default_payment_method?: string | null;
             /** Default Trip Type */
             default_trip_type?: string | null;
-            /**
-             * Email
-             * Format: email
-             */
+            /** Email */
             email: string;
             /**
              * Family Dashboard Order
@@ -18441,7 +18487,10 @@ export interface components {
              * @description Engine displacement in liters
              */
             displacement_l?: string | null;
-            /** Distance Unit */
+            /**
+             * Distance Unit
+             * @description The unit this vehicle's odometer reads (km or mi); null follows the viewer's account. Distances and speeds for this vehicle show and are entered in it (#172).
+             */
             distance_unit?: ("km" | "mi") | null;
             /**
              * Doors
@@ -25410,9 +25459,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["POIProviderCreate"];
             };
         };
         responses: {
@@ -25447,9 +25494,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["POIProviderUpdate"];
             };
         };
         responses: {

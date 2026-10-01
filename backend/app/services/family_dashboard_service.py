@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
@@ -35,6 +36,16 @@ from app.utils.household_time import household_today
 from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
+
+
+def _in_dashboard_order(users: Iterable[User]) -> list[User]:
+    """Members by position, then lowercased name, then the name as typed.
+
+    Done in Python because SQLite compares bytes and PostgreSQL uses its
+    collation, so the two never agreed. FamilyManagementModal sorts the same
+    way on its side.
+    """
+    return sorted(users, key=lambda u: (u.family_dashboard_order, u.username.lower(), u.username))
 
 
 class FamilyDashboardService:
@@ -76,9 +87,9 @@ class FamilyDashboardService:
                     User.is_active == True,  # noqa: E712
                     User.show_on_family_dashboard == True,  # noqa: E712
                 )
-                .order_by(User.family_dashboard_order, User.username)
+                .order_by(User.family_dashboard_order)
             )
-            dashboard_users = list(result.scalars().all())
+            dashboard_users = _in_dashboard_order(result.scalars().all())
 
             # Ensure admin is always included (at position 0 if not already in list)
             admin_in_list = any(u.id == current_user.id for u in dashboard_users)
@@ -337,9 +348,9 @@ class FamilyDashboardService:
             result = await self.db.execute(
                 select(User)
                 .where(User.is_active == True)  # noqa: E712
-                .order_by(User.family_dashboard_order, User.username)
+                .order_by(User.family_dashboard_order)
             )
-            users = result.scalars().all()
+            users = _in_dashboard_order(result.scalars().all())
 
             members: list[FamilyMemberData] = []
             for user in users:

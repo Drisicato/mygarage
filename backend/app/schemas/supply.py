@@ -56,6 +56,14 @@ class SupplyUpdate(BaseModel):
 class SupplyResponse(SupplyBase):
     """Catalog row with ledger-derived on-hand + average cost."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    name: str
+    part_number: str | None = None
+    barcode: str | None = Field(None, description="UPC/EAN/QR product barcode")
+    category: str | None = None
+    vin: str | None = Field(None, description="Pin to a vehicle; null = shared across all")
+    notes: str | None = None
     id: int
     is_active: bool
     on_hand: Decimal = Field(description="Σ purchases − Σ usages, canonical units")

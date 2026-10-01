@@ -48,6 +48,7 @@
             "anyOf": [
               {
                 "format": "email",
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -253,14 +254,12 @@
             "title": "Address"
           },
           "business_name": {
-            "maxLength": 150,
             "title": "Business Name",
             "type": "string"
           },
           "category": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -272,7 +271,6 @@
           "city": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -289,7 +287,6 @@
           "email": {
             "anyOf": [
               {
-                "format": "email",
                 "type": "string"
               },
               {
@@ -301,7 +298,6 @@
           "external_id": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -341,7 +337,6 @@
           "name": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -364,7 +359,6 @@
           "phone": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -376,7 +370,6 @@
           "poi_category": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -411,7 +404,6 @@
           "source": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -424,7 +416,6 @@
           "state": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -452,7 +443,6 @@
           "website": {
             "anyOf": [
               {
-                "maxLength": 200,
                 "type": "string"
               },
               {
@@ -464,7 +454,6 @@
           "zip_code": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -537,6 +526,7 @@
             "anyOf": [
               {
                 "format": "email",
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -1267,6 +1257,8 @@
             "type": "string"
           },
           "message": {
+            "deprecated": true,
+            "description": "English-only sentence, kept until the next API version. Build your own from amount, baseline and deviation_percent.",
             "title": "Message",
             "type": "string"
           },
@@ -1384,7 +1376,6 @@
           "detail": {
             "anyOf": [
               {
-                "maxLength": 300,
                 "type": "string"
               },
               {
@@ -1394,7 +1385,6 @@
             "title": "Detail"
           },
           "label": {
-            "maxLength": 120,
             "title": "Label",
             "type": "string"
           },
@@ -1513,7 +1503,6 @@
           "file_size": {
             "anyOf": [
               {
-                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2792,7 +2781,7 @@
           "deductible": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -2804,7 +2793,7 @@
           "limit_primary": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -2816,7 +2805,7 @@
           "limit_secondary": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -2828,7 +2817,7 @@
           "premium": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -3252,7 +3241,6 @@
           "brand": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -3311,7 +3299,7 @@
           "liters": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -3373,7 +3361,6 @@
           "source": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -4111,7 +4098,6 @@
           "document_type": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -4141,7 +4127,6 @@
             "type": "string"
           },
           "title": {
-            "maxLength": 200,
             "title": "Title",
             "type": "string"
           },
@@ -5775,7 +5760,7 @@
         "properties": {
           "amount": {
             "description": "Payment or fee amount",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Amount",
             "type": "string"
           },
@@ -6621,7 +6606,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "filled_at": {
@@ -7136,7 +7121,6 @@
           "charge_level": {
             "anyOf": [
               {
-                "maxLength": 10,
                 "type": "string"
               },
               {
@@ -7149,7 +7133,6 @@
           "charge_location": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -7186,7 +7169,6 @@
           "diesel_grade": {
             "anyOf": [
               {
-                "maxLength": 10,
                 "type": "string"
               },
               {
@@ -7199,7 +7181,6 @@
           "driver_name_freetext": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -7212,7 +7193,6 @@
           "driver_user_id": {
             "anyOf": [
               {
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -7232,7 +7212,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "filled_at": {
@@ -7251,7 +7231,6 @@
           "fuel_type_used": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -7280,7 +7259,7 @@
           "kwh": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7319,7 +7298,7 @@
           "liters": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7376,7 +7355,6 @@
           "obc_trip_duration_s": {
             "anyOf": [
               {
-                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -7427,7 +7405,6 @@
           "payment_method": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -7440,7 +7417,6 @@
           "price_basis": {
             "anyOf": [
               {
-                "maxLength": 12,
                 "type": "string"
               },
               {
@@ -7466,7 +7442,7 @@
           "propane_liters": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7518,7 +7494,6 @@
           "station_address_book_id": {
             "anyOf": [
               {
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -7543,7 +7518,6 @@
           "station_name_freetext": {
             "anyOf": [
               {
-                "maxLength": 150,
                 "type": "string"
               },
               {
@@ -7556,7 +7530,6 @@
           "tank_quantity": {
             "anyOf": [
               {
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -7582,7 +7555,6 @@
           "trip_type": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -9419,7 +9391,7 @@
           },
           "fields": {
             "items": {
-              "$ref": "#/components/schemas/NamedField"
+              "$ref": "#/components/schemas/NamedFieldResponse"
             },
             "title": "Fields",
             "type": "array"
@@ -12283,6 +12255,25 @@
         "title": "NamedField",
         "type": "object"
       },
+      "NamedFieldResponse": {
+        "description": "A user-named field, as stored.\n\n`NamedField`'s shape without its length rules, so a stored field those\nrules would refuse today (an imported empty label, say) still reads\ninstead of taking the whole policy read down with it.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "NamedFieldResponse",
+        "type": "object"
+      },
       "NearestOdometerResponse": {
         "description": "The reading closest to a requested day, for the tire dialogs' suggestion.",
         "properties": {
@@ -12379,7 +12370,6 @@
         "description": "Schema for note response.",
         "properties": {
           "content": {
-            "minLength": 1,
             "title": "Content",
             "type": "string"
           },
@@ -12400,7 +12390,6 @@
           "title": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -12988,6 +12977,57 @@
           }
         },
         "title": "OdometerRecordUpdate",
+        "type": "object"
+      },
+      "POIProviderCreate": {
+        "description": "Adding a POI provider. The route keeps its own 400s for the name and key.",
+        "properties": {
+          "api_key": {
+            "default": "",
+            "title": "Api Key",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "POIProviderCreate",
+        "type": "object"
+      },
+      "POIProviderUpdate": {
+        "description": "Editing a POI provider: an omitted field keeps its stored value.",
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "title": "POIProviderUpdate",
         "type": "object"
       },
       "POIRecommendation": {
@@ -14144,7 +14184,7 @@
           },
           "fields": {
             "items": {
-              "$ref": "#/components/schemas/NamedField"
+              "$ref": "#/components/schemas/NamedFieldResponse"
             },
             "title": "Fields",
             "type": "array"
@@ -14826,8 +14866,6 @@
         "properties": {
           "component": {
             "description": "Component affected by recall",
-            "maxLength": 200,
-            "minLength": 1,
             "title": "Component",
             "type": "string"
           },
@@ -14872,7 +14910,6 @@
           "nhtsa_campaign_number": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -14920,7 +14957,6 @@
           },
           "summary": {
             "description": "Summary of the recall issue",
-            "minLength": 1,
             "title": "Summary",
             "type": "string"
           },
@@ -16671,8 +16707,6 @@
           },
           "description": {
             "description": "Service description",
-            "maxLength": 200,
-            "minLength": 1,
             "title": "Description",
             "type": "string"
           },
@@ -16729,7 +16763,6 @@
           "maintenance_type": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -16748,7 +16781,6 @@
           "notes": {
             "anyOf": [
               {
-                "maxLength": 5000,
                 "type": "string"
               },
               {
@@ -17045,7 +17077,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "insurance_claim_number": {
@@ -17303,7 +17335,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "has_failed_inspections": {
@@ -17318,7 +17350,6 @@
           "insurance_claim_number": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -17357,7 +17388,6 @@
           "notes": {
             "anyOf": [
               {
-                "maxLength": 5000,
                 "type": "string"
               },
               {
@@ -17886,6 +17916,10 @@
               "type": "string"
             },
             "description": "Dictionary of key-value pairs to update",
+            "propertyNames": {
+              "maxLength": 50,
+              "minLength": 1
+            },
             "title": "Settings",
             "type": "object"
           }
@@ -18318,7 +18352,6 @@
           "notes": {
             "anyOf": [
               {
-                "maxLength": 1000,
                 "type": "string"
               },
               {
@@ -18758,7 +18791,7 @@
           "electric": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -18785,7 +18818,6 @@
           "location_name": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -18797,7 +18829,7 @@
           "monthly_rate": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -18809,7 +18841,7 @@
           "nightly_rate": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -18832,7 +18864,7 @@
           "total_cost": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -18848,7 +18880,7 @@
           "waste": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -18860,7 +18892,7 @@
           "water": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -18872,7 +18904,7 @@
           "weekly_rate": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -19587,7 +19619,6 @@
           "barcode": {
             "anyOf": [
               {
-                "maxLength": 64,
                 "type": "string"
               },
               {
@@ -19600,7 +19631,6 @@
           "category": {
             "anyOf": [
               {
-                "maxLength": 40,
                 "type": "string"
               },
               {
@@ -19628,15 +19658,12 @@
             "type": "boolean"
           },
           "name": {
-            "maxLength": 120,
-            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "notes": {
             "anyOf": [
               {
-                "maxLength": 5000,
                 "type": "string"
               },
               {
@@ -19654,7 +19681,6 @@
           "part_number": {
             "anyOf": [
               {
-                "maxLength": 60,
                 "type": "string"
               },
               {
@@ -19687,7 +19713,6 @@
           "vin": {
             "anyOf": [
               {
-                "maxLength": 17,
                 "type": "string"
               },
               {
@@ -21327,7 +21352,6 @@
           "brand": {
             "anyOf": [
               {
-                "maxLength": 80,
                 "type": "string"
               },
               {
@@ -21367,7 +21391,6 @@
           "dot_code": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -21440,7 +21463,6 @@
           "model_name": {
             "anyOf": [
               {
-                "maxLength": 80,
                 "type": "string"
               },
               {
@@ -21554,7 +21576,6 @@
           "size": {
             "anyOf": [
               {
-                "maxLength": 40,
                 "type": "string"
               },
               {
@@ -21566,7 +21587,6 @@
           "storage_location": {
             "anyOf": [
               {
-                "maxLength": 120,
                 "type": "string"
               },
               {
@@ -22268,15 +22288,11 @@
           },
           "tag_number": {
             "description": "Transponder/tag number",
-            "maxLength": 50,
-            "minLength": 1,
             "title": "Tag Number",
             "type": "string"
           },
           "toll_system": {
             "description": "Toll system name",
-            "maxLength": 50,
-            "minLength": 1,
             "title": "Toll System",
             "type": "string"
           },
@@ -22826,7 +22842,6 @@
         "description": "One stored row.",
         "properties": {
           "device_id": {
-            "maxLength": 20,
             "title": "Device Id",
             "type": "string"
           },
@@ -22842,7 +22857,6 @@
           "param_class": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -22854,7 +22868,6 @@
           "param_key": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -22879,14 +22892,12 @@
             "type": "string"
           },
           "topic": {
-            "maxLength": 255,
             "title": "Topic",
             "type": "string"
           },
           "unit": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -22904,7 +22915,6 @@
           "value_path": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -23327,8 +23337,6 @@
           "axle_count": {
             "anyOf": [
               {
-                "maximum": 10.0,
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -23404,8 +23412,6 @@
           "tow_vehicle_vin": {
             "anyOf": [
               {
-                "maxLength": 17,
-                "minLength": 17,
                 "type": "string"
               },
               {
@@ -24035,8 +24041,6 @@
             "title": "Default Trip Type"
           },
           "email": {
-            "format": "email",
-            "maxLength": 255,
             "title": "Email",
             "type": "string"
           },
@@ -24048,7 +24052,6 @@
           "full_name": {
             "anyOf": [
               {
-                "maxLength": 255,
                 "type": "string"
               },
               {
@@ -24352,8 +24355,6 @@
             "type": "string"
           },
           "username": {
-            "maxLength": 100,
-            "minLength": 3,
             "title": "Username",
             "type": "string"
           }
@@ -26367,7 +26368,6 @@
           "body_class": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -26380,7 +26380,6 @@
           "brake_fluid_type": {
             "anyOf": [
               {
-                "maxLength": 30,
                 "type": "string"
               },
               {
@@ -26393,7 +26392,6 @@
           "color": {
             "anyOf": [
               {
-                "maxLength": 30,
                 "type": "string"
               },
               {
@@ -26406,7 +26404,6 @@
           "coolant_type": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26474,7 +26471,6 @@
           "displacement_l": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -26497,6 +26493,7 @@
                 "type": "null"
               }
             ],
+            "description": "The unit this vehicle's odometer reads (km or mi); null follows the viewer's account. Distances and speeds for this vehicle show and are entered in it (#172).",
             "title": "Distance Unit"
           },
           "doors": {
@@ -26514,7 +26511,6 @@
           "drive_type": {
             "anyOf": [
               {
-                "maxLength": 30,
                 "type": "string"
               },
               {
@@ -26596,7 +26592,6 @@
           "fuel_filter_part_number": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26609,7 +26604,6 @@
           "fuel_type": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26622,7 +26616,6 @@
           "fuel_type_secondary": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -26635,7 +26628,6 @@
           "gvwr_class": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26659,7 +26651,6 @@
           "license_plate": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -26701,7 +26692,6 @@
           "maintenance_specs_notes": {
             "anyOf": [
               {
-                "maxLength": 500,
                 "type": "string"
               },
               {
@@ -26714,7 +26704,6 @@
           "make": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26727,7 +26716,6 @@
           "model": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26775,8 +26763,6 @@
           },
           "nickname": {
             "description": "User-friendly display name",
-            "maxLength": 100,
-            "minLength": 1,
             "title": "Nickname",
             "type": "string"
           },
@@ -26796,7 +26782,6 @@
           "oil_filter_part_number": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26809,7 +26794,6 @@
           "oil_viscosity": {
             "anyOf": [
               {
-                "maxLength": 30,
                 "type": "string"
               },
               {
@@ -26948,7 +26932,6 @@
           "transmission_fluid_type": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26961,7 +26944,6 @@
           "transmission_speeds": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -26974,7 +26956,6 @@
           "transmission_type": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -26987,7 +26968,6 @@
           "trim": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -27163,8 +27143,6 @@
           "year": {
             "anyOf": [
               {
-                "maximum": 2100.0,
-                "minimum": 1900.0,
                 "type": "integer"
               },
               {
@@ -28791,7 +28769,6 @@
           "address": {
             "anyOf": [
               {
-                "maxLength": 500,
                 "type": "string"
               },
               {
@@ -28804,7 +28781,6 @@
           "city": {
             "anyOf": [
               {
-                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -28837,15 +28813,12 @@
           },
           "name": {
             "description": "Vendor/shop name",
-            "maxLength": 100,
-            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "phone": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -28858,7 +28831,6 @@
           "state": {
             "anyOf": [
               {
-                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -28883,7 +28855,6 @@
           "zip_code": {
             "anyOf": [
               {
-                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -29457,6 +29428,7 @@
           "fuel_type_used": {
             "anyOf": [
               {
+                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -29546,6 +29518,7 @@
           "price_basis": {
             "anyOf": [
               {
+                "maxLength": 12,
                 "type": "string"
               },
               {
@@ -39726,9 +39699,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "title": "Provider Config",
-                "type": "object"
+                "$ref": "#/components/schemas/POIProviderCreate"
               }
             }
           },
@@ -39828,9 +39799,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "title": "Provider Config",
-                "type": "object"
+                "$ref": "#/components/schemas/POIProviderUpdate"
               }
             }
           },

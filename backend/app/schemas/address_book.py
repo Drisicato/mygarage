@@ -18,7 +18,9 @@ class AddressBookEntryBase(BaseModel):
     state: str | None = Field(None, max_length=50)
     zip_code: str | None = Field(None, max_length=20)
     phone: str | None = Field(None, max_length=20)
-    email: EmailStr | None = None
+    # The column holds 100. EmailStr takes 254, so a longer one passed here and
+    # then 500'd the insert on PostgreSQL.
+    email: EmailStr | None = Field(None, max_length=100)
     website: str | None = Field(None, max_length=200)
     category: str | None = Field(None, max_length=50)
     notes: str | None = None
@@ -41,7 +43,9 @@ class AddressBookEntryBase(BaseModel):
     poi_category: str | None = Field(None, max_length=50)
     poi_metadata: str | None = None
 
-    @field_validator("email", "website", mode="before")
+    # An empty poi_category skipped the save route's check and then counted as
+    # categorised in the POI list, so it's none like the other two.
+    @field_validator("email", "website", "poi_category", mode="before")
     @classmethod
     def empty_str_to_none(cls, v: str) -> str | None:
         """Convert empty strings to None for optional fields."""
@@ -66,7 +70,7 @@ class AddressBookEntryUpdate(BaseModel):
     state: str | None = Field(None, max_length=50)
     zip_code: str | None = Field(None, max_length=20)
     phone: str | None = Field(None, max_length=20)
-    email: EmailStr | None = None
+    email: EmailStr | None = Field(None, max_length=100)  # the column's width, as on the base
     website: str | None = Field(None, max_length=200)
     category: str | None = Field(None, max_length=50)
     notes: str | None = None
@@ -102,6 +106,21 @@ class AddressBookEntryUpdate(BaseModel):
 class AddressBookEntryResponse(AddressBookEntryBase):
     """Schema for address book entry response."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract). The email too:
+    # one at a local domain is a real address that EmailStr refuses.
+    business_name: str
+    name: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
+    category: str | None = None
+    source: str | None = "manual"
+    external_id: str | None = None
+    poi_category: str | None = None
     id: int
     created_at: datetime
     updated_at: datetime

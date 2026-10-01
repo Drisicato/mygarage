@@ -99,6 +99,15 @@ class UserBase(BaseModel):
     email: EmailStr = Field(..., max_length=255)
     full_name: str | None = Field(None, max_length=255)
 
+
+class UserCreate(UserBase):
+    """Schema for creating a new user."""
+
+    password: str = Field(..., min_length=8, max_length=100)
+
+    # Local accounts only, so not on the base. SSO keeps the identity provider's
+    # username ("first.last"), and UserResponse reading that back through
+    # this rule 500'd /auth/me for that user.
     @field_validator("username")
     @classmethod
     def validate_username(cls, v: Any) -> Any:
@@ -106,12 +115,6 @@ class UserBase(BaseModel):
         if not re.match(r"^[a-zA-Z0-9_-]+$", v):
             raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
         return v
-
-
-class UserCreate(UserBase):
-    """Schema for creating a new user."""
-
-    password: str = Field(..., min_length=8, max_length=100)
 
     @field_validator("password")
     @classmethod
@@ -438,6 +441,12 @@ class AdminPasswordReset(BaseModel):
 class UserResponse(UserBase):
     """Schema for user response."""
 
+    # Text without the input rules, so SSO's account reads back as the identity
+    # provider gave it: a two-letter username, or an email at a local domain
+    # that EmailStr refuses (test_response_contract).
+    username: str
+    email: str
+    full_name: str | None = None
     id: int
     is_active: bool
     is_admin: bool

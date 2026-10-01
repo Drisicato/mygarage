@@ -49,6 +49,11 @@ class WarrantyRecordUpdate(BaseModel):
 class WarrantyRecord(WarrantyRecordBase):
     """Schema for warranty record response."""
 
+    # No input bounds, so a stored limit past today's rules still reads
+    # instead of 500ing (test_response_contract).
+    mileage_limit_km: Decimal | None = Field(
+        None, description="Mileage limit in kilometers if applicable"
+    )
     id: int
     vin: str
     created_at: datetime

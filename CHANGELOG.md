@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The notification bell warns about mileage and hours reminders projected to come due within two weeks, not only dated ones
 - PostgreSQL money columns widen to hold the new maximums; the migration is forward-only and rewrites no data
 
+### Deprecated
+- The spending-anomaly `message` field in the analytics API is deprecated; the app builds its own sentence from `amount`, `baseline` and `deviation_percent`
+
 ### Fixed
 - Theme and accent apply before first paint in production: the CSP now allows the shell's inline script by hash instead of refusing it
 - The smallest font subset was inlined as a data: URL and refused by the CSP; fonts are always emitted as files
@@ -60,6 +63,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SSO account linking writes its audit row in the same transaction as the link, and an overlong User-Agent no longer fails audit writes on PostgreSQL
 - A refused or failed SSO sign-in returns to the login page with a reason instead of a page of raw JSON
 - The SSO test connection explains an issuer blocked as a private address and names `MYGARAGE_TRUSTED_HOSTS`, and asks for a full URL when the issuer isn't one, instead of failing with a server error
+- A record holding a number outside today's input range (a LiveLink state of charge over 100%, a negative odometer, a model year before 1900) no longer breaks the page that lists it
+- SSO users whose identity provider username has a dot or another character a local username can't have no longer get a server error after signing in
+- An imported fill-up with an unknown price basis, charge level or charge location, or a webhook fill-up with an unknown price basis or fuel type, is refused instead of stored, and one already stored no longer breaks the fuel list
+- A record holding text longer or shorter than today's input rules, or an email at a local domain, no longer breaks the page that lists it
+- Renewing an insurance policy with an empty field label, or completing a reminder with an empty or over-long title, no longer fails with a server error
+- A currency setting the app doesn't support falls back to US dollars instead of crashing the fuel, DEF, propane and analytics cost cards
+- The window sticker review shows option prices in your currency and number format, and its MSRP inputs name the currency
+- A window sticker whose OCR text is longer than a field holds now saves, with the text cut to fit, instead of failing or breaking the vehicle page
+- The window sticker review always shows the fuel economy and environmental rating inputs, so you can add what the OCR missed
+- A form's field error now clears as soon as you edit that field, in the reminder completion, archive, add-to-policy, pricing, window sticker review and service visit forms
+- Family dashboard members with the same position appear in the same order on the dashboard and in the family management dialog
+- Adding or editing a POI provider with a missing or wrong-typed value, or saving a setting with a key longer than 50 characters, is a validation error instead of a server error or a silently stored value
+- Adding, changing or removing a POI search provider in Settings now saves
+- An address book email over 100 characters is refused instead of failing with a server error on PostgreSQL
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

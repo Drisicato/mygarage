@@ -211,6 +211,18 @@ describe('CompleteReminderDialog: the visit cost', () => {
     expect(completeMock.mock.calls[0][0].cost).toBe(9999999999.99)
   })
 
+  it('the cost error clears when the cost is edited', async () => {
+    renderDialog()
+    fireEvent.change(cost(), { target: { value: '-5' } })
+    fireEvent.submit(form())
+    expect(await screen.findByText('common:validation.amount.negative')).toBeInTheDocument()
+
+    fireEvent.change(cost(), { target: { value: '45' } })
+    expect(screen.queryByText('common:validation.amount.negative')).not.toBeInTheDocument()
+    expect(cost()).not.toHaveAttribute('aria-invalid')
+    expect(completeMock).not.toHaveBeenCalled()
+  })
+
   it('a cost left behind in another mode does not block the save it is not part of', async () => {
     renderDialog()
     fireEvent.change(cost(), { target: { value: '10000000000' } })

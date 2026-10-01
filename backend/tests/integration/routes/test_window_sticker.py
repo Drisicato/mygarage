@@ -4,10 +4,18 @@ Integration tests for window sticker routes.
 Tests window sticker OCR and file management endpoints.
 """
 
+import logging
+import string
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.models.vehicle import Vehicle
+from tests.integration.routes._legacy_reads import read_ok
 
 
 @pytest.mark.integration
@@ -311,3 +319,119 @@ class TestWindowStickerRoutes:
             headers=non_admin_headers,
         )
         assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# OCR text longer than its column
+# ---------------------------------------------------------------------------
+
+# Every text column the upload copies OCR output into.
+OCR_TEXT_COLUMNS = [
+    "assembly_location",
+    "exterior_color",
+    "interior_color",
+    "sticker_engine_description",
+    "sticker_transmission_description",
+    "sticker_drivetrain",
+    "wheel_specs",
+    "tire_specs",
+    "warranty_powertrain",
+    "warranty_basic",
+    "environmental_rating_ghg",
+    "environmental_rating_smog",
+    "window_sticker_parser_used",
+    "window_sticker_extracted_vin",
+]
+
+
+def _width(column: str) -> int:
+    width = getattr(Vehicle.__table__.c[column].type, "length", None)
+    assert isinstance(width, int), column
+    return width
+
+
+async def _upload_with_ocr(
+    client: AsyncClient, headers: dict[str, str], vin: str, parsed: dict[str, Any]
+) -> Response:
+    """Upload a sticker whose OCR returns `parsed`."""
+    with patch("app.routes.window_sticker.WindowStickerOCRService") as ocr_class:
+        ocr = MagicMock()
+        ocr.extract_data_from_file = AsyncMock(return_value=parsed)
+        ocr_class.return_value = ocr
+        return await client.post(
+            f"/api/vehicles/{vin}/window-sticker/upload",
+            files={"file": ("sticker.pdf", b"%PDF-1.4 sticker", "application/pdf")},
+            headers=headers,
+        )
+
+
+async def _stored(sessionmaker: async_sessionmaker[AsyncSession], vin: str, column: str) -> Any:
+    """What the row holds, read through a session the route never touched."""
+    async with sessionmaker() as session:
+        stmt = select(Vehicle.__table__.c[column]).where(Vehicle.vin == vin)
+        return (await session.execute(stmt)).scalar()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("column", OCR_TEXT_COLUMNS)
+async def test_ocr_text_longer_than_its_column_is_clipped(
+    client, auth_headers, own_vehicle, test_sessionmaker, column
+):
+    """OCR now and then reads a whole paragraph into a short field. PostgreSQL
+    refused it, a 500 with the file already on disk, and SQLite kept it whole."""
+    vin = own_vehicle.vin
+    width = _width(column)
+
+    uploaded = await _upload_with_ocr(client, auth_headers, vin, {column: "x" * (width + 20)})
+
+    assert uploaded.status_code == 201, uploaded.text
+    assert await _stored(test_sessionmaker, vin, column) == "x" * width
+    await read_ok(client, auth_headers, f"/api/vehicles/{vin}")
+
+
+@pytest.mark.integration
+async def test_a_100_character_colour_saves(client, auth_headers, own_vehicle, test_sessionmaker):
+    """It fits the sticker's colour column, but the upload also fills the
+    vehicle's own colour when that's empty, and that one holds 30."""
+    vin = own_vehicle.vin
+    assert own_vehicle.color is None
+    # Not one repeated letter, so a cut from the wrong end shows.
+    colour = (string.ascii_lowercase * 4)[:100]
+
+    uploaded = await _upload_with_ocr(client, auth_headers, vin, {"exterior_color": colour})
+
+    assert uploaded.status_code == 201, uploaded.text
+    assert await _stored(test_sessionmaker, vin, "exterior_color") == colour
+    assert await _stored(test_sessionmaker, vin, "color") == colour[:30]
+    body = await read_ok(client, auth_headers, f"/api/vehicles/{vin}")
+    assert body["color"] == colour[:30]
+
+
+@pytest.mark.integration
+async def test_a_cut_is_logged_once_without_the_text(client, auth_headers, own_vehicle, caplog):
+    """One field too long, one warning: its column and both lengths, never the
+    OCR text, and nothing for the strings that fit.
+
+    Guards the once: mutant "drop `len(value) <= length` from _fit_to_column's
+    early return" logs a cut for every string, five warnings here, not one.
+    """
+    vin = own_vehicle.vin
+    parsed = {
+        "assembly_location": "OCRTEXT" * 20,
+        "exterior_color": "Blue",
+        "interior_color": "Black",
+        "window_sticker_parser_used": "generic",
+    }
+
+    # Everything the route logs, so the text check covers every level.
+    with caplog.at_level(logging.DEBUG, logger="app.routes.window_sticker"):
+        uploaded = await _upload_with_ocr(client, auth_headers, vin, parsed)
+
+    assert uploaded.status_code == 201, uploaded.text
+    warnings = [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "app.routes.window_sticker" and r.levelno == logging.WARNING
+    ]
+    assert warnings == ["Window sticker: cut parsed assembly_location from 140 to 100 characters"]
+    assert "OCRTEXT" not in caplog.text

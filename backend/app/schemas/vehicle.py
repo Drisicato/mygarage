@@ -281,14 +281,65 @@ class VehicleUpdate(VehicleBase):
 class VehicleResponse(VehicleBase):
     """Schema for vehicle response."""
 
-    # Money without the input bounds, so a stored price past today's rules
-    # (a legacy negative one, say) still reads (test_response_money_contract).
+    # Numbers without the input bounds, so a stored value past today's rules
+    # (a legacy negative price, say) still reads (test_response_contract).
+    current_hours: Decimal | None = Field(
+        None, description="Current engine-hour reading (used when usage_unit == 'hours')"
+    )
+    year: int | None = Field(None, description="Model year")
     purchase_price: Decimal | None = Field(None, description="Purchase price")
     sold_price: Decimal | None = Field(None, description="Sale price")
+    def_tank_capacity_liters: Decimal | None = Field(
+        None, description="DEF tank capacity in liters"
+    )
+    oil_capacity_liters: Decimal | None = Field(
+        None, description="Engine oil capacity in liters (with filter)"
+    )
+    lug_nut_torque_nm: Decimal | None = Field(
+        None, description="Wheel lug-nut torque in Newton-meters"
+    )
+    # Text without the input rules, so a stored string past today's limits (an
+    # OCR'd colour too long for the form, say) still reads (test_response_contract).
+    nickname: str = Field(..., description="User-friendly display name")
+    make: str | None = Field(None, description="Manufacturer brand")
+    model: str | None = Field(None, description="Model name")
+    license_plate: str | None = Field(None, description="License plate number")
+    color: str | None = Field(None, description="Vehicle color")
+    trim: str | None = Field(None, description="Trim level")
+    body_class: str | None = Field(None, description="Body class")
+    drive_type: str | None = Field(None, description="Drive type (FWD, RWD, AWD, etc.)")
+    gvwr_class: str | None = Field(None, description="GVWR class")
+    displacement_l: str | None = Field(None, description="Engine displacement in liters")
+    fuel_type: str | None = Field(None, description="Fuel type (primary capability)")
+    fuel_type_secondary: str | None = Field(
+        None,
+        description=(
+            "Secondary fuel capability for PHEV / flex / dual-fuel vehicles. "
+            "Stored as a FuelTypeEnum value."
+        ),
+    )
+    transmission_type: str | None = Field(None, description="Transmission type")
+    transmission_speeds: str | None = Field(None, description="Transmission speeds")
+    oil_viscosity: str | None = Field(None, description="Engine oil viscosity grade (e.g. 5W-30)")
+    oil_filter_part_number: str | None = Field(None, description="Oil filter part number")
+    fuel_filter_part_number: str | None = Field(None, description="Fuel filter part number")
+    coolant_type: str | None = Field(None, description="Coolant / antifreeze type")
+    brake_fluid_type: str | None = Field(None, description="Brake fluid type (e.g. DOT 4)")
+    transmission_fluid_type: str | None = Field(None, description="Transmission fluid type")
+    maintenance_specs_notes: str | None = Field(
+        None, description="Freeform notes for other fluid/torque specs"
+    )
     vin: str
     # Served, never refused: the column has no CHECK, and a strict Literal here
     # would turn one hand-edited row into a 500 for every response carrying it.
-    distance_unit: LenientDistanceUnit = None
+    distance_unit: LenientDistanceUnit = Field(
+        None,
+        description=(
+            "The unit this vehicle's odometer reads (km or mi); null follows the "
+            "viewer's account. Distances and speeds for this vehicle show and are "
+            "entered in it (#172)."
+        ),
+    )
     main_photo: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
@@ -437,6 +488,12 @@ class TrailerDetailsUpdate(TrailerDetailsBase):
 class TrailerDetailsResponse(TrailerDetailsBase):
     """Schema for trailer details response."""
 
+    # No input bounds, so a stored count past today's rules still reads
+    # instead of 500ing (test_response_contract).
+    axle_count: int | None = Field(None, description="Number of axles")
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    tow_vehicle_vin: str | None = Field(None, description="VIN of tow vehicle")
     vin: str
 
     model_config = {"from_attributes": True}

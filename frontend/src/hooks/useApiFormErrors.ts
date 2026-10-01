@@ -77,3 +77,18 @@ export function applyControlledFieldErrors(
   const errorsByField = Object.fromEntries(result.attached.map((p) => [p.field, p.message]))
   return { ...result, errorsByField }
 }
+
+/**
+ * Drop one field's error from a controlled form's error map, for its change
+ * handler: once the user edits the field, the old message is stale. Use it as
+ * `setFieldErrors((prev) => withoutFieldError(prev, key))`.
+ *
+ * Hands back the same object when the map has no entry for the key, so React
+ * skips the re-render on every keystroke of a field that was fine all along.
+ */
+export function withoutFieldError<T extends Partial<Record<string, string>>>(errors: T, key: string): T {
+  if (!Object.hasOwn(errors, key)) return errors
+  const next = { ...errors }
+  delete next[key]
+  return next
+}

@@ -61,6 +61,9 @@ class OdometerRecordUpdate(BaseModel):
 class OdometerRecordResponse(OdometerRecordBase):
     """Schema for odometer record response."""
 
+    # No input bounds, so a stored reading past today's rules still reads
+    # instead of 500ing (test_response_contract).
+    odometer_km: Decimal = Field(..., description="Odometer reading in kilometers")
     id: int
     vin: str
     created_at: datetime

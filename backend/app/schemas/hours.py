@@ -60,6 +60,9 @@ class HoursRecordUpdate(BaseModel):
 class HoursRecordResponse(HoursRecordBase):
     """Schema for hours record response."""
 
+    # No input bounds, so a stored reading past today's rules still reads
+    # instead of 500ing (test_response_contract).
+    engine_hours: Decimal = Field(..., description="Engine hours reading")
     id: int
     vin: str
     source: str

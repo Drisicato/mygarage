@@ -178,7 +178,15 @@ class AnomalyAlert(BaseModel):
     baseline: Decimal
     deviation_percent: Decimal
     severity: Literal["warning", "critical"] = "warning"
-    message: str
+    # Still required and still sent, so nothing reading it breaks (#131).
+    message: str = Field(
+        ...,
+        deprecated="English only; build the sentence from amount, baseline and deviation_percent.",
+        description=(
+            "English-only sentence, kept until the next API version. "
+            "Build your own from amount, baseline and deviation_percent."
+        ),
+    )
 
     model_config = {"from_attributes": True}
 

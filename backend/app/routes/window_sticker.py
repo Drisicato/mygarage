@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.models.vehicle import Vehicle
 from app.schemas._money import MONEY_MAX, OptionalMoney
 from app.services.auth import (
     get_vehicle_for_owner_or_403,
@@ -77,6 +78,22 @@ def _drop_numbers_that_cannot_be_stored(extracted: dict[str, Any]) -> None:
                 top,
             )
             del extracted[key]
+
+
+def _fit_to_column(column: str, value: Any) -> Any:
+    """Cut a parsed string to what its vehicle column holds; anything else passes.
+
+    OCR sometimes reads a paragraph into a short field. PostgreSQL refused it,
+    a 500 with the upload already on disk, and SQLite kept it whole.
+    """
+    length: int | None = getattr(Vehicle.__table__.c[column].type, "length", None)
+    if not isinstance(value, str) or length is None or len(value) <= length:
+        return value
+    # Never the text itself: it's OCR output, so it's whatever was on the paper.
+    logger.warning(
+        "Window sticker: cut parsed %s from %d to %d characters", column, len(value), length
+    )
+    return value[:length]
 
 
 class WindowStickerDataUpdate(BaseModel):
@@ -336,12 +353,12 @@ async def upload_window_sticker(
 
     for db_field, data_key in field_mappings:
         if data_key in extracted_data:
-            setattr(vehicle, db_field, extracted_data[data_key])
+            setattr(vehicle, db_field, _fit_to_column(db_field, extracted_data[data_key]))
 
     # Also populate main vehicle fields from window sticker data
     # Color: use exterior_color if vehicle.color is not set
     if not vehicle.color and extracted_data.get("exterior_color"):
-        vehicle.color = extracted_data["exterior_color"]
+        vehicle.color = _fit_to_column("color", extracted_data["exterior_color"])
 
     await db.commit()
     await db.refresh(vehicle)

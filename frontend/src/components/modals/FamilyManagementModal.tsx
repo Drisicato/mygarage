@@ -32,6 +32,16 @@ interface FamilyManagementModalProps {
   onClose: () => void
 }
 
+// Python compares str by code point. JS < compares UTF-16 code units, which
+// flips a name outside the BMP against one near the top of it.
+function compareCodePoints(a: string, b: string): number {
+  const x = Array.from(a, ch => ch.codePointAt(0) ?? 0)
+  const y = Array.from(b, ch => ch.codePointAt(0) ?? 0)
+  const at = x.findIndex((cp, i) => i >= y.length || cp !== y[i])
+  if (at === -1) return x.length - y.length
+  return at >= y.length ? 1 : x[at] - y[at]
+}
+
 export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagementModalProps) {
   const { t } = useTranslation('forms')
   const { user: currentUser } = useAuth()
@@ -80,11 +90,14 @@ export default function FamilyManagementModal({ isOpen, onClose }: FamilyManagem
     }
   }
 
-  // Same order as the dashboard, which breaks ties by username.
+  // Matches the backend: lowercased name, then as typed, by code point. Pinned
+  // for ASCII names and one supplementary pair; Python's lower() and JS's
+  // toLowerCase() can still differ on a few special casings nothing tests.
   visibleMembers.sort(
     (a, b) =>
       a.user.family_dashboard_order - b.user.family_dashboard_order ||
-      a.user.username.localeCompare(b.user.username),
+      compareCodePoints(a.user.username.toLowerCase(), b.user.username.toLowerCase()) ||
+      compareCodePoints(a.user.username, b.user.username),
   )
 
   // ─── Reload helpers ──────────────────────────────────────────────────

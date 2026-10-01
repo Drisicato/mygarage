@@ -18,15 +18,6 @@ class TollTagBase(BaseModel):
     status: str = Field("active", description="Tag status")
     notes: str | None = Field(None, description="Additional notes")
 
-    @field_validator("status")
-    @classmethod
-    def validate_status(cls, v: str) -> str:
-        """Validate status."""
-        valid_statuses = ["active", "inactive"]
-        if v not in valid_statuses:
-            raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
-        return v
-
     @field_validator("toll_system")
     @classmethod
     def validate_toll_system(cls, v: str) -> str:
@@ -50,6 +41,17 @@ class TollTagCreate(TollTagBase):
     """Schema for creating a new toll tag."""
 
     vin: str = Field(..., description="VIN of the vehicle", min_length=17, max_length=17)
+
+    # Here and not on the base: the status column has no CHECK, and the
+    # response shares the base, so a stored "lost" would 500 the tag list.
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        """Validate status."""
+        valid_statuses = ["active", "inactive"]
+        if v not in valid_statuses:
+            raise ValueError(f"Status must be one of: {', '.join(valid_statuses)}")
+        return v
 
     model_config = {
         "json_schema_extra": {
@@ -96,6 +98,10 @@ class TollTagUpdate(BaseModel):
 class TollTagResponse(TollTagBase):
     """Schema for toll tag response."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    toll_system: str = Field(..., description="Toll system name")
+    tag_number: str = Field(..., description="Transponder/tag number")
     id: int
     vin: str
     created_at: dt.datetime

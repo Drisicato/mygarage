@@ -61,7 +61,7 @@ class TaxRecordResponse(TaxRecordBase):
     """Schema for tax record response."""
 
     # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # still reads instead of 500ing (test_response_contract).
     amount: Decimal = Field(..., description="Amount paid")
     id: int
     vin: str

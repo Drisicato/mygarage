@@ -61,8 +61,8 @@ class FinancingRecordResponse(FinancingRecordBase):
     """Schema for financing record response."""
 
     # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
-    amount: Decimal = Field(..., description="Payment or fee amount", decimal_places=2)
+    # still reads instead of 500ing (test_response_contract).
+    amount: Decimal = Field(..., description="Payment or fee amount")
     id: int
     vin: str
     created_at: dt.datetime

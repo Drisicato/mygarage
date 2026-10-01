@@ -80,7 +80,7 @@ from app.schemas.recall import RecallUpdate
 from app.schemas.reminder import ReminderUpdate
 from app.schemas.reminder_pack import RenameReminderPackRequest, SaveReminderPackRequest
 from app.schemas.service_visit import ServiceVisitUpdate
-from app.schemas.settings import SettingUpdate
+from app.schemas.settings import POIProviderUpdate, SettingUpdate
 from app.schemas.spot_rental import SpotRentalUpdate
 from app.schemas.spot_rental_billing import SpotRentalBillingUpdate
 from app.schemas.supply import SupplyUpdate
@@ -203,6 +203,7 @@ EXEMPT: dict[type[BaseModel], str] = {
     OIDCAdminConfig: "writes key/value settings rows, not columns of a model",
     LiveLinkSettingsUpdate: "writes key/value settings rows, not columns of a model",
     MQTTSettingsUpdate: "writes key/value settings rows, not columns of a model",
+    POIProviderUpdate: "writes key/value settings rows, not columns of a model",
     SdConfigUpdate: "a full replace of two device fields; omitted means the default, not keep",
 }
 
@@ -279,7 +280,7 @@ EXPECTED_NOT_NULL: dict[str, set[str]] = {
 }
 
 #: PUT/PATCH routes whose body is not a pydantic model, and so not checkable here.
-NON_MODEL_BODIES = {"PUT /api/settings/poi-providers/{provider_name}"}
+NON_MODEL_BODIES: set[str] = set()
 
 
 def _discover() -> tuple[dict[type[BaseModel], list[str]], set[str], list[str]]:

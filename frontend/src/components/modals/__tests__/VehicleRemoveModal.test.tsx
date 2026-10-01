@@ -39,6 +39,19 @@ describe('VehicleRemoveModal: the archive sale price', () => {
     expect(post).not.toHaveBeenCalled()
   })
 
+  it('the sale price error clears when the price is edited', async () => {
+    openArchiveForm()
+    const price = screen.getByLabelText(/modal\.salePrice/)
+    fireEvent.change(price, { target: { value: '-5' } })
+    archive()
+    expect(await screen.findByText('common:validation.amount.negative')).toBeInTheDocument()
+
+    fireEvent.change(price, { target: { value: '25000' } })
+    expect(screen.queryByText('common:validation.amount.negative')).not.toBeInTheDocument()
+    expect(price).not.toHaveAttribute('aria-invalid')
+    expect(post).not.toHaveBeenCalled()
+  })
+
   it('posts MONEY_MAX itself as a number', async () => {
     openArchiveForm()
     fireEvent.change(screen.getByLabelText(/modal\.salePrice/), { target: { value: '9999999999.99' } })

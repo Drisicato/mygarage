@@ -51,6 +51,10 @@ class DocumentUpdate(BaseModel):
 class DocumentResponse(DocumentBase):
     """Schema for document response."""
 
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    document_type: str | None = None
+    title: str
     id: int
     vin: str
     file_path: str

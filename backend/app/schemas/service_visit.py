@@ -48,12 +48,6 @@ class ServiceLineItemBase(BaseModel):
         None, description="ID of inspection that triggered this repair"
     )
 
-    @field_validator("maintenance_type")
-    @classmethod
-    def validate_maintenance_type_code(cls, v: str | None) -> str | None:
-        """A stored code is lowercase snake_case."""
-        return validate_maintenance_type(v)
-
     @field_validator("inspection_result")
     @classmethod
     def validate_inspection_result(cls, v: str | None) -> str | None:
@@ -87,6 +81,14 @@ class ServiceLineItemCreate(ServiceLineItemBase):
     supplies_used: list[SupplyUsageInput] = Field(
         default_factory=list, description="Supplies consumed by this line item"
     )
+
+    # Here and not on the base: the response shares it, and a legacy row with a
+    # free-text type ("Oil Change") would 500 the visit.
+    @field_validator("maintenance_type")
+    @classmethod
+    def validate_maintenance_type_code(cls, v: str | None) -> str | None:
+        """A stored code is lowercase snake_case."""
+        return validate_maintenance_type(v)
 
     @model_validator(mode="after")
     def validate_temp_id(self) -> ServiceLineItemCreate:
@@ -151,8 +153,18 @@ class ServiceLineItemResponse(ServiceLineItemBase):
     """Schema for service line item response."""
 
     # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # still reads instead of 500ing (test_response_contract).
     cost: Decimal | None = Field(None, description="Cost for this line item")
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    description: str = Field(..., description="Service description")
+    maintenance_type: str | None = Field(
+        None,
+        description=(
+            "Canonical maintenance type code; classified from the description when omitted"
+        ),
+    )
+    notes: str | None = Field(None, description="Additional notes")
     id: int
     visit_id: int
     created_at: datetime
@@ -199,7 +211,7 @@ class ServiceVisitBase(BaseModel):
         None,
         description=(
             "Engine-hours reading at this service visit (hour-metered vehicles). "
-            "Dimensionless — no unit conversion. Auto-syncs to hours history."
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
         ),
         ge=0,
         le=9999999.9,
@@ -369,11 +381,23 @@ class VendorSummary(BaseModel):
 class ServiceVisitResponse(ServiceVisitBase):
     """Schema for service visit response."""
 
-    # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # Numbers without the input bounds, so a stored value past today's rules
+    # still reads instead of 500ing (test_response_contract).
+    odometer_km: Decimal | None = Field(None, description="Odometer reading in kilometers")
+    engine_hours: Decimal | None = Field(
+        None,
+        description=(
+            "Engine-hours reading at this service visit (hour-metered vehicles). "
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
+        ),
+    )
     tax_amount: Decimal | None = Field(None, description="Sales tax")
     shop_supplies: Decimal | None = Field(None, description="Shop supplies/environmental fee")
     misc_fees: Decimal | None = Field(None, description="Miscellaneous fees (disposal, etc.)")
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    notes: str | None = Field(None, description="Visit notes")
+    insurance_claim_number: str | None = Field(None, description="Insurance claim number")
     id: int
     vin: str
     total_cost: Decimal | None = None

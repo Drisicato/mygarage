@@ -19,10 +19,12 @@ from app.models.fuel import FuelRecord
 from app.models.vehicle import Vehicle
 from app.schemas._money import OptionalMoney, OptionalUnitPrice
 from app.schemas.fuel import (
-    CHARGE_LEVEL_VALUES,
-    CHARGE_LOCATION_VALUES,
+    _validate_charge_level,
+    _validate_charge_location,
     _validate_diesel_grade,
+    _validate_fuel_type_enum,
     _validate_octane,
+    _validate_price_basis,
 )
 from app.services.fuel_side_effects import (
     apply_fuel_record_side_effects,
@@ -49,7 +51,7 @@ class WebhookFuelPayload(BaseModel):
     kwh: Decimal | None = Field(None, ge=0, le=99999.999)
     cost: OptionalMoney = None
     price_per_unit: OptionalUnitPrice = None
-    price_basis: str | None = None
+    price_basis: str | None = Field(None, max_length=12)
     is_full_tank: bool = True
     notes: str | None = None
     soc_start_pct: Decimal | None = Field(None, ge=0, le=100)
@@ -57,7 +59,7 @@ class WebhookFuelPayload(BaseModel):
     charge_level: str | None = Field(None, max_length=10)
     charge_location: str | None = Field(None, max_length=20)
     battery_soh_pct: Decimal | None = Field(None, ge=0, le=100)
-    fuel_type_used: str | None = None
+    fuel_type_used: str | None = Field(None, max_length=20)
     # #164 — same validators as the fuel input schemas.
     octane: int | None = None
     diesel_grade: str | None = Field(None, max_length=10)
@@ -75,16 +77,24 @@ class WebhookFuelPayload(BaseModel):
     @field_validator("charge_level")
     @classmethod
     def _check_charge_level(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LEVEL_VALUES:
-            raise ValueError(f"charge_level must be one of {CHARGE_LEVEL_VALUES}, got {v!r}")
-        return v
+        return _validate_charge_level(v)
 
     @field_validator("charge_location")
     @classmethod
     def _check_charge_location(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LOCATION_VALUES:
-            raise ValueError(f"charge_location must be one of {CHARGE_LOCATION_VALUES}, got {v!r}")
-        return v
+        return _validate_charge_location(v)
+
+    # Nothing on the read side checks these, so this is what keeps a typo out
+    # of the database.
+    @field_validator("price_basis")
+    @classmethod
+    def _check_price_basis(cls, v: str | None) -> str | None:
+        return _validate_price_basis(v)
+
+    @field_validator("fuel_type_used")
+    @classmethod
+    def _check_fuel_type_used(cls, v: str | None) -> str | None:
+        return _validate_fuel_type_enum(v)
 
 
 async def resolve_vehicle(db: AsyncSession, vin_or_nick: str) -> Vehicle:

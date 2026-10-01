@@ -4,6 +4,7 @@ Integration tests for family routes.
 Tests vehicle transfers, sharing, and family dashboard endpoints.
 """
 
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -513,6 +514,50 @@ class TestFamilyDashboard:
         response = await client.get("/api/family/dashboard", headers=family_admin["headers"])
         assert response.status_code == 200
         assert calls.count(vin) == 1
+
+    async def test_dashboard_ties_sort_by_lowercased_name_then_as_typed(
+        self, client: AsyncClient, family_admin, db_session
+    ):
+        """Dashboard ties sort by lowercased name, then as typed, by code point.
+
+        SQLite's BINARY order put "Alice" first and PostgreSQL's collation
+        weighs punctuation its own way, while the management dialog used ICU.
+        The order is pinned for ASCII names and one supplementary pair, not for
+        every Unicode casing.
+        """
+        p = f"tie-{uuid.uuid4().hex[:8]}-"
+        expected = [p + s for s in ("a-b", "a_b", "Alice", "alice", "ａ", "\U00020000")]
+        users = [
+            User(
+                username=name,
+                email=f"{uuid.uuid4().hex}@example.com",
+                hashed_password=None,
+                is_active=True,
+                show_on_family_dashboard=True,
+                family_dashboard_order=0,
+            )
+            for name in reversed(expected)
+        ]
+        db_session.add_all(users)
+        await db_session.commit()
+        ids = [u.id for u in users]
+        try:
+            members = await client.get(
+                "/api/family/dashboard/members", headers=family_admin["headers"]
+            )
+            assert members.status_code == 200, members.text
+            dashboard = await client.get("/api/family/dashboard", headers=family_admin["headers"])
+            assert dashboard.status_code == 200, dashboard.text
+
+            def ours(rows: list[dict]) -> list[str]:
+                return [m["username"] for m in rows if m["username"].startswith(p)]
+
+            assert ours(members.json()) == expected
+            assert ours(dashboard.json()["members"]) == expected
+        finally:
+            await db_session.rollback()
+            await db_session.execute(delete(User).where(User.id.in_(ids)))
+            await db_session.commit()
 
     async def test_get_dashboard_members(self, client: AsyncClient, family_admin):
         """Test getting dashboard members for management."""

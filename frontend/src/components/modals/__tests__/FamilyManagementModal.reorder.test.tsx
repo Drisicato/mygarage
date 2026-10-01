@@ -67,3 +67,28 @@ describe('FamilyManagementModal reorder', () => {
     expect(sorted).toEqual(['alice', 'carol', 'bob'])
   })
 })
+
+describe('FamilyManagementModal tie order', () => {
+  const renderOrder = async (usernames: string[]): Promise<string[]> => {
+    get.mockImplementation((url: string) => {
+      if (url === '/settings') return Promise.resolve({ data: { settings: [{ key: 'auth_mode', value: 'oidc' }] } })
+      if (url === '/auth/users') return Promise.resolve({ data: usernames.map((name, i) => member(10 + i, name)) })
+      return Promise.resolve({ data: {} })
+    })
+    render(<FamilyManagementModal isOpen onClose={vi.fn()} />)
+    const handles = await screen.findAllByText(/^@/)
+    return handles.map(el => el.textContent ?? '')
+  }
+
+  it('ties sort the way the backend sorts them', async () => {
+    // Lowercased first, then as typed, both by code point. localeCompare put
+    // alice before Alice and a_b before a-b.
+    expect(await renderOrder(['alice', 'Alice', 'a_b', 'a-b'])).toEqual(['@a-b', '@a_b', '@Alice', '@alice'])
+  })
+
+  it('a name outside the BMP sorts by code point', async () => {
+    // Guard, passes on localeCompare too. Mutant: compare with < and >, which
+    // walk UTF-16 code units and put the surrogate pair first.
+    expect(await renderOrder(['sso.\u{20000}', 'sso.ａ'])).toEqual(['@sso.ａ', '@sso.\u{20000}'])
+  })
+})

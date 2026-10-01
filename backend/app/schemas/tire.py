@@ -7,13 +7,12 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas._nullability import reject_null
 from app.utils.household_time import household_today
 
 TirePosition = Literal["FL", "FR", "RL", "RR", "SPARE"]
-TIRE_POSITIONS: tuple[str, ...] = ("FL", "FR", "RL", "RR", "SPARE")
 
 
 class TireBase(BaseModel):
@@ -314,8 +313,23 @@ class TireResponse(TireBase):
     date as the installation date, which is worse than reporting nothing.
     """
 
+    # Numbers without the input bounds, so a stored reading past today's rules
+    # still reads instead of 500ing (test_response_contract).
+    tread_depth_mm: Decimal | None = None
+    pressure_kpa: Decimal | None = None
+    min_tread_mm: Decimal | None = Field(
+        Decimal("2.0"), description="Wear-out threshold in mm; drives reminder hooks"
+    )
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    brand: str | None = None
+    model_name: str | None = None
+    size: str | None = None
+    dot_code: str | None = None
+    storage_location: str | None = None
     id: int
     vin: str
+    # None means in storage, not mounted.
     position: TirePosition | None = None
     set_id: int | None = None
     retired_on: date_type | None = None
@@ -348,14 +362,6 @@ class TireResponse(TireBase):
     readings: list[TireReadingResponse] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
-
-    @field_validator("position")
-    @classmethod
-    def _position_ok(cls, v: str | None) -> str | None:
-        """None is valid: it means the tire is in storage, not mounted."""
-        if v is not None and v not in TIRE_POSITIONS:
-            raise ValueError(f"position must be one of {TIRE_POSITIONS} or null")
-        return v
 
 
 class TireListResponse(BaseModel):

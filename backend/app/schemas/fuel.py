@@ -57,6 +57,24 @@ def _validate_fuel_type_enum(v: str | None) -> str | None:
     return v
 
 
+def _validate_price_basis(v: str | None) -> str | None:
+    if v is not None and v not in PRICE_BASIS_VALUES:
+        raise ValueError(f"price_basis must be one of {PRICE_BASIS_VALUES}, got {v!r}")
+    return v
+
+
+def _validate_charge_level(v: str | None) -> str | None:
+    if v is not None and v not in CHARGE_LEVEL_VALUES:
+        raise ValueError(f"charge_level must be one of {CHARGE_LEVEL_VALUES}, got {v!r}")
+    return v
+
+
+def _validate_charge_location(v: str | None) -> str | None:
+    if v is not None and v not in CHARGE_LOCATION_VALUES:
+        raise ValueError(f"charge_location must be one of {CHARGE_LOCATION_VALUES}, got {v!r}")
+    return v
+
+
 DIESEL_GRADE_VALUES = ("onroad", "offroad")
 
 
@@ -190,7 +208,7 @@ class FuelRecordBase(BaseModel):
         None,
         description=(
             "Engine-hours reading at this fill-up (hour-metered vehicles). "
-            "Dimensionless — no unit conversion. Auto-syncs to hours history."
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
         ),
         ge=0,
         le=9999999.9,
@@ -255,9 +273,10 @@ class FuelRecordBase(BaseModel):
         ),
         max_length=20,
     )
-    # #164 — tolerant here (no bounds) per the base-schema convention below:
-    # the response schema inherits these and must accept whatever the DB
-    # returns. The input schemas wire _validate_octane/_validate_diesel_grade.
+    # #164: no rules here, per the note at the bottom of this class. The
+    # response inherits these and must read whatever the DB holds, so the inputs
+    # wire _validate_octane/_validate_diesel_grade, like price_basis,
+    # charge_level and charge_location above.
     octane: int | None = Field(
         None, description="Octane rating for gasoline/E85 fill-ups (AKI or RON)"
     )
@@ -326,37 +345,16 @@ class FuelRecordBase(BaseModel):
         ge=0,
     )
 
-    @field_validator("charge_level")
-    @classmethod
-    def _check_charge_level(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LEVEL_VALUES:
-            raise ValueError(f"charge_level must be one of {CHARGE_LEVEL_VALUES}, got {v!r}")
-        return v
-
-    @field_validator("charge_location")
-    @classmethod
-    def _check_charge_location(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LOCATION_VALUES:
-            raise ValueError(f"charge_location must be one of {CHARGE_LOCATION_VALUES}, got {v!r}")
-        return v
-
-    @field_validator("price_basis")
-    @classmethod
-    def _check_price_basis(cls, v: str | None) -> str | None:
-        if v is not None and v not in PRICE_BASIS_VALUES:
-            raise ValueError(f"price_basis must be one of {PRICE_BASIS_VALUES}, got {v!r}")
-        return v
-
     @field_validator("obc_trip_duration_s", mode="before")
     @classmethod
     def _parse_obc_trip_duration_create(cls, v: object) -> int | None:
         return _parse_obc_trip_duration(v)
 
-    # Note: enum validators for fuel_type_used / payment_method / trip_type
-    # live on FuelRecordCreate / FuelRecordUpdate (input schemas) only.
-    # FuelRecordResponse (which inherits from this base) must accept whatever
-    # the DB returns, since legacy records may carry pre-migration values
-    # that were mirrored into fuel_type_used during the compatibility window.
+    # Note: the enum validators (fuel_type_used, payment_method, trip_type,
+    # price_basis, charge_level, charge_location) live on FuelRecordCreate and
+    # FuelRecordUpdate only. FuelRecordResponse inherits this base and has to
+    # read whatever the DB holds: legacy rows carry pre-migration fuel types,
+    # and imports and the webhook used to store some of the others unchecked.
 
 
 class FuelRecordCreate(FuelRecordBase):
@@ -381,6 +379,21 @@ class FuelRecordCreate(FuelRecordBase):
     @classmethod
     def _check_fuel_type_used_create(cls, v: str | None) -> str | None:
         return _validate_fuel_type_enum(v)
+
+    @field_validator("charge_level")
+    @classmethod
+    def _check_charge_level_create(cls, v: str | None) -> str | None:
+        return _validate_charge_level(v)
+
+    @field_validator("charge_location")
+    @classmethod
+    def _check_charge_location_create(cls, v: str | None) -> str | None:
+        return _validate_charge_location(v)
+
+    @field_validator("price_basis")
+    @classmethod
+    def _check_price_basis_create(cls, v: str | None) -> str | None:
+        return _validate_price_basis(v)
 
     @field_validator("octane")
     @classmethod
@@ -581,23 +594,17 @@ class FuelRecordUpdate(BaseModel):
     @field_validator("charge_level")
     @classmethod
     def _check_charge_level_update(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LEVEL_VALUES:
-            raise ValueError(f"charge_level must be one of {CHARGE_LEVEL_VALUES}, got {v!r}")
-        return v
+        return _validate_charge_level(v)
 
     @field_validator("charge_location")
     @classmethod
     def _check_charge_location_update(cls, v: str | None) -> str | None:
-        if v is not None and v not in CHARGE_LOCATION_VALUES:
-            raise ValueError(f"charge_location must be one of {CHARGE_LOCATION_VALUES}, got {v!r}")
-        return v
+        return _validate_charge_location(v)
 
     @field_validator("price_basis")
     @classmethod
     def _check_price_basis(cls, v: str | None) -> str | None:
-        if v is not None and v not in PRICE_BASIS_VALUES:
-            raise ValueError(f"price_basis must be one of {PRICE_BASIS_VALUES}, got {v!r}")
-        return v
+        return _validate_price_basis(v)
 
     @field_validator("fuel_type_used")
     @classmethod
@@ -643,8 +650,26 @@ class FuelRecordUpdate(BaseModel):
 class FuelRecordResponse(FuelRecordBase):
     """Schema for fuel record response (metric canonical)."""
 
-    # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # Numbers without the input bounds, so a stored value past today's rules
+    # still reads instead of 500ing (test_response_contract).
+    odometer_km: Decimal | None = Field(None, description="Odometer reading in kilometers")
+    engine_hours: Decimal | None = Field(
+        None,
+        description=(
+            "Engine-hours reading at this fill-up (hour-metered vehicles). "
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
+        ),
+    )
+    liters: Decimal | None = Field(None, description="Fuel amount in liters")
+    propane_liters: Decimal | None = Field(None, description="Propane amount in liters")
+    tank_size_kg: Decimal | None = Field(None, description="Propane tank size in kilograms")
+    tank_quantity: int | None = Field(None, description="Number of propane tanks")
+    kwh: Decimal | None = Field(None, description="Energy amount in kilowatt-hours")
+    soc_start_pct: Decimal | None = Field(None, description="Battery SOC at session start (%)")
+    soc_end_pct: Decimal | None = Field(None, description="Battery SOC at session end (%)")
+    battery_soh_pct: Decimal | None = Field(
+        None, description="Optional battery state-of-health (%)"
+    )
     cost: Decimal | None = Field(None, description="Total cost, net of any rebate")
     rebate: Decimal | None = Field(
         None, description="Rebate/discount/points redeemed; already deducted from cost"
@@ -655,6 +680,52 @@ class FuelRecordResponse(FuelRecordBase):
             "Price per unit; denominator depends on price_basis "
             "(per_volume=per liter, per_weight=per kg, per_kwh=per kWh, per_tank=per tank)"
         ),
+    )
+    station_address_book_id: int | None = Field(
+        None, description="FK to address_book entry with poi_category='gas_station'"
+    )
+    driver_user_id: int | None = Field(
+        None, description="FK to users.id when driver is a known household user"
+    )
+    outside_temp_c: Decimal | None = Field(
+        None, description="Outside temperature in Celsius (canonical)"
+    )
+    obc_l_per_100km: Decimal | None = Field(
+        None, description="OBC reported fuel consumption (L/100 km)"
+    )
+    obc_avg_speed_kmh: Decimal | None = Field(None, description="OBC reported average speed (km/h)")
+    obc_trip_duration_s: int | None = Field(
+        None, description="OBC reported trip duration in seconds"
+    )
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    charge_level: str | None = Field(None, description="Charger level: L1 / L2 / DCFC")
+    charge_location: str | None = Field(None, description="Charge location: home / public")
+    price_basis: str | None = Field(
+        None, description="Price denominator: per_volume / per_weight / per_tank / per_kwh"
+    )
+    fuel_type_used: str | None = Field(
+        None,
+        description=(
+            "Actual fuel dispensed for this fill-up (canonical enum). Only "
+            "surfaced in UI when the vehicle has a secondary fuel capability."
+        ),
+    )
+    diesel_grade: str | None = Field(
+        None, description="Diesel grade: 'onroad' (clear) or 'offroad' (dyed/farm)"
+    )
+    station_name_freetext: str | None = Field(
+        None,
+        description="Freetext station name (one-time visit, no address-book entry created)",
+    )
+    driver_name_freetext: str | None = Field(
+        None, description="Freetext driver name (non-account household member)"
+    )
+    payment_method: str | None = Field(
+        None, description=f"Payment method, one of {PAYMENT_METHOD_VALUES}"
+    )
+    trip_type: str | None = Field(
+        None, description=f"Trip type for this fuel cycle, one of {TRIP_TYPE_VALUES}"
     )
     id: int
     vin: str

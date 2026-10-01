@@ -59,14 +59,17 @@ class SpotRentalResponse(SpotRentalBase):
     """Schema for spot rental response."""
 
     # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
-    nightly_rate: Decimal | None = Field(None, decimal_places=2)
-    weekly_rate: Decimal | None = Field(None, decimal_places=2)
-    monthly_rate: Decimal | None = Field(None, decimal_places=2)
-    electric: Decimal | None = Field(None, decimal_places=2)
-    water: Decimal | None = Field(None, decimal_places=2)
-    waste: Decimal | None = Field(None, decimal_places=2)
-    total_cost: Decimal | None = Field(None, decimal_places=2)
+    # still reads instead of 500ing (test_response_contract).
+    nightly_rate: Decimal | None = None
+    weekly_rate: Decimal | None = None
+    monthly_rate: Decimal | None = None
+    electric: Decimal | None = None
+    water: Decimal | None = None
+    waste: Decimal | None = None
+    total_cost: Decimal | None = None
+    # Text without the input rules, so a stored string past today's limits
+    # still reads instead of 500ing (test_response_contract).
+    location_name: str | None = None
     id: int
     vin: str
     created_at: datetime
