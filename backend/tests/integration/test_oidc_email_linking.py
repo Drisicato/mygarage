@@ -16,6 +16,7 @@ audited, and any SSO sign-in that already works cancels it.
 import datetime as dt
 import uuid
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -160,10 +161,13 @@ def _claims(
 
 
 async def _login(db_session: AsyncSession, claims: dict[str, Any]) -> object:
-    """Run the SSO resolution and hand back whatever came out, raised or returned."""
+    """Run the SSO resolution and hand back what came out: a user, a refusal or a pending link.
+
+    Anything else raised is a bug, so it escapes and the test errors on it.
+    """
     try:
         return await create_or_update_user_from_oidc(db_session, claims, None, {})
-    except Exception as exc:
+    except (OIDCLoginRefusedError, PendingLinkRequiredError) as exc:
         return exc
 
 
@@ -185,6 +189,20 @@ def _assert_refused(outcome: object, message: str, username: str | None) -> None
     assert outcome.message == message
     assert outcome.code == _CODES[message]
     assert outcome.username == username
+
+
+# 0. The helper every test here goes through hands back the two outcomes, nothing else.
+async def test_login_lets_an_unexpected_error_through(db_session: AsyncSession):
+    """A bug in the service has to fail loudly, not come back as an outcome to compare."""
+    with (
+        patch(
+            f"{__name__}.create_or_update_user_from_oidc",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("not an outcome"),
+        ),
+        pytest.raises(RuntimeError, match="not an outcome"),
+    ):
+        await _login(db_session, _claims())
 
 
 # 1. Email matches a password account: the password page, for that account.
@@ -348,6 +366,44 @@ async def test_clean_username_match_still_goes_to_password_page(
     await _assert_untouched(db_session, account, before)
     assert isinstance(outcome, PendingLinkRequiredError), f"got {outcome!r}"
     assert outcome.username == account.username
+
+
+# 7b. When both steps could answer, the email step goes first.
+async def test_email_match_beats_a_username_match_on_another_account(
+    db_session: AsyncSession, made_users: list[int]
+):
+    """Guard: two password accounts, one per claim. The password page is the email one's."""
+    by_email = await _account(db_session, made_users)
+    by_username = await _account(db_session, made_users)
+    email_before, username_before = _snapshot(by_email), _snapshot(by_username)
+
+    outcome = await _login(db_session, _claims(email=by_email.email, username=by_username.username))
+
+    await _assert_untouched(db_session, by_email, email_before)
+    await _assert_untouched(db_session, by_username, username_before)
+    assert isinstance(outcome, PendingLinkRequiredError), f"got {outcome!r}"
+    assert outcome.username == by_email.username
+
+
+# 7c. Each step checks in its own order. An account with no password that's linked
+# elsewhere fails both checks, so the refusal says which one ran first.
+@pytest.mark.parametrize(
+    ("match", "message"),
+    [("email", _EMAIL_LINKED_ELSEWHERE), ("username", _USERNAME_NO_PASSWORD)],
+    ids=["email-checks-the-link-first", "username-checks-the-password-first"],
+)
+async def test_no_password_and_linked_elsewhere_is_refused_by_the_first_check(
+    db_session: AsyncSession, made_users: list[int], match: str, message: str
+):
+    """Guard: the email step looks at the link first, the username step at the password."""
+    old_sub = f"old-{uuid.uuid4().hex[:10]}"
+    account = await _account(db_session, made_users, password=False, subject=old_sub)
+    before = _snapshot(account)
+
+    outcome = await _login(db_session, _claims_matching(account, match))
+
+    await _assert_untouched(db_session, account, before)
+    _assert_refused(outcome, message, account.username)
 
 
 # 8. No match at all: auto-create, as before.
