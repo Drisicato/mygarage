@@ -32618,25 +32618,55 @@
     },
     "/api/auth/oidc/callback": {
       "get": {
-        "description": "Handle OIDC callback from provider.\n\nQuery Parameters:\n    code: Authorization code from provider\n    state: State parameter for CSRF protection\n\nReturns:\n    Redirect to frontend with JWT token in URL fragment",
+        "description": "Handle OIDC callback from provider.\n\nAnything that doesn't sign the person in redirects to the login page with\n``?sso_error=<code>`` (an ``SSOError`` value) and sets no cookie. A refusal\nis audited first.\n\nQuery Parameters:\n    code: Authorization code from provider\n    state: State parameter for CSRF protection\n    error: The provider's error, when it sends one instead of a code\n\nReturns:\n    Redirect to the frontend: the OIDC success page with the auth cookie set,\n    the link account page, or the login page",
         "operationId": "oidc_callback_api_auth_oidc_callback_get",
         "parameters": [
           {
             "in": "query",
             "name": "code",
-            "required": true,
+            "required": false,
             "schema": {
-              "title": "Code",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
             }
           },
           {
             "in": "query",
             "name": "state",
-            "required": true,
+            "required": false,
             "schema": {
-              "title": "State",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
             }
           }
         ],
@@ -32760,7 +32790,7 @@
     },
     "/api/auth/oidc/link-account": {
       "post": {
-        "description": "Link OIDC account to existing local account with password verification.\n\nThis endpoint is called after an OIDC login whose email or username matches\nan existing account that has a password and no OIDC link. The user must\nenter that account's password to link the accounts.\n\nSecurity:\n- Rate limited (5/minute via settings.rate_limit_auth)\n- Max 3 password attempts per token (configured in settings)\n- Token expires after 5 minutes (configured in settings)\n- A disabled account is refused before the password is checked\n- Audited (success, failure and refusal)\n- CSRF protected (middleware)\n\nArgs:\n    link_request: Token and password for verification\n    request: FastAPI request for audit logging\n    response: FastAPI response for setting cookies\n    db: Database session\n\nReturns:\n    JSON with CSRF token and redirect URL\n\nRaises:\n    HTTPException: 401 if token invalid/expired or password wrong\n    HTTPException: 403 if user account is disabled",
+        "description": "Link OIDC account to existing local account with password verification.\n\nThis endpoint is called after an OIDC login whose email or username matches\nan existing account that has a password and no OIDC link. The user must\nenter that account's password to link the accounts.\n\nSecurity:\n- Rate limited (5/minute via settings.rate_limit_auth)\n- Max 3 password attempts per token (configured in settings)\n- Token expires after 5 minutes (configured in settings)\n- A disabled account is refused before the password is checked\n- Audited (success, failure and refusal); the link's own row commits with it\n- CSRF protected (middleware)\n\nArgs:\n    link_request: Token and password for verification\n    request: FastAPI request for audit logging\n    response: FastAPI response for setting cookies\n    db: Database session\n\nReturns:\n    JSON with CSRF token and redirect URL\n\nRaises:\n    HTTPException: 401 if token invalid/expired or password wrong\n    HTTPException: 403 if user account is disabled",
         "operationId": "link_oidc_account_api_auth_oidc_link_account_post",
         "requestBody": {
           "content": {
@@ -32800,7 +32830,7 @@
     },
     "/api/auth/oidc/login": {
       "get": {
-        "description": "Initiate OIDC authentication flow.\n\nRedirects user to OIDC provider for authentication.\n\nQuery Parameters:\n    redirect_to: Optional URL to redirect to after successful login\n\nReturns:\n    Redirect to OIDC provider authorization endpoint",
+        "description": "Initiate OIDC authentication flow.\n\nRedirects user to OIDC provider for authentication. The browser gets here by\nfull-page navigation, so a failure redirects to the login page with\n``?sso_error=failed`` instead of answering with JSON.\n\nQuery Parameters:\n    redirect_to: Optional URL to redirect to after successful login\n\nReturns:\n    Redirect to OIDC provider authorization endpoint, or to the login page",
         "operationId": "oidc_login_api_auth_oidc_login_get",
         "responses": {
           "200": {

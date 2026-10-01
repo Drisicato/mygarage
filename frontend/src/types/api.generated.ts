@@ -507,12 +507,18 @@ export interface paths {
          * Oidc Callback
          * @description Handle OIDC callback from provider.
          *
+         *     Anything that doesn't sign the person in redirects to the login page with
+         *     ``?sso_error=<code>`` (an ``SSOError`` value) and sets no cookie. A refusal
+         *     is audited first.
+         *
          *     Query Parameters:
          *         code: Authorization code from provider
          *         state: State parameter for CSRF protection
+         *         error: The provider's error, when it sends one instead of a code
          *
          *     Returns:
-         *         Redirect to frontend with JWT token in URL fragment
+         *         Redirect to the frontend: the OIDC success page with the auth cookie set,
+         *         the link account page, or the login page
          */
         get: operations["oidc_callback_api_auth_oidc_callback_get"];
         put?: never;
@@ -599,7 +605,7 @@ export interface paths {
          *     - Max 3 password attempts per token (configured in settings)
          *     - Token expires after 5 minutes (configured in settings)
          *     - A disabled account is refused before the password is checked
-         *     - Audited (success, failure and refusal)
+         *     - Audited (success, failure and refusal); the link's own row commits with it
          *     - CSRF protected (middleware)
          *
          *     Args:
@@ -633,13 +639,15 @@ export interface paths {
          * Oidc Login
          * @description Initiate OIDC authentication flow.
          *
-         *     Redirects user to OIDC provider for authentication.
+         *     Redirects user to OIDC provider for authentication. The browser gets here by
+         *     full-page navigation, so a failure redirects to the login page with
+         *     ``?sso_error=failed`` instead of answering with JSON.
          *
          *     Query Parameters:
          *         redirect_to: Optional URL to redirect to after successful login
          *
          *     Returns:
-         *         Redirect to OIDC provider authorization endpoint
+         *         Redirect to OIDC provider authorization endpoint, or to the login page
          */
         get: operations["oidc_login_api_auth_oidc_login_get"];
         put?: never;
@@ -20847,9 +20855,10 @@ export interface operations {
     };
     oidc_callback_api_auth_oidc_callback_get: {
         parameters: {
-            query: {
-                code: string;
-                state: string;
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
             };
             header?: never;
             path?: never;
