@@ -4,10 +4,12 @@ import logging
 import os
 import re
 import tomllib
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.utils.secret_key import get_or_create_secret_key
 
@@ -27,6 +29,72 @@ def get_version() -> str:
 # Default HTTP bind port. Single source of truth for both the field default and
 # the service-link guard below (issue #102).
 _DEFAULT_PORT = 8686
+
+_IPV4_MAPPED = IPv6Network("::ffff:0:0/96")
+
+# RFC 9110 token characters (\x60 is the backtick).
+_HEADER_NAME = re.compile(r"[!#$%&'*+.^_\x60|~0-9A-Za-z-]+")
+
+
+def parse_trusted_proxies(raw: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    """Parse MYGARAGE_TRUSTED_PROXIES: comma-separated IPs or CIDRs.
+
+    Host bits are masked, IPv4-mapped IPv6 entries become IPv4, and anything
+    that would trust every client is refused with a ValueError.
+    """
+    networks: list[IPv4Network | IPv6Network] = []
+    for part in raw.split(","):
+        entry = part.strip()
+        if not entry:
+            continue
+        everyone = (
+            f"MYGARAGE_TRUSTED_PROXIES can't include {entry!r}: that trusts every client to "
+            "pick its own address. List your proxy's IPs or networks instead."
+        )
+        if entry == "*":
+            raise ValueError(everyone)
+        try:
+            net = ip_network(entry, strict=False)
+        except ValueError:
+            raise ValueError(
+                f"MYGARAGE_TRUSTED_PROXIES has {entry!r}, which isn't an IP address or network "
+                "(like 172.18.0.0/16)."
+            ) from None
+        # Mapped peers get turned into IPv4 before matching, so mapped entries have to as well.
+        if isinstance(net, IPv6Network) and net.subnet_of(_IPV4_MAPPED):
+            net = IPv4Network((int(net.network_address) & 0xFFFFFFFF, net.prefixlen - 96))
+        # After the mapping on purpose: ::ffff:0:0/96 is 0.0.0.0/0 by now.
+        if net.prefixlen == 0:
+            raise ValueError(everyone)
+        if isinstance(net, IPv6Network) and net.supernet_of(_IPV4_MAPPED):
+            raise ValueError(
+                f"MYGARAGE_TRUSTED_PROXIES has {entry!r}, which covers IPv4-mapped addresses. "
+                "List the IPv4 networks instead."
+            )
+        networks.append(net)
+    return tuple(networks)
+
+
+def parse_client_ip_header(raw: str) -> str:
+    """Parse MYGARAGE_CLIENT_IP_HEADER into a lowercase header name, or "" when unset.
+
+    Refuses anything that isn't a valid header name, and X-Forwarded-For.
+    """
+    name = raw.strip()
+    if not name:
+        return ""
+    if not _HEADER_NAME.fullmatch(name):
+        raise ValueError(
+            f"MYGARAGE_CLIENT_IP_HEADER {raw!r} isn't a valid header name "
+            "(like CF-Connecting-IP or X-Real-IP)."
+        )
+    name = name.lower()
+    if name == "x-forwarded-for":
+        raise ValueError(
+            "MYGARAGE_CLIENT_IP_HEADER can't be X-Forwarded-For, which is already read from "
+            "trusted proxies. Leave it unset."
+        )
+    return name
 
 
 class Settings(BaseSettings):
@@ -94,6 +162,27 @@ class Settings(BaseSettings):
             if s in (".", "..") or not seg_re.match(s):
                 raise ValueError(f"invalid MYGARAGE_ROOT_PATH segment: {s!r}")
         return "/" + "/".join(segments)
+
+    # Who's allowed to tell us the client's address, and which header they put
+    # it in. Empty trusts nobody, which is how it's always worked.
+    trusted_proxies: Annotated[tuple[IPv4Network | IPv6Network, ...], NoDecode] = ()
+    client_ip_header: str = ""
+
+    @field_validator("trusted_proxies", mode="before")
+    @classmethod
+    def _parse_trusted_proxies(cls, v: object) -> object:
+        """Parse the comma-separated env string; anything else passes through."""
+        if isinstance(v, str):
+            return parse_trusted_proxies(v)
+        return v
+
+    @field_validator("client_ip_header", mode="before")
+    @classmethod
+    def _parse_client_ip_header(cls, v: object) -> object:
+        """Parse the env string; anything else passes through."""
+        if isinstance(v, str):
+            return parse_client_ip_header(v)
+        return v
 
     # Database
     database_url: str = "sqlite+aiosqlite:////data/mygarage.db"

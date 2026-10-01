@@ -26,6 +26,7 @@ const SSO_ERROR_CODE_LIST = [
   'cancelled',
   'expired',
   'failed',
+  'rate_limited',
 ] as const
 type SSOErrorCode = (typeof SSO_ERROR_CODE_LIST)[number]
 const SSO_ERROR_CODES: ReadonlySet<string> = new Set(SSO_ERROR_CODE_LIST)
@@ -99,6 +100,8 @@ export default function Login() {
         return t('login.ssoError.expired')
       case 'failed':
         return t('login.ssoError.failed')
+      case 'rate_limited':
+        return t('login.ssoError.rate_limited')
     }
   }
   const bannerError = error || (ssoError ? ssoErrorMessage(ssoError) : '')

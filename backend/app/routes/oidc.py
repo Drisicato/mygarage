@@ -17,7 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from joserfc.errors import JoseError
 from pydantic import BaseModel
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -280,6 +281,7 @@ async def put_oidc_admin_config(
 
 
 @router.get("/login")
+@limiter.limit(settings.rate_limit_auth)
 async def oidc_login(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -346,6 +348,7 @@ async def oidc_login(
 
 
 @router.get("/callback")
+@limiter.limit(settings.rate_limit_auth)
 async def oidc_callback(
     request: Request,
     response: Response,
@@ -515,6 +518,28 @@ async def oidc_callback(
     )
 
     return redirect_response
+
+
+def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    """Answer a request that went over its rate limit.
+
+    The SSO start and the callback are full-page navigations, so a limited one
+    goes back to the login page with ``?sso_error=rate_limited``, like every
+    other SSO failure. Every other route gets slowapi's JSON 429, as before.
+
+    Args:
+        request: The limited request
+        exc: slowapi's exception for the limit it hit
+
+    Returns:
+        A redirect to the login page, or slowapi's 429
+    """
+    # Match on the route's endpoint, not the path. Behind a subpath the path
+    # carries the prefix, but the endpoint is the same function either way.
+    endpoint = request.scope.get("endpoint")
+    if endpoint is oidc_login or endpoint is oidc_callback:
+        return _to_login(request, SSOError.RATE_LIMITED)
+    return _rate_limit_exceeded_handler(request, exc)
 
 
 @router.post("/test", response_model=OIDCTestResult)

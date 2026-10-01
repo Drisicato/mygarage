@@ -162,6 +162,7 @@ const SSO_SENTENCES: Record<string, string> = {
   cancelled: 'Sign-in was cancelled.',
   expired: 'This sign-in took too long or was already used. Please try again.',
   failed: "Single sign-on didn't work. Please try again, or ask an administrator to check the SSO settings.",
+  rate_limited: 'Too many sign-in attempts. Wait a minute, then try again.',
 }
 
 describe('Login Page: SSO error from the redirect', () => {

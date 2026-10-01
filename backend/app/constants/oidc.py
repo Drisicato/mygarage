@@ -27,3 +27,4 @@ class SSOError(StrEnum):
     CANCELLED = "cancelled"
     EXPIRED = "expired"
     FAILED = "failed"
+    RATE_LIMITED = "rate_limited"
