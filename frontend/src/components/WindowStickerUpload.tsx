@@ -286,8 +286,6 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
     </div>
   )
 
-  const hasEconomy = !!seed && ECONOMY_FIELDS.some((key) => seed[key] != null)
-  const hasRatings = !!seed && (seed.environmental_rating_ghg != null || seed.environmental_rating_smog != null)
   const optionsDetail = seed?.window_sticker_options_detail ?? {}
   const standardItems = Array.isArray(seed?.standard_equipment?.items)
     ? (seed.standard_equipment.items as unknown[]).map(String)
@@ -458,20 +456,18 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                   </div>
                 </div>
 
-                {/* Fuel Economy Section */}
-                {hasEconomy && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-garage-text font-medium">
-                      <Fuel className="w-5 h-5 text-primary" />
-                      <span>{t('windowSticker.misc.fuelEconomyUnit', { unit: u.consumption.label })}</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3 ml-7">
-                      {reviewInput('fuel_economy_city_l_per_100km', t('detail.misc.city'))}
-                      {reviewInput('fuel_economy_highway_l_per_100km', t('detail.misc.highway'))}
-                      {reviewInput('fuel_economy_combined_l_per_100km', t('detail.misc.combined'))}
-                    </div>
+                {/* Fuel Economy Section: always shown, so you can add what the OCR missed. */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-garage-text font-medium">
+                    <Fuel className="w-5 h-5 text-primary" />
+                    <span>{t('windowSticker.misc.fuelEconomyUnit', { unit: u.consumption.label })}</span>
                   </div>
-                )}
+                  <div className="grid grid-cols-3 gap-3 ml-7">
+                    {reviewInput('fuel_economy_city_l_per_100km', t('detail.misc.city'))}
+                    {reviewInput('fuel_economy_highway_l_per_100km', t('detail.misc.highway'))}
+                    {reviewInput('fuel_economy_combined_l_per_100km', t('detail.misc.combined'))}
+                  </div>
+                </div>
 
                 {/* Warranty Section */}
                 <div className="space-y-3">
@@ -485,19 +481,17 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                   </div>
                 </div>
 
-                {/* Environmental Ratings Section */}
-                {hasRatings && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-garage-text font-medium">
-                      <Leaf className="w-5 h-5 text-primary" />
-                      <span>{t('windowSticker.misc.environmentalRatings')}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 ml-7">
-                      {reviewInput('environmental_rating_ghg', t('windowSticker.misc.greenhouseGas'), 'A+')}
-                      {reviewInput('environmental_rating_smog', t('detail.misc.smogRating'), 'A+')}
-                    </div>
+                {/* Environmental Ratings Section: always shown, same as fuel economy. */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-garage-text font-medium">
+                    <Leaf className="w-5 h-5 text-primary" />
+                    <span>{t('windowSticker.misc.environmentalRatings')}</span>
                   </div>
-                )}
+                  <div className="grid grid-cols-2 gap-3 ml-7">
+                    {reviewInput('environmental_rating_ghg', t('windowSticker.misc.greenhouseGas'), 'A+')}
+                    {reviewInput('environmental_rating_smog', t('detail.misc.smogRating'), 'A+')}
+                  </div>
+                </div>
 
                 {/* Assembly Location */}
                 <div className="space-y-3">

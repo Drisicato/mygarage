@@ -193,6 +193,48 @@ describe('WindowStickerUpload review: fuel economy in the user\'s unit', () => {
   })
 })
 
+describe('WindowStickerUpload review: economy and ratings the OCR missed', () => {
+  const missed = {
+    ...extracted,
+    fuel_economy_city_l_per_100km: null,
+    fuel_economy_highway_l_per_100km: null,
+    fuel_economy_combined_l_per_100km: null,
+    environmental_rating_ghg: null,
+    environmental_rating_smog: null,
+  }
+
+  const byId = (id: string): HTMLInputElement | null => document.querySelector<HTMLInputElement>(`#${id}`)
+
+  it('the review offers fuel economy and ratings the OCR missed', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    apiPost.mockResolvedValue({ data: missed })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    expect(byId('sticker-fuel_economy_city_l_per_100km')).not.toBeNull()
+    expect(byId('sticker-environmental_rating_ghg')).not.toBeNull()
+  })
+
+  it('an economy and a rating typed into an empty review are sent', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    apiPost.mockResolvedValue({ data: missed })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    const city = byId('sticker-fuel_economy_city_l_per_100km')
+    const ghg = byId('sticker-environmental_rating_ghg')
+    expect(city).not.toBeNull()
+    expect(ghg).not.toBeNull()
+    await user.type(city!, '30')
+    await user.type(ghg!, '8')
+    await save(user)
+    const body = await patched()
+    // The empty economy fields it didn't touch stay out of the PATCH.
+    expect(Object.keys(body).sort()).toEqual(['environmental_rating_ghg', 'fuel_economy_city_l_per_100km'])
+    expect(body.environmental_rating_ghg).toBe('8')
+    // 30 US mpg is 235.215 / 30 = 7.84 L/100 km.
+    expect(Math.abs((body.fuel_economy_city_l_per_100km as number) - 7.84)).toBeLessThan(0.01)
+  })
+})
+
 describe('WindowStickerUpload review: money in the user\'s currency', () => {
   it('option prices show in the user\'s currency and Included stays a word', async () => {
     const user = userEvent.setup({ applyAccept: false })

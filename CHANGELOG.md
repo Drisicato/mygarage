@@ -70,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renewing an insurance policy with an empty field label, or completing a reminder with an empty or over-long title, no longer fails with a server error
 - A currency setting the app doesn't support falls back to US dollars instead of crashing the fuel, DEF, propane and analytics cost cards
 - The window sticker review shows option prices in your currency and number format, and its MSRP inputs name the currency
+- A window sticker whose OCR text is longer than a field holds now saves, with the text cut to fit, instead of failing or breaking the vehicle page
+- The window sticker review always shows the fuel economy and environmental rating inputs, so you can add what the OCR missed
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
