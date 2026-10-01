@@ -35,7 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, patch
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 import httpx
 import pytest
@@ -244,7 +244,8 @@ def _idp_over_http(answers: dict[str, tuple[int, bytes]]) -> Generator[None]:
     """A valid state, then the real provider services over a mock transport.
 
     Each URL gets its canned status and body, anything else a 404. URL
-    validation is skipped, since the example hosts don't resolve.
+    validation is skipped, since the example hosts don't resolve. Discovery
+    fetches what the validator returns, so its stand-in still parses.
     """
 
     def answer(request: httpx.Request) -> httpx.Response:
@@ -258,7 +259,7 @@ def _idp_over_http(answers: dict[str, tuple[int, bytes]]) -> Generator[None]:
             new_callable=AsyncMock,
             return_value=dict(_STATE),
         ),
-        patch("app.services.oidc.config.validate_oidc_url"),
+        patch("app.services.oidc.config.validate_oidc_url", side_effect=urlparse),
         patch("app.services.oidc.tokens.validate_oidc_url"),
         # One httpx module serves both service modules, so this covers all of them.
         patch(

@@ -136,7 +136,7 @@ async def get_provider_metadata(issuer_url: str) -> dict[str, Any] | None:
 
     # SECURITY: Validate discovery URL as well (defense in depth)
     try:
-        validate_oidc_url(discovery_url)
+        validated_discovery = validate_oidc_url(discovery_url)
     except (SSRFProtectionError, ValueError) as e:
         # Don't log the full URL - it could contain secrets in query params
         logger.error("SSRF protection blocked OIDC discovery URL: %s", str(e))
@@ -144,8 +144,9 @@ async def get_provider_metadata(issuer_url: str) -> dict[str, Any] | None:
 
     try:
         async with httpx.AsyncClient() as client:
-            # codeql[py/partial-ssrf] - URL validated by validate_oidc_url above
-            response = await client.get(discovery_url, timeout=10.0)
+            # The issuer is admin config by design, and validate_oidc_url is the SSRF guard.
+            # Fetch the URL it parsed, not the raw string, so the two can't drift.
+            response = await client.get(validated_discovery.geturl(), timeout=10.0)
             response.raise_for_status()
             metadata = provider_json(response, "OIDC metadata")
             if metadata is not None:
