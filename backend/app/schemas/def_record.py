@@ -91,10 +91,15 @@ class DEFRecordUpdate(BaseModel):
 class DEFRecordResponse(DEFRecordBase):
     """Schema for DEF record response."""
 
-    # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # Numbers without the input bounds, so a stored value past today's rules
+    # still reads instead of 500ing (test_response_contract).
+    odometer_km: Decimal | None = Field(None, description="Odometer reading in kilometers")
+    liters: Decimal | None = Field(None, description="DEF volume added in liters")
     cost: Decimal | None = Field(None, description="Total cost")
     price_per_unit: Decimal | None = Field(None, description="Cost per liter")
+    fill_level: Decimal | None = Field(
+        None, description="Tank level after adding DEF (0.00=empty, 1.00=full)"
+    )
     id: int
     vin: str
     created_at: datetime

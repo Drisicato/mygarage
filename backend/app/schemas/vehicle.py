@@ -281,14 +281,34 @@ class VehicleUpdate(VehicleBase):
 class VehicleResponse(VehicleBase):
     """Schema for vehicle response."""
 
-    # Money without the input bounds, so a stored price past today's rules
-    # (a legacy negative one, say) still reads (test_response_money_contract).
+    # Numbers without the input bounds, so a stored value past today's rules
+    # (a legacy negative price, say) still reads (test_response_contract).
+    current_hours: Decimal | None = Field(
+        None, description="Current engine-hour reading (used when usage_unit == 'hours')"
+    )
+    year: int | None = Field(None, description="Model year")
     purchase_price: Decimal | None = Field(None, description="Purchase price")
     sold_price: Decimal | None = Field(None, description="Sale price")
+    def_tank_capacity_liters: Decimal | None = Field(
+        None, description="DEF tank capacity in liters"
+    )
+    oil_capacity_liters: Decimal | None = Field(
+        None, description="Engine oil capacity in liters (with filter)"
+    )
+    lug_nut_torque_nm: Decimal | None = Field(
+        None, description="Wheel lug-nut torque in Newton-meters"
+    )
     vin: str
     # Served, never refused: the column has no CHECK, and a strict Literal here
     # would turn one hand-edited row into a 500 for every response carrying it.
-    distance_unit: LenientDistanceUnit = None
+    distance_unit: LenientDistanceUnit = Field(
+        None,
+        description=(
+            "The unit this vehicle's odometer reads (km or mi); null follows the "
+            "viewer's account. Distances and speeds for this vehicle show and are "
+            "entered in it (#172)."
+        ),
+    )
     main_photo: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
@@ -437,6 +457,9 @@ class TrailerDetailsUpdate(TrailerDetailsBase):
 class TrailerDetailsResponse(TrailerDetailsBase):
     """Schema for trailer details response."""
 
+    # No input bounds, so a stored count past today's rules still reads
+    # instead of 500ing (test_response_contract).
+    axle_count: int | None = Field(None, description="Number of axles")
     vin: str
 
     model_config = {"from_attributes": True}

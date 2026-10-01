@@ -190,7 +190,7 @@ class FuelRecordBase(BaseModel):
         None,
         description=(
             "Engine-hours reading at this fill-up (hour-metered vehicles). "
-            "Dimensionless — no unit conversion. Auto-syncs to hours history."
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
         ),
         ge=0,
         le=9999999.9,
@@ -643,8 +643,26 @@ class FuelRecordUpdate(BaseModel):
 class FuelRecordResponse(FuelRecordBase):
     """Schema for fuel record response (metric canonical)."""
 
-    # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # Numbers without the input bounds, so a stored value past today's rules
+    # still reads instead of 500ing (test_response_contract).
+    odometer_km: Decimal | None = Field(None, description="Odometer reading in kilometers")
+    engine_hours: Decimal | None = Field(
+        None,
+        description=(
+            "Engine-hours reading at this fill-up (hour-metered vehicles). "
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
+        ),
+    )
+    liters: Decimal | None = Field(None, description="Fuel amount in liters")
+    propane_liters: Decimal | None = Field(None, description="Propane amount in liters")
+    tank_size_kg: Decimal | None = Field(None, description="Propane tank size in kilograms")
+    tank_quantity: int | None = Field(None, description="Number of propane tanks")
+    kwh: Decimal | None = Field(None, description="Energy amount in kilowatt-hours")
+    soc_start_pct: Decimal | None = Field(None, description="Battery SOC at session start (%)")
+    soc_end_pct: Decimal | None = Field(None, description="Battery SOC at session end (%)")
+    battery_soh_pct: Decimal | None = Field(
+        None, description="Optional battery state-of-health (%)"
+    )
     cost: Decimal | None = Field(None, description="Total cost, net of any rebate")
     rebate: Decimal | None = Field(
         None, description="Rebate/discount/points redeemed; already deducted from cost"
@@ -655,6 +673,22 @@ class FuelRecordResponse(FuelRecordBase):
             "Price per unit; denominator depends on price_basis "
             "(per_volume=per liter, per_weight=per kg, per_kwh=per kWh, per_tank=per tank)"
         ),
+    )
+    station_address_book_id: int | None = Field(
+        None, description="FK to address_book entry with poi_category='gas_station'"
+    )
+    driver_user_id: int | None = Field(
+        None, description="FK to users.id when driver is a known household user"
+    )
+    outside_temp_c: Decimal | None = Field(
+        None, description="Outside temperature in Celsius (canonical)"
+    )
+    obc_l_per_100km: Decimal | None = Field(
+        None, description="OBC reported fuel consumption (L/100 km)"
+    )
+    obc_avg_speed_kmh: Decimal | None = Field(None, description="OBC reported average speed (km/h)")
+    obc_trip_duration_s: int | None = Field(
+        None, description="OBC reported trip duration in seconds"
     )
     id: int
     vin: str

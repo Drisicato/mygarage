@@ -10408,7 +10408,7 @@ export interface components {
             driver_user_id?: number | null;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: number | string | null;
             /**
@@ -10666,7 +10666,7 @@ export interface components {
             driver_user_id?: number | null;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: string | null;
             /**
@@ -14702,7 +14702,7 @@ export interface components {
             date: string;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: number | string | null;
             /**
@@ -14824,7 +14824,7 @@ export interface components {
             date: string;
             /**
              * Engine Hours
-             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless — no unit conversion. Auto-syncs to hours history.
+             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
              */
             engine_hours?: string | null;
             /**
@@ -18445,7 +18445,10 @@ export interface components {
              * @description Engine displacement in liters
              */
             displacement_l?: string | null;
-            /** Distance Unit */
+            /**
+             * Distance Unit
+             * @description The unit this vehicle's odometer reads (km or mi); null follows the viewer's account. Distances and speeds for this vehicle show and are entered in it (#172).
+             */
             distance_unit?: ("km" | "mi") | null;
             /**
              * Doors

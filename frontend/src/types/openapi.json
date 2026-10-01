@@ -1515,7 +1515,6 @@
           "file_size": {
             "anyOf": [
               {
-                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -3313,7 +3312,7 @@
           "liters": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -6623,7 +6622,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "filled_at": {
@@ -7214,7 +7213,6 @@
           "driver_user_id": {
             "anyOf": [
               {
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -7234,7 +7232,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "filled_at": {
@@ -7282,7 +7280,7 @@
           "kwh": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7321,7 +7319,7 @@
           "liters": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7378,7 +7376,6 @@
           "obc_trip_duration_s": {
             "anyOf": [
               {
-                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -7468,7 +7465,7 @@
           "propane_liters": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,3}0*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -7520,7 +7517,6 @@
           "station_address_book_id": {
             "anyOf": [
               {
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -7558,7 +7554,6 @@
           "tank_quantity": {
             "anyOf": [
               {
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -17047,7 +17042,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "insurance_claim_number": {
@@ -17305,7 +17300,7 @@
                 "type": "null"
               }
             ],
-            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless \u2014 no unit conversion. Auto-syncs to hours history.",
+            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
             "title": "Engine Hours"
           },
           "has_failed_inspections": {
@@ -23329,8 +23324,6 @@
           "axle_count": {
             "anyOf": [
               {
-                "maximum": 10.0,
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -26499,6 +26492,7 @@
                 "type": "null"
               }
             ],
+            "description": "The unit this vehicle's odometer reads (km or mi); null follows the viewer's account. Distances and speeds for this vehicle show and are entered in it (#172).",
             "title": "Distance Unit"
           },
           "doors": {
@@ -27165,8 +27159,6 @@
           "year": {
             "anyOf": [
               {
-                "maximum": 2100.0,
-                "minimum": 1900.0,
                 "type": "integer"
               },
               {

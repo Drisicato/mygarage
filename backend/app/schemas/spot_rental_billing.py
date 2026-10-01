@@ -50,7 +50,7 @@ class SpotRentalBillingResponse(SpotRentalBillingBase):
     """Schema for billing entry response."""
 
     # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # still reads instead of 500ing (test_response_contract).
     monthly_rate: Decimal | None = Field(None, description="Monthly rate for this period")
     electric: Decimal | None = Field(None, description="Electric charge")
     water: Decimal | None = Field(None, description="Water charge")

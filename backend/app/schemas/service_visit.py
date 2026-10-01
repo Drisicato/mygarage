@@ -151,7 +151,7 @@ class ServiceLineItemResponse(ServiceLineItemBase):
     """Schema for service line item response."""
 
     # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # still reads instead of 500ing (test_response_contract).
     cost: Decimal | None = Field(None, description="Cost for this line item")
     id: int
     visit_id: int
@@ -199,7 +199,7 @@ class ServiceVisitBase(BaseModel):
         None,
         description=(
             "Engine-hours reading at this service visit (hour-metered vehicles). "
-            "Dimensionless — no unit conversion. Auto-syncs to hours history."
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
         ),
         ge=0,
         le=9999999.9,
@@ -369,8 +369,16 @@ class VendorSummary(BaseModel):
 class ServiceVisitResponse(ServiceVisitBase):
     """Schema for service visit response."""
 
-    # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # Numbers without the input bounds, so a stored value past today's rules
+    # still reads instead of 500ing (test_response_contract).
+    odometer_km: Decimal | None = Field(None, description="Odometer reading in kilometers")
+    engine_hours: Decimal | None = Field(
+        None,
+        description=(
+            "Engine-hours reading at this service visit (hour-metered vehicles). "
+            "Dimensionless, no unit conversion. Auto-syncs to hours history."
+        ),
+    )
     tax_amount: Decimal | None = Field(None, description="Sales tax")
     shop_supplies: Decimal | None = Field(None, description="Shop supplies/environmental fee")
     misc_fees: Decimal | None = Field(None, description="Miscellaneous fees (disposal, etc.)")

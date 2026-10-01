@@ -11,7 +11,8 @@ row => get_auth_mode returns ``local``), so ``require_auth`` /
 ``none`` for the legacy-behaviour regression cases.
 """
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+import uuid
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 
 import pytest
 import pytest_asyncio
@@ -149,6 +150,36 @@ async def owned_vehicle(
     await db_session.commit()
     await db_session.refresh(vehicle)
     return vehicle
+
+
+# --- A throwaway vehicle for legacy-row reads ---------------------------------
+
+
+@pytest_asyncio.fixture
+async def own_vehicle(
+    db_session: AsyncSession, test_user: dict[str, object]
+) -> AsyncGenerator[Vehicle]:
+    """A fresh vehicle, deleted afterwards with every record on it. What a test
+    writes here would otherwise land in the test user's garage-wide totals."""
+    vehicle = Vehicle(
+        vin="LEG" + uuid.uuid4().hex[:14].upper(),
+        user_id=test_user["id"],
+        nickname="Legacy Money",
+        vehicle_type="Car",
+        year=2015,
+        make="Honda",
+        model="Fit",
+    )
+    db_session.add(vehicle)
+    await db_session.commit()
+    vin = vehicle.vin
+    yield vehicle
+    # A failed read rolls the session back, so look the vehicle up again.
+    await db_session.rollback()
+    stored = await db_session.get(Vehicle, vin)
+    if stored is not None:
+        await db_session.delete(stored)
+        await db_session.commit()
 
 
 # --- Header fixtures ----------------------------------------------------------

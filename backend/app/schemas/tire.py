@@ -314,6 +314,13 @@ class TireResponse(TireBase):
     date as the installation date, which is worse than reporting nothing.
     """
 
+    # Numbers without the input bounds, so a stored reading past today's rules
+    # still reads instead of 500ing (test_response_contract).
+    tread_depth_mm: Decimal | None = None
+    pressure_kpa: Decimal | None = None
+    min_tread_mm: Decimal | None = Field(
+        Decimal("2.0"), description="Wear-out threshold in mm; drives reminder hooks"
+    )
     id: int
     vin: str
     position: TirePosition | None = None

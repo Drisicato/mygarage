@@ -59,7 +59,7 @@ class SpotRentalResponse(SpotRentalBase):
     """Schema for spot rental response."""
 
     # Money without the input bounds, so a stored amount past today's rules
-    # still reads instead of 500ing (test_response_money_contract).
+    # still reads instead of 500ing (test_response_contract).
     nightly_rate: Decimal | None = None
     weekly_rate: Decimal | None = None
     monthly_rate: Decimal | None = None

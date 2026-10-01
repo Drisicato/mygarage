@@ -13,14 +13,11 @@ database itself (CHECK constraints), so theirs is a value past the old cap.
 """
 
 import uuid
-from collections.abc import AsyncGenerator
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,9 +30,9 @@ from app.models.service_visit import ServiceVisit
 from app.models.spot_rental import SpotRental
 from app.models.spot_rental_billing import SpotRentalBilling
 from app.models.tax import TaxRecord
-from app.models.vehicle import Vehicle
 from app.schemas._money import MONEY_MAX
 from app.utils.household_time import household_today
+from tests.integration.routes._legacy_reads import read_ok
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -55,42 +52,9 @@ RENTAL_VALUES = [
 ]
 
 
-@pytest_asyncio.fixture
-async def own_vehicle(
-    db_session: AsyncSession, test_user: dict[str, object]
-) -> AsyncGenerator[Vehicle]:
-    """A fresh vehicle, deleted afterwards with every record on it. The amounts
-    here would otherwise land in the test user's garage-wide totals."""
-    vehicle = Vehicle(
-        vin="LEG" + uuid.uuid4().hex[:14].upper(),
-        user_id=test_user["id"],
-        nickname="Legacy Money",
-        vehicle_type="Car",
-        year=2015,
-        make="Honda",
-        model="Fit",
-    )
-    db_session.add(vehicle)
-    await db_session.commit()
-    vin = vehicle.vin
-    yield vehicle
-    # A failed read rolls the session back, so look the vehicle up again.
-    await db_session.rollback()
-    stored = await db_session.get(Vehicle, vin)
-    if stored is not None:
-        await db_session.delete(stored)
-        await db_session.commit()
-
-
 def _skip_unless_storable(db: AsyncSession, value: Decimal) -> None:
     if value > MONEY_MAX and db.get_bind().dialect.name != "sqlite":
         pytest.skip("only SQLite ever stored an amount past MONEY_MAX")
-
-
-async def _read(client: AsyncClient, headers: dict[str, str], url: str) -> Any:
-    response = await client.get(url, headers=headers)
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 def _assert_amounts(body: dict[str, Any], names: tuple[str, ...], value: Decimal) -> None:
@@ -123,8 +87,8 @@ async def test_fuel(client, auth_headers, db_session, own_vehicle, value):
     await db_session.commit()
     base = f"/api/vehicles/{own_vehicle.vin}/fuel"
 
-    _assert_amounts(await _read(client, auth_headers, f"{base}/{record.id}"), FUEL, value)
-    listed = await _read(client, auth_headers, base)
+    _assert_amounts(await read_ok(client, auth_headers, f"{base}/{record.id}"), FUEL, value)
+    listed = await read_ok(client, auth_headers, base)
     _assert_amounts(listed["records"][0], FUEL, value)
 
 
@@ -136,8 +100,8 @@ async def test_def(client, auth_headers, db_session, own_vehicle, value):
     await db_session.commit()
     base = f"/api/vehicles/{own_vehicle.vin}/def"
 
-    _assert_amounts(await _read(client, auth_headers, f"{base}/{record.id}"), DEF, value)
-    listed = await _read(client, auth_headers, base)
+    _assert_amounts(await read_ok(client, auth_headers, f"{base}/{record.id}"), DEF, value)
+    listed = await read_ok(client, auth_headers, base)
     _assert_amounts(listed["records"][0], DEF, value)
 
 
@@ -151,8 +115,8 @@ async def test_financing(client, auth_headers, db_session, own_vehicle, value):
     await db_session.commit()
     base = f"/api/vehicles/{own_vehicle.vin}/financing-records"
 
-    _assert_amounts(await _read(client, auth_headers, f"{base}/{record.id}"), ("amount",), value)
-    listed = await _read(client, auth_headers, base)
+    _assert_amounts(await read_ok(client, auth_headers, f"{base}/{record.id}"), ("amount",), value)
+    listed = await read_ok(client, auth_headers, base)
     _assert_amounts(listed["financing_records"][0], ("amount",), value)
 
 
@@ -164,8 +128,8 @@ async def test_tax(client, auth_headers, db_session, own_vehicle, value):
     await db_session.commit()
     base = f"/api/vehicles/{own_vehicle.vin}/tax-records"
 
-    _assert_amounts(await _read(client, auth_headers, f"{base}/{record.id}"), ("amount",), value)
-    listed = await _read(client, auth_headers, base)
+    _assert_amounts(await read_ok(client, auth_headers, f"{base}/{record.id}"), ("amount",), value)
+    listed = await read_ok(client, auth_headers, base)
     _assert_amounts(listed["records"][0], ("amount",), value)
 
 
@@ -179,8 +143,8 @@ async def test_spot_rental(client, auth_headers, db_session, own_vehicle, value)
     await db_session.commit()
     base = f"/api/vehicles/{own_vehicle.vin}/spot-rentals"
 
-    _assert_amounts(await _read(client, auth_headers, f"{base}/{rental.id}"), RENTAL, value)
-    listed = await _read(client, auth_headers, base)
+    _assert_amounts(await read_ok(client, auth_headers, f"{base}/{rental.id}"), RENTAL, value)
+    listed = await read_ok(client, auth_headers, base)
     _assert_amounts(listed["spot_rentals"][0], RENTAL, value)
 
 
@@ -200,9 +164,9 @@ async def test_spot_rental_billing(client, auth_headers, db_session, own_vehicle
     await db_session.commit()
     base = f"/api/vehicles/{own_vehicle.vin}/spot-rentals/{rental.id}"
 
-    one = await _read(client, auth_headers, base)
+    one = await read_ok(client, auth_headers, base)
     _assert_amounts(one["billings"][0], BILLING, value)
-    billings = await _read(client, auth_headers, f"{base}/billings")
+    billings = await read_ok(client, auth_headers, f"{base}/billings")
     _assert_amounts(billings["billings"][0], BILLING, value)
 
 
@@ -216,10 +180,10 @@ async def test_service_visit_and_line_item(client, auth_headers, db_session, own
     await db_session.commit()
     base = f"/api/vehicles/{own_vehicle.vin}/service-visits"
 
-    one = await _read(client, auth_headers, f"{base}/{visit.id}")
+    one = await read_ok(client, auth_headers, f"{base}/{visit.id}")
     _assert_amounts(one, VISIT, value)
     _assert_amounts(one["line_items"][0], ("cost",), value)
-    listed = await _read(client, auth_headers, base)
+    listed = await read_ok(client, auth_headers, base)
     _assert_amounts(listed["visits"][0], VISIT, value)
 
 
@@ -230,7 +194,7 @@ async def test_vehicle(client, auth_headers, db_session, own_vehicle, value):
         setattr(own_vehicle, name, value)
     await db_session.commit()
 
-    body = await _read(client, auth_headers, f"/api/vehicles/{own_vehicle.vin}")
+    body = await read_ok(client, auth_headers, f"/api/vehicles/{own_vehicle.vin}")
     _assert_amounts(body, VEHICLE, value)
 
 
@@ -278,9 +242,13 @@ async def test_insurance(client, auth_headers, db_session, own_vehicle, test_use
     )
     await db_session.commit()
     try:
-        one = await _read(client, auth_headers, f"/api/insurance/policies/{policy_id}")
-        by_vehicle = await _read(client, auth_headers, f"/api/vehicles/{own_vehicle.vin}/insurance")
-        history = await _read(client, auth_headers, f"/api/insurance/policies/{policy_id}/history")
+        one = await read_ok(client, auth_headers, f"/api/insurance/policies/{policy_id}")
+        by_vehicle = await read_ok(
+            client, auth_headers, f"/api/vehicles/{own_vehicle.vin}/insurance"
+        )
+        history = await read_ok(
+            client, auth_headers, f"/api/insurance/policies/{policy_id}/history"
+        )
         for body in (one, by_vehicle[0], history[0]):
             _assert_amounts(body, ("premium_amount",), value)
             vehicle = body["vehicles"][0]
