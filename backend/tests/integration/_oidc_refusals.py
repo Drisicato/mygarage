@@ -2,6 +2,8 @@
 
 The sentences and codes are the tests' own copies, never imported from ``app``,
 so a change to one in the app fails a test instead of quietly moving with it.
+Only the cookie name comes from ``app.config.settings``, since it's config, not
+something under test.
 """
 
 from urllib.parse import parse_qs, urlsplit
