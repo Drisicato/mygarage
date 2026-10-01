@@ -4,9 +4,13 @@ Integration tests for settings routes.
 Tests settings CRUD operations, POI provider management, and system info.
 """
 
+import uuid
+from collections.abc import AsyncIterator
+
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.models.settings import Setting
 
@@ -678,3 +682,165 @@ class TestDefaultUnitPrefsWriteValidation:
             assert await _stored_value(db_session, "default_unit_prefs") == OTHER_GOOD_UNIT_PREFS
         finally:
             await _delete_setting(db_session, "default_unit_prefs")
+
+
+# ---------------------------------------------------------------------------
+# Typed bodies: POI providers and the batch key width
+# ---------------------------------------------------------------------------
+
+_PROVIDER = "foursquare"
+_PROVIDER_KEYS = (f"{_PROVIDER}_enabled", f"{_PROVIDER}_api_key", f"{_PROVIDER}_api_usage")
+
+
+async def _stored_or_none(db_session, key: str) -> str | None:
+    """The stored value, or None when there is no row at all."""
+    result = await db_session.execute(select(Setting.value).where(Setting.key == key))
+    row = result.one_or_none()
+    return None if row is None else row.value
+
+
+async def _has_row(db_session, key: str) -> bool:
+    result = await db_session.execute(select(Setting.key).where(Setting.key == key))
+    return result.one_or_none() is not None
+
+
+@pytest_asyncio.fixture
+async def provider_rows(db_session) -> AsyncIterator[None]:
+    """Start with no rows for the test provider and put the originals back afterwards."""
+    rows = (
+        await db_session.execute(select(Setting).where(Setting.key.in_(_PROVIDER_KEYS)))
+    ).scalars()
+    saved = [(r.key, r.value, r.category, r.description, r.encrypted) for r in rows]
+    await db_session.execute(delete(Setting).where(Setting.key.in_(_PROVIDER_KEYS)))
+    await db_session.commit()
+    yield
+    await db_session.rollback()
+    await db_session.execute(delete(Setting).where(Setting.key.in_(_PROVIDER_KEYS)))
+    for key, value, category, description, encrypted in saved:
+        db_session.add(
+            Setting(
+                key=key,
+                value=value,
+                category=category,
+                description=description,
+                encrypted=encrypted,
+            )
+        )
+    await db_session.commit()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("provider_rows")
+class TestPOIProviderBodies:
+    """The provider routes took a bare dict, so a null or a wrong type went
+    straight to a str() or a len()."""
+
+    async def test_adding_a_provider_with_a_null_key_is_a_422(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        response = await client.post(
+            "/api/settings/poi-providers",
+            headers=auth_headers,
+            json={"name": _PROVIDER, "enabled": False, "api_key": None},
+        )
+        assert response.status_code == 422, response.text
+        assert not await _has_row(db_session, f"{_PROVIDER}_api_key")
+
+    async def test_adding_a_provider_with_enabled_null_is_a_422_and_stores_nothing(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        response = await client.post(
+            "/api/settings/poi-providers",
+            headers=auth_headers,
+            json={"name": _PROVIDER, "api_key": "a-real-looking-key", "enabled": None},
+        )
+        assert response.status_code == 422, response.text
+        for key in _PROVIDER_KEYS:
+            assert not await _has_row(db_session, key), key
+
+    async def test_editing_a_provider_with_enabled_maybe_is_a_422(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        response = await client.put(
+            f"/api/settings/poi-providers/{_PROVIDER}",
+            headers=auth_headers,
+            json={"enabled": "maybe"},
+        )
+        assert response.status_code == 422, response.text
+        assert not await _has_row(db_session, f"{_PROVIDER}_enabled")
+
+    async def test_editing_a_provider_with_a_numeric_key_is_a_422(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        response = await client.put(
+            f"/api/settings/poi-providers/{_PROVIDER}",
+            headers=auth_headers,
+            json={"api_key": 123},
+        )
+        assert response.status_code == 422, response.text
+        assert not await _has_row(db_session, f"{_PROVIDER}_api_key")
+
+    async def test_editing_a_provider_with_enabled_null_is_a_422(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        await _set_setting(db_session, f"{_PROVIDER}_enabled", "true")
+        response = await client.put(
+            f"/api/settings/poi-providers/{_PROVIDER}",
+            headers=auth_headers,
+            json={"enabled": None},
+        )
+        assert response.status_code == 422, response.text
+        assert await _stored_or_none(db_session, f"{_PROVIDER}_enabled") == "true"
+
+    async def test_editing_with_only_enabled_keeps_the_stored_key(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """Guard, passes before the typed body too. Mutant: write `api_key`
+        when it's omitted."""
+        await _set_setting(db_session, f"{_PROVIDER}_api_key", "stored-key-123456")
+        await _set_setting(db_session, f"{_PROVIDER}_enabled", "true")
+        response = await client.put(
+            f"/api/settings/poi-providers/{_PROVIDER}",
+            headers=auth_headers,
+            json={"enabled": False},
+        )
+        assert response.status_code == 200, response.text
+        assert await _stored_or_none(db_session, f"{_PROVIDER}_api_key") == "stored-key-123456"
+        assert await _stored_or_none(db_session, f"{_PROVIDER}_enabled") == "false"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestSettingsBatchKeyWidth:
+    """`Setting.key` is String(50): a longer key was stored on SQLite and a 500
+    on PostgreSQL."""
+
+    async def test_a_settings_key_longer_than_50_characters_is_a_422_and_stores_nothing(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        key = f"e8-{uuid.uuid4().hex}".ljust(51, "x")
+        try:
+            response = await client.post(
+                "/api/settings/batch", headers=auth_headers, json={"settings": {key: "v"}}
+            )
+            assert response.status_code == 422, response.text
+            assert not await _has_row(db_session, key)
+        finally:
+            await db_session.rollback()
+            await db_session.execute(delete(Setting).where(Setting.key == key))
+            await db_session.commit()
+
+    async def test_a_50_character_key_saves(self, client: AsyncClient, auth_headers, db_session):
+        """Guard, passes before the constraint too. Mutant: max_length=49."""
+        key = f"e8-{uuid.uuid4().hex}".ljust(50, "x")
+        try:
+            response = await client.post(
+                "/api/settings/batch", headers=auth_headers, json={"settings": {key: "v"}}
+            )
+            assert response.status_code == 200, response.text
+            assert await _stored_or_none(db_session, key) == "v"
+        finally:
+            await db_session.rollback()
+            await db_session.execute(delete(Setting).where(Setting.key == key))
+            await db_session.commit()

@@ -12977,6 +12977,57 @@
         "title": "OdometerRecordUpdate",
         "type": "object"
       },
+      "POIProviderCreate": {
+        "description": "Adding a POI provider. The route keeps its own 400s for the name and key.",
+        "properties": {
+          "api_key": {
+            "default": "",
+            "title": "Api Key",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "POIProviderCreate",
+        "type": "object"
+      },
+      "POIProviderUpdate": {
+        "description": "Editing a POI provider: an omitted field keeps its stored value.",
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "title": "POIProviderUpdate",
+        "type": "object"
+      },
       "POIRecommendation": {
         "description": "Recommended POI from address book based on usage.",
         "properties": {
@@ -17863,6 +17914,10 @@
               "type": "string"
             },
             "description": "Dictionary of key-value pairs to update",
+            "propertyNames": {
+              "maxLength": 50,
+              "minLength": 1
+            },
             "title": "Settings",
             "type": "object"
           }
@@ -39642,9 +39697,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "title": "Provider Config",
-                "type": "object"
+                "$ref": "#/components/schemas/POIProviderCreate"
               }
             }
           },
@@ -39744,9 +39797,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "title": "Provider Config",
-                "type": "object"
+                "$ref": "#/components/schemas/POIProviderUpdate"
               }
             }
           },

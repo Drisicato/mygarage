@@ -13229,6 +13229,37 @@ export interface components {
             odometer_km?: number | string | null;
         };
         /**
+         * POIProviderCreate
+         * @description Adding a POI provider. The route keeps its own 400s for the name and key.
+         */
+        POIProviderCreate: {
+            /**
+             * Api Key
+             * @default
+             */
+            api_key: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+        };
+        /**
+         * POIProviderUpdate
+         * @description Editing a POI provider: an omitted field keeps its stored value.
+         */
+        POIProviderUpdate: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+        };
+        /**
          * POIRecommendation
          * @description Recommended POI from address book based on usage.
          */
@@ -25428,9 +25459,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["POIProviderCreate"];
             };
         };
         responses: {
@@ -25465,9 +25494,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["POIProviderUpdate"];
             };
         };
         responses: {

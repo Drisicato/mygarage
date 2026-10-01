@@ -18,6 +18,8 @@ from app.models.settings import Setting
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.schemas.settings import (
+    POIProviderCreate,
+    POIProviderUpdate,
     SettingCreate,
     SettingResponse,
     SettingsBatchUpdate,
@@ -322,7 +324,7 @@ async def get_poi_providers(
 
 @router.post("/poi-providers")
 async def add_poi_provider(
-    provider_config: dict,
+    provider_config: POIProviderCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_admin_user),
 ):
@@ -337,9 +339,9 @@ async def add_poi_provider(
     Raises:
         HTTPException: 400 if provider name invalid or API key validation fails
     """
-    provider_name = provider_config.get("name")
-    api_key = provider_config.get("api_key", "")
-    enabled = provider_config.get("enabled", True)
+    provider_name = provider_config.name
+    api_key = provider_config.api_key
+    enabled = provider_config.enabled
 
     if not provider_name:
         raise HTTPException(status_code=400, detail="Provider name is required")
@@ -385,7 +387,7 @@ async def add_poi_provider(
 @router.put("/poi-providers/{provider_name}")
 async def update_poi_provider(
     provider_name: str,
-    provider_config: dict,
+    provider_config: POIProviderUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_admin_user),
 ):
@@ -416,9 +418,9 @@ async def update_poi_provider(
             detail="OSM provider cannot be configured (always available)",
         )
 
-    # Update settings
-    api_key = provider_config.get("api_key")
-    enabled = provider_config.get("enabled")
+    # The body refuses an explicit null, so None here only means omitted.
+    api_key = provider_config.api_key
+    enabled = provider_config.enabled
 
     if enabled is not None:
         await SettingsService.set(db, f"{provider_name}_enabled", str(enabled).lower())

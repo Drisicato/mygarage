@@ -1,8 +1,9 @@
 """Settings Pydantic schemas for validation and serialization."""
 
 import datetime as dt
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.schemas._nullability import reject_null
 
@@ -60,10 +61,34 @@ class SettingsListResponse(BaseModel):
     total: int
 
 
+#: A setting key, as wide as the `settings.key` column (and `SettingCreate.key`).
+SettingKey = Annotated[str, StringConstraints(min_length=1, max_length=50)]
+
+
 class SettingsBatchUpdate(BaseModel):
     """Schema for batch updating settings."""
 
-    settings: dict[str, str] = Field(..., description="Dictionary of key-value pairs to update")
+    settings: dict[SettingKey, str] = Field(
+        ..., description="Dictionary of key-value pairs to update"
+    )
+
+
+class POIProviderCreate(BaseModel):
+    """Adding a POI provider. The route keeps its own 400s for the name and key."""
+
+    name: str = ""
+    api_key: str = ""
+    enabled: bool = True
+
+
+class POIProviderUpdate(BaseModel):
+    """Editing a POI provider: an omitted field keeps its stored value."""
+
+    api_key: str | None = None
+    enabled: bool | None = None
+
+    # Both write settings rows a null has no meaning for.
+    _no_null = reject_null("api_key", "enabled")
 
 
 class SystemInfoResponse(BaseModel):
