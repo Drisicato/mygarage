@@ -461,7 +461,6 @@ async def _import_insurance_row(
     access: Any,
     vin: str,
     row: dict[str, Any],
-    created_in_run: set[int],
     skip_duplicates: bool,
 ) -> bool:
     """Put one vehicle's insurance row onto a household policy.
@@ -470,8 +469,7 @@ async def _import_insurance_row(
     by the same key migration 107 merges on, so importing two vehicles' files
     rebuilds ONE household policy.
 
-    THE IMPORTER NEVER REWRITES EXISTING MONEY. A policy created earlier in this
-    same import accumulates its total from the rows; a PRE-EXISTING policy only
+    THE IMPORTER NEVER REWRITES EXISTING MONEY. A PRE-EXISTING policy only
     ever grows by the imported vehicle's own premium, which by construction
     leaves every existing effective share unchanged. An unknown (blank) premium
     is never attached to a priced pre-existing policy, because an unset share
@@ -546,9 +544,6 @@ async def _import_insurance_row(
     for policy in readable:
         if any(link.vin == vin for link in policy.vehicle_links):
             continue
-        if policy.id in created_in_run:
-            target = policy
-            break
         if premium is None and policy.premium_amount is not None:
             continue
         if not access.can_write(policy):
@@ -562,7 +557,6 @@ async def _import_insurance_row(
     # Children are appended while a new policy is still PENDING: once flushed,
     # touching its unloaded collections would be an async lazy load.
     async with db.begin_nested():
-        is_new = target is None
         if target is None:
             target = InsurancePolicy(
                 provider=provider,
@@ -579,12 +573,6 @@ async def _import_insurance_row(
                 target.all_fields.append(
                     InsurancePolicyField(label=item["label"], value=item["value"], sort_order=order)
                 )
-        elif target.id in created_in_run:
-            target.premium_amount = (
-                _grown_premium(target.premium_amount, premium)
-                if target.premium_amount is not None and premium is not None
-                else None
-            )
         elif target.premium_amount is not None and premium is not None:
             target.premium_amount = _grown_premium(target.premium_amount, premium)
 
@@ -606,8 +594,6 @@ async def _import_insurance_row(
                 )
             )
         await db.flush()
-    if is_new:
-        created_in_run.add(target.id)
     return True
 
 
@@ -1439,7 +1425,6 @@ async def import_insurance_csv(
     import_result = ImportResult()
 
     access = await InsuranceService(db).access_for(current_user)
-    created_in_run: set[int] = set()
 
     for row_num, row in enumerate(csv_reader, start=2):
         try:
@@ -1462,7 +1447,6 @@ async def import_insurance_csv(
                 access,
                 vin,
                 record,
-                created_in_run,
                 skip_duplicates,
             )
             if imported:
@@ -2122,7 +2106,6 @@ async def import_vehicle_json(
 
     # Import insurance: each entry is THIS vehicle's place on a household policy.
     insurance_access = await InsuranceService(db).access_for(current_user)
-    insurance_created: set[int] = set()
     for idx, entry in enumerate(sections["insurance_policies"]):
         try:
             premium = entry.get("premium_share")
@@ -2157,7 +2140,6 @@ async def import_vehicle_json(
                 insurance_access,
                 vin,
                 record,
-                insurance_created,
                 skip_duplicates=True,
             )
             results["insurance_policies"]["success" if imported else "skipped"] += 1
