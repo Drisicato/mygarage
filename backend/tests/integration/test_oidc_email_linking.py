@@ -161,11 +161,18 @@ async def _assert_untouched(db_session: AsyncSession, user: User, before: dict[s
     assert _snapshot(user) == before, "the matched row changed in the database"
 
 
-def _assert_refused(outcome: object, message: str, username: str | None) -> None:
+def _assert_refused(
+    outcome: object,
+    message: str,
+    username: str | None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """A refusal with this message and code, and no audit details unless they're given."""
     assert isinstance(outcome, OIDCLoginRefusedError), f"expected a refusal, got {outcome!r}"
     assert outcome.message == message
     assert outcome.code == CODES[message]
     assert outcome.username == username
+    assert outcome.details == details
 
 
 # 0. The helper every test here goes through hands back the two outcomes, nothing else.
@@ -400,9 +407,15 @@ async def test_no_match_auto_creates_the_user(db_session: AsyncSession, made_use
     assert outcome.full_name == "Claimed Name"
 
 
-# 8b. No match with auto-create off: refused like the others, so it's audited too.
-async def test_no_match_with_auto_create_off_is_refused_as_no_account(db_session: AsyncSession):
+# 8b. No match with auto-create off: refused like the others, so it's audited too,
+# with the identity it claimed since no account names it.
+@pytest.mark.parametrize("blank_username", [False, True], ids=["username", "blank-username"])
+async def test_no_match_with_auto_create_off_is_refused_as_no_account(
+    db_session: AsyncSession, blank_username: bool
+):
     claims = _claims()
+    if blank_username:
+        claims["preferred_username"] = ""
 
     try:
         outcome: object = await create_or_update_user_from_oidc(
@@ -411,7 +424,11 @@ async def test_no_match_with_auto_create_off_is_refused_as_no_account(db_session
     except OIDCLoginRefusedError as exc:
         outcome = exc
 
-    _assert_refused(outcome, NO_ACCOUNT, None)
+    claimed = {
+        "claimed_email": claims["email"],
+        "claimed_username": None if blank_username else claims["preferred_username"],
+    }
+    _assert_refused(outcome, NO_ACCOUNT, None, claimed)
     created = await db_session.execute(select(User).where(User.oidc_subject == claims["sub"]))
     assert created.scalar_one_or_none() is None
 

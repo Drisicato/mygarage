@@ -10,6 +10,7 @@ Provides endpoints for OIDC/OpenID Connect authentication flow:
 import logging
 import secrets
 from datetime import timedelta
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -86,7 +87,12 @@ def _request_origin(request: Request) -> tuple[str | None, str]:
 
 
 async def _audit_login_refused(
-    db: AsyncSession, request: Request, reason: str, username: str | None
+    db: AsyncSession,
+    request: Request,
+    reason: str,
+    username: str | None,
+    *,
+    details: dict[str, Any] | None = None,
 ) -> None:
     """Record a refused SSO login and commit it.
 
@@ -100,6 +106,7 @@ async def _audit_login_refused(
         request: The request, for the IP and user agent
         reason: Why the login was refused (the refusal's message)
         username: The matched account's username, or None if none matched
+        details: The refusal's extra keys for the row; ``reason`` always wins
     """
     await db.rollback()
     ip_address, user_agent = _request_origin(request)
@@ -108,7 +115,7 @@ async def _audit_login_refused(
             user_id=None,
             username=username,
             action="oidc_login_refused",
-            details={"reason": reason},
+            details={**(details or {}), "reason": reason},
             success=0,
             ip_address=ip_address,
             user_agent=user_agent,
@@ -452,7 +459,7 @@ async def oidc_callback(
         logger.info("Redirecting to link account page: %s", redirect_url)
         return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
     except OIDCLoginRefusedError as e:
-        await _audit_login_refused(db, request, e.message, e.username)
+        await _audit_login_refused(db, request, e.message, e.username, details=e.details)
         return _to_login(request, e.code)
 
     # None means the claims had no subject or no email, which the service logged.

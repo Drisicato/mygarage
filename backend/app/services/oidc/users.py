@@ -440,7 +440,12 @@ async def create_or_update_user_from_oidc(
         logger.warning(
             "User not found for email %s and auto-create is disabled", sanitize_for_log(email)
         )
-        raise OIDCLoginRefusedError(_NO_ACCOUNT, code=SSOError.NO_ACCOUNT)
+        # No account to name in the audit row, so it names who the sign-in claimed to be.
+        raise OIDCLoginRefusedError(
+            _NO_ACCOUNT,
+            code=SSOError.NO_ACCOUNT,
+            details={"claimed_email": email, "claimed_username": username or None},
+        )
 
     # Create new user from OIDC claims
     logger.info("Creating new user from OIDC claims: %s", sanitize_for_log(email))

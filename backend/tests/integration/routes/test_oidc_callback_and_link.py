@@ -373,11 +373,18 @@ def _failing_audit_insert(action: str) -> Generator[None]:
         event.remove(AuditLog, "before_insert", refuse)
 
 
-def _assert_refusal_row(rows: list[AuditLog], *, reason: str, username: str | None) -> None:
+def _assert_refusal_row(
+    rows: list[AuditLog],
+    *,
+    reason: str,
+    username: str | None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """One refusal row; its details are the reason plus ``extra``, and nothing else."""
     assert len(rows) == 1, f"expected one oidc_login_refused row, got {len(rows)}"
     row = rows[0]
     assert row.username == username
-    assert row.details == {"reason": reason}
+    assert row.details == {"reason": reason, **(extra or {})}
     assert row.success == 0
     assert row.ip_address == "127.0.0.1"
 
@@ -410,6 +417,36 @@ class TestCallbackRefusal:
         # The audit commit rolls back first, so the row is only here if the route committed it.
         _assert_refusal_row(
             await _refusal_rows(test_sessionmaker, user_agent), reason="x", username=username
+        )
+
+    async def test_a_refusals_details_join_the_row_but_never_replace_its_reason(
+        self,
+        client: AsyncClient,
+        test_sessionmaker: async_sessionmaker[AsyncSession],
+        user_agent: str,
+    ):
+        refusal = OIDCLoginRefusedError(
+            "x",
+            code=SSOError.NO_ACCOUNT,
+            details={"reason": "not the message", "claimed_email": "who@example.com"},
+        )
+
+        with (
+            _idp(_claims()),
+            patch(
+                "app.services.oidc.create_or_update_user_from_oidc",
+                new_callable=AsyncMock,
+                side_effect=refusal,
+            ),
+        ):
+            response = await _callback(client, user_agent)
+
+        assert_sent_to_login(response, "no_account")
+        _assert_refusal_row(
+            await _refusal_rows(test_sessionmaker, user_agent),
+            reason="x",
+            username=None,
+            extra={"claimed_email": "who@example.com"},
         )
 
     async def test_a_refusal_commits_the_audit_row_and_nothing_else(
@@ -493,8 +530,15 @@ class TestCallbackRefusal:
             response = await _callback(client, user_agent)
 
         assert_sent_to_login(response, "no_account")
+        # No account matched, so the claimed identity is how an admin knows who it was.
         _assert_refusal_row(
-            await _refusal_rows(test_sessionmaker, user_agent), reason=NO_ACCOUNT, username=None
+            await _refusal_rows(test_sessionmaker, user_agent),
+            reason=NO_ACCOUNT,
+            username=None,
+            extra={
+                "claimed_email": claims["email"],
+                "claimed_username": claims["preferred_username"],
+            },
         )
         async with test_sessionmaker() as fresh:
             created = await fresh.execute(select(User).where(User.oidc_subject == claims["sub"]))
