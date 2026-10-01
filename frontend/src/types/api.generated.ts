@@ -8109,7 +8109,11 @@ export interface components {
             baseline: string;
             /** Deviation Percent */
             deviation_percent: string;
-            /** Message */
+            /**
+             * Message
+             * @deprecated
+             * @description English-only sentence, kept until the next API version. Build your own from amount, baseline and deviation_percent.
+             */
             message: string;
             /** Month */
             month: string;

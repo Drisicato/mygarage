@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The notification bell warns about mileage and hours reminders projected to come due within two weeks, not only dated ones
 - PostgreSQL money columns widen to hold the new maximums; the migration is forward-only and rewrites no data
 
+### Deprecated
+- The spending-anomaly `message` field in the analytics API is deprecated; the app builds its own sentence from `amount`, `baseline` and `deviation_percent`
+
 ### Fixed
 - Theme and accent apply before first paint in production: the CSP now allows the shell's inline script by hash instead of refusing it
 - The smallest font subset was inlined as a data: URL and refused by the CSP; fonts are always emitted as files

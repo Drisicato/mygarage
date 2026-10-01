@@ -7,9 +7,10 @@ import { METRIC_UNITS } from '../../__tests__/factories'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Issue #131 regression: the vehicle Analytics page rendered `alert.message`,
-// a sentence the BACKEND composes with a hardcoded "$" and untranslated
-// English (analytics.py:294). With PLN selected every other value on the page
-// formatted as zł and that one line still said "$3400.00".
+// an English-only sentence the backend composes (now deprecated in the API).
+// With PLN selected every other value on the page formatted as zł and that one
+// line still said "$3400.00". The fixtures' messages carry a "$", so rendering
+// one would put a "$" on the page.
 //
 // This file needs its own react-i18next mock: the global one in
 // __tests__/setup.ts is `t: key => key` and DISCARDS interpolation, so under it
@@ -70,7 +71,7 @@ import Analytics from '../Analytics'
 
 const mockedApiGet = vi.mocked(api).get
 
-/** The exact shape analytics.py emits, including the hardcoded-$ message. */
+/** The shape analytics.py emits. The message carries a "$" so rendering it would show one. */
 const ABOVE: AnomalyAlert = {
   month: '2025-08',
   amount: '3400.00',
@@ -138,7 +139,7 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => cleanup())
 
 describe('Analytics — spending anomalies (issue #131)', () => {
-  it('never renders the backend-composed message, which carries a hardcoded $', async () => {
+  it('never renders the backend-composed message', async () => {
     renderWith([ABOVE])
     await waitFor(() => expect(screen.getByText('vehicle.spendingAnomalies')).toBeInTheDocument())
 

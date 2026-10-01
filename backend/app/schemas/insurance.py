@@ -109,10 +109,10 @@ class CoverageEntryResponse(BaseModel):
     """
 
     coverage_key: CoverageKey
-    limit_primary: Decimal | None = Field(None, decimal_places=2)
-    limit_secondary: Decimal | None = Field(None, decimal_places=2)
-    deductible: Decimal | None = Field(None, decimal_places=2)
-    premium: Decimal | None = Field(None, decimal_places=2)
+    limit_primary: Decimal | None = None
+    limit_secondary: Decimal | None = None
+    deductible: Decimal | None = None
+    premium: Decimal | None = None
 
     model_config = ConfigDict(from_attributes=True, json_schema_extra=_COVERAGE_SLOTS_SCHEMA)
 

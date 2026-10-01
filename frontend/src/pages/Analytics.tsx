@@ -666,13 +666,10 @@ export default function Analytics() {
                     {t(`vehicle.severity.${alert.severity}`, { defaultValue: alert.severity })}
                   </span>
                 </div>
-                {/* Composed here rather than rendering `alert.message` (#131).
-                    The backend builds that sentence with a hardcoded "$" and
-                    untranslated English, so it ignored both the user's currency
-                    and their language — while every field it needs (amount,
-                    baseline, deviation_percent) is already on the payload. This
-                    also subsumes the old `anomalyStats` line, which restated
-                    the same three numbers directly underneath it. */}
+                {/* Built here, not from `alert.message` (#131). That sentence is
+                    English only and deprecated in the API, and every number it
+                    needs is on the payload. It also replaces the old
+                    `anomalyStats` line, which said the same three numbers again. */}
                 <p className="text-sm">
                   {t(
                     parseFloat(alert.deviation_percent) >= 0

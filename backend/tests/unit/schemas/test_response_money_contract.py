@@ -2,9 +2,11 @@
 
 A response validates what the database hands it. A money field that inherits an
 input bound (`le=99999.99`, `ge=0`) turns a stored value past that bound into a
-500 on every read of the record, and legacy rows hold exactly such values. So no
-model reachable from a route's response may bound a money field, however deep it
-sits: list items, nested models, Optional and Annotated wrappers all count.
+500 on every read of the record, and legacy rows hold exactly such values. A
+digit rule (`decimal_places`, `max_digits`, `multiple_of`) refuses a stored
+value the same way, so it counts as a bound too. So no model reachable from a
+route's response may bound a money field, however deep it sits: list items,
+nested models, Optional and Annotated wrappers all count.
 
 The model set comes from the router, not from class names, so a new response
 model is covered without registering it. A field typed Decimal or float is money
@@ -26,11 +28,11 @@ from app.schemas._money import OptionalMoney
 from tests.unit.schemas._money_names import MONEY_COLUMN_NAMES, is_money_name
 from tests.unit.schemas._schema_walk import unwrap, walk
 
-_BOUND_ATTRS = ("ge", "gt", "le", "lt")
+_BOUND_ATTRS = ("ge", "gt", "le", "lt", "multiple_of", "max_digits", "decimal_places")
 
 
 def _bounds(metadata: Iterable[Any]) -> list[str]:
-    """Every ge/gt/le/lt in a metadata list, including a nested FieldInfo's own."""
+    """Every bound or digit rule in a metadata list, including a nested FieldInfo's own."""
     found = []
     for item in metadata:
         for attr in _BOUND_ATTRS:
@@ -126,6 +128,9 @@ class _Probe(BaseModel):
     premium: OptionalMoney = None
     deductible: _BoundedAlias | None = None
     price: float = Field(0, gt=0)
+    rate: Decimal | None = Field(None, decimal_places=2)
+    fee: Decimal | None = Field(None, max_digits=12)
+    charge: Decimal | None = Field(None, multiple_of=Decimal("0.01"))
     # Money with no bound, a bounded measurement, and a bounded count.
     total_cost: Decimal | None = None
     odometer_km: Decimal | None = Field(None, ge=0)
@@ -135,7 +140,7 @@ class _Probe(BaseModel):
 
 def test_the_detector_sees_every_form():
     # On the FieldInfo, inside the Optional, through the shared alias, inside a
-    # PEP 695 alias, on a float, and one model down through a list.
+    # PEP 695 alias, on a float, each digit rule, and one model down through a list.
     assert _bounded(walk([_Probe]), frozenset()) == {
         "_Probe": {
             "amount": ["le=100"],
@@ -143,6 +148,9 @@ def test_the_detector_sees_every_form():
             "premium": ["ge=0", "le=9999999999.99"],
             "deductible": ["ge=0"],
             "price": ["gt=0"],
+            "rate": ["decimal_places=2"],
+            "fee": ["max_digits=12"],
+            "charge": ["multiple_of=0.01"],
         },
         "_Nested": {"cost": ["ge=0"]},
     }
