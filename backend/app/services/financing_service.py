@@ -94,7 +94,7 @@ class FinancingService:
         except OperationalError as e:
             logger.error(
                 "Database connection error getting financing record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -193,7 +193,7 @@ class FinancingService:
 
             logger.info(
                 "Updated financing record %s for %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
             )
 
@@ -207,7 +207,7 @@ class FinancingService:
             await self.db.rollback()
             logger.error(
                 "Database constraint violation updating financing record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -216,7 +216,7 @@ class FinancingService:
             await self.db.rollback()
             logger.error(
                 "Database connection error updating financing record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -254,7 +254,7 @@ class FinancingService:
 
             logger.info(
                 "Deleted financing record %s for %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
             )
 
@@ -266,7 +266,7 @@ class FinancingService:
             await self.db.rollback()
             logger.error(
                 "Database constraint violation deleting financing record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )
@@ -275,7 +275,7 @@ class FinancingService:
             await self.db.rollback()
             logger.error(
                 "Database connection error deleting financing record %s for %s: %s",
-                record_id,
+                sanitize_for_log(record_id),
                 sanitize_for_log(vin),
                 sanitize_for_log(e),
             )

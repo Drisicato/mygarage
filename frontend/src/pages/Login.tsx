@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { resolvePostLoginRoute } from '../utils/postLoginRedirect'
 import { useForm } from 'react-hook-form'
@@ -12,6 +12,31 @@ import AuthPageLayout from '../components/AuthPageLayout'
 import { withBase } from '../utils/basePath'
 import { applyServerErrors } from '../hooks/useApiFormErrors'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+
+// The backend's SSOError values (app/constants/oidc.py), which its SSO redirect
+// sends back as ?sso_error=. Anything else is someone's hand-typed URL, so it
+// gets the generic sentence and never reaches t().
+const SSO_ERROR_CODE_LIST = [
+  'account_disabled',
+  'email_linked_elsewhere',
+  'email_no_password',
+  'username_linked_elsewhere',
+  'username_no_password',
+  'no_account',
+  'cancelled',
+  'expired',
+  'failed',
+] as const
+type SSOErrorCode = (typeof SSO_ERROR_CODE_LIST)[number]
+const SSO_ERROR_CODES: ReadonlySet<string> = new Set(SSO_ERROR_CODE_LIST)
+
+const isSSOErrorCode = (value: string): value is SSOErrorCode => SSO_ERROR_CODES.has(value)
+
+/** The ?sso_error= param as a known code, `failed` for anything else, null when absent. */
+function toSSOErrorCode(param: string | null): SSOErrorCode | null {
+  if (param === null) return null
+  return isSSOErrorCode(param) ? param : 'failed'
+}
 
 export default function Login() {
   const { t } = useTranslation('common')
@@ -38,6 +63,45 @@ export default function Login() {
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Read once on mount, since the param is dropped from the URL right after.
+  const [ssoError, setSsoError] = useState<SSOErrorCode | null>(() =>
+    toSSOErrorCode(searchParams.get('sso_error')),
+  )
+
+  // Drop sso_error so a reload doesn't show the same reason again.
+  useEffect(() => {
+    if (!searchParams.has('sso_error')) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('sso_error')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  // Spelled out rather than t(`login.ssoError.${code}`): the i18n usage gate
+  // only sees literal keys.
+  const ssoErrorMessage = (code: SSOErrorCode): string => {
+    switch (code) {
+      case 'account_disabled':
+        return t('login.ssoError.account_disabled')
+      case 'email_linked_elsewhere':
+        return t('login.ssoError.email_linked_elsewhere')
+      case 'email_no_password':
+        return t('login.ssoError.email_no_password')
+      case 'username_linked_elsewhere':
+        return t('login.ssoError.username_linked_elsewhere')
+      case 'username_no_password':
+        return t('login.ssoError.username_no_password')
+      case 'no_account':
+        return t('login.ssoError.no_account')
+      case 'cancelled':
+        return t('login.ssoError.cancelled')
+      case 'expired':
+        return t('login.ssoError.expired')
+      case 'failed':
+        return t('login.ssoError.failed')
+    }
+  }
+  const bannerError = error || (ssoError ? ssoErrorMessage(ssoError) : '')
 
   // Check if OIDC is enabled
   useEffect(() => {
@@ -62,6 +126,7 @@ export default function Login() {
 
   const onSubmit = async (data: LoginFormData) => {
     setError('')
+    setSsoError(null)
 
     try {
       const user = await login(data.username, data.password)
@@ -95,10 +160,10 @@ export default function Login() {
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Error Message */}
-        {error && (
+        {bannerError && (
           <div className="p-4 bg-danger-500/10 border border-danger-500 rounded-lg flex items-start gap-2">
             <AlertCircle className="w-5 h-5 text-danger-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-danger-500">{error}</div>
+            <div className="text-sm text-danger-500">{bannerError}</div>
           </div>
         )}
 

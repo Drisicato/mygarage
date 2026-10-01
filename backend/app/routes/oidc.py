@@ -10,6 +10,7 @@ Provides endpoints for OIDC/OpenID Connect authentication flow:
 import logging
 import secrets
 from datetime import timedelta
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -22,10 +23,10 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.constants.oidc import SSO_ACCOUNT_DISABLED
+from app.constants.oidc import SSO_ACCOUNT_DISABLED, SSOError
 from app.database import get_db
-from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError
-from app.models.audit_log import AuditLog
+from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError, SSRFProtectionError
+from app.models.audit_log import USER_AGENT_MAX_LENGTH, AuditLog
 from app.models.csrf_token import CSRFToken
 from app.models.user import User
 from app.services import oidc as oidc_service
@@ -54,31 +55,58 @@ def _frontend_base(request: Request) -> str:
     return _external_base(request)
 
 
+def _to_login(request: Request, code: SSOError) -> RedirectResponse:
+    """Send the browser back to the login page with why SSO didn't sign it in.
+
+    The login start and the callback are full-page navigations, so this is what
+    the person sees instead of a page of JSON. Only the code goes in the URL,
+    and no cookie is set.
+    """
+    return RedirectResponse(
+        f"{_frontend_base(request)}/login?sso_error={code.value}",
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+# The IdP's error text is free-form and goes to the log, so it's cut short.
+_IDP_ERROR_LOG_LENGTH = 200
+
+
 # Initialize rate limiter for auth endpoints
 limiter = Limiter(key_func=get_remote_address)
 
 
 def _request_origin(request: Request) -> tuple[str | None, str]:
-    """The request's client IP and user agent, as the audit rows record them."""
+    """The request's client IP and user agent, as the audit rows record them.
+
+    The user agent is cut to the audit column's length, since PostgreSQL refuses
+    a longer one and that would fail the commit it rides in.
+    """
     ip_address = request.client.host if request.client else None
-    return ip_address, request.headers.get("user-agent", "")
+    return ip_address, request.headers.get("user-agent", "")[:USER_AGENT_MAX_LENGTH]
 
 
 async def _audit_login_refused(
-    db: AsyncSession, request: Request, reason: str, username: str | None
+    db: AsyncSession,
+    request: Request,
+    reason: str,
+    username: str | None,
+    *,
+    details: dict[str, Any] | None = None,
 ) -> None:
     """Record a refused SSO login and commit it.
 
-    The caller raises a 403 right after, and ``get_db`` rolls back on an
-    exception, so the row only survives because it's committed here. Anything
-    the refused step left uncommitted is rolled back first, so this commit
-    carries the audit row and nothing else.
+    The caller refuses the login right after, with a redirect or a 403, and
+    ``get_db`` rolls back on the 403's exception, so the row only survives
+    because it's committed here. Anything the refused step left uncommitted is
+    rolled back first, so this commit carries the audit row and nothing else.
 
     Args:
         db: Database session
         request: The request, for the IP and user agent
-        reason: Why the login was refused (the 403 detail)
+        reason: Why the login was refused (the refusal's message)
         username: The matched account's username, or None if none matched
+        details: The refusal's extra keys for the row; ``reason`` always wins
     """
     await db.rollback()
     ip_address, user_agent = _request_origin(request)
@@ -87,7 +115,7 @@ async def _audit_login_refused(
             user_id=None,
             username=username,
             action="oidc_login_refused",
-            details={"reason": reason},
+            details={**(details or {}), "reason": reason},
             success=0,
             ip_address=ip_address,
             user_agent=user_agent,
@@ -255,44 +283,42 @@ async def put_oidc_admin_config(
 async def oidc_login(
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> RedirectResponse:
     """Initiate OIDC authentication flow.
 
-    Redirects user to OIDC provider for authentication.
+    Redirects user to OIDC provider for authentication. The browser gets here by
+    full-page navigation, so a failure redirects to the login page with
+    ``?sso_error=failed`` instead of answering with JSON.
 
     Query Parameters:
         redirect_to: Optional URL to redirect to after successful login
 
     Returns:
-        Redirect to OIDC provider authorization endpoint
+        Redirect to OIDC provider authorization endpoint, or to the login page
     """
     # Get OIDC configuration
     config = await oidc_service.get_oidc_config(db)
 
     # Check if OIDC is enabled
     if config.get("enabled", "false").lower() != "true":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OIDC authentication is not enabled",
-        )
+        logger.warning("OIDC login started while OIDC authentication is not enabled")
+        return _to_login(request, SSOError.FAILED)
 
     # Validate configuration
     issuer_url = config.get("issuer_url", "").strip()
     client_id = config.get("client_id", "").strip()
 
     if not issuer_url or not client_id:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="OIDC is not properly configured (missing issuer_url or client_id)",
-        )
+        logger.warning("OIDC login started but OIDC is missing its issuer_url or client_id")
+        return _to_login(request, SSOError.FAILED)
 
-    # Fetch provider metadata
-    metadata = await oidc_service.get_provider_metadata(issuer_url)
+    # Fetch provider metadata. Either failure is already logged by the service.
+    try:
+        metadata = await oidc_service.get_provider_metadata(issuer_url)
+    except SSRFProtectionError:
+        return _to_login(request, SSOError.FAILED)
     if not metadata:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch OIDC provider metadata",
-        )
+        return _to_login(request, SSOError.FAILED)
 
     # Determine base URL for redirect URI (scheme/host/prefix, #107)
     base_url = _external_base(request)
@@ -304,16 +330,16 @@ async def oidc_login(
         )
     except httpx.TimeoutException:
         logger.error("OIDC provider timeout creating authorization URL")
-        raise HTTPException(status_code=504, detail="OIDC provider request timed out")
+        return _to_login(request, SSOError.FAILED)
     except httpx.ConnectError:
         logger.error("Cannot connect to OIDC provider")
-        raise HTTPException(status_code=503, detail="Cannot connect to OIDC provider")
+        return _to_login(request, SSOError.FAILED)
     except JoseError as e:
         logger.error("OIDC JWT error creating authorization URL: %s", e)
-        raise HTTPException(status_code=401, detail="OIDC authentication error")
+        return _to_login(request, SSOError.FAILED)
     except (ValueError, KeyError) as e:
         logger.error("OIDC configuration error: %s", e)
-        raise HTTPException(status_code=500, detail="OIDC configuration error")
+        return _to_login(request, SSOError.FAILED)
 
     logger.info("Redirecting to OIDC provider for authentication (state: %s)", state)
     return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
@@ -321,42 +347,63 @@ async def oidc_login(
 
 @router.get("/callback")
 async def oidc_callback(
-    code: str,
-    state: str,
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-):
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
     """Handle OIDC callback from provider.
+
+    Anything that doesn't sign the person in redirects to the login page with
+    ``?sso_error=<code>`` (an ``SSOError`` value) and sets no cookie. A refusal
+    is audited first.
 
     Query Parameters:
         code: Authorization code from provider
         state: State parameter for CSRF protection
+        error: The provider's error, when it sends one instead of a code
 
     Returns:
-        Redirect to frontend with JWT token in URL fragment
+        Redirect to the frontend: the OIDC success page with the auth cookie set,
+        the link account page, or the login page
     """
-    logger.info("Received OIDC callback (state: %s)", state)
+    logger.info("Received OIDC callback (state: %s)", sanitize_for_log(state))
 
-    # Validate and consume state from database
+    # The IdP sends ?error= and no code when the person cancels or it refuses.
+    if error or not code or not state:
+        if state:
+            # Spend it, so a sign-in that ends here doesn't leave it live for 10 minutes.
+            await oidc_service.validate_and_consume_state(db, state)
+        if error:
+            description = request.query_params.get("error_description", "")
+            logger.warning(
+                "OIDC provider returned an error: %s (%s)",
+                sanitize_for_log(error[:_IDP_ERROR_LOG_LENGTH]),
+                sanitize_for_log(description[:_IDP_ERROR_LOG_LENGTH]),
+            )
+        else:
+            logger.warning("OIDC callback is missing its code or state")
+        cancelled = error == "access_denied"
+        return _to_login(request, SSOError.CANCELLED if cancelled else SSOError.FAILED)
+
+    # Validate and consume state from database. state.py logs a bad one.
     state_data = await oidc_service.validate_and_consume_state(db, state)
     if not state_data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired state parameter",
-        )
+        return _to_login(request, SSOError.EXPIRED)
 
     # Get OIDC configuration
     config = await oidc_service.get_oidc_config(db)
     issuer_url = config.get("issuer_url", "").strip()
 
-    # Fetch provider metadata
-    metadata = await oidc_service.get_provider_metadata(issuer_url)
+    # Fetch provider metadata. Each provider step below logs its own failure.
+    try:
+        metadata = await oidc_service.get_provider_metadata(issuer_url)
+    except SSRFProtectionError:
+        return _to_login(request, SSOError.FAILED)
     if not metadata:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch OIDC provider metadata",
-        )
+        return _to_login(request, SSOError.FAILED)
 
     # Exchange code for tokens (with PKCE verifier from stored state)
     redirect_uri = state_data["redirect_uri"]
@@ -365,26 +412,18 @@ async def oidc_callback(
         code, config, metadata, redirect_uri, code_verifier=code_verifier
     )
     if not tokens:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to exchange authorization code for tokens",
-        )
+        return _to_login(request, SSOError.FAILED)
 
     # Verify ID token
     id_token = tokens.get("id_token")
     if not id_token:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Provider did not return ID token",
-        )
+        logger.error("OIDC provider did not return an ID token")
+        return _to_login(request, SSOError.FAILED)
 
     nonce = state_data["nonce"]
     claims = await oidc_service.verify_id_token(id_token, config, metadata, nonce)
     if not claims:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Failed to verify ID token",
-        )
+        return _to_login(request, SSOError.FAILED)
 
     # Fetch userinfo (optional, provides additional claims)
     access_token = tokens.get("access_token")
@@ -420,20 +459,18 @@ async def oidc_callback(
         logger.info("Redirecting to link account page: %s", redirect_url)
         return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
     except OIDCLoginRefusedError as e:
-        await _audit_login_refused(db, request, e.message, e.username)
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
+        await _audit_login_refused(db, request, e.message, e.username, details=e.details)
+        return _to_login(request, e.code)
 
+    # None means the claims had no subject or no email, which the service logged.
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create or update user from OIDC claims",
-        )
+        return _to_login(request, SSOError.FAILED)
 
     # Backstop: the service refuses a disabled account itself, so this only
     # fires when an admin disables it while the login is in flight.
     if not user.is_active:
         await _audit_login_refused(db, request, SSO_ACCOUNT_DISABLED, user.username)
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SSO_ACCOUNT_DISABLED)
+        return _to_login(request, SSOError.ACCOUNT_DISABLED)
 
     # Clean up expired CSRF tokens for this user
     await db.execute(
@@ -557,7 +594,7 @@ async def link_oidc_account(
     - Max 3 password attempts per token (configured in settings)
     - Token expires after 5 minutes (configured in settings)
     - A disabled account is refused before the password is checked
-    - Audited (success, failure and refusal)
+    - Audited (success, failure and refusal); the link's own row commits with it
     - CSRF protected (middleware)
 
     Args:
@@ -573,25 +610,27 @@ async def link_oidc_account(
         HTTPException: 401 if token invalid/expired or password wrong
         HTTPException: 403 if user account is disabled
     """
-    # Validate and consume pending link token
+    # Validate and consume pending link token. A link writes its own audit row.
+    ip_address, user_agent = _request_origin(request)
     try:
         user, error_message = await oidc_service.validate_and_consume_pending_link(
             db,
             link_request.token,
             link_request.password,
+            ip_address=ip_address,
+            user_agent=user_agent,
         )
     except OIDCLoginRefusedError as e:
         # A disabled target, refused before its password was checked
         await _audit_login_refused(db, request, e.message, e.username)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.message)
 
-    ip_address, user_agent = _request_origin(request)
     if user is None:
         # Failed - create audit log
         audit_log = AuditLog(
             user_id=None,
             action="oidc_link_failed",
-            details=error_message,
+            details={"reason": error_message},
             ip_address=ip_address,
             user_agent=user_agent,
             timestamp=utc_now(),
@@ -606,22 +645,12 @@ async def link_oidc_account(
         )
 
     # Backstop: the link step refuses a disabled account up front, so this only
-    # fires when an admin disables it while the link is being committed.
+    # fires when an admin disables it while the link is being committed. The link
+    # and its audit row are already in, so this just refuses the login.
     if not user.is_active:
         logger.warning("OIDC link attempt for inactive user: %s", sanitize_for_log(user.username))
         await _audit_login_refused(db, request, SSO_ACCOUNT_DISABLED, user.username)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SSO_ACCOUNT_DISABLED)
-
-    # Success - create audit log
-    audit_log = AuditLog(
-        user_id=user.id,
-        action="oidc_account_linked",
-        details=f"Linked OIDC account to username: {user.username}, provider: {user.oidc_provider}, oidc_subject: {user.oidc_subject}",
-        ip_address=ip_address,
-        user_agent=user_agent,
-        timestamp=utc_now(),
-    )
-    db.add(audit_log)
 
     # Clean up expired CSRF tokens for this user
     await db.execute(

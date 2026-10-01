@@ -15,8 +15,9 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.oidc import SSO_ACCOUNT_DISABLED
+from app.constants.oidc import SSO_ACCOUNT_DISABLED, SSOError
 from app.exceptions import OIDCLoginRefusedError
+from app.models.audit_log import AuditLog
 from app.models.oidc_pending_link import OIDCPendingLink
 from app.models.settings import Setting
 from app.models.user import User
@@ -106,6 +107,9 @@ async def validate_and_consume_pending_link(
     db: AsyncSession,
     token: str,
     password: str,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> tuple[User | None, str | None]:
     """Validate pending link token and link OIDC account to existing user.
 
@@ -122,12 +126,16 @@ async def validate_and_consume_pending_link(
     - Password verification passes
 
     Every refusal deletes the pending link, except a wrong password with
-    attempts left.
+    attempts left. A link is audited as ``oidc_account_linked`` in the same
+    commit as the link and the token's delete, so one can't land without the
+    other.
 
     Args:
         db: Database session
         token: Pending link token from URL
         password: Password provided by user
+        ip_address: Where the link request came from, for the audit row
+        user_agent: The link request's user agent, for the audit row
 
     Returns:
         Tuple of (User, error_message). If User is None, error_message contains
@@ -189,7 +197,9 @@ async def validate_and_consume_pending_link(
         logger.warning("Pending link refused, account disabled: %s", sanitize_for_log(username))
         await db.delete(pending_link)
         await db.commit()
-        raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=username)
+        raise OIDCLoginRefusedError(
+            SSO_ACCOUNT_DISABLED, code=SSOError.ACCOUNT_DISABLED, username=username
+        )
 
     # Security check: user must have a password (not OIDC-only)
     if user.hashed_password is None:
@@ -270,6 +280,18 @@ async def validate_and_consume_pending_link(
     user.last_login = utc_now()
     # They proved the account with its password, so an open relink isn't needed.
     user.oidc_relink_until = None
+
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            username=user.username,
+            action="oidc_account_linked",
+            details={"provider": user.oidc_provider, "oidc_subject": user.oidc_subject},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            timestamp=utc_now(),
+        )
+    )
 
     # Delete pending link token (one-time use)
     await db.delete(pending_link)

@@ -6,7 +6,7 @@ provider metadata via the standard OpenID Connect discovery endpoint.
 
 import datetime as dt
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from sqlalchemy import select
@@ -26,6 +26,32 @@ OIDC_DEFAULTS: dict[str, str] = {
     "email_claim": "email",
     "full_name_claim": "name",
 }
+
+
+def provider_json(
+    response: httpx.Response, what: str, *, level: int = logging.ERROR
+) -> dict[str, Any] | None:
+    """The provider's response body as a JSON object, or None when it isn't one.
+
+    Logs why at ``level``, so a caller can just return the None.
+
+    Args:
+        response: The provider's response, already status-checked
+        what: What the response is, for the log line
+        level: The log level for a body that can't be used
+
+    Returns:
+        The decoded object, or None when the body isn't JSON or isn't an object
+    """
+    try:
+        doc = response.json()
+    except ValueError:
+        logger.log(level, "%s response is not valid JSON", what)
+        return None
+    if not isinstance(doc, dict):
+        logger.log(level, "%s response is not a JSON object", what)
+        return None
+    return cast(dict[str, Any], doc)
 
 
 def effective_oidc_value(config: dict[str, str], key: str) -> str:
@@ -86,7 +112,8 @@ async def get_provider_metadata(issuer_url: str) -> dict[str, Any] | None:
         issuer_url: OIDC issuer URL
 
     Returns:
-        Provider metadata dictionary or None if fetch fails
+        Provider metadata dictionary, or None if the fetch fails or the document
+        isn't a JSON object
 
     Raises:
         SSRFProtectionError: If issuer_url fails SSRF validation (private IPs, localhost, etc.)
@@ -120,10 +147,10 @@ async def get_provider_metadata(issuer_url: str) -> dict[str, Any] | None:
             # codeql[py/partial-ssrf] - URL validated by validate_oidc_url above
             response = await client.get(discovery_url, timeout=10.0)
             response.raise_for_status()
-            metadata = response.json()
-
-            logger.info("Successfully fetched OIDC metadata")
-            return metadata
+            metadata = provider_json(response, "OIDC metadata")
+            if metadata is not None:
+                logger.info("Successfully fetched OIDC metadata")
+            return metadata  # Intentional fallback: None when it isn't a JSON object
 
     except httpx.TimeoutException:
         logger.error("OIDC metadata request timeout")
@@ -134,4 +161,7 @@ async def get_provider_metadata(issuer_url: str) -> dict[str, Any] | None:
         return None  # Intentional fallback: allow graceful degradation
     except httpx.HTTPStatusError as e:
         logger.error("OIDC provider returned error: %s", str(e))
+        return None  # Intentional fallback
+    except httpx.HTTPError as e:
+        logger.error("OIDC metadata request failed: %s", type(e).__name__)
         return None  # Intentional fallback

@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.audit_log import AuditLog
+from app.models.audit_log import USER_AGENT_MAX_LENGTH, AuditLog
 from app.models.user import User
 from app.utils.datetime_utils import utc_now
 
@@ -52,8 +52,11 @@ class AuditLogger:
             if hasattr(request, "client") and request.client:
                 ip_address = request.client.host
 
-            # Extract user agent
+            # Extract user agent, cut to the column: PostgreSQL refuses a longer
+            # one, and that would fail this commit and whatever rides in it.
             user_agent = request.headers.get("user-agent")
+            if user_agent is not None:
+                user_agent = user_agent[:USER_AGENT_MAX_LENGTH]
 
         audit_entry = AuditLog(
             timestamp=utc_now(),

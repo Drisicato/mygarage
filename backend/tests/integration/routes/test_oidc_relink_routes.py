@@ -149,6 +149,31 @@ class TestArm:
         stored = await _stored_until(test_sessionmaker, target.id)
         assert stored is not None and stored >= before + _WINDOW
 
+    async def test_an_overlong_user_agent_is_cut_to_the_column(
+        self,
+        client: AsyncClient,
+        test_sessionmaker: async_sessionmaker[AsyncSession],
+        made_users: list[int],
+        db_session: AsyncSession,
+        auth_headers: dict[str, str],
+    ):
+        """PostgreSQL refuses a value past String(500), which would fail the arm with it."""
+        target = await _oidc_user(db_session, made_users)
+        user_agent = f"o2-test/{uuid.uuid4().hex} ".ljust(2000, "x")
+
+        response = await client.post(
+            _url(target.id), headers={**auth_headers, "user-agent": user_agent}
+        )
+
+        assert response.status_code == 200, response.text
+        assert await _stored_until(test_sessionmaker, target.id) is not None
+        rows = await _audit_rows(test_sessionmaker, "oidc_relink_allowed", target.id)
+        assert len(rows) == 1
+        stored_ua = rows[0].user_agent
+        assert stored_ua is not None
+        assert len(stored_ua) == 500
+        assert stored_ua == user_agent[:500]
+
 
 class TestDisarm:
     async def test_admin_cancels_an_armed_relink(

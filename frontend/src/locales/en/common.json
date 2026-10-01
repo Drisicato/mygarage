@@ -46,7 +46,18 @@
     "oidcSignIn": "Sign in with {{provider}}",
     "continueWithPassword": "Or continue with password",
     "error": "Invalid username or password",
-    "signInAction": "sign in"
+    "signInAction": "sign in",
+    "ssoError": {
+      "account_disabled": "User account is disabled",
+      "email_linked_elsewhere": "This email belongs to an account that is linked to a different sign-in. Ask an administrator to allow an SSO relink for it.",
+      "email_no_password": "An account with this email exists but has no password to confirm it. Ask an administrator to allow an SSO relink for it.",
+      "username_linked_elsewhere": "This username belongs to an account that is linked to a different sign-in. Ask an administrator to allow an SSO relink for it.",
+      "username_no_password": "An account with this username exists but has no password to confirm it. Ask an administrator to allow an SSO relink for it.",
+      "no_account": "No MyGarage account matches this sign-in, and automatic account creation is off. Ask an administrator to create your account.",
+      "cancelled": "Sign-in was cancelled.",
+      "expired": "This sign-in took too long or was already used. Please try again.",
+      "failed": "Single sign-on didn't work. Please try again, or ask an administrator to check the SSO settings."
+    }
   },
   "oidc": {
     "signingIn": "Signing you in...",

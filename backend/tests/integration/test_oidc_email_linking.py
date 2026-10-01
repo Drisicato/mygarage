@@ -16,6 +16,7 @@ audited, and any SSO sign-in that already works cancels it.
 import datetime as dt
 import uuid
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -32,6 +33,15 @@ from app.services.oidc import (
     validate_and_consume_pending_link,
 )
 from app.utils.datetime_utils import utc_now
+from tests.integration._oidc_refusals import (
+    CODES,
+    DISABLED,
+    EMAIL_LINKED_ELSEWHERE,
+    EMAIL_NO_PASSWORD,
+    NO_ACCOUNT,
+    USERNAME_LINKED_ELSEWHERE,
+    USERNAME_NO_PASSWORD,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -40,24 +50,6 @@ _HASH = "$argon2id$v=19$m=102400,t=2,p=8$NNbLa8SMLODWY2Es68EvLw$hiGLA+DtO213EMAM
 _LAST_LOGIN = dt.datetime(2024, 1, 2, 3, 4, 5)
 _WATCHED = ("oidc_subject", "oidc_provider", "auth_method", "last_login", "full_name")
 _RELINK_USED = "oidc_relink_used"
-
-_DISABLED = "User account is disabled"
-_EMAIL_LINKED_ELSEWHERE = (
-    "This email belongs to an account that is linked to a different sign-in. "
-    "Ask an administrator to allow an SSO relink for it."
-)
-_EMAIL_NO_PASSWORD = (
-    "An account with this email exists but has no password to confirm it. "
-    "Ask an administrator to allow an SSO relink for it."
-)
-_USERNAME_LINKED_ELSEWHERE = (
-    "This username belongs to an account that is linked to a different sign-in. "
-    "Ask an administrator to allow an SSO relink for it."
-)
-_USERNAME_NO_PASSWORD = (
-    "An account with this username exists but has no password to confirm it. "
-    "Ask an administrator to allow an SSO relink for it."
-)
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -85,12 +77,14 @@ async def _oidc_rows(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def made_users(db_session: AsyncSession):
-    """Collects users a test creates and deletes them, and their relink audit rows, afterwards."""
+    """Collects users a test creates and deletes them, and their link audit rows, afterwards."""
     ids: list[int] = []
     yield ids
     await db_session.rollback()
     await db_session.execute(
-        delete(AuditLog).where(AuditLog.action == _RELINK_USED, AuditLog.user_id.in_(ids))
+        delete(AuditLog).where(
+            AuditLog.action.in_((_RELINK_USED, "oidc_account_linked")), AuditLog.user_id.in_(ids)
+        )
     )
     for user_id in ids:
         user = await db_session.get(User, user_id)
@@ -144,10 +138,13 @@ def _claims(
 
 
 async def _login(db_session: AsyncSession, claims: dict[str, Any]) -> object:
-    """Run the SSO resolution and hand back whatever came out, raised or returned."""
+    """Run the SSO resolution and hand back what came out: a user, a refusal or a pending link.
+
+    Anything else raised is a bug, so it escapes and the test errors on it.
+    """
     try:
         return await create_or_update_user_from_oidc(db_session, claims, None, {})
-    except Exception as exc:
+    except (OIDCLoginRefusedError, PendingLinkRequiredError) as exc:
         return exc
 
 
@@ -164,10 +161,32 @@ async def _assert_untouched(db_session: AsyncSession, user: User, before: dict[s
     assert _snapshot(user) == before, "the matched row changed in the database"
 
 
-def _assert_refused(outcome: object, message: str, username: str) -> None:
+def _assert_refused(
+    outcome: object,
+    message: str,
+    username: str | None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """A refusal with this message and code, and no audit details unless they're given."""
     assert isinstance(outcome, OIDCLoginRefusedError), f"expected a refusal, got {outcome!r}"
     assert outcome.message == message
+    assert outcome.code == CODES[message]
     assert outcome.username == username
+    assert outcome.details == details
+
+
+# 0. The helper every test here goes through hands back the two outcomes, nothing else.
+async def test_login_lets_an_unexpected_error_through(db_session: AsyncSession):
+    """A bug in the service has to fail loudly, not come back as an outcome to compare."""
+    with (
+        patch(
+            f"{__name__}.create_or_update_user_from_oidc",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("not an outcome"),
+        ),
+        pytest.raises(RuntimeError, match="not an outcome"),
+    ):
+        await _login(db_session, _claims())
 
 
 # 1. Email matches a password account: the password page, for that account.
@@ -200,7 +219,7 @@ async def test_email_match_linked_elsewhere_is_refused(
 
     await _assert_untouched(db_session, account, before)
     assert account.oidc_subject == old_sub
-    _assert_refused(outcome, _EMAIL_LINKED_ELSEWHERE, account.username)
+    _assert_refused(outcome, EMAIL_LINKED_ELSEWHERE, account.username)
 
 
 # 3. Email matches an account with no password and no link: nothing to prove it with.
@@ -213,7 +232,7 @@ async def test_email_match_without_password_is_refused(
     outcome = await _login(db_session, _claims(email=account.email))
 
     await _assert_untouched(db_session, account, before)
-    _assert_refused(outcome, _EMAIL_NO_PASSWORD, account.username)
+    _assert_refused(outcome, EMAIL_NO_PASSWORD, account.username)
 
 
 # 4. Email matches an inactive account: disabled wins over every other state.
@@ -234,7 +253,7 @@ async def test_email_match_on_inactive_account_is_refused_as_disabled(
     outcome = await _login(db_session, _claims(email=account.email))
 
     await _assert_untouched(db_session, account, before)
-    _assert_refused(outcome, _DISABLED, account.username)
+    _assert_refused(outcome, DISABLED, account.username)
 
 
 # 5. email_verified is never read: case 1 again, same answer either way.
@@ -263,7 +282,7 @@ async def test_subject_match_on_inactive_user_is_refused(
     outcome = await _login(db_session, _claims(sub=sub))
 
     await _assert_untouched(db_session, account, before)
-    _assert_refused(outcome, _DISABLED, account.username)
+    _assert_refused(outcome, DISABLED, account.username)
 
 
 async def test_subject_match_on_active_user_still_logs_in(
@@ -290,7 +309,7 @@ async def test_username_match_sso_only_is_refused(db_session: AsyncSession, made
     outcome = await _login(db_session, _claims(username=account.username))
 
     await _assert_untouched(db_session, account, before)
-    _assert_refused(outcome, _USERNAME_NO_PASSWORD, account.username)
+    _assert_refused(outcome, USERNAME_NO_PASSWORD, account.username)
 
 
 async def test_username_match_linked_elsewhere_is_refused(
@@ -303,7 +322,7 @@ async def test_username_match_linked_elsewhere_is_refused(
     outcome = await _login(db_session, _claims(username=account.username))
 
     await _assert_untouched(db_session, account, before)
-    _assert_refused(outcome, _USERNAME_LINKED_ELSEWHERE, account.username)
+    _assert_refused(outcome, USERNAME_LINKED_ELSEWHERE, account.username)
 
 
 @pytest.mark.parametrize("password", [True, False], ids=["with-password", "sso-only"])
@@ -316,7 +335,7 @@ async def test_username_match_on_inactive_account_is_refused_as_disabled(
     outcome = await _login(db_session, _claims(username=account.username))
 
     await _assert_untouched(db_session, account, before)
-    _assert_refused(outcome, _DISABLED, account.username)
+    _assert_refused(outcome, DISABLED, account.username)
 
 
 async def test_clean_username_match_still_goes_to_password_page(
@@ -331,6 +350,44 @@ async def test_clean_username_match_still_goes_to_password_page(
     await _assert_untouched(db_session, account, before)
     assert isinstance(outcome, PendingLinkRequiredError), f"got {outcome!r}"
     assert outcome.username == account.username
+
+
+# 7b. When both steps could answer, the email step goes first.
+async def test_email_match_beats_a_username_match_on_another_account(
+    db_session: AsyncSession, made_users: list[int]
+):
+    """Guard: two password accounts, one per claim. The password page is the email one's."""
+    by_email = await _account(db_session, made_users)
+    by_username = await _account(db_session, made_users)
+    email_before, username_before = _snapshot(by_email), _snapshot(by_username)
+
+    outcome = await _login(db_session, _claims(email=by_email.email, username=by_username.username))
+
+    await _assert_untouched(db_session, by_email, email_before)
+    await _assert_untouched(db_session, by_username, username_before)
+    assert isinstance(outcome, PendingLinkRequiredError), f"got {outcome!r}"
+    assert outcome.username == by_email.username
+
+
+# 7c. Each step checks in its own order. An account with no password that's linked
+# elsewhere fails both checks, so the refusal says which one ran first.
+@pytest.mark.parametrize(
+    ("match", "message"),
+    [("email", EMAIL_LINKED_ELSEWHERE), ("username", USERNAME_NO_PASSWORD)],
+    ids=["email-checks-the-link-first", "username-checks-the-password-first"],
+)
+async def test_no_password_and_linked_elsewhere_is_refused_by_the_first_check(
+    db_session: AsyncSession, made_users: list[int], match: str, message: str
+):
+    """Guard: the email step looks at the link first, the username step at the password."""
+    old_sub = f"old-{uuid.uuid4().hex[:10]}"
+    account = await _account(db_session, made_users, password=False, subject=old_sub)
+    before = _snapshot(account)
+
+    outcome = await _login(db_session, _claims_matching(account, match))
+
+    await _assert_untouched(db_session, account, before)
+    _assert_refused(outcome, message, account.username)
 
 
 # 8. No match at all: auto-create, as before.
@@ -348,6 +405,51 @@ async def test_no_match_auto_creates_the_user(db_session: AsyncSession, made_use
     assert outcome.hashed_password is None
     assert outcome.is_active is True
     assert outcome.full_name == "Claimed Name"
+
+
+# 8b. No match with auto-create off: refused like the others, so it's audited too,
+# with the identity it claimed since no account names it.
+@pytest.mark.parametrize("blank_username", [False, True], ids=["username", "blank-username"])
+async def test_no_match_with_auto_create_off_is_refused_as_no_account(
+    db_session: AsyncSession, blank_username: bool
+):
+    claims = _claims()
+    if blank_username:
+        claims["preferred_username"] = ""
+
+    try:
+        outcome: object = await create_or_update_user_from_oidc(
+            db_session, claims, None, {"auto_create_users": "false"}
+        )
+    except OIDCLoginRefusedError as exc:
+        outcome = exc
+
+    claimed = {
+        "claimed_email": claims["email"],
+        "claimed_username": None if blank_username else claims["preferred_username"],
+    }
+    _assert_refused(outcome, NO_ACCOUNT, None, claimed)
+    created = await db_session.execute(select(User).where(User.oidc_subject == claims["sub"]))
+    assert created.scalar_one_or_none() is None
+
+
+# 8c. The link step refuses a disabled target with the same code as the callback.
+async def test_a_disabled_link_target_is_refused_as_account_disabled(
+    db_session: AsyncSession, made_users: list[int]
+):
+    account = await _account(db_session, made_users, active=False)
+    token = await create_pending_link_token(
+        db_session, account.username, _claims(email=account.email), None, {}
+    )
+
+    try:
+        outcome: object = await validate_and_consume_pending_link(
+            db_session, token, "testpassword123"
+        )
+    except OIDCLoginRefusedError as exc:
+        outcome = exc
+
+    _assert_refused(outcome, DISABLED, account.username)
 
 
 # 9. An admin-armed relink: the one way an email or username match links.
@@ -370,7 +472,7 @@ async def _stored(sessionmaker: async_sessionmaker[AsyncSession], user_id: int) 
         return {field: getattr(user, field) for field in (*_WATCHED, "oidc_relink_until")}
 
 
-_LINKED_ELSEWHERE = {"email": _EMAIL_LINKED_ELSEWHERE, "username": _USERNAME_LINKED_ELSEWHERE}
+_LINKED_ELSEWHERE = {"email": EMAIL_LINKED_ELSEWHERE, "username": USERNAME_LINKED_ELSEWHERE}
 
 
 async def _relink_used_rows(
@@ -456,7 +558,7 @@ async def test_armed_relink_on_inactive_account_is_refused_and_stays_armed(
     outcome = await _login(db_session, _claims_matching(account, match))
 
     await _assert_untouched(db_session, account, before)
-    _assert_refused(outcome, _DISABLED, account.username)
+    _assert_refused(outcome, DISABLED, account.username)
     stored = await _stored(test_sessionmaker, account.id)
     assert stored["oidc_subject"] == old_sub
     assert stored["oidc_relink_until"] == until, "a refused login must not spend the arm"
@@ -484,7 +586,7 @@ async def test_relink_spent_since_it_was_read_does_not_link_again(
 
     outcome = await _login(db_session, _claims(email=account.email))
 
-    _assert_refused(outcome, _EMAIL_LINKED_ELSEWHERE, account.username)
+    _assert_refused(outcome, EMAIL_LINKED_ELSEWHERE, account.username)
     assert (await _stored(test_sessionmaker, account.id))["oidc_subject"] == winner_sub
     # The next commit on this session (the pending-link path makes one) must not
     # carry an audit row the loser staged.
@@ -557,7 +659,7 @@ async def test_a_refused_subject_login_leaves_the_relink_armed(
 
     outcome = await _login(db_session, _claims(sub=sub))
 
-    _assert_refused(outcome, _DISABLED, account.username)
+    _assert_refused(outcome, DISABLED, account.username)
     assert account.oidc_relink_until == until, "the refusal touched the arm in memory"
     await db_session.flush()
     await db_session.refresh(account)

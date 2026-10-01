@@ -23,7 +23,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.constants.oidc import SSO_ACCOUNT_DISABLED
+from app.constants.oidc import SSO_ACCOUNT_DISABLED, SSOError
 from app.exceptions import OIDCLoginRefusedError, PendingLinkRequiredError
 from app.models.audit_log import AuditLog
 from app.models.user import User
@@ -53,6 +53,10 @@ _USERNAME_LINKED_ELSEWHERE = (
 _USERNAME_NO_PASSWORD = (
     "An account with this username exists but has no password to confirm it. "
     "Ask an administrator to allow an SSO relink for it."
+)
+_NO_ACCOUNT = (
+    "No MyGarage account matches this sign-in, and automatic account creation is off. "
+    "Ask an administrator to create your account."
 )
 
 
@@ -248,7 +252,7 @@ async def create_or_update_user_from_oidc(
     3. A user with this username: a disabled account is refused; an armed
        relink links it as in step 2; an SSO-only account, or one linked to a
        different subject, is refused; otherwise the password-link page.
-    4. No match: create the user if auto_create is enabled.
+    4. No match: create the user if auto_create is enabled, else refuse.
 
     Every refusal is raised before anything on the matched row is assigned.
 
@@ -261,12 +265,13 @@ async def create_or_update_user_from_oidc(
         user_agent: The sign-in's user agent, recorded the same way
 
     Returns:
-        User object or None if creation/update fails
+        User object, or None when the claims have no subject or no email
 
     Raises:
         PendingLinkRequiredError: An email or username match needs the matched
             account's password before it can be linked.
-        OIDCLoginRefusedError: The matched account can't be signed into this way.
+        OIDCLoginRefusedError: The matched account can't be signed into this way,
+            or nothing matched and auto-create is off.
     """
     # Extract claims using configured claim names
     sub = claims.get("sub")
@@ -306,7 +311,9 @@ async def create_or_update_user_from_oidc(
             logger.warning(
                 "OIDC login refused, account disabled: %s", sanitize_for_log(user.username)
             )
-            raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=user.username)
+            raise OIDCLoginRefusedError(
+                SSO_ACCOUNT_DISABLED, code=SSOError.ACCOUNT_DISABLED, username=user.username
+            )
 
         logger.info("Found existing OIDC user: %s", sanitize_for_log(user.username))
         user.full_name = full_name or user.full_name
@@ -330,7 +337,9 @@ async def create_or_update_user_from_oidc(
                 "OIDC login refused, email matched a disabled account: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=user.username)
+            raise OIDCLoginRefusedError(
+                SSO_ACCOUNT_DISABLED, code=SSOError.ACCOUNT_DISABLED, username=user.username
+            )
 
         if await _consume_armed_relink(
             db,
@@ -349,14 +358,20 @@ async def create_or_update_user_from_oidc(
                 "OIDC login refused, email matched an account linked to a different subject: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(_EMAIL_LINKED_ELSEWHERE, username=user.username)
+            raise OIDCLoginRefusedError(
+                _EMAIL_LINKED_ELSEWHERE,
+                code=SSOError.EMAIL_LINKED_ELSEWHERE,
+                username=user.username,
+            )
 
         if user.hashed_password is None:
             logger.warning(
                 "OIDC login refused, email matched an account with no password: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(_EMAIL_NO_PASSWORD, username=user.username)
+            raise OIDCLoginRefusedError(
+                _EMAIL_NO_PASSWORD, code=SSOError.EMAIL_NO_PASSWORD, username=user.username
+            )
 
         # The pending link finds its target by username, so it has to be this
         # account's, not whatever the claim says.
@@ -377,7 +392,9 @@ async def create_or_update_user_from_oidc(
                 "OIDC login refused, username matched a disabled account: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(SSO_ACCOUNT_DISABLED, username=user.username)
+            raise OIDCLoginRefusedError(
+                SSO_ACCOUNT_DISABLED, code=SSOError.ACCOUNT_DISABLED, username=user.username
+            )
 
         if await _consume_armed_relink(
             db,
@@ -395,14 +412,20 @@ async def create_or_update_user_from_oidc(
                 "OIDC login refused, username matched an account with no password: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(_USERNAME_NO_PASSWORD, username=user.username)
+            raise OIDCLoginRefusedError(
+                _USERNAME_NO_PASSWORD, code=SSOError.USERNAME_NO_PASSWORD, username=user.username
+            )
 
         if user.oidc_subject and user.oidc_subject != sub:
             logger.warning(
                 "OIDC login refused, username matched an account linked to a different subject: %s",
                 sanitize_for_log(user.username),
             )
-            raise OIDCLoginRefusedError(_USERNAME_LINKED_ELSEWHERE, username=user.username)
+            raise OIDCLoginRefusedError(
+                _USERNAME_LINKED_ELSEWHERE,
+                code=SSOError.USERNAME_LINKED_ELSEWHERE,
+                username=user.username,
+            )
 
         logger.info(
             "Username match requires password verification: %s", sanitize_for_log(user.username)
@@ -411,13 +434,18 @@ async def create_or_update_user_from_oidc(
             username=user.username, claims=claims, userinfo=userinfo, config=config
         )
 
-    # Check if auto-create is enabled
+    # Step 4: no match. Refused like the others when auto-create is off, so it's audited too.
     auto_create = config.get("auto_create_users", "true").lower() == "true"
     if not auto_create:
         logger.warning(
             "User not found for email %s and auto-create is disabled", sanitize_for_log(email)
         )
-        return None
+        # No account to name in the audit row, so it names who the sign-in claimed to be.
+        raise OIDCLoginRefusedError(
+            _NO_ACCOUNT,
+            code=SSOError.NO_ACCOUNT,
+            details={"claimed_email": email, "claimed_username": username or None},
+        )
 
     # Create new user from OIDC claims
     logger.info("Creating new user from OIDC claims: %s", sanitize_for_log(email))
