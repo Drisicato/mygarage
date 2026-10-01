@@ -210,26 +210,42 @@ def _drift(twin: FieldInfo, shadowed: FieldInfo) -> list[str]:
     return drift
 
 
+def _twins(
+    models: Iterable[type[BaseModel]], registry: dict[tuple[str, str], str]
+) -> tuple[int, dict[str, list[str]], list[tuple[str, str]]]:
+    """Every twin the models hold, checked against the field it shadows.
+
+    Returns how many twins there were, the ones that drift outside `registry`,
+    and the registry pairs that don't differ any more (stale entries).
+    """
+    count = 0
+    drift: dict[str, list[str]] = {}
+    deliberate: dict[tuple[str, str], list[str]] = {}
+    for model in models:
+        for name, twin, shadowed in _shadowed(model):
+            count += 1
+            found = _drift(twin, shadowed)
+            if (model.__name__, name) in registry:
+                deliberate[(model.__name__, name)] = found
+            elif found:
+                drift[f"{model.__name__}.{name}"] = found
+    stale = [pair for pair in registry if not deliberate.get(pair)]
+    return count, drift, stale
+
+
 def test_a_twin_matches_the_field_it_shadows():
     """A guard: every twin copies its field's type, default and description, and
     only drops the bound. A DELIBERATE_TWINS entry must still differ.
 
-    Mutant: change one twin's description (`FuelRecordResponse.cost`, say).
+    Mutants: make `_shadowed` yield nothing (the floor fails), or change one
+    twin's description (`FuelRecordResponse.cost`, say).
     """
-    drift: dict[str, list[str]] = {}
-    deliberate: dict[tuple[str, str], list[str]] = {}
-    for model in RESPONSE_MODELS:
-        for name, twin, shadowed in _shadowed(model):
-            found = _drift(twin, shadowed)
-            if (model.__name__, name) in DELIBERATE_TWINS:
-                deliberate[(model.__name__, name)] = found
-            elif found:
-                drift[f"{model.__name__}.{name}"] = found
+    count, drift, stale = _twins(RESPONSE_MODELS, DELIBERATE_TWINS)
+    # 60 today. A floor, so a change in how annotations are read can't turn
+    # this into a pass over nothing.
+    assert count >= 50
     assert drift == {}, "a twin drifted from the field it shadows: copy it again, bound aside"
-    for pair in DELIBERATE_TWINS:
-        assert deliberate.get(pair), (
-            f"{pair} matches its field now: drop its DELIBERATE_TWINS entry"
-        )
+    assert stale == [], "these match their field now: drop their DELIBERATE_TWINS entries"
 
 
 # The detector itself, on one field per way a bound can be written.
@@ -282,3 +298,57 @@ def test_the_detector_sees_every_form():
         },
         "_Nested": {"cost": ["ge=0"]},
     }
+
+
+# The twin check itself, on local classes and a local registry.
+
+
+class _TwinBase(BaseModel):
+    same: Decimal | None = Field(None, ge=0, description="Kept")
+    money: OptionalMoney = Field(None, description="Paid")
+    counted: _BoundedCount | None = None
+    described: Decimal | None = Field(None, ge=0, description="Original")
+    defaulted: Decimal | None = Field(None, ge=0)
+    required: Decimal = Field(..., ge=0)
+    typed: Decimal | None = Field(None, ge=0)
+    registered: int | None = Field(None, ge=0, description="Bounded")
+    settled: int | None = Field(None, ge=0)
+
+
+class _TwinProbe(_TwinBase):
+    # Bounds dropped and nothing else, through a plain field, the shared money
+    # alias and a PEP 695 alias.
+    same: Decimal | None = Field(None, description="Kept")
+    money: Decimal | None = Field(None, description="Paid")
+    counted: int | None = None
+    # One drift each.
+    described: Decimal | None = Field(None, description="Changed")
+    defaulted: Decimal | None = Decimal(0)
+    required: Decimal = Decimal(0)
+    typed: float | None = None
+    # Registered: one still differs, one matches now and so is stale.
+    registered: int | None = None
+    settled: int | None = None
+
+
+_PROBE_TWINS: dict[tuple[str, str], str] = {
+    ("_TwinProbe", "registered"): "drops its description on purpose",
+    ("_TwinProbe", "settled"): "used to differ",
+}
+
+
+def test_the_twin_check_sees_each_drift():
+    """A guard: true today. Each kind of drift is flagged for its own reason, a
+    registered pair that still differs passes, and one that matches is stale.
+
+    Mutant: drop the description comparison from `_drift`.
+    """
+    count, drift, stale = _twins([_TwinProbe], _PROBE_TWINS)
+    assert count == 9
+    assert {name: [d.split()[0] for d in found] for name, found in drift.items()} == {
+        "_TwinProbe.described": ["description"],
+        "_TwinProbe.defaulted": ["default"],
+        "_TwinProbe.required": ["default"],
+        "_TwinProbe.typed": ["type"],
+    }
+    assert stale == [("_TwinProbe", "settled")]
