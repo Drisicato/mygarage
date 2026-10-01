@@ -39,8 +39,8 @@ const uploadAndReachEditScreen = async (user: ReturnType<typeof userEvent.setup>
 
 // Save only PATCHes what changed, so each 422 case edits a field first.
 const editAndSave = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.clear(screen.getByLabelText('detail.misc.basePrice'))
-  await user.type(screen.getByLabelText('detail.misc.basePrice'), '31000')
+  await user.clear(screen.getByLabelText('detail.misc.basePrice ($)'))
+  await user.type(screen.getByLabelText('detail.misc.basePrice ($)'), '31000')
   await user.click(screen.getByRole('button', { name: 'windowSticker.misc.saveData' }))
 }
 

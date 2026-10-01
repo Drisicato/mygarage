@@ -68,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An imported fill-up with an unknown price basis, charge level or charge location, or a webhook fill-up with an unknown price basis or fuel type, is refused instead of stored, and one already stored no longer breaks the fuel list
 - A record holding text longer or shorter than today's input rules, or an email at a local domain, no longer breaks the page that lists it
 - Renewing an insurance policy with an empty field label, or completing a reminder with an empty or over-long title, no longer fails with a server error
+- A currency setting the app doesn't support falls back to US dollars instead of crashing the fuel, DEF, propane and analytics cost cards
+- The window sticker review shows option prices in your currency and number format, and its MSRP inputs name the currency
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

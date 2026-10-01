@@ -107,8 +107,8 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     const user = userEvent.setup({ applyAccept: false })
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await reachReview(user)
-    await user.clear(screen.getByLabelText('detail.misc.basePrice'))
-    await user.type(screen.getByLabelText('detail.misc.basePrice'), '528,25')
+    await user.clear(screen.getByLabelText('detail.misc.basePrice ($)'))
+    await user.type(screen.getByLabelText('detail.misc.basePrice ($)'), '528,25')
     await save(user)
     expect(await patched()).toStrictEqual({ msrp_base: 528.25 })
   })
@@ -117,8 +117,8 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     const user = userEvent.setup({ applyAccept: false })
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await reachReview(user)
-    await user.clear(screen.getByLabelText('detail.misc.basePrice'))
-    await user.type(screen.getByLabelText('detail.misc.basePrice'), 'abc')
+    await user.clear(screen.getByLabelText('detail.misc.basePrice ($)'))
+    await user.type(screen.getByLabelText('detail.misc.basePrice ($)'), 'abc')
     await save(user)
     expect(await screen.findByRole('alert')).toHaveTextContent('common:validation.amount.invalid')
     expect(apiPatch).not.toHaveBeenCalled()
@@ -132,8 +132,8 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     const user = userEvent.setup({ applyAccept: false })
     render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
     await reachReview(user)
-    await user.clear(screen.getByLabelText('detail.misc.totalMsrp'))
-    await user.type(screen.getByLabelText('detail.misc.totalMsrp'), typed)
+    await user.clear(screen.getByLabelText('detail.misc.totalMsrp ($)'))
+    await user.type(screen.getByLabelText('detail.misc.totalMsrp ($)'), typed)
     await save(user)
     expect(await screen.findByRole('alert')).toHaveTextContent(message)
     expect(apiPatch).not.toHaveBeenCalled()
@@ -190,5 +190,40 @@ describe('WindowStickerUpload review: fuel economy in the user\'s unit', () => {
     await user.type(screen.getByLabelText('detail.misc.interiorColor'), 'Gray')
     await save(user)
     expect(await patched()).toStrictEqual({ interior_color: 'Gray' })
+  })
+})
+
+describe('WindowStickerUpload review: money in the user\'s currency', () => {
+  it('option prices show in the user\'s currency and Included stays a word', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    apiPost.mockResolvedValue({
+      data: { ...extracted, window_sticker_options_detail: { Sunroof: '1500.00', 'Floor mats': 'Included' } },
+    })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    expect(screen.getByText('$1,500.00')).toBeInTheDocument()
+    expect(screen.getByText('Floor mats')).toBeInTheDocument()
+    expect(screen.queryByText('$Included')).not.toBeInTheDocument()
+  })
+
+  it('the MSRP inputs name the currency', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    expect(screen.getByLabelText('detail.misc.basePrice ($)')).toBeInTheDocument()
+  })
+
+  it('MSRP placeholders carry no grouping', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    // By id, so this fails on the comma and not on the label it also changes.
+    // A comma is the decimal point in most of the supported locales.
+    for (const key of ['msrp_base', 'msrp_options', 'destination_charge', 'msrp_total']) {
+      const input = document.getElementById(`sticker-${key}`) as HTMLInputElement | null
+      expect(input, key).not.toBeNull()
+      expect(input!.placeholder, key).not.toBe('')
+      expect(input!.placeholder, key).not.toContain(',')
+    }
   })
 })

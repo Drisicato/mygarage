@@ -1014,8 +1014,8 @@
     {
       "path": "src/components/WindowStickerUpload.tsx",
       "disposition": "audited",
-      "digest": "2a2cfab2e2edd6d90c946d29a5912032e802cdd242a5c26f3dc66bba6b2bcd2c",
-      "reason": "fuel economy through u.consumption. 2026-09-29 (clear-means-clear): the old 'domain exemption' said the sticker's MPG is transcribed, not converted, but the upload already converts it to L/100 km at the OCR boundary (services/window_sticker_ocr.py) and stores the canonical columns, and the review read keys that never exist, so the section never rendered. The review now shows the stored L/100 km in the resolved consumption unit via seedUnitField, compares an edit as a quantity with unitFieldUnchanged (an untouched value is never re-posted, so the display round-trip cannot shift it), and posts u.consumption.toCanonical. 2026-09-30 (money-fits B6): a changed MSRP field is checked against the API money bounds (moneyTextError) on the field; the fuel-economy fields still go back through their seeded origins, so no unit change.",
+      "digest": "f36566e74e6e808e091820b19734f0f49674a6a99d9f3450708ceb9b3957a191",
+      "reason": "fuel economy through u.consumption. 2026-09-29 (clear-means-clear): the old 'domain exemption' said the sticker's MPG is transcribed, not converted, but the upload already converts it to L/100 km at the OCR boundary (services/window_sticker_ocr.py) and stores the canonical columns, and the review read keys that never exist, so the section never rendered. The review now shows the stored L/100 km in the resolved consumption unit via seedUnitField, compares an edit as a quantity with unitFieldUnchanged (an untouched value is never re-posted, so the display round-trip cannot shift it), and posts u.consumption.toCanonical. 2026-09-30 (money-fits B6): a changed MSRP field is checked against the API money bounds (moneyTextError) on the field; the fuel-economy fields still go back through their seeded origins, so no unit change. 2026-10-01 (plan-ab-leftovers E5): option prices render through formatStickerValue in the user's currency and locale, the four MSRP labels name the currency symbol, and their placeholders drop the US grouping. Currency display only; the fuel-economy fields and their u.consumption round-trip are untouched, so no unit behaviour moves.",
       "tests": [
         "components/__tests__/WindowStickerUpload.review.test.tsx",
         "components/__tests__/WindowStickerUpload.test.tsx"
@@ -2105,8 +2105,8 @@
     {
       "path": "src/constants/i18n.ts",
       "disposition": "no unit behaviour",
-      "digest": "6641064242b761d8b4bb90e832115a06ed3a6b4a7bd0c1452504ce196cc10f81",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched."
+      "digest": "1e2780b777338d751305060ba7f423c28afb2f677abd8c44d21a3fb64a4ec423",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-10-01 (plan-ab-leftovers E5): adds supportedCurrencyCode, which returns a code only when it is in SUPPORTED_CURRENCIES. No quantity, unit or conversion code."
     },
     {
       "path": "src/constants/insuranceCoverages.ts",
@@ -2309,8 +2309,8 @@
     {
       "path": "src/hooks/useCurrencyPreference.ts",
       "disposition": "no unit behaviour",
-      "digest": "84ea7354f063c3a66f30d8c7af8015971cb064cd5ed4fc6dd654c07b6901c87f",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-30 (money-fits B7): its options type is now derived from formatUtils' CurrencyFormatOptions. No quantity, unit or conversion code changed."
+      "digest": "9c8c4b8d6681505b4109357c057aa7a270bea39dc7a6bcc5fd06560b3dd94c37",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-30 (money-fits B7): its options type is now derived from formatUtils' CurrencyFormatOptions. No quantity, unit or conversion code changed. 2026-10-01 (plan-ab-leftovers E5): the code is the first supported one of the account's, then localStorage's, else USD, and the localStorage read is wrapped in a try/catch. No quantity, unit or conversion code."
     },
     {
       "path": "src/hooks/useCurrencyPrefix.tsx",

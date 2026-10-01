@@ -9,6 +9,8 @@ import { moneyTextError } from '../schemas/shared'
 import { getActiveLocale } from '@/constants/i18n'
 import { Drawer } from './ui'
 import { useCurrencySymbol } from '../hooks/useCurrencySymbol'
+import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
+import { formatStickerValue } from '../utils/formatUtils'
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import { seedUnitField, unitFieldUnchanged, type UnitFieldOrigin } from '../utils/unitFormat'
 import type { components } from '../types/api.generated'
@@ -64,6 +66,7 @@ interface WindowStickerUploadProps {
 export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowStickerUploadProps) {
   const { t } = useTranslation('vehicles')
   const currencySymbol = useCurrencySymbol()
+  const { currencyCode, locale } = useCurrencyPreference()
   const u = useUnitFormat()
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -256,9 +259,12 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
     }
   }
 
-  const reviewInput = (key: ReviewField, label: string, placeholder?: string) => (
+  const reviewInput = (key: ReviewField, label: string, placeholder?: string, unit?: string) => (
     <div>
-      <label htmlFor={`sticker-${key}`} className="block text-xs text-garage-text-muted mb-1">{label}</label>
+      <label htmlFor={`sticker-${key}`} className="block text-xs text-garage-text-muted mb-1">
+        {label}
+        {unit ? ` (${unit})` : ''}
+      </label>
       <input
         id={`sticker-${key}`}
         type="text"
@@ -417,10 +423,11 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     <span>{t('windowSticker.msrpPricing')}</span>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ml-7">
-                    {reviewInput('msrp_base', t('detail.misc.basePrice'), '91,860')}
-                    {reviewInput('msrp_options', t('detail.misc.options'), '11,055')}
-                    {reviewInput('destination_charge', t('detail.misc.destination'), '2,095')}
-                    {reviewInput('msrp_total', t('detail.misc.totalMsrp'), '102,915')}
+                    {/* No grouping in the placeholders: a comma is the decimal point in most of our locales. */}
+                    {reviewInput('msrp_base', t('detail.misc.basePrice'), '91860', currencySymbol)}
+                    {reviewInput('msrp_options', t('detail.misc.options'), '11055', currencySymbol)}
+                    {reviewInput('destination_charge', t('detail.misc.destination'), '2095', currencySymbol)}
+                    {reviewInput('msrp_total', t('detail.misc.totalMsrp'), '102915', currencySymbol)}
                   </div>
                 </div>
 
@@ -523,12 +530,17 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
                     </div>
                     <div className="ml-7 bg-garage-surface rounded p-3 border border-garage-border">
                       <div className="space-y-1 text-sm">
-                        {Object.entries(optionsDetail).map(([name, price]) => (
-                          <div key={name} className="flex justify-between">
-                            <span className="text-garage-text-muted">{name}</span>
-                            <span className="text-garage-text">{currencySymbol}{String(price)}</span>
-                          </div>
-                        ))}
+                        {Object.entries(optionsDetail).map(([name, price]) => {
+                          // Prices come back as strings and some read "Included", which
+                          // stays a word instead of getting a currency sign glued on.
+                          const value = formatStickerValue(price, { currencyCode, locale })
+                          return (
+                            <div key={name} className="flex justify-between">
+                              <span className="text-garage-text-muted">{name}</span>
+                              {value && <span className="text-garage-text">{value}</span>}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
