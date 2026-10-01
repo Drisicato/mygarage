@@ -21,6 +21,10 @@ def get_request_scheme(request: Request) -> str:
     then falls back to request.url.scheme from the ASGI server.
 
     Trust model:
+        With MYGARAGE_TRUSTED_PROXIES set, TrustedProxyMiddleware drops
+        X-Forwarded-Proto from any peer outside it before this runs. Unset,
+        it's read from anyone, as before.
+
         X-Forwarded-Proto is trusted by default. Spoofing this header on a
         direct HTTP connection can only cause self-denial-of-service (cookie
         gets Secure=True, browser drops it). It cannot weaken security because
@@ -62,7 +66,10 @@ def get_external_base_url(request: Request) -> str:
     behind Cloudflare Tunnel or Traefik the request's own URL is the internal
     one, then the Host header, then whatever the ASGI server reports.
 
-    Trust model: `Host`/`X-Forwarded-Host` are attacker-influenceable in
+    Trust model: with MYGARAGE_TRUSTED_PROXIES set, TrustedProxyMiddleware
+    drops X-Forwarded-Proto and X-Forwarded-Host from any peer outside it
+    before this runs, and unset they're read from anyone, as before. Even
+    then `Host`/`X-Forwarded-Host` are attacker-influenceable in
     principle, so callers with an operator-configured base URL should prefer
     that and treat this as the fallback. The value is only ever rendered back
     to an already-authenticated user for copy-paste, never used to make a

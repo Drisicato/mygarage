@@ -11,13 +11,16 @@ row => get_auth_mode returns ``local``), so ``require_auth`` /
 ``none`` for the legacy-behaviour regression cases.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import parse_client_ip_header, parse_trusted_proxies, settings
+from app.main import app
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.models.vehicle_share import VehicleShare
@@ -203,3 +206,43 @@ async def set_auth_mode(
     if setting is not None:
         await db_session.delete(setting)
         await db_session.commit()
+
+
+# --- Trusted proxy -------------------------------------------------------------
+
+
+@pytest.fixture
+def trust_proxies(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+    """Return ``trust(networks, *, header="")``, which sets the two proxy settings for one test.
+
+    They go through the same parsers their env vars do, and ``monkeypatch`` puts
+    them back afterwards.
+    """
+
+    def trust(networks: str, *, header: str = "") -> None:
+        monkeypatch.setattr(settings, "trusted_proxies", parse_trusted_proxies(networks))
+        monkeypatch.setattr(settings, "client_ip_header", parse_client_ip_header(header))
+
+    return trust
+
+
+@pytest_asyncio.fixture
+async def client_via(client: AsyncClient) -> AsyncIterator[Callable[[str], AsyncClient]]:
+    """Return ``make(peer)``, a client whose requests arrive from TCP peer ``peer``.
+
+    Asks for ``client`` only for its ``get_db`` override and temp upload dirs.
+    Every client it makes is closed at teardown.
+    """
+    made: list[AsyncClient] = []
+
+    def make(peer: str) -> AsyncClient:
+        # ASGITransport's client= is what lands in scope["client"].
+        via = AsyncClient(
+            transport=ASGITransport(app=app, client=(peer, 40000)), base_url="http://test"
+        )
+        made.append(via)
+        return via
+
+    yield make
+    for via in made:
+        await via.aclose()

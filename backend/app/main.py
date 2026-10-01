@@ -133,6 +133,9 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Secret key file not found - using temporary in-memory key")
 
+    # Up here so it shows in maintenance mode too.
+    log_proxy_settings()
+
     # Create data directories with error handling
     try:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -228,7 +231,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 # the response directly, so layers added *after* it still see that response
 # and can decorate it. We put CSRF innermost so its 403s flow back through
 # RequestID (adds X-Request-ID) and SecurityHeaders (adds CSP, X-Frame-Options
-# etc.) on the way out.
+# etc.) on the way out. TrustedProxyMiddleware goes on last, so it's outermost:
+# every layer and route sees the real client, and only a trusted proxy's
+# X-Forwarded-* headers.
 #
 # NOTE: `SlowAPIMiddleware` deliberately omitted. As of slowapi 0.1.9 it is
 # still a `BaseHTTPMiddleware` subclass, which buffers the response body
@@ -245,6 +250,8 @@ from app.middleware import (
     MaintenanceModeMiddleware,
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
+    TrustedProxyMiddleware,
+    log_proxy_settings,
 )
 
 # The SPA shell (frontend build) is read here, ahead of the middleware, so the
@@ -287,6 +294,8 @@ app.add_middleware(
     expose_headers=["Set-Cookie"],
     max_age=600,
 )
+# Keep this the last add_middleware call so it stays outermost (see the ordering note above).
+app.add_middleware(TrustedProxyMiddleware)
 
 
 # Health check endpoint
