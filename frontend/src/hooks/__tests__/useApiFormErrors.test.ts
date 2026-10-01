@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Path } from 'react-hook-form'
-import { applyServerErrors } from '@/hooks/useApiFormErrors'
+import { applyServerErrors, withoutFieldError } from '@/hooks/useApiFormErrors'
 
 const axios422 = (detail: unknown): unknown => ({
   isAxiosError: true,
@@ -73,5 +73,15 @@ describe('applyServerErrors', () => {
       'policy_numbr',
     ])
     expect(setFieldError).not.toHaveBeenCalled()
+  })
+})
+
+describe('withoutFieldError', () => {
+  // Guard: it passed the day it was written. The form tests can't see this one,
+  // so the mutant that kills it is dropping the hasOwn early return (always copy),
+  // which re-renders the form on every keystroke of a field that was fine.
+  it('hands back the same map when that field has no error', () => {
+    const errors = { misc_fees: 'common:mustNotBeNegative' }
+    expect(withoutFieldError(errors, 'tax_amount')).toBe(errors)
   })
 })

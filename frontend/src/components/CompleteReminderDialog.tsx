@@ -293,7 +293,10 @@ export default function CompleteReminderDialog({
               <NumberInput
                 id="complete-cost"
                 value={costText}
-                onChange={(e) => setCostText(e.target.value)}
+                onChange={(e) => {
+                  setCostText(e.target.value)
+                  setCostError(undefined)
+                }}
                 invalid={!!costError}
                 disabled={submitting}
               />

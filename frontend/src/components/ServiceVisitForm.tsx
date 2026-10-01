@@ -27,7 +27,7 @@ import { canonicalToDisplay, displayToCanonical } from '../utils/supplyUnits'
 import { getUsageTracking } from '../utils/usageTracking'
 import api from '../services/api'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
-import { applyControlledFieldErrors } from '../hooks/useApiFormErrors'
+import { applyControlledFieldErrors, withoutFieldError } from '../hooks/useApiFormErrors'
 import { Button, Field, Input, Textarea, Mono } from './ui'
 import { formatCurrency, formatCurrencyZero } from '../utils/formatUtils'
 import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
@@ -301,8 +301,10 @@ export default function ServiceVisitForm({
       .filter((item) => item.failed)
   }, [formData.line_items])
 
-  const handleFieldChange = (field: keyof ServiceVisitFormData, value: unknown) => {
+  const handleFieldChange = (field: keyof ServiceVisitFormData, value: unknown): void => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+    // Form keys and error keys share names, so this clears just the field being edited.
+    setFieldErrors((prev) => withoutFieldError(prev, field))
   }
 
   const handleLineItemChange = (index: number, field: keyof ServiceVisitFormLineItem, value: unknown) => {

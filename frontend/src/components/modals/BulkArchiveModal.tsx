@@ -128,7 +128,10 @@ export default function BulkArchiveModal({ isOpen, vins, onClose, onConfirm }: B
                 <NumberInput
                   id="bulk-archive-sale-price"
                   value={salePrice}
-                  onChange={(e) => setSalePrice(e.target.value)}
+                  onChange={(e) => {
+                    setSalePrice(e.target.value)
+                    setSalePriceError(undefined)
+                  }}
                   placeholder="25000"
                   invalid={!!salePriceError}
                   aria-describedby={salePriceError ? 'bulk-archive-sale-price-error' : undefined}

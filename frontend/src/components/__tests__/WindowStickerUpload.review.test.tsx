@@ -139,6 +139,29 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     expect(apiPatch).not.toHaveBeenCalled()
   })
 
+  it('a field error clears when the field is edited', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<WindowStickerUpload vin="V1" onSuccess={vi.fn()} onClose={vi.fn()} />)
+    await reachReview(user)
+    // By id: the label carries the currency symbol now.
+    const base = document.getElementById('sticker-msrp_base') as HTMLInputElement
+    const total = document.getElementById('sticker-msrp_total') as HTMLInputElement
+    await user.clear(base)
+    await user.type(base, '-5')
+    await user.clear(total)
+    await user.type(total, '-5')
+    await save(user)
+    expect(await screen.findAllByText('common:validation.amount.negative')).toHaveLength(2)
+
+    await user.clear(base)
+    await user.type(base, '31000')
+    expect(base).not.toHaveAttribute('aria-invalid')
+    // The total is still -5, so its error is the only one left.
+    expect(screen.getAllByText('common:validation.amount.negative')).toHaveLength(1)
+    expect(total).toHaveAttribute('aria-invalid', 'true')
+    expect(apiPatch).not.toHaveBeenCalled()
+  })
+
   it('a 422 on a field the old list lacked lands inline, not in the banner', async () => {
     const user = userEvent.setup({ applyAccept: false })
     apiPatch.mockRejectedValueOnce({

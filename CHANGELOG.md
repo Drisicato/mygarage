@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The window sticker review shows option prices in your currency and number format, and its MSRP inputs name the currency
 - A window sticker whose OCR text is longer than a field holds now saves, with the text cut to fit, instead of failing or breaking the vehicle page
 - The window sticker review always shows the fuel economy and environmental rating inputs, so you can add what the OCR missed
+- A form's field error now clears as soon as you edit that field, in the reminder completion, archive, add-to-policy, pricing, window sticker review and service visit forms
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

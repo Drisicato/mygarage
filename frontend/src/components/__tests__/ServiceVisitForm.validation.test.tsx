@@ -163,6 +163,22 @@ describe('ServiceVisitForm – native constraints are replaced, not just disable
     expect(api.post).not.toHaveBeenCalled()
   })
 
+  it('a fee error clears when the fee is edited', async () => {
+    render(<ServiceVisitForm {...DEFAULT_PROPS} />)
+    const tax = screen.getByLabelText(/service\.tax$/)
+    fireEvent.change(tax, { target: { value: '-5' } })
+    fireEvent.change(screen.getByLabelText(/service\.miscFees/), { target: { value: '-5' } })
+
+    await save()
+
+    expect(await screen.findAllByText('common:mustNotBeNegative')).toHaveLength(2)
+    fireEvent.change(tax, { target: { value: '12.50' } })
+    expect(document.getElementById('tax-amount-error')).toBeNull()
+    // Misc fees is still -5, so its error stays.
+    expect(document.getElementById('misc-fees-error')).toHaveTextContent('common:mustNotBeNegative')
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
   it('does not reject a form whose fields are all valid', async () => {
     // Guards the guard: without this, a validator that rejects everything
     // would pass every test above.

@@ -40,6 +40,19 @@ describe('AddToPolicyDialog: the premium share', () => {
     expect(attach).not.toHaveBeenCalled()
   })
 
+  it('the share error clears when the share is edited', async () => {
+    renderDialog()
+    const share = screen.getByLabelText(/insurance\.vehicleShare/)
+    fireEvent.change(share, { target: { value: '-5' } })
+    add()
+    expect(await screen.findByText('common:validation.amount.negative')).toBeInTheDocument()
+
+    fireEvent.change(share, { target: { value: '120' } })
+    expect(screen.queryByText('common:validation.amount.negative')).not.toBeInTheDocument()
+    expect(share).not.toHaveAttribute('aria-invalid')
+    expect(attach).not.toHaveBeenCalled()
+  })
+
   it('sends MONEY_MAX itself, and a blank share as null', async () => {
     renderDialog()
     fireEvent.change(screen.getByLabelText(/insurance\.vehicleShare/), { target: { value: '9999999999.99' } })

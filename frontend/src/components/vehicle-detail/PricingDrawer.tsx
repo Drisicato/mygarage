@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import FormModalWrapper from '../FormModalWrapper'
 import { Button, Field, Input, NumberInput } from '../ui'
 import vehicleService from '../../services/vehicleService'
+import { withoutFieldError } from '../../hooks/useApiFormErrors'
 import { moneyTextError } from '../../schemas/shared'
 import { parseOptionalDecimal } from '../../utils/decimalInput'
 import { str, dateStr, emptyToNull } from '../../utils/formUtils'
@@ -100,8 +101,10 @@ export default function PricingDrawer({ open, onClose, vehicle, vin, onUpdated }
 
   const set =
     (key: keyof PricingForm) =>
-    (e: ChangeEvent<HTMLInputElement>): void =>
+    (e: ChangeEvent<HTMLInputElement>): void => {
       setForm((f) => ({ ...f, [key]: e.target.value }))
+      setErrors((prev) => withoutFieldError(prev, key))
+    }
 
   const changed = (key: keyof PricingForm): boolean => form[key] !== seededRef.current[key]
 

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Upload, FileText, DollarSign, Fuel, Edit2, Save, Palette, Shield, Leaf, Cog, Car } from 'lucide-react'
 import api from '../services/api'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
-import { applyControlledFieldErrors } from '../hooks/useApiFormErrors'
+import { applyControlledFieldErrors, withoutFieldError } from '../hooks/useApiFormErrors'
 import { parseDecimalInput } from '../utils/decimalInput'
 import { moneyTextError } from '../schemas/shared'
 import { getActiveLocale } from '@/constants/i18n'
@@ -274,6 +274,7 @@ export default function WindowStickerUpload({ vin, onSuccess, onClose }: WindowS
         onChange={(e) => {
           const value = e.target.value
           setDraft((prev) => (prev ? { ...prev, [key]: value } : prev))
+          setFieldErrors((prev) => withoutFieldError(prev, key))
         }}
         disabled={!editMode}
         placeholder={placeholder}

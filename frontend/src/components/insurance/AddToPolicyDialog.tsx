@@ -111,7 +111,10 @@ export default function AddToPolicyDialog({ vin, policies, onClose, onSuccess }:
           <NumberInput
             id="attach_share"
             value={share}
-            onChange={(event) => setShare(event.target.value)}
+            onChange={(event) => {
+              setShare(event.target.value)
+              setShareError(null)
+            }}
             invalid={!!shareError}
           />
         </Field>
