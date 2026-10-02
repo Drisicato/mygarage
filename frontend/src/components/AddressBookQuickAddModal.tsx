@@ -78,7 +78,8 @@ export default function AddressBookQuickAddModal({
     try {
       const response = await api.post<AddressBookEntry>('/address-book', {
         business_name: trimmedName,
-        category: 'service',
+        // These are the Address Book chips' values, so the entry lands in the right chip.
+        category: poiCategory === 'gas_station' ? 'Gas Station' : 'Service',
         poi_category: poiCategory,
         address: address.trim() || undefined,
         city: city.trim() || undefined,

@@ -352,8 +352,8 @@
     {
       "path": "src/components/AddressBookQuickAddModal.tsx",
       "disposition": "no unit behaviour",
-      "digest": "2f95cbcf342a451fdfbbcbcb6c3733752e25d0205035d8aa9297cbf3435c8dea",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them."
+      "digest": "8e603e6499a99d0b37c7405a1c3cadb62064297bc31a92adef74814768569623",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-10-02 (selection-and-station-picker G2): the quick add posts the Address Book chip's category, Gas Station for a gas station and Service otherwise. No quantity, unit or conversion code."
     },
     {
       "path": "src/components/AnalyticsHelpModal.tsx",

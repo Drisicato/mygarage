@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A full or safety backup of a database whose path contains "#" or "?" archived an empty database instead of the real one
 - A full backup restore leaves out, and logs, a photo, document or attachment that was a link to a folder or to a file outside the backup, instead of failing
 - A gas station added on the Address Book page can be picked on a fill-up, and isn't copied into the vendor list (#194)
+- A station added from a fill-up shows under Gas Station in the address book (#194)
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
