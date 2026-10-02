@@ -225,4 +225,22 @@ describe('Calendar month grid and bulk mode (G7 fold-in)', () => {
     const open = screen.getByRole('button', { name: 'calendar.openEvent' })
     expect(open).not.toHaveAttribute('aria-pressed')
   })
+
+  it("in bulk mode a click on the item's body toggles its selection and doesn't navigate", async () => {
+    // Guard: passes today. The item's click still has its bulk branch after
+    // the selection guard went in front of it. Mutant that kills it: drop the
+    // bulk branch so the item always calls openEvent.
+    render(<CalendarPage />)
+    const title = await screen.findByText('Oil change')
+    fireEvent.click(screen.getByRole('button', { name: 'calendar.bulkMode' }))
+    const select = screen.getByRole('button', { name: 'calendar.selectEvent' })
+    expect(select).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(title)
+    expect(select).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(title)
+    expect(select).toHaveAttribute('aria-pressed', 'false')
+
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
 })
