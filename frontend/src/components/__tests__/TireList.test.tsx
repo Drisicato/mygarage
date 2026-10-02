@@ -532,7 +532,7 @@ describe('TireList', () => {
       })
 
       render(<TireList vin="1HGCM82633A004352" />)
-      fireEvent.click(screen.getByLabelText('tireList.historyOpen'))
+      fireEvent.click(screen.getByRole('button', { name: 'tireList.historyOpen' }))
 
       const history = screen.getByRole('dialog')
       // Through the same adapters the card uses. A raw canonical value here
@@ -545,24 +545,145 @@ describe('TireList', () => {
 
     it('shows the empty state for a tire with no readings', () => {
       render(<TireList vin="1HGCM82633A004352" />)
-      fireEvent.click(screen.getByLabelText('tireList.historyOpen'))
+      fireEvent.click(screen.getByRole('button', { name: 'tireList.historyOpen' }))
 
       expect(screen.getByText('tireList.historyEmpty')).toBeInTheDocument()
     })
+  })
 
-    it('keeps Edit and Log Reading out of the history overlay', () => {
-      /* The overlay is a sibling button, not an ancestor, so a click on either
-         control cannot reach it. Without that separation the card would open
-         two drawers at once. */
+  /**
+   * Issue #179 was reported on this card: a full-card `absolute inset-0`
+   * button sat over the DOT code and the readings, so a long-press on a phone
+   * hit the button and nothing could be selected. The card now goes through
+   * ClickableCard, which puts the handler on the card itself.
+   *
+   * jsdom has no layout and no long-press, so these pin STRUCTURE and HANDLERS
+   * only: nothing stretched over the content, the click handled by the card, a
+   * selection-end click ignored, the controls left alone. Whether the text is
+   * really on top in a browser is the E2E half (G9).
+   */
+  describe('the mounted card opens its history without covering its text (#179)', () => {
+    const HISTORY = 'tireList.historyTitle'
+
+    function mountedCard(): HTMLElement {
+      const card = screen.getByText('tireList.positions.FL').closest<HTMLElement>('.rounded-card')
+      if (card === null) throw new Error('mounted tire card not found')
+      return card
+    }
+
+    it('no overlay covers the mounted tire card', () => {
+      // RED before G5: the history overlay is `absolute inset-0`, and the five
+      // controls sit on `relative z-10` to clear it. With the overlay gone a
+      // leftover `z-10` on Edit would paint the pencil over ClickableCard's
+      // focus chip, which lives in the same top-right corner. This pins the
+      // classes; how they paint is the browser's half.
       render(<TireList vin="1HGCM82633A004352" />)
-      // Asserted first: without it the rest of this test passes on a card that
-      // has no overlay at all, which is true before the feature exists.
-      expect(screen.getByLabelText('tireList.historyOpen')).toBeInTheDocument()
+      const card = mountedCard()
+      const chip = within(card).getByRole('button', { name: 'tireList.historyOpen' })
+        .parentElement as HTMLElement
 
-      fireEvent.click(screen.getByLabelText('tireList.edit'))
+      const everything = [card, ...Array.from(card.querySelectorAll<HTMLElement>('*'))]
+      const tokensOf = (el: Element): string[] => (el.getAttribute('class') ?? '').split(/\s+/)
 
-      expect(screen.queryByText('tireList.historyEmpty')).not.toBeInTheDocument()
-      expect(screen.getByText('tireList.editTitleNamed')).toBeInTheDocument()
+      const stretched = everything.filter((el) =>
+        tokensOf(el).some((token) => token === 'inset-0' || token.endsWith(':inset-0')),
+      )
+      expect(stretched).toEqual([])
+      const positioned = everything.filter((el) => tokensOf(el).includes('absolute'))
+      expect(positioned).toEqual([chip])
+      const lifted = everything.filter((el) => tokensOf(el).some((token) => /^z-\d+$/.test(token)))
+      expect(lifted).toEqual([chip])
+    })
+
+    it("clicking the card's text opens the tire history", () => {
+      // RED before G5: the overlay was a SIBLING of the text, so a click on
+      // the DOT code bubbled through ancestors that had no handler. The jsdom
+      // half: the handler is on the card now.
+      render(<TireList vin="1HGCM82633A004352" />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('2324'))
+
+      expect(screen.getByRole('dialog', { name: HISTORY })).toBeInTheDocument()
+    })
+
+    it('Edit, Log Reading, Dismount and Retire do their own thing and do not open history', () => {
+      // Guard: passes before G5 too, because the overlay was a sibling and
+      // couldn't hear these clicks. Mutant that kills it: drop
+      // cameFromNestedControl from ClickableCard's handler, and every click
+      // below also bubbles to the card and opens the history on top.
+      const controls: ReadonlyArray<readonly [string, string]> = [
+        ['tireList.edit', 'tireList.editTitleNamed'],
+        ['tireList.addReading', 'tireList.readingTitle'],
+        ['tireList.dismount', 'tireList.dismountTitle'],
+        ['tireList.retire', 'tireList.retireTitle'],
+      ]
+
+      for (const [control, drawer] of controls) {
+        const { unmount } = render(<TireList vin="1HGCM82633A004352" />)
+        // Without this the rest passes on a card with no history route at all.
+        expect(
+          within(mountedCard()).getByRole('button', { name: 'tireList.historyOpen' }),
+        ).toBeInTheDocument()
+
+        fireEvent.click(within(mountedCard()).getByRole('button', { name: control }))
+
+        expect(screen.getByRole('dialog', { name: drawer })).toBeInTheDocument()
+        // hidden: true so a history drawer stacked UNDER the new one still counts.
+        expect(screen.queryByRole('dialog', { name: HISTORY, hidden: true })).not.toBeInTheDocument()
+        unmount()
+      }
+    })
+
+    it('Fix still opens the history', () => {
+      // Guard: Fix calls setHistoryTireId itself, on purpose. The card ignores
+      // clicks from nested buttons, so dropping Fix's own onClick and trusting
+      // the bubble opens nothing; that's the mutant that kills it. Opening it
+      // twice with the same id is one render, so "exactly once" isn't
+      // observable here.
+      useTiresMock.mockReturnValue({
+        data: { tires: [{ ...STORED_FL_TIRE, blocking_period_ids: [3], mount_periods: [] }], total: 1 },
+        isLoading: false,
+        error: null,
+      })
+      render(<TireList vin="1HGCM82633A004352" />)
+
+      fireEvent.click(within(mountedCard()).getByRole('button', { name: 'tireList.fix' }))
+
+      expect(screen.getByRole('dialog', { name: HISTORY })).toBeInTheDocument()
+      expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    })
+
+    it('ending a selection on the DOT code does not open history', () => {
+      // The first half is a guard (no handler before G5, so nothing opened).
+      // Mutant that kills it: skip isSelectingText in ClickableCard's handler.
+      // The second half is RED before G5 and keeps the first from passing on
+      // a card that never opens anything.
+      render(<TireList vin="1HGCM82633A004352" />)
+      const selection = vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        toString: () => '2324',
+      } as unknown as Selection)
+
+      fireEvent.click(screen.getByText('2324'))
+      expect(screen.queryByRole('dialog', { name: HISTORY, hidden: true })).not.toBeInTheDocument()
+
+      selection.mockRestore()
+      fireEvent.click(screen.getByText('2324'))
+      expect(screen.getByRole('dialog', { name: HISTORY })).toBeInTheDocument()
+    })
+
+    it('the card is reachable by keyboard', () => {
+      // Guard: the old overlay was a named button too. Mutant that kills it:
+      // hand ClickableCard an empty label, and there's no button by this name.
+      render(<TireList vin="1HGCM82633A004352" />)
+      const button = within(mountedCard()).getByRole('button', { name: 'tireList.historyOpen' })
+
+      button.focus()
+      expect(button).toHaveFocus()
+      fireEvent.click(button)
+
+      expect(screen.getByRole('dialog', { name: HISTORY })).toBeInTheDocument()
     })
   })
 

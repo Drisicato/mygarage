@@ -89,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A place saved from the POI Finder shows under its Address Book category, and places it saved before show under theirs
 - Picking a saved place in the fill-up station or spot rental location field no longer reopens the list (#194)
 - Following the tow vehicle link on a trailer's Overview no longer also opens the tow editor (#179)
+- Text on the tire cards can be selected and copied; tapping the card still opens its history (#179)
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

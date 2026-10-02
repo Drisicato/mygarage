@@ -42,6 +42,7 @@ import {
   ListRow,
   Toggle,
 } from './ui'
+import ClickableCard from './ClickableCard'
 import AddPastPeriodDrawer from './tires/AddPastPeriodDrawer'
 import MountEventFields, { EMPTY_ODOMETER, type OdometerFieldValue } from './tires/MountEventFields'
 import MountPeriodEditor from './tires/MountPeriodEditor'
@@ -973,27 +974,16 @@ export default function TireList({ vin }: TireListProps) {
 
       <div className="grid gap-3 sm:grid-cols-2">
         {mountedTires.map((tire: Tire) => (
-          <Card key={tire.id} padding="sm" className="relative space-y-2">
-            {/* A full-bleed sibling button, which is a fourth clickable-card
-                shape in this codebase and deliberately so. `Card interactive`
-                renders the Card itself as a <button>, and the container
-                role="button" that ExternalVehicleCard and FamilyMemberCard use
-                is the same shape by another route: both would put Edit and Log
-                Reading INSIDE the click target, which is interactive content
-                nested in a button and needs stopPropagation on each child to
-                behave. Neither of those two cards has that problem because
-                neither encloses a control. A sibling cannot receive their
-                clicks at all, so the isolation is structural rather than
-                handled. The overlay is a real button so the card is reachable
-                by keyboard; the two controls sit above it on `z-10`. */}
-            <button
-              type="button"
-              className="ui-focus-ring absolute inset-0 rounded-card"
-              aria-label={t('tireList.historyOpen', {
-                position: labelFor(tire.position),
-              })}
-              onClick={() => setHistoryTireId(tire.id)}
-            />
+          <ClickableCard
+            key={tire.id}
+            padding="sm"
+            className="space-y-2"
+            label={t('tireList.historyOpen', { position: labelFor(tire.position) })}
+            onActivate={() => setHistoryTireId(tire.id)}
+          >
+            {/* The whole card opens the history and nothing sits over its values,
+                so the DOT code can be long-pressed and copied (#179). The buttons
+                inside keep their own clicks: ClickableCard ignores one that starts there. */}
             <div className="flex items-start justify-between gap-2">
               <div>
                 <div className="font-semibold flex items-center gap-2">
@@ -1018,7 +1008,6 @@ export default function TireList({ vin }: TireListProps) {
                 label={t('tireList.edit')}
                 variant="ghost"
                 size="sm"
-                className="relative z-10"
                 onClick={() => openEditForm(tire)}
               />
             </div>
@@ -1054,7 +1043,6 @@ export default function TireList({ vin }: TireListProps) {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="relative z-10"
                     onClick={() => setHistoryTireId(tire.id)}
                   >
                     {t('tireList.fix')}
@@ -1068,7 +1056,6 @@ export default function TireList({ vin }: TireListProps) {
               <Button
                 size="sm"
                 variant="secondary"
-                className="relative z-10"
                 onClick={() => openReadingForm(tire)}
               >
                 {t('tireList.addReading')}
@@ -1079,7 +1066,6 @@ export default function TireList({ vin }: TireListProps) {
               <Button
                 size="sm"
                 variant="ghost"
-                className="relative z-10"
                 disabled={dismount.isPending}
                 onClick={() => openDismount(tire)}
               >
@@ -1093,14 +1079,13 @@ export default function TireList({ vin }: TireListProps) {
               <Button
                 size="sm"
                 variant="ghost"
-                className="relative z-10"
                 disabled={retire.isPending}
                 onClick={() => openRetire(tire.id)}
               >
                 {t('tireList.retire')}
               </Button>
             </div>
-          </Card>
+          </ClickableCard>
         ))}
       </div>
 
