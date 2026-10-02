@@ -21,7 +21,12 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AddressBookEntry, AddressBookEntryCreate, AddressBookEntryUpdate } from '../types/addressBook'
-import { addressBookSchema, type AddressBookFormData, ADDRESS_BOOK_CATEGORIES } from '../schemas/addressBook'
+import {
+  addressBookSchema,
+  type AddressBookFormData,
+  ADDRESS_BOOK_CATEGORIES,
+  chipForPoiCategory,
+} from '../schemas/addressBook'
 import { Chip, Button, Field, Input, Textarea, Select, SearchField } from '../components/ui'
 import type { IconType } from '../components/ui/types'
 import FormModalWrapper from '../components/FormModalWrapper'
@@ -39,19 +44,16 @@ const CATEGORY_ICONS: Record<string, IconType> = {
   'Gas Station': Fuel,
 }
 
-// A discovery-sourced entry may carry a poi_category but no manual category.
-// Map the two POI types that correspond to a chip so those entries still land
-// in the right one without a data migration.
-function poiCategoryLabel(poi: string | null | undefined): string {
-  if (poi === 'gas_station') return 'Gas Station'
-  if (poi === 'rv_park' || poi === 'rv_shop') return 'RV Park'
-  return ''
-}
-
 // The category a card badge and the chip filter operate on: the manual
-// category if set, else derived from the POI type.
+// category (as its chip when it is one, in any case), else the POI type's chip.
 export function displayCategory(entry: Pick<AddressBookEntry, 'category' | 'poi_category'>): string {
-  return entry.category?.trim() || poiCategoryLabel(entry.poi_category)
+  const manual = entry.category?.trim() ?? ''
+  // The POI Finder and the old fill-up quick add wrote lowercase 'service' for
+  // everything they saved, and no chip writes that, so the POI type knows better.
+  if (manual === 'service' && entry.poi_category) return chipForPoiCategory(entry.poi_category)
+  const chip = ADDRESS_BOOK_CATEGORIES.find((c) => c.value.toLowerCase() === manual.toLowerCase())
+  if (chip) return chip.value
+  return manual || chipForPoiCategory(entry.poi_category)
 }
 
 export default function AddressBook() {

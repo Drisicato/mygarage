@@ -39037,7 +39037,7 @@
     },
     "/api/poi/save": {
       "post": {
-        "description": "Save a discovered POI to the address book.\n\nArgs:\n    entry_data: Address book entry data\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    Created AddressBookEntry\n\nNotes:\n    - Source should be set to provider name (tomtom, osm, google, etc.)\n    - Category defaults to 'service'\n    - poi_category should be set (one of POICategory: auto_shop,\n      rv_shop, ev_charging, gas_station, propane)\n    - metadata can contain category-specific JSON data",
+        "description": "Save a discovered POI to the address book.\n\nArgs:\n    entry_data: Address book entry data\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    Created AddressBookEntry\n\nNotes:\n    - Source should be set to provider name (tomtom, osm, google, etc.)\n    - Category is stored as sent (none if omitted); the app sends the\n      Address Book chip for the POI type\n    - poi_category should be set (one of POICategory: auto_shop,\n      rv_shop, ev_charging, gas_station, propane)\n    - metadata can contain category-specific JSON data",
         "operationId": "save_discovered_poi_api_poi_save_post",
         "requestBody": {
           "content": {
@@ -40209,7 +40209,7 @@
     },
     "/api/shop-discovery/save": {
       "post": {
-        "description": "Save a discovered shop to the address book.\n\nArgs:\n    entry_data: Address book entry data\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    Created AddressBookEntry\n\nNotes:\n    - Shop source should be set to 'tomtom' or 'osm'\n    - Category defaults to 'service'",
+        "description": "Save a discovered shop to the address book.\n\nArgs:\n    entry_data: Address book entry data\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    Created AddressBookEntry\n\nNotes:\n    - Shop source should be set to 'tomtom' or 'osm'\n    - Category is stored as sent (none if omitted); the app sends the\n      Address Book chip for the POI type",
         "operationId": "save_discovered_shop_api_shop_discovery_save_post",
         "requestBody": {
           "content": {

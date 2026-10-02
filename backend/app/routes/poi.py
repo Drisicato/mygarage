@@ -216,7 +216,8 @@ async def save_discovered_poi(
 
     Notes:
         - Source should be set to provider name (tomtom, osm, google, etc.)
-        - Category defaults to 'service'
+        - Category is stored as sent (none if omitted); the app sends the
+          Address Book chip for the POI type
         - poi_category should be set (one of POICategory: auto_shop,
           rv_shop, ev_charging, gas_station, propane)
         - metadata can contain category-specific JSON data

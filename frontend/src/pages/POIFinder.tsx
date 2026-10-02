@@ -19,6 +19,7 @@ import MapDisplay from '@/components/MapDisplay'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useUnitFormat } from '@/hooks/useUnitFormat'
 import { radiusToMeters } from '@/utils/unitAdapters'
+import { chipForPoiCategory } from '@/schemas/addressBook'
 import type { UnitSet } from '@/types/units'
 import type {
   POIResult,
@@ -248,7 +249,9 @@ export default function POIFinder() {
         phone: poi.phone,
         latitude: poi.latitude.toString(),
         longitude: poi.longitude.toString(),
-        category: 'service',
+        // The Address Book chip, so the place shows under it. A type with no
+        // chip (EV charging, propane) goes without a category.
+        category: chipForPoiCategory(poi.poi_category) || undefined,
         source: poi.source,
         external_id: poi.external_id,
         rating: poi.rating,

@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor } from '../../__tests__/test-utils' // selects by id (i18n mock renders keys)
-import { AddressBookForm, displayCategory } from '../AddressBook'
+import { render, fireEvent, waitFor, screen } from '../../__tests__/test-utils' // selects by id (i18n mock renders keys)
+import AddressBook, { AddressBookForm, displayCategory } from '../AddressBook'
 
 // vi.mock is hoisted above module-level consts, so spies must be created with vi.hoisted.
-const { post, put, del } = vi.hoisted(() => ({ post: vi.fn(), put: vi.fn(), del: vi.fn() }))
-vi.mock('../../services/api', () => ({ default: { post, put, delete: del } }))
+const { get, post, put, del } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn() }))
+vi.mock('../../services/api', () => ({ default: { get, post, put, delete: del } }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  get.mockResolvedValue({ data: { entries: [] } })
   post.mockResolvedValue({ data: {} })
   put.mockResolvedValue({ data: {} })
   del.mockResolvedValue({ data: {} })
@@ -29,9 +30,54 @@ describe('displayCategory', () => {
     expect(displayCategory({ category: '', poi_category: 'rv_shop' })).toBe('RV Park')
     expect(displayCategory({ category: null, poi_category: 'rv_park' })).toBe('RV Park')
   })
-  it('returns empty for an unmapped POI type (no chip)', () => {
-    expect(displayCategory({ category: null, poi_category: 'auto_shop' })).toBe('')
+  it('files an auto shop under Service; only ev_charging and propane have no chip', () => {
+    expect(displayCategory({ category: null, poi_category: 'auto_shop' })).toBe('Service')
+    expect(displayCategory({ category: null, poi_category: 'ev_charging' })).toBe('')
+    expect(displayCategory({ category: null, poi_category: 'propane' })).toBe('')
     expect(displayCategory({ category: '   ', poi_category: null })).toBe('')
+  })
+
+  // The POI Finder and the old fill-up quick add wrote a lowercase 'service' for
+  // every place they saved, which matched no chip (#194).
+  describe('a place saved before as lowercase service', () => {
+    it('follows its POI type to the chip it belongs in', () => {
+      expect(displayCategory({ category: 'service', poi_category: 'gas_station' })).toBe('Gas Station')
+      expect(displayCategory({ category: 'service', poi_category: 'auto_shop' })).toBe('Service')
+    })
+
+    it('is Service when it has no POI type', () => {
+      expect(displayCategory({ category: 'service', poi_category: null })).toBe('Service')
+    })
+
+    it('has no chip for a POI type without one, like an EV charger the POI Finder saves now', () => {
+      expect(displayCategory({ category: 'service', poi_category: 'ev_charging' })).toBe('')
+    })
+
+    it('guard: a chip someone picked wins over the POI type (mutant: rule 1 ignores case)', () => {
+      expect(displayCategory({ category: 'Service', poi_category: 'gas_station' })).toBe('Service')
+    })
+  })
+
+  it('matches a chip ignoring case and surrounding spaces', () => {
+    expect(displayCategory({ category: ' gas station ', poi_category: null })).toBe('Gas Station')
+  })
+
+  it('guard: keeps a custom category as typed (mutant: a category matching no chip returns empty)', () => {
+    expect(displayCategory({ category: 'Body Shop', poi_category: null })).toBe('Body Shop')
+  })
+})
+
+describe('AddressBook page: category chips', () => {
+  it('shows a gas station the POI Finder saved as lowercase service under the Gas Station chip', async () => {
+    get.mockResolvedValue({
+      data: { entries: [{ id: 9, business_name: 'Corner Fuel', category: 'service', poi_category: 'gas_station' }] },
+    })
+    render(<AddressBook />)
+    expect(await screen.findByText('Corner Fuel')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'common:addressBook.categoryGasStation' }))
+
+    expect(screen.queryByText('Corner Fuel')).toBeInTheDocument()
   })
 })
 

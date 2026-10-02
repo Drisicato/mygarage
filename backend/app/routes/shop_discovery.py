@@ -92,7 +92,8 @@ async def save_discovered_shop(
 
     Notes:
         - Shop source should be set to 'tomtom' or 'osm'
-        - Category defaults to 'service'
+        - Category is stored as sent (none if omitted); the app sends the
+          Address Book chip for the POI type
     """
     # Create address book entry
     entry = AddressBookEntry(**entry_data.model_dump())
