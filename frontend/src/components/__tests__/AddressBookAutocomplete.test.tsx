@@ -270,3 +270,46 @@ describe('AddressBookAutocomplete after a pick (#194)', () => {
     expect(option('Shell')).not.toBeInTheDocument()
   })
 })
+
+describe('AddressBookAutocomplete after a close (#194)', () => {
+  it.each([
+    { label: 'Escape', close: (): void => void fireEvent.keyDown(input(), { key: 'Escape' }) },
+    { label: 'a click outside', close: (): void => void fireEvent.mouseDown(document.body) },
+  ])('closing the list drops its pending search ($label)', async ({ close }) => {
+    // Closing only hid the list: the search still waiting fired anyway and the
+    // late answer landed, and either one opened it again.
+    const late = deferred<SearchResponse>()
+    const { container } = render(<Picker />)
+    type('Sh')
+    await wait(300)
+    get.mockReturnValueOnce(late.promise)
+    type('She')
+    await wait(300)
+    type('Shel')
+    expect(option('Shell')).toBeInTheDocument()
+    close()
+    expect(option('Shell')).not.toBeInTheDocument()
+    expect(spinner(container)).not.toBeInTheDocument()
+    await wait(300)
+    await act(async () => {
+      late.resolve(found(SHEETZ))
+    })
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(option('Shell')).not.toBeInTheDocument()
+    expect(option('Sheetz')).not.toBeInTheDocument()
+  })
+
+  it('typing again after Escape opens the list', async () => {
+    // Guard, passes before the fix: a close mustn't stop searching for good. Killed by the
+    // mutant where Escape sets a closed flag the search checks and typing never clears.
+    render(<Picker />)
+    type('Sh')
+    await wait(300)
+    fireEvent.keyDown(input(), { key: 'Escape' })
+    expect(option('Shell')).not.toBeInTheDocument()
+    type('She')
+    await wait(300)
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(option('Shell')).toBeInTheDocument()
+  })
+})

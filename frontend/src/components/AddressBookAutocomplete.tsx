@@ -114,17 +114,20 @@ export default function AddressBookAutocomplete({
   // A search still out when the picker goes away has nowhere to land.
   useEffect(() => () => invalidate(), [invalidate])
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside. Like Escape, this drops the search
+  // too, or its answer reopens the list after you've moved on.
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        typedRef.current = null
+        invalidate()
         setShowDropdown(false)
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  }, [invalidate])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     typedRef.current = e.target.value
@@ -169,6 +172,10 @@ export default function AddressBookAutocomplete({
         }
         break
       case 'Escape':
+        // Closing drops the search still waiting or running, so it can't
+        // reopen the list. Typing again starts a fresh one.
+        typedRef.current = null
+        invalidate()
         setShowDropdown(false)
         setSelectedIndex(-1)
         break
