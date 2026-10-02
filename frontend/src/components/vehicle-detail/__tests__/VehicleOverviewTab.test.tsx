@@ -65,16 +65,16 @@ describe('VehicleOverviewTab — cards stay addable when the vehicle has no deco
 
   it('offers an edit affordance on each empty card, so the fields can be ADDED', () => {
     const { onEditCard } = renderTab(bareVehicle)
-    // All four onEditCard cards (basic, details, powertrain, warranty) carry the
-    // shared CardEditOverlay. Its accessible name is the same for every card,
-    // because the global i18n mock discards interpolation — so count them
-    // rather than querying by section name.
-    const overlays = screen.getAllByRole('button', { name: 'detail.cardEdit.title' })
-    expect(overlays).toHaveLength(4)
+    // All four onEditCard cards (basic, details, powertrain, warranty) are
+    // EditableCards, and each has a hidden edit button. Its accessible name is
+    // the same for every card, because the global i18n mock discards
+    // interpolation, so count them rather than querying by section name.
+    const editButtons = screen.getAllByRole('button', { name: 'detail.cardEdit.title' })
+    expect(editButtons).toHaveLength(4)
     // DOM order is basic, details, powertrain, warranty. Clicking the EMPTY
     // Details card must open the Details editor — without this an empty card is
     // a dead end, which is the failure this whole task exists to prevent.
-    fireEvent.click(overlays[1])
+    fireEvent.click(editButtons[1])
     expect(onEditCard).toHaveBeenCalledWith('details')
   })
 

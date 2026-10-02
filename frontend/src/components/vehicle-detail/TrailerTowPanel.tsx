@@ -184,7 +184,7 @@ export default function TrailerTowPanel({ vehicle }: TrailerTowPanelProps) {
               // A link inside the card keeps its own click, so the name just
               // navigates and anywhere else on the card still opens the editor.
               // Mirrors the Linked Trailers card: name is the link, VIN beside it.
-              <p className="relative z-20 mt-1">
+              <p className="mt-1">
                 <Link
                   className="font-medium text-primary hover:underline"
                   to={`/vehicles/${towVehicle.vin}`}
