@@ -259,17 +259,20 @@ def _stuck(message: str) -> RestoreInProgressError:
     return RestoreInProgressError(message)
 
 
-def _cannot_finish(staging: Path, reason: str, finish: str) -> RestoreInProgressError:
+def _cannot_finish(
+    staging: Path, reason: str, finish: str, target: Path | None = None
+) -> RestoreInProgressError:
     """A half-applied restore this start can't finish, and what a person has to do about it.
 
-    The marker says what it was applying; the manifest does when the marker is gone.
+    The marker says what it was applying; the manifest does when the marker is gone. With both
+    gone, the archive goes by its name pattern and the database is the one MyGarage opens now.
     """
     info = _read_json(staging / APPLYING_NAME) or _read_json(staging / MANIFEST_NAME) or {}
     # Both files sit on disk, so their names go through sanitize_for_log before the log.
     prerestore = sanitize_for_log(
         info.get("prerestore_backup", "the mygarage-full-safety-prerestore archive")
     )
-    database = info.get("database")
+    database = info.get("database") or (str(target) if target else None)
     staged_db = f" and {sanitize_for_log(database)}{_PENDING_SUFFIX}" if database else ""
     return _stuck(
         "A restore was being applied when MyGarage last stopped, and this start can't finish it: "
@@ -360,6 +363,15 @@ def apply_pending_restore(
             # Half swapped: serving would mix old and new data, and dropping the staging would lose
             # what was swapped out. Stop the start and keep every file.
             raise _cannot_finish(staging, reason, finish)
+        if (staging / "previous").exists() and not _only_cleanup_left(staging, target):
+            # Folders set aside and some still staged: half swapped, with the marker deleted by
+            # hand and the manifest no help either. Same as above, never a cleanup or a discard.
+            raise _cannot_finish(
+                staging,
+                f"its swap had begun, but its applying marker is gone and {reason}",
+                "",
+                target,
+            )
         if not manifest_path.exists():
             if not staging.exists():
                 # Only a staged database, and no staging here: what a moved data folder looks like.

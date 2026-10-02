@@ -691,13 +691,15 @@ class BackupService:
                         # Archive names on purpose: SQLite finds a WAL by its database's name.
                         self._safe_extract_member(tar, member, work, parts)
                     elif parts[0] in self._SAFE_DIR_ROOTS:
-                        self._safe_extract_member(tar, member, staging, parts)
+                        self._safe_extract_member(
+                            tar, member, staging, parts, skip_links_to_no_file=True
+                        )
                     # Left out: mygarage.db-shm (a dead process's WAL index; SQLite rebuilds it
                     # from the WAL) and mygarage.pgdump (PostgreSQL's).
         except (tarfile.TarError, EOFError, KeyError, RecursionError) as exc:
             # None of these is an OSError or a ValueError, so without this a truncated file is a
-            # 500. tarfile reads a link through its target: KeyError if the target isn't in the
-            # archive, RecursionError if the links loop.
+            # 500. KeyError and RecursionError get here from a database member that links to no
+            # file. A media one is skipped, but skipping this one could stage an empty database.
             raise ValueError("This backup can't be read as a tar.gz archive") from exc
         self._fold_and_check(work / "mygarage.db")
         shutil.move(work / "mygarage.db", restore_staging.pending_database(database_file))
@@ -823,8 +825,15 @@ class BackupService:
         member: tarfile.TarInfo,
         destination_root: Path,
         target_parts: list[str],
+        *,
+        skip_links_to_no_file: bool = False,
     ) -> None:
-        """Safely extract member to destination ensuring it stays inside root."""
+        """Safely extract member to destination ensuring it stays inside root.
+
+        skip_links_to_no_file leaves out a link that doesn't lead to a file in the archive, with
+        a WARNING, instead of failing: the backup writer keeps a media symlink as a link, and
+        its target was never in the backup.
+        """
         destination_root = destination_root.resolve()
         target_path = destination_root.joinpath(*target_parts).resolve()
 
@@ -835,10 +844,26 @@ class BackupService:
             target_path.mkdir(parents=True, exist_ok=True)
             return
 
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        extracted = tar.extractfile(member)
+        # A link comes out as a copy of what it points at; the restore never makes links.
+        is_link = member.issym() or member.islnk()
+        try:
+            extracted = tar.extractfile(member)
+        except KeyError, RecursionError:
+            # tarfile reads a link through its target: KeyError when that isn't in the archive,
+            # RecursionError when the links loop.
+            if not (skip_links_to_no_file and is_link):
+                raise
+            extracted = None
+        if extracted is None and skip_links_to_no_file and is_link:
+            logger.warning(
+                "Left %s out of the restore: it links to %s, which isn't a file in the backup",
+                sanitize_for_log(member.name),
+                sanitize_for_log(member.linkname),
+            )
+            return
         if extracted is None:
             raise ValueError(f"Failed to read {member.name} from archive")
 
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         with extracted, open(target_path, "wb") as dest_file:
             shutil.copyfileobj(extracted, dest_file)

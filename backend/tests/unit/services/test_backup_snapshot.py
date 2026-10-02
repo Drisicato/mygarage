@@ -1588,6 +1588,47 @@ async def test_a_swap_begun_and_marker_deleted_by_hand_stops_the_start(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.parametrize("killed_after", [6, 10])
+@pytest.mark.parametrize("manifest", ["deleted", "unreadable"])
+async def test_a_swap_begun_with_marker_and_manifest_gone_stops_the_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, killed_after: int, manifest: str
+) -> None:
+    """Killed mid-swap, then the marker deleted by hand and the manifest gone or broken: the start refuses.
+
+    Folders in previous/ and folders still staged mean half swapped, whatever the manifest says.
+    It used to throw the staging away, previous/ and all, or log it as a broken staging and
+    serve the half-swapped data. With both files gone the steps name the database MyGarage opens
+    now and the archive by its pattern. Mutant: call it the cleanup of an applied restore as
+    soon as previous/ is there (drop the nothing-staged check).
+    """
+    service, db_path = _live_and_archive(tmp_path)
+    await service.restore_full_backup(STAGED, create_safety=False)
+    with monkeypatch.context() as patched:
+        _kill_after_changes(patched, killed_after)
+        with pytest.raises(_KilledError):
+            service.apply_pending_restore()
+    staging = service.data_dir / ".restore-pending"
+    (staging / "applying").unlink()
+    if manifest == "deleted":
+        (staging / "manifest.json").unlink()
+    else:
+        (staging / "manifest.json").write_text("{ cut off")
+    before = _every_file(tmp_path)
+
+    with pytest.raises(RuntimeError, match="its swap had begun") as refused:
+        service.apply_pending_restore()
+
+    assert _every_file(tmp_path) == before, "the refused start changed files"
+    assert (staging / "previous" / "photos" / "old.jpg").exists(), "the set-aside photos went"
+    assert (staging / "attachments").exists(), "a staged folder went"
+    text = str(refused.value)
+    assert "the mygarage-full-safety-prerestore archive" in text
+    assert f"{db_path.resolve()}.restore-pending" in text
+    assert "MYGARAGE_MAINTENANCE_MODE=1" in text
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_a_start_killed_in_the_cleanup_writes_no_new_archive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1685,34 +1726,107 @@ async def test_a_backup_that_isnt_a_readable_archive_is_refused(
     assert not (service.data_dir / ".restore-pending").exists()
 
 
-_LINKS_THAT_LEAD_NOWHERE: dict[str, list[tuple[str, bytes, str]]] = {
-    "dangling_hardlink": [("photos/x.jpg", tarfile.LNKTYPE, "photos/missing.jpg")],
-    "dangling_symlink": [("photos/x.jpg", tarfile.SYMTYPE, "missing.jpg")],
-    "symlink_loop": [
-        ("photos/a.jpg", tarfile.SYMTYPE, "b.jpg"),
-        ("photos/b.jpg", tarfile.SYMTYPE, "a.jpg"),
+_Member = tuple[str, bytes, str]  # name, tar type, link target ("" for a file or folder)
+
+# Each case: the links a media folder can hold that lead to no file in the archive, plus what
+# else the case needs in the archive.
+_MEDIA_LINKS_TO_NO_FILE: dict[str, tuple[list[_Member], list[_Member]]] = {
+    "dangling_hardlink": ([("photos/x.jpg", tarfile.LNKTYPE, "photos/missing.jpg")], []),
+    "dangling_symlink": ([("photos/x.jpg", tarfile.SYMTYPE, "missing.jpg")], []),
+    "absolute_symlink": ([("photos/x.jpg", tarfile.SYMTYPE, "/mnt/media/x.jpg")], []),
+    "symlink_loop": (
+        [("photos/a.jpg", tarfile.SYMTYPE, "b.jpg"), ("photos/b.jpg", tarfile.SYMTYPE, "a.jpg")],
+        [],
+    ),
+    "folder_symlink": (
+        [("photos/album-link", tarfile.SYMTYPE, "album")],
+        [("photos/album", tarfile.DIRTYPE, ""), ("photos/album/a.jpg", tarfile.REGTYPE, "")],
+    ),
+}
+
+
+def _add_members(tar: tarfile.TarFile, members: list[_Member]) -> None:
+    """Add hand-made members: links and folders as they are, files with their own name as content."""
+    for name, kind, target in members:
+        info = tarfile.TarInfo(name)
+        info.type = kind
+        info.linkname = target
+        data = name.encode() if kind == tarfile.REGTYPE else b""
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data) if data else None)
+
+
+def _files_under(folder: Path) -> list[str]:
+    """Every file and link under a folder, by path relative to it."""
+    return sorted(
+        str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file() or p.is_symlink()
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", list(_MEDIA_LINKS_TO_NO_FILE))
+async def test_a_media_link_to_no_file_is_skipped_and_the_rest_restores(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, case: str
+) -> None:
+    """A photo that's a link to no file in the archive is left out with a WARNING; the rest restores.
+
+    tarfile reads a link through its target: KeyError if the target isn't in the archive,
+    RecursionError if the links loop, nothing at all if it's a folder. The backup writer keeps a
+    media symlink as a link member, and the restore never makes links, so failing on one made
+    the app's own backup unrestorable. RED: the restore failed. Mutants: let KeyError or
+    RecursionError through, or skip without the WARNING.
+    """
+    links, extra = _MEDIA_LINKS_TO_NO_FILE[case]
+    service, db_path = _live_and_archive(tmp_path)
+    with tarfile.open(service.backup_dir / "mygarage-full-links.tar.gz", "w:gz") as tar:
+        tar.add(tmp_path / "source.db", arcname="mygarage.db")
+        _add_members(tar, [("photos/new.jpg", tarfile.REGTYPE, ""), *extra, *links])
+
+    with caplog.at_level(logging.WARNING, logger="app.services.backup_service"):
+        await service.restore_full_backup("mygarage-full-links.tar.gz", create_safety=False)
+
+    kept = [
+        "new.jpg",
+        *(name.removeprefix("photos/") for name, kind, _ in extra if kind == tarfile.REGTYPE),
+    ]
+    staged = service.data_dir / ".restore-pending" / "photos"
+    assert _files_under(staged) == sorted(kept)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == len(links), warnings
+    for (name, _, target), message in zip(links, warnings, strict=True):
+        assert name in message and target in message, message
+
+    assert service.apply_pending_restore() == "mygarage-full-links.tar.gz"
+    assert _files_under(service.data_dir / "photos") == sorted(kept)
+    assert _read_rows(db_path) == [(99, "restored")]
+
+
+_DATABASE_LINKS_TO_NO_FILE: dict[str, list[_Member]] = {
+    "dangling": [("mygarage.db", tarfile.SYMTYPE, "missing.db")],
+    "dangling_with_a_wal": [
+        ("mygarage.db", tarfile.SYMTYPE, "missing.db"),
+        ("mygarage.db-wal", tarfile.REGTYPE, ""),
     ],
+    "loop": [("mygarage.db", tarfile.SYMTYPE, "mygarage.db")],
 }
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-@pytest.mark.parametrize("link", list(_LINKS_THAT_LEAD_NOWHERE))
-async def test_a_link_member_that_leads_nowhere_is_refused(tmp_path: Path, link: str) -> None:
-    """A hand-made archive with a link to a file it doesn't hold is a 400, and nothing is staged.
+@pytest.mark.parametrize("case", list(_DATABASE_LINKS_TO_NO_FILE))
+async def test_a_database_member_that_links_to_no_file_is_refused(
+    tmp_path: Path, case: str
+) -> None:
+    """mygarage.db as a link to no file is still a 400, and nothing is staged: only media links are skipped.
 
-    tarfile reads a link member through its target: a target that isn't in the archive raises
-    KeyError, and links that loop raise RecursionError. RED: both escaped as a 500. Mutant:
-    leave either out of the conversion.
+    A guard; mutants: skip a link to no file for the database members too (with a -wal member
+    beside it, SQLite would then make an empty database out of nothing, and the restore would
+    stage that), or leave KeyError or RecursionError out of the conversion.
     """
     service, db_path = _live_and_archive(tmp_path)
     with tarfile.open(service.backup_dir / "mygarage-full-links.tar.gz", "w:gz") as tar:
-        tar.add(tmp_path / "source.db", arcname="mygarage.db")
-        for name, kind, target in _LINKS_THAT_LEAD_NOWHERE[link]:
-            info = tarfile.TarInfo(name)
-            info.type = kind
-            info.linkname = target
-            tar.addfile(info)
+        _add_members(tar, _DATABASE_LINKS_TO_NO_FILE[case])
     before = _live_state(service, db_path)
 
     with pytest.raises(ValueError, match="can't be read as a tar.gz archive"):
@@ -1725,12 +1839,15 @@ async def test_a_link_member_that_leads_nowhere_is_refused(tmp_path: Path, link:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_the_apps_own_backup_of_linked_photos_restores(tmp_path: Path) -> None:
-    """A photos folder holding a symlink and a hard link: the app's own backup of it stages and applies.
+async def test_the_apps_own_backup_of_linked_photos_restores(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The app's own backup of a photos folder holding links stages and applies.
 
-    tar.add keeps both as link members, which is why a link that leads nowhere is refused and
-    link members in general aren't. Each comes back as a copy of the photo it points at. A
-    guard; mutant: refuse every link member (the app can't restore its own backup).
+    tar.add keeps every link as a link member. A symlink or hard link to a photo in the backup
+    comes back as a copy of that photo. A symlink to a file outside the backup, or to a folder,
+    is left out with a WARNING; the folder's own files come back under its real name. RED: the
+    outside symlink failed the whole restore. A guard too; mutant: refuse every link member.
     """
     db_path = tmp_path / "garage.db"
     _write_one_row_db(db_path, 7, "live")
@@ -1739,22 +1856,44 @@ async def test_the_apps_own_backup_of_linked_photos_restores(tmp_path: Path) -> 
     (photos / "car.jpg").write_bytes(b"car photo")
     (photos / "alias.jpg").symlink_to("car.jpg")
     os.link(photos / "car.jpg", photos / "twin.jpg")
+    (tmp_path / "outside.jpg").write_bytes(b"outside photo")
+    (photos / "elsewhere.jpg").symlink_to(tmp_path / "outside.jpg")
+    (photos / "album").mkdir()
+    (photos / "album" / "a.jpg").write_bytes(b"album photo")
+    (photos / "album-link").symlink_to("album")
     meta = await service.create_full_backup()
     with tarfile.open(service.backup_dir / meta["filename"], "r:gz") as tar:
         kinds = {
             m.name: (m.issym(), m.islnk()) for m in tar.getmembers() if m.name.startswith("photos/")
         }
     assert kinds == {
+        "photos/album": (False, False),
+        "photos/album/a.jpg": (False, False),
+        "photos/album-link": (True, False),
         "photos/alias.jpg": (True, False),
         "photos/car.jpg": (False, False),
+        "photos/elsewhere.jpg": (True, False),
         "photos/twin.jpg": (False, True),
-    }, "the backup holds no link members, so this proves nothing"
-    for photo in photos.iterdir():
-        photo.unlink()
+    }, "the backup doesn't hold the link members this test is about"
+    shutil.rmtree(photos)
+    photos.mkdir()
     (photos / "other.jpg").write_bytes(b"other photo")
 
-    await service.restore_full_backup(meta["filename"], create_safety=False)
+    with caplog.at_level(logging.WARNING, logger="app.services.backup_service"):
+        await service.restore_full_backup(meta["filename"], create_safety=False)
     assert service.apply_pending_restore() == meta["filename"]
 
-    restored = {p.name: p.read_bytes() for p in photos.iterdir()}
-    assert restored == {name: b"car photo" for name in ("alias.jpg", "car.jpg", "twin.jpg")}
+    restored = {
+        str(p.relative_to(photos)): p.read_bytes() for p in photos.rglob("*") if p.is_file()
+    }
+    assert restored == {
+        "album/a.jpg": b"album photo",
+        "alias.jpg": b"car photo",
+        "car.jpg": b"car photo",
+        "twin.jpg": b"car photo",
+    }
+    assert not [p for p in photos.rglob("*") if p.is_symlink()], "the restore made a link"
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 2, warnings
+    for skipped in ("photos/album-link", "photos/elsewhere.jpg"):
+        assert [m for m in warnings if skipped in m], (skipped, warnings)
