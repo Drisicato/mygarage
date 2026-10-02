@@ -108,11 +108,13 @@ export default function AddressBookAutocomplete({
 
     // Debounce the search
     const timeoutId = setTimeout(searchEntries, 300)
-    return () => clearTimeout(timeoutId)
+    // A new value, a filter change or unmount drops the search this run started,
+    // so a late answer can't open the list for text that's no longer in the box.
+    return () => {
+      clearTimeout(timeoutId)
+      invalidate()
+    }
   }, [value, categoryFilter, poiCategoryFilter, hasAddNew, invalidate])
-
-  // A search still out when the picker goes away has nowhere to land.
-  useEffect(() => () => invalidate(), [invalidate])
 
   // Close dropdown when clicking outside. Like Escape, this drops the search
   // too, or its answer reopens the list after you've moved on.

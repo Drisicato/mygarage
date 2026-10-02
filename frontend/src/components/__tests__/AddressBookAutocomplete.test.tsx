@@ -85,6 +85,19 @@ function PickerWithQuickAdd(): ReactElement {
   )
 }
 
+// Stands in for FuelRecordForm's receipt scan: it writes a station name nobody typed.
+function PickerWithReceipt(): ReactElement {
+  const [value, setValue] = useState('')
+  return (
+    <>
+      <AddressBookAutocomplete id="station" value={value} onChange={setValue} />
+      <button type="button" onClick={() => setValue('Speedway')}>
+        scan receipt
+      </button>
+    </>
+  )
+}
+
 const input = (): HTMLInputElement => screen.getByRole<HTMLInputElement>('textbox')
 const type = (text: string): void => {
   fireEvent.change(input(), { target: { value: text } })
@@ -181,7 +194,7 @@ describe('AddressBookAutocomplete after a pick (#194)', () => {
 
   it('a late failure after a pick leaves the picker idle', async () => {
     // A dropped search skips its own finally, so the pick has to stop the spinner itself.
-    const errors = vi.spyOn(console, 'error')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const late = deferred<SearchResponse>()
     const { container } = render(<Picker withClear />)
     type('Sh')
@@ -246,6 +259,26 @@ describe('AddressBookAutocomplete after a pick (#194)', () => {
     expect(option('Zz Garage')).not.toBeInTheDocument()
   })
 
+  it('a parent write mid-search drops the search', async () => {
+    // A receipt scan landing while a search was out let that answer open the list
+    // for text no longer in the box. It lands inside the next debounce on purpose.
+    const late = deferred<SearchResponse>()
+    get.mockReturnValueOnce(late.promise)
+    render(<PickerWithReceipt />)
+    type('Sh')
+    await wait(300)
+    expect(get).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'scan receipt' }))
+    expect(input().value).toBe('Speedway')
+    await act(async () => {
+      late.resolve(found(SHELL))
+    })
+    expect(option('Shell')).not.toBeInTheDocument()
+    await wait(1000)
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(option('Shell')).not.toBeInTheDocument()
+  })
+
   it('a new onAddNew each render does not refetch', async () => {
     // Callers pass an inline function, and a new one each render used to refire the search.
     const { rerender } = render(<Picker onAddNew={vi.fn()} />)
@@ -272,12 +305,27 @@ describe('AddressBookAutocomplete after a pick (#194)', () => {
 })
 
 describe('AddressBookAutocomplete after a close (#194)', () => {
-  it.each([
+  const closers = [
     { label: 'Escape', close: (): void => void fireEvent.keyDown(input(), { key: 'Escape' }) },
     { label: 'a click outside', close: (): void => void fireEvent.mouseDown(document.body) },
-  ])('closing the list drops its pending search ($label)', async ({ close }) => {
-    // Closing only hid the list: the search still waiting fired anyway and the
-    // late answer landed, and either one opened it again.
+  ]
+
+  it.each(closers)('closing the list drops the search still waiting ($label)', async ({ close }) => {
+    // Closing only hid the list, so the search waiting out the debounce fired anyway and opened it again.
+    render(<Picker />)
+    type('Sh')
+    await wait(300)
+    type('She')
+    expect(option('Shell')).toBeInTheDocument()
+    close()
+    expect(option('Shell')).not.toBeInTheDocument()
+    await wait(1000)
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(option('Shell')).not.toBeInTheDocument()
+  })
+
+  it.each(closers)('closing the list drops the search already running ($label)', async ({ close }) => {
+    // Closing only hid the list, so the running search kept its spinner and its late answer opened it again.
     const late = deferred<SearchResponse>()
     const { container } = render(<Picker />)
     type('Sh')
@@ -285,15 +333,15 @@ describe('AddressBookAutocomplete after a close (#194)', () => {
     get.mockReturnValueOnce(late.promise)
     type('She')
     await wait(300)
-    type('Shel')
-    expect(option('Shell')).toBeInTheDocument()
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(spinner(container)).toBeInTheDocument()
     close()
     expect(option('Shell')).not.toBeInTheDocument()
     expect(spinner(container)).not.toBeInTheDocument()
-    await wait(300)
     await act(async () => {
       late.resolve(found(SHEETZ))
     })
+    await wait(1000)
     expect(get).toHaveBeenCalledTimes(2)
     expect(option('Shell')).not.toBeInTheDocument()
     expect(option('Sheetz')).not.toBeInTheDocument()
