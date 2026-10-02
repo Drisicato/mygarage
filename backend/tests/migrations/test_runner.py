@@ -34,17 +34,19 @@ def test_tracking_table_follows_the_dialect_not_the_path(tmp_path: Path) -> None
     db_dir.mkdir()
     db_file = db_dir / "mygarage.db"
     runner = MigrationRunner(f"sqlite:///{db_file}", Path("/nonexistent"))
-    runner._ensure_migration_tracking_table()
-    runner._mark_migration_applied("001_example")
-    runner.engine.dispose()
-
-    conn = sqlite3.connect(str(db_file))
     try:
-        ids = [row[0] for row in conn.execute("SELECT id FROM schema_migrations")]
-    finally:
-        conn.close()
+        runner._ensure_migration_tracking_table()
+        runner._mark_migration_applied("001_example")
 
-    assert ids == [1]
+        conn = sqlite3.connect(str(db_file))
+        try:
+            ids = [row[0] for row in conn.execute("SELECT id FROM schema_migrations")]
+        finally:
+            conn.close()
+
+        assert ids == [1]
+    finally:
+        runner.engine.dispose()
 
 
 @pytest.mark.migrations

@@ -78,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adding, changing or removing a POI search provider in Settings now saves
 - An address book email over 100 characters is refused instead of failing with a server error on PostgreSQL
 - A full backup restore writes the database file MyGarage actually uses; with a file not named mygarage.db it left the live database alone and deleted its write-ahead log
+- A PostgreSQL database URL with "sqlite" in its password or database name is no longer mistaken for SQLite
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
