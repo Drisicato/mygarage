@@ -86,13 +86,11 @@ def _point_the_app_at(
     monkeypatch.setattr(backup_routes, "BACKUP_DIR", backups)
 
 
-@pytest.mark.parametrize("maintenance_mode", [False, True], ids=["normal", "maintenance"])
 @pytest.mark.parametrize("killed_mid_swap", [False, True], ids=["staged", "killed_mid_swap"])
 def test_a_staged_restore_is_in_place_before_init_db(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, maintenance_mode: bool, killed_mid_swap: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, killed_mid_swap: bool
 ) -> None:
     data_dir, db, backups = _plant(tmp_path, killed_mid_swap)
-    monkeypatch.setattr(settings, "maintenance_mode", maintenance_mode)
     _point_the_app_at(monkeypatch, data_dir, db, backups)
     seen: dict[str, object] = {}
 

@@ -694,8 +694,10 @@ class BackupService:
                         self._safe_extract_member(tar, member, staging, parts)
                     # Left out: mygarage.db-shm (a dead process's WAL index; SQLite rebuilds it
                     # from the WAL) and mygarage.pgdump (PostgreSQL's).
-        except (tarfile.TarError, EOFError) as exc:
-            # Neither is an OSError or a ValueError, so without this a truncated file is a 500.
+        except (tarfile.TarError, EOFError, KeyError, RecursionError) as exc:
+            # None of these is an OSError or a ValueError, so without this a truncated file is a
+            # 500. tarfile reads a link through its target: KeyError if the target isn't in the
+            # archive, RecursionError if the links loop.
             raise ValueError("This backup can't be read as a tar.gz archive") from exc
         self._fold_and_check(work / "mygarage.db")
         shutil.move(work / "mygarage.db", restore_staging.pending_database(database_file))

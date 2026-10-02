@@ -82,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A full backup restore writes the database file MyGarage actually uses; with a file not named mygarage.db it left the live database alone and deleted its write-ahead log
 - A PostgreSQL database URL with "sqlite" in its password or database name is no longer mistaken for SQLite
 - A full backup restore no longer rewrites the database while MyGarage has it open, which could corrupt the restored data; a backup whose database is damaged or missing is refused
+- A full or safety backup of a database whose path contains "#" or "?" archived an empty database instead of the real one
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

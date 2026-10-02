@@ -47,6 +47,6 @@ def to_sync_url(url: str) -> str:
         raise ValueError("database URL is empty; nothing to connect to")
 
     scheme, sep, rest = url.partition("://")
-    if sep and scheme in _SYNC_SCHEME:
+    if scheme in _SYNC_SCHEME:
         return _SYNC_SCHEME[scheme] + sep + rest
     return url

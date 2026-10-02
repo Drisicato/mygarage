@@ -765,17 +765,26 @@ async def test_names_read_from_the_staging_cant_forge_a_log_line(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.parametrize("left", ["everything", "nothing"])
 async def test_an_unfinished_staging_is_thrown_away_at_start(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, left: str
 ) -> None:
     """No manifest and no applying marker means the staging never finished: the start drops it.
 
     A guard on the manifest rule; mutant: skip the no-manifest branch (the staging stays for
-    every later start).
+    every later start). "nothing" is a cancel killed in its last step, an empty staging folder:
+    no restore went in, so it still gets the WARNING. Mutant: drop the previous/ check (it reads
+    as the cleanup of an applied restore).
     """
     service, db_path = _live_and_archive(tmp_path)
     await service.restore_full_backup(STAGED, create_safety=False)
-    (service.data_dir / ".restore-pending" / "manifest.json").unlink()
+    staging = service.data_dir / ".restore-pending"
+    (staging / "manifest.json").unlink()
+    if left == "nothing":
+        Path(f"{db_path}.restore-pending").unlink()
+        for name in ("photos", "documents", "attachments"):
+            shutil.rmtree(staging / name)
+        assert staging.exists() and not any(staging.iterdir())
     before = _live_state(service, db_path)
 
     with caplog.at_level(logging.WARNING, logger="app.services.restore_staging"):
@@ -792,20 +801,22 @@ async def test_an_unfinished_staging_is_thrown_away_at_start(
 @pytest.mark.unit
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "problem", ["other_database", "unreadable_manifest", "staged_database_gone"]
+    "problem",
+    ["other_database", "unreadable_manifest", "staged_database_gone", "no_archive_name"],
 )
 async def test_a_staged_restore_that_doesnt_fit_waits_and_can_be_cancelled(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, problem: str
 ) -> None:
     """Untouched staging that can't be applied: the start logs it, swaps nothing and starts.
 
-    The setting changed, the manifest broke, or the staged database went missing. The tab
-    still shows it, and Cancel still works and leaves no stray staged file. A guard;
-    mutants: drop the partly-staged check (staged_database_gone: the staged folders land on
-    a database that was never restored), or refuse to start without the applying marker (a
-    harmless mismatch stops the app). Dropping the target check passes here: without the
-    marker a changed setting also reads as partly staged, since the staged database is named
-    after the file it replaces. The half-applied test kills that one.
+    The setting changed, the manifest broke or names no safety archive, or the staged database
+    went missing. The tab still shows it, and Cancel still works and leaves no stray staged
+    file. A guard; mutants: drop the partly-staged check (staged_database_gone: the staged
+    folders land on a database that was never restored), drop the archive-name check
+    (no_archive_name: a KeyError in the swap instead of the log line), or refuse to start
+    without the applying marker (a harmless mismatch stops the app). Dropping the target check
+    passes here: without the marker a changed setting also reads as partly staged, since the
+    staged database is named after the file it replaces. The half-applied test kills that one.
     """
     service, db_path = _live_and_archive(tmp_path)
     await service.restore_full_backup(STAGED, create_safety=False)
@@ -817,6 +828,11 @@ async def test_a_staged_restore_that_doesnt_fit_waits_and_can_be_cancelled(
         starter = _service(tmp_path, live)
     elif problem == "unreadable_manifest":
         (service.data_dir / ".restore-pending" / "manifest.json").write_text("{ cut off")
+    elif problem == "no_archive_name":
+        manifest_path = service.data_dir / ".restore-pending" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        del manifest["prerestore_backup"]
+        manifest_path.write_text(json.dumps(manifest))
     else:
         Path(f"{db_path}.restore-pending").unlink()
     before = _live_state(starter, live)
@@ -844,7 +860,10 @@ async def test_a_staged_restore_that_doesnt_fit_waits_and_can_be_cancelled(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("killed_after", range(1, 14))
 async def test_a_start_killed_after_any_change_finishes_the_job(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, killed_after: int
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    killed_after: int,
 ) -> None:
     """A start killed right after any of the apply's 13 changes: the next start lands on the restored state.
 
@@ -864,6 +883,9 @@ async def test_a_start_killed_after_any_change_finishes_the_job(
 
     The archive mutants (written with the marker down, no existence check, no cleanup-only path)
     leave the archive alone here, so their own tests below kill them.
+
+    After 13 the restore is in and only the cleanup is left, so the log says so: a WARNING that
+    the restore was discarded would send someone to restore it again. Mutant: log the old WARNING.
     """
     service, db_path = _live_and_archive(tmp_path)
     await service.restore_full_backup(STAGED, create_safety=False)
@@ -872,8 +894,20 @@ async def test_a_start_killed_after_any_change_finishes_the_job(
         with pytest.raises(_KilledError):
             service.apply_pending_restore()
 
-    # Up to 12 the manifest is still there, so the next start resumes; after 13 only cleanup is left.
-    assert service.apply_pending_restore() == (STAGED if killed_after < 13 else None)
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="app.services.restore_staging"):
+        # Up to 12 the manifest is still there, so the next start resumes; after 13 only cleanup is left.
+        assert service.apply_pending_restore() == (STAGED if killed_after < 13 else None)
+
+    if killed_after == 13:
+        staging_logs = [
+            (r.levelno, r.getMessage())
+            for r in caplog.records
+            if r.name == "app.services.restore_staging"
+        ]
+        assert staging_logs == [
+            (logging.INFO, "Removed the leftover staging of an applied restore")
+        ]
 
     assert not Path(f"{db_path}-wal").exists()
     assert _read_rows(db_path) == [(99, "restored")]
@@ -1649,3 +1683,78 @@ async def test_a_backup_that_isnt_a_readable_archive_is_refused(
 
     assert _live_state(service, db_path) == before
     assert not (service.data_dir / ".restore-pending").exists()
+
+
+_LINKS_THAT_LEAD_NOWHERE: dict[str, list[tuple[str, bytes, str]]] = {
+    "dangling_hardlink": [("photos/x.jpg", tarfile.LNKTYPE, "photos/missing.jpg")],
+    "dangling_symlink": [("photos/x.jpg", tarfile.SYMTYPE, "missing.jpg")],
+    "symlink_loop": [
+        ("photos/a.jpg", tarfile.SYMTYPE, "b.jpg"),
+        ("photos/b.jpg", tarfile.SYMTYPE, "a.jpg"),
+    ],
+}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("link", list(_LINKS_THAT_LEAD_NOWHERE))
+async def test_a_link_member_that_leads_nowhere_is_refused(tmp_path: Path, link: str) -> None:
+    """A hand-made archive with a link to a file it doesn't hold is a 400, and nothing is staged.
+
+    tarfile reads a link member through its target: a target that isn't in the archive raises
+    KeyError, and links that loop raise RecursionError. RED: both escaped as a 500. Mutant:
+    leave either out of the conversion.
+    """
+    service, db_path = _live_and_archive(tmp_path)
+    with tarfile.open(service.backup_dir / "mygarage-full-links.tar.gz", "w:gz") as tar:
+        tar.add(tmp_path / "source.db", arcname="mygarage.db")
+        for name, kind, target in _LINKS_THAT_LEAD_NOWHERE[link]:
+            info = tarfile.TarInfo(name)
+            info.type = kind
+            info.linkname = target
+            tar.addfile(info)
+    before = _live_state(service, db_path)
+
+    with pytest.raises(ValueError, match="can't be read as a tar.gz archive"):
+        await service.restore_full_backup("mygarage-full-links.tar.gz", create_safety=False)
+
+    assert _live_state(service, db_path) == before
+    assert not (service.data_dir / ".restore-pending").exists()
+    assert not Path(f"{db_path}.restore-pending").exists()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_the_apps_own_backup_of_linked_photos_restores(tmp_path: Path) -> None:
+    """A photos folder holding a symlink and a hard link: the app's own backup of it stages and applies.
+
+    tar.add keeps both as link members, which is why a link that leads nowhere is refused and
+    link members in general aren't. Each comes back as a copy of the photo it points at. A
+    guard; mutant: refuse every link member (the app can't restore its own backup).
+    """
+    db_path = tmp_path / "garage.db"
+    _write_one_row_db(db_path, 7, "live")
+    service = _service(tmp_path, db_path)
+    photos = service.data_dir / "photos"
+    (photos / "car.jpg").write_bytes(b"car photo")
+    (photos / "alias.jpg").symlink_to("car.jpg")
+    os.link(photos / "car.jpg", photos / "twin.jpg")
+    meta = await service.create_full_backup()
+    with tarfile.open(service.backup_dir / meta["filename"], "r:gz") as tar:
+        kinds = {
+            m.name: (m.issym(), m.islnk()) for m in tar.getmembers() if m.name.startswith("photos/")
+        }
+    assert kinds == {
+        "photos/alias.jpg": (True, False),
+        "photos/car.jpg": (False, False),
+        "photos/twin.jpg": (False, True),
+    }, "the backup holds no link members, so this proves nothing"
+    for photo in photos.iterdir():
+        photo.unlink()
+    (photos / "other.jpg").write_bytes(b"other photo")
+
+    await service.restore_full_backup(meta["filename"], create_safety=False)
+    assert service.apply_pending_restore() == meta["filename"]
+
+    restored = {p.name: p.read_bytes() for p in photos.iterdir()}
+    assert restored == {name: b"car photo" for name in ("alias.jpg", "car.jpg", "twin.jpg")}

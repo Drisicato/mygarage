@@ -300,6 +300,14 @@ def _partly_staged(staging: Path, target: Path) -> bool:
     return any(present) and not all(present)
 
 
+def _only_cleanup_left(staging: Path, target: Path | None) -> bool:
+    """Folders set aside and nothing left to swap in: a restore went in and its cleanup got cut short."""
+    if not (staging / "previous").exists():
+        return False
+    staged = _staged_items(staging, target) if target else [staging / n for n in MEDIA_DIRS]
+    return not any(path.exists() for path in staged)
+
+
 def apply_pending_restore(
     data_dir: Path,
     database_file: Path | None,
@@ -363,6 +371,8 @@ def apply_pending_restore(
                     data_dir,
                 )
                 return None
+            # Checked before the discard takes the evidence with it.
+            applied = _only_cleanup_left(staging, target)
             try:
                 discarded = discard_pending_restore(data_dir, database_file)
             except OSError as exc:
@@ -370,7 +380,10 @@ def apply_pending_restore(
                     f"A leftover restore staging in {staging} can't be removed: {exc}. Delete it by "
                     "hand and start MyGarage again."
                 ) from exc
-            if discarded:
+            if applied:
+                # The restore is in. Saying it was discarded would send someone to restore it again.
+                logger.info("Removed the leftover staging of an applied restore")
+            elif discarded:
                 logger.warning("Discarded an unfinished restore; the current data stays")
             return None
         logger.error(
