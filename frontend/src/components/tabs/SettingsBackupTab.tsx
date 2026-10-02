@@ -169,15 +169,17 @@ export default function SettingsBackupTab() {
       })
 
       await loadData()
-      // A restored settings file can carry a different timezone row; update
-      // the browser stores (household zone, unit defaults) right away.
-      await refreshPublicSettings()
 
       if (isFullBackup) {
+        // Staged, not applied: nothing the browser reads changes until the restart.
         setMessage({
           type: 'warning',
           text: t('backupTab.fullRestoreStaged')
         })
+      } else {
+        // A restored settings file can carry a different timezone row; update
+        // the browser stores (household zone, unit defaults) right away.
+        await refreshPublicSettings()
       }
     } catch (err: unknown) {
       setMessage({ type: 'error', text: getActionErrorMessage(err, t('backupTab.restoreAction')) })

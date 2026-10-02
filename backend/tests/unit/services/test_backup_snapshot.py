@@ -632,13 +632,16 @@ async def test_a_safety_archive_cut_off_mid_write_is_written_again(
     """The start died inside the archive writer, after bytes were written: the next start writes it again.
 
     Nothing live changes until the archive is whole under its name. -shm is left out of the
-    comparison: it's shared memory, and the snapshot is a reader. A guard; mutant: write the
-    archive straight to its final name (the cut-off archive then counts as done, with no photos).
+    comparison: it's shared memory, and the snapshot is a reader. A kill runs no Python, so
+    the writer's own cleanup of a failed write is switched off here too. A guard; mutant: write
+    the archive straight to its final name (the cut-off archive then counts as done, with no
+    photos).
     """
     service, db_path = _live_and_archive(tmp_path)
     await service.restore_full_backup(STAGED, create_safety=False)
     before = {k: v for k, v in _live_state(service, db_path).items() if k != "db-shm"}
     real_add = tarfile.TarFile.add
+    staging_module = importlib.import_module("app.services.restore_staging")
 
     def _dies_at_the_photos(self: tarfile.TarFile, *args: Any, **kwargs: Any) -> None:
         if kwargs.get("arcname") == "photos":
@@ -647,6 +650,7 @@ async def test_a_safety_archive_cut_off_mid_write_is_written_again(
 
     with monkeypatch.context() as patched:
         patched.setattr(tarfile.TarFile, "add", _dies_at_the_photos)
+        patched.setattr(staging_module, "discard_partial", lambda partial: None)
         with pytest.raises(_KilledError):
             service.apply_pending_restore()
 
@@ -667,6 +671,96 @@ async def test_a_safety_archive_cut_off_mid_write_is_written_again(
     ]
     with tarfile.open(service.backup_dir / name, "r:gz") as tar:
         assert "photos/old.jpg" in tar.getnames()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("when", ["request", "start"])
+async def test_a_safety_archive_that_fails_to_write_leaves_no_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
+) -> None:
+    """The writer fails partway (the disk fills at the photos): its .partial goes with it.
+
+    The request's safety archive is named by the second, so every failed restore would leave
+    another one behind, never listed and never cleaned up. A kill can't clean up, and the
+    cut-off test above covers that. Mutant: skip the cleanup.
+    """
+    service, _ = _live_and_archive(tmp_path)
+    if when == "start":
+        await service.restore_full_backup(STAGED, create_safety=False)
+    real_add = tarfile.TarFile.add
+    partials_at_failure: list[Path] = []
+
+    def _disk_full_at_the_photos(self: tarfile.TarFile, *args: Any, **kwargs: Any) -> None:
+        if kwargs.get("arcname") == "photos":
+            partials_at_failure.extend(service.backup_dir.glob("*.partial"))
+            raise OSError(errno.ENOSPC, "No space left on device")
+        real_add(self, *args, **kwargs)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(tarfile.TarFile, "add", _disk_full_at_the_photos)
+        with pytest.raises((OSError, RuntimeError), match="No space left on device"):
+            if when == "request":
+                await service.restore_full_backup(STAGED, create_safety=True)
+            else:
+                service.apply_pending_restore()
+
+    assert len(partials_at_failure) == 1, "the write didn't fail partway"
+    assert list(service.backup_dir.glob("*.partial")) == []
+    assert list(service.backup_dir.glob("mygarage-full-safety-*")) == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["cant_finish", "missing_archive", "applied"])
+async def test_names_read_from_the_staging_cant_forge_a_log_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    case: str,
+) -> None:
+    """The manifest and the marker are files on disk, so what the start logs from them is sanitized.
+
+    A newline in a hand-edited name would start a log line of its own. The cases reach the
+    marker's names in _cannot_finish, the manifest's archive name in the missing-archive
+    refusal, and the same name in the log lines of an apply that goes through. Mutant: log
+    any of those names as read.
+    """
+    service, _ = _live_and_archive(tmp_path)
+    await service.restore_full_backup(STAGED, create_safety=False)
+    staging = service.data_dir / ".restore-pending"
+    forged = "pre\nFORGED log line.tar.gz"
+    if case != "applied":
+        with monkeypatch.context() as patched:
+            _kill_after_changes(patched, 5)
+            with pytest.raises(_KilledError):
+                service.apply_pending_restore()
+    if case == "cant_finish":
+        marker = json.loads((staging / "applying").read_text())
+        marker["prerestore_backup"] = forged
+        marker["database"] = f"{marker['database']}\rFORGED"
+        (staging / "applying").write_text(json.dumps(marker))
+        (staging / "manifest.json").write_text("{ cut off")
+    else:
+        manifest = json.loads((staging / "manifest.json").read_text())
+        manifest["prerestore_backup"] = forged
+        (staging / "manifest.json").write_text(json.dumps(manifest))
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO):
+        if case == "applied":
+            assert service.apply_pending_restore() == STAGED
+        else:
+            with pytest.raises(RuntimeError):
+                service.apply_pending_restore()
+
+    logged = [
+        r.getMessage()
+        for r in caplog.records
+        if r.name in ("app.services.restore_staging", "app.services.backup_service")
+    ]
+    assert any("pre\\nFORGED log line" in message for message in logged), logged
+    assert not [m for m in logged if "\n" in m or "\r" in m], logged
 
 
 @pytest.mark.unit

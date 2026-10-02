@@ -2,7 +2,8 @@
  * Backup tab, full restore. A full restore is staged and finishes at the next start, so the
  * tab says to restart. "Refresh the page" was wrong: until the restart a refresh shows the
  * current data, and the restore looks like it failed. While a restore is staged the tab says
- * which one and when, and can cancel it.
+ * which one and when, and can cancel it. A settings restore changes the public settings now, so
+ * it refreshes them; a full restore changes nothing until the restart, so it doesn't.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -12,8 +13,10 @@ vi.mock('@/services/api', () => ({
   default: { get: vi.fn(), post: vi.fn(), delete: vi.fn(), defaults: {} },
 }))
 
+const { refreshPublicSettings } = vi.hoisted(() => ({ refreshPublicSettings: vi.fn() }))
+
 vi.mock('@/contexts/AuthContext', () => ({
-  useAuth: () => ({ refreshPublicSettings: vi.fn().mockResolvedValue(undefined) }),
+  useAuth: () => ({ refreshPublicSettings }),
 }))
 
 vi.mock('@/hooks/useTimeFormat', () => ({
@@ -25,10 +28,12 @@ import SettingsBackupTab from '../SettingsBackupTab'
 
 const mockedApi = vi.mocked(api)
 const FULL = 'mygarage-full-2026-10-02-120000.tar.gz'
+const SETTINGS = 'mygarage-settings-2026-10-02-120000.json'
 let pending: { source_backup: string | null; staged_at: string | null } | null = null
 
 beforeEach(() => {
   vi.clearAllMocks()
+  refreshPublicSettings.mockResolvedValue(undefined)
   pending = null
   mockedApi.get.mockImplementation((url: string) => {
     if (url === '/backup/stats') {
@@ -45,7 +50,10 @@ beforeEach(() => {
     if (url === '/backup/list?backup_type=all') {
       return Promise.resolve({
         data: {
-          backups: [{ filename: FULL, type: 'full', size_mb: 1, created: '2026-10-02T12:00:00', is_safety: false }],
+          backups: [
+            { filename: FULL, type: 'full', size_mb: 1, created: '2026-10-02T12:00:00', is_safety: false },
+            { filename: SETTINGS, type: 'settings', size_mb: 0.01, created: '2026-10-02T12:00:00', is_safety: false },
+          ],
         },
       })
     }
@@ -63,6 +71,17 @@ describe('SettingsBackupTab full restore', () => {
     fireEvent.click(await screen.findByTitle('backup.restoreOverwrite'))
     await waitFor(() => expect(mockedApi.post).toHaveBeenCalledWith(`/backup/restore/${FULL}`))
     expect(await screen.findByText('backupTab.fullRestoreStaged')).toBeInTheDocument()
+  })
+
+  it('refreshes the public settings after a settings restore, and not after a full one', async () => {
+    render(<SettingsBackupTab />)
+    fireEvent.click(await screen.findByTitle('backup.restoreOverwrite'))
+    expect(await screen.findByText('backupTab.fullRestoreStaged')).toBeInTheDocument()
+    expect(refreshPublicSettings).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTitle('backup.restore'))
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalledWith(`/backup/restore/${SETTINGS}`))
+    await waitFor(() => expect(refreshPublicSettings).toHaveBeenCalledTimes(1))
   })
 
   it('says up front that a full restore needs a restart, and shows no notice with nothing staged', async () => {

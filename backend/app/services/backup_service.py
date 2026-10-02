@@ -1,6 +1,7 @@
 """Backup service for settings and full data backups."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -606,22 +607,32 @@ class BackupService:
 
         The snapshot goes through the SQLite backup API, never a file copy, which under WAL
         misses committed rows. Published durably from a temporary name, so the name only ever
-        shows a complete archive that's on disk.
+        shows a complete archive that's on disk. A write that fails takes its temporary file
+        with it; only a kill leaves one, and the next start writes over it.
         """
         self.ensure_backup_dir()
         partial = archive.with_name(archive.name + ".partial")
-        with tarfile.open(partial, "w:gz") as tar:
-            if self.database_path is not None and self.database_path.exists():
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    snapshot_path = Path(tmpdir) / "mygarage.db"
-                    self._snapshot_sqlite(snapshot_path)
-                    tar.add(snapshot_path, arcname="mygarage.db")
-            for dir_name in restore_staging.MEDIA_DIRS:
-                dir_path = self.data_dir / dir_name
-                if dir_path.exists() and any(dir_path.iterdir()):
-                    tar.add(dir_path, arcname=dir_name)
-        restore_staging.publish_file(partial, archive)
-        logger.info("Created safety backup: %s", archive.name)
+        try:
+            with tarfile.open(partial, "w:gz") as tar:
+                if self.database_path is not None and self.database_path.exists():
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        snapshot_path = Path(tmpdir) / "mygarage.db"
+                        self._snapshot_sqlite(snapshot_path)
+                        tar.add(snapshot_path, arcname="mygarage.db")
+                for dir_name in restore_staging.MEDIA_DIRS:
+                    dir_path = self.data_dir / dir_name
+                    if dir_path.exists() and any(dir_path.iterdir()):
+                        tar.add(dir_path, arcname=dir_name)
+            restore_staging.publish_file(partial, archive)
+        except BaseException:
+            # A request's archive is named by the second, so each failed one would leave
+            # another .partial behind that nothing lists or cleans up. The cleanup never
+            # hides the real error.
+            with contextlib.suppress(OSError):
+                restore_staging.discard_partial(partial)
+            raise
+        # Named by the manifest at a start, so sanitized like any name read from disk.
+        logger.info("Created safety backup: %s", sanitize_for_log(archive.name))
 
     def _write_prerestore_archive(self, filename: str) -> None:
         """Archive the data a restore is about to replace, unless it's already there.

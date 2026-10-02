@@ -138,6 +138,11 @@ def publish_file(partial: Path, final: Path) -> None:
     _replace(partial, final)
 
 
+def discard_partial(partial: Path) -> None:
+    """Drop what a failed write left under its temporary name, and persist that."""
+    _unlink(partial)
+
+
 def _write_json(path: Path, data: dict[str, object]) -> None:
     """Write JSON under a temporary name and publish it, so the name only ever shows a whole file."""
     partial = path.with_name(path.name + ".partial")
@@ -260,9 +265,12 @@ def _cannot_finish(staging: Path, reason: str, finish: str) -> RestoreInProgress
     The marker says what it was applying; the manifest does when the marker is gone.
     """
     info = _read_json(staging / APPLYING_NAME) or _read_json(staging / MANIFEST_NAME) or {}
-    prerestore = info.get("prerestore_backup", "the mygarage-full-safety-prerestore archive")
+    # Both files sit on disk, so their names go through sanitize_for_log before the log.
+    prerestore = sanitize_for_log(
+        info.get("prerestore_backup", "the mygarage-full-safety-prerestore archive")
+    )
     database = info.get("database")
-    staged_db = f" and {database}{_PENDING_SUFFIX}" if database else ""
+    staged_db = f" and {sanitize_for_log(database)}{_PENDING_SUFFIX}" if database else ""
     return _stuck(
         "A restore was being applied when MyGarage last stopped, and this start can't finish it: "
         f"{reason}. Its files are kept, and MyGarage won't start until this is settled. "
@@ -405,10 +413,11 @@ def _swap_in(
             raise _cannot_begin(staging, staged_db, exc) from exc
     elif not (backup_dir / prerestore).exists():
         # Written now, it would file the half-swapped data as "before the restore".
+        shown = sanitize_for_log(prerestore)
         raise _cannot_finish(
             staging,
-            f"its pre-restore safety archive {prerestore} is missing from {backup_dir}",
-            f"To finish it, put {prerestore} back and start MyGarage again. ",
+            f"its pre-restore safety archive {shown} is missing from {backup_dir}",
+            f"To finish it, put {shown} back and start MyGarage again. ",
         )
     try:
         if staged_db.exists():
@@ -428,7 +437,7 @@ def _swap_in(
     logger.info(
         "Applied the staged restore of %s; the data it replaced is in %s",
         sanitize_for_log(source),
-        prerestore,
+        sanitize_for_log(prerestore),
     )
     return source
 
