@@ -50,6 +50,26 @@ class TestToSyncUrl:
         ):
             assert not to_sync_url(url).startswith("sqlite"), url
 
+    def test_a_driverless_postgresql_url_names_psycopg2(self):
+        """2.1 made psycopg (3) the default for a bare postgresql://, and we only ship psycopg2."""
+        assert (
+            to_sync_url("postgresql://u:p@host/mygarage")
+            == "postgresql+psycopg2://u:p@host/mygarage"
+        )
+
+    def test_only_the_scheme_is_matched(self):
+        """A scheme that merely starts like one we map is left alone, and so is a password that looks like one.
+
+        A guard: the old prefix match passes it too. Mapping by url.startswith with a bare
+        postgresql entry kills it, turning postgresql+psycopg2 into postgresql+psycopg2+psycopg2.
+        """
+        assert to_sync_url("postgresql+psycopg2://u:p@h/db") == "postgresql+psycopg2://u:p@h/db"
+        assert to_sync_url("postgresql+psycopg://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+        assert (
+            to_sync_url("postgresql+asyncpg://u:postgresql+asyncpg@h/db")
+            == "postgresql+psycopg2://u:postgresql+asyncpg@h/db"
+        )
+
     @pytest.mark.parametrize("url", ["", "   "])
     def test_an_empty_url_is_rejected(self, url):
         """An empty URL would otherwise reach create_engine as a mystery failure."""

@@ -21,10 +21,18 @@ class TestResolveSyncUrl:
 
     def test_a_bare_path_is_still_sqlite(self):
         """The published upgrade note passes `/data/mygarage.db`; it must keep working."""
-        assert resolve_sync_url("/data/mygarage.db") == "sqlite:////data/mygarage.db"
+        from sqlalchemy.engine import make_url
+
+        url = resolve_sync_url("/data/mygarage.db")
+        assert url.startswith("sqlite:///")
+        assert make_url(url).database == "/data/mygarage.db"
 
     def test_a_relative_path_is_still_sqlite(self):
-        assert resolve_sync_url("mygarage.db") == "sqlite:///mygarage.db"
+        from sqlalchemy.engine import make_url
+
+        url = resolve_sync_url("mygarage.db")
+        assert url.startswith("sqlite:///")
+        assert make_url(url).database == "mygarage.db"
 
     def test_a_postgres_url_stays_postgres(self):
         """The defect. A path-only reading of this produced a SQLite file."""
@@ -47,9 +55,57 @@ class TestResolveSyncUrl:
 
     def test_a_windows_style_path_is_not_mistaken_for_a_url(self):
         """`C:\\db` contains a colon but is not a scheme. Guarded deliberately."""
-        assert resolve_sync_url("C:/data/mygarage.db") == "sqlite:///C:/data/mygarage.db"
+        from sqlalchemy.engine import make_url
+
+        url = resolve_sync_url("C:/data/mygarage.db")
+        assert url.startswith("sqlite:///")
+        assert make_url(url).database == "C:/data/mygarage.db"
 
     def test_an_unreachable_dialect_is_refused_by_name(self):
         """A URL naming a driver the tools cannot use fails here, not mid-migration."""
         with pytest.raises(ValueError, match="mysql"):
             resolve_sync_url("mysql://u:p@host/mygarage")
+
+    def test_a_driverless_postgres_url_builds_an_engine(self):
+        """create_engine imports the driver up front, which is where a bare URL died on 2.1."""
+        from sqlalchemy import create_engine
+
+        engine = create_engine(resolve_sync_url("postgresql://u:p@host/mygarage"))
+        assert engine.dialect.driver == "psycopg2"
+        engine.dispose()
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/data/mygarage.db",
+            "mygarage.db",
+            "C:/data/mygarage.db",
+            "/data/my%41garage.db",
+            "/data/a#b.db",
+        ],
+    )
+    def test_a_bare_path_is_taken_literally(self, path):
+        """2.1 percent-decodes the database part of a URL, so the path can't be pasted into one raw.
+
+        Only the %41 case failed before the fix; the rest are guards. Quoting the path before
+        URL.create kills C: and #, resolving it kills mygarage.db, and stripping its leading
+        slash kills /data/mygarage.db.
+        """
+        from sqlalchemy.engine import make_url
+
+        url = resolve_sync_url(path)
+        assert url.startswith("sqlite:///")
+        assert make_url(url).database == path
+
+    def test_an_explicit_url_is_not_escaped_again(self):
+        """A URL the operator wrote is already a URL: %41 in it means A, as SQLAlchemy says.
+
+        A guard: it passes before the fix too. Running a sqlite URL's path back through
+        URL.create kills it by escaping the %41 a second time.
+        """
+        from sqlalchemy.engine import make_url
+
+        assert (
+            make_url(resolve_sync_url("sqlite:////data/my%41garage.db")).database
+            == "/data/myAgarage.db"
+        )
