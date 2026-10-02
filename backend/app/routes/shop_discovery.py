@@ -123,7 +123,8 @@ async def get_shop_recommendations(
         ShopRecommendationsResponse with top shops by usage
 
     Notes:
-        - Only returns shops with category='service'
+        - Only returns shops whose category is 'service' in any case (the
+          Address Book page stores 'Service'), ignoring surrounding spaces
         - Sorted by usage_count DESC (most used first)
         - Only includes shops that have been used at least once
     """

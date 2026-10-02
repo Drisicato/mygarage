@@ -3341,10 +3341,13 @@ export interface paths {
          *         POIRecommendationsResponse with top POIs by usage
          *
          *     Notes:
-         *         - Returns POIs with category='service' OR poi_category is set
+         *         - With no category, returns entries whose category is 'service' in any
+         *           case, entries with a poi_category set, and gas stations by either field
+         *           (poi_category 'gas_station' or category 'Gas Station')
          *         - Sorted by usage_count DESC (most used first)
          *         - Only includes POIs that have been used at least once
-         *         - Can filter by specific poi_category if provided
+         *         - Can filter by specific poi_category if provided; 'gas_station' also
+         *           matches the category 'Gas Station'
          */
         get: operations["get_poi_recommendations_api_poi_recommendations_get"];
         put?: never;
@@ -3857,7 +3860,8 @@ export interface paths {
          *         ShopRecommendationsResponse with top shops by usage
          *
          *     Notes:
-         *         - Only returns shops with category='service'
+         *         - Only returns shops whose category is 'service' in any case (the
+         *           Address Book page stores 'Service'), ignoring surrounding spaces
          *         - Sorted by usage_count DESC (most used first)
          *         - Only includes shops that have been used at least once
          */

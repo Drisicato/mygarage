@@ -38,8 +38,8 @@ class AddressBookEntryBase(BaseModel):
     user_rating: int | None = None
 
     # POI categorization (e.g. 'gas_station' for gas-station entries created
-    # from the fuel-record form). 'gas_station' entries are excluded from
-    # vendor sync — see routes/address_book.py::_sync_to_vendor.
+    # from the fuel-record form). A gas station is either this or the category
+    # "Gas Station", and neither syncs to vendors; see app.utils.gas_station.
     poi_category: str | None = Field(None, max_length=50)
     poi_metadata: str | None = None
 

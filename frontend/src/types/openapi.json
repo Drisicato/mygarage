@@ -38970,7 +38970,7 @@
     },
     "/api/poi/recommendations": {
       "get": {
-        "description": "Get recommended POIs based on usage history.\n\nArgs:\n    category: Optional POI category filter (auto_shop, rv_shop, ev_charging, gas_station)\n    limit: Maximum number of recommendations (default: 5)\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    POIRecommendationsResponse with top POIs by usage\n\nNotes:\n    - Returns POIs with category='service' OR poi_category is set\n    - Sorted by usage_count DESC (most used first)\n    - Only includes POIs that have been used at least once\n    - Can filter by specific poi_category if provided",
+        "description": "Get recommended POIs based on usage history.\n\nArgs:\n    category: Optional POI category filter (auto_shop, rv_shop, ev_charging, gas_station)\n    limit: Maximum number of recommendations (default: 5)\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    POIRecommendationsResponse with top POIs by usage\n\nNotes:\n    - With no category, returns entries whose category is 'service' in any\n      case, entries with a poi_category set, and gas stations by either field\n      (poi_category 'gas_station' or category 'Gas Station')\n    - Sorted by usage_count DESC (most used first)\n    - Only includes POIs that have been used at least once\n    - Can filter by specific poi_category if provided; 'gas_station' also\n      matches the category 'Gas Station'",
         "operationId": "get_poi_recommendations_api_poi_recommendations_get",
         "parameters": [
           {
@@ -40158,7 +40158,7 @@
     },
     "/api/shop-discovery/recommendations": {
       "get": {
-        "description": "Get recommended shops based on usage history.\n\nArgs:\n    limit: Maximum number of recommendations (default: 5)\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    ShopRecommendationsResponse with top shops by usage\n\nNotes:\n    - Only returns shops with category='service'\n    - Sorted by usage_count DESC (most used first)\n    - Only includes shops that have been used at least once",
+        "description": "Get recommended shops based on usage history.\n\nArgs:\n    limit: Maximum number of recommendations (default: 5)\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    ShopRecommendationsResponse with top shops by usage\n\nNotes:\n    - Only returns shops whose category is 'service' in any case (the\n      Address Book page stores 'Service'), ignoring surrounding spaces\n    - Sorted by usage_count DESC (most used first)\n    - Only includes shops that have been used at least once",
         "operationId": "get_shop_recommendations_api_shop_discovery_recommendations_get",
         "parameters": [
           {
