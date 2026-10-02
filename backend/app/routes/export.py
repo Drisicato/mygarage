@@ -630,12 +630,12 @@ async def export_warranties_csv(
 #: own collections: SQLAlchemy will not walk back down the relationship it just
 #: came up. Spell them out, or the first read is an async lazy load.
 #: The sibling links are loaded only so `_insurance_share` can read their ids
-#: and shares; `noload` keeps each of them from dragging its own coverages,
-#: which this export never reads off a sibling.
+#: and shares; `raiseload` keeps each of them from dragging its own coverages,
+#: and shouts if anything ever reads one, which this export never does off a sibling.
 _INSURANCE_LINK_LOADS = (
     selectinload(InsurancePolicyVehicle.policy)
     .selectinload(InsurancePolicy.vehicle_links)
-    .noload(InsurancePolicyVehicle.coverages),
+    .raiseload(InsurancePolicyVehicle.coverages),
     selectinload(InsurancePolicyVehicle.policy).selectinload(InsurancePolicy.all_fields),
 )
 
