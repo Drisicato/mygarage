@@ -19,6 +19,7 @@ import tarfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy.engine import make_url
 
 from app.services.backup_service import BackupService
 
@@ -150,3 +151,54 @@ async def test_restore_removes_stale_wal_sidecars(tmp_path: Path) -> None:
     finally:
         check.close()
     assert rows == [(99, "restored")], f"restored db has wrong content: {rows!r}"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["my#garage.db", "my?garage.db", "my%41garage.db"])
+async def test_full_backup_snapshots_a_path_with_uri_characters(tmp_path: Path, name: str) -> None:
+    """`#`, `?` and `%` in the database path stay part of the path.
+
+    The snapshot opens a `file:` URI. Unescaped, `#garage.db?mode=ro` read as
+    the fragment, so SQLite opened (and created) `.../my` read-write and the
+    archive held an empty database. `%41` decoded to a file that isn't there.
+    """
+    db_path = tmp_path / name
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE audit_rows (id INTEGER PRIMARY KEY, v TEXT)")
+    conn.execute("INSERT INTO audit_rows (id, v) VALUES (1, 'kept')")
+    conn.commit()
+    conn.close()
+
+    service = _service(tmp_path, db_path)
+    meta = await service.create_full_backup()
+    archive = service.backup_dir / meta["filename"]
+
+    extracted_db = _extract_member(archive, "mygarage.db", tmp_path)
+    check = sqlite3.connect(extracted_db)
+    try:
+        tables = [
+            row[0] for row in check.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        ]
+        rows = check.execute("SELECT id, v FROM audit_rows").fetchall() if tables else []
+    finally:
+        check.close()
+
+    assert tables == ["audit_rows"], f"archived an empty database for {name!r}"
+    assert rows == [(1, "kept")]
+    assert not (tmp_path / "my").exists(), "the snapshot created a stray database file"
+
+
+@pytest.mark.unit
+def test_pg_dump_names_the_database_the_engine_opens() -> None:
+    """SQLAlchemy 2.1 decodes the URL's database name, so pg_dump has to as well."""
+    url = "postgresql+asyncpg://u:p@h/my%41db"
+    service = BackupService(
+        backup_dir=Path("/nonexistent/backups"),
+        database_path=None,
+        data_dir=Path("/nonexistent"),
+        database_url=url,
+        is_sqlite=False,
+    )
+
+    assert service._parse_pg_url()["dbname"] == make_url(url).database == "myAdb"

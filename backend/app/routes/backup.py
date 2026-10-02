@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import get_db, is_sqlite
+from app.database import engine, get_db, is_sqlite, sqlite_database_path
 from app.models.user import User
 from app.services.auth import get_current_admin_user
 from app.services.backup_service import BackupService
@@ -22,11 +22,9 @@ logger = logging.getLogger(__name__)
 # Backup directory configuration
 BACKUP_DIR = settings.data_dir / "backups"
 
-# SQLite: derive database file path; PostgreSQL: no file path needed
-if is_sqlite:
-    DATABASE_PATH: Path | None = Path(settings.database_url.replace("sqlite+aiosqlite:///", ""))
-else:
-    DATABASE_PATH = None
+# SQLite: the file the engine opens (2.1 decodes the URL, so not the raw string);
+# PostgreSQL: no file path needed
+DATABASE_PATH: Path | None = sqlite_database_path(engine.url) if is_sqlite else None
 
 
 def get_backup_service() -> BackupService:

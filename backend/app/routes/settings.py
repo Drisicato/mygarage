@@ -5,7 +5,6 @@ import logging
 import re
 import sys
 import time
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -13,7 +12,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings as app_settings
-from app.database import engine, get_db, is_sqlite
+from app.database import engine, get_db, is_sqlite, sqlite_database_path
 from app.models.settings import Setting
 from app.models.user import User
 from app.models.vehicle import Vehicle
@@ -786,13 +785,14 @@ async def get_system_info(
 
     # Get database size and redacted URL (dialect-aware)
     if is_sqlite:
-        database_path = Path(str(engine.url).replace("sqlite+aiosqlite:///", ""))
+        # 2.1 percent-escapes str(engine.url), so read the path the engine opens.
+        database_path = sqlite_database_path(engine.url)
         database_size_mb = (
             round(database_path.stat().st_size / (1024 * 1024), 2)
-            if database_path.exists()
+            if database_path is not None and database_path.exists()
             else 0.0
         )
-        redacted_url = str(engine.url).replace(str(database_path), "***")
+        redacted_url = f"{engine.url.drivername}:///***"
     else:
         # PostgreSQL: query database size via existing connection
         size_result = await db.execute(text("SELECT pg_database_size(current_database())"))

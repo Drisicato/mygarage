@@ -11,7 +11,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,7 +78,8 @@ class BackupService:
             "port": str(parsed.port or 5432),
             "user": unquote(parsed.username or "postgres"),
             "password": unquote(parsed.password or ""),
-            "dbname": parsed.path.lstrip("/") or "mygarage",
+            # 2.1's engine decodes the database name too, so pg_dump has to match it.
+            "dbname": unquote(parsed.path.lstrip("/")) or "mygarage",
         }
 
     def _snapshot_sqlite(self, output_path: Path) -> None:
@@ -93,7 +94,8 @@ class BackupService:
         if not self.database_path:
             raise RuntimeError("No SQLite database path configured for snapshot")
 
-        source = sqlite3.connect(f"file:{self.database_path}?mode=ro", uri=True)
+        # Quote the path so a #, ? or % in it stays part of the path, not the URI.
+        source = sqlite3.connect(f"file:{quote(str(self.database_path))}?mode=ro", uri=True)
         try:
             dest = sqlite3.connect(output_path)
             try:
