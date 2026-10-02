@@ -205,12 +205,16 @@ export default function WindowStickerTest() {
                   </p>
                 </div>
               )}
-              <input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
+              {/* The invisible input covered Remove, so Remove opened the picker.
+                  It only covers the panel while there's no file now. */}
+              {!file && (
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={handleFileChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              )}
             </div>
 
             {/* Parser Selection */}

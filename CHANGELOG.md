@@ -95,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The family member card's action buttons work from the keyboard; Enter on one toggled the card instead
 - Clicking a reminder in the calendar's month grid opens it, as in the upcoming list
 - Calendar bulk selection works from the keyboard
+- On the window sticker test page, Remove clears the chosen file instead of opening the file picker
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
