@@ -1007,6 +1007,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backup/restore/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel Pending Restore
+         * @description Cancel a full restore staged for the next start; the current data stays.
+         *
+         *     404 when nothing is staged, so a stale Backup tab finds out the restore was cancelled
+         *     elsewhere or already applied by a restart. 409 while a restore is half applied.
+         */
+        delete: operations["cancel_pending_restore_api_backup_restore_pending_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backup/restore/{filename}": {
         parameters: {
             query?: never;
@@ -1018,10 +1041,10 @@ export interface paths {
         put?: never;
         /**
          * Restore Backup
-         * @description Restore settings from a backup file.
+         * @description Restore a settings backup now, or stage a full backup for the next start.
          *
-         *     This creates a safety backup before restoring.
-         *     Full backup restore is only supported for SQLite databases.
+         *     Either way a safety backup comes first. A full restore is SQLite only and finishes when MyGarage
+         *     restarts.
          *
          *     Args:
          *         filename: Name of the backup file to restore from
@@ -21546,6 +21569,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_pending_restore_api_backup_restore_pending_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

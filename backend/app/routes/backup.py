@@ -14,6 +14,7 @@ from app.database import engine, get_db, is_sqlite, sqlite_database_path
 from app.models.user import User
 from app.services.auth import get_current_admin_user
 from app.services.backup_service import BackupService
+from app.services.restore_staging import RestoreInProgressError
 from app.utils.logging_utils import sanitize_for_log
 
 router = APIRouter(prefix="/api/backup", tags=["Backup"])
@@ -83,6 +84,7 @@ async def get_stats(
             },
             "backup_directory": str(BACKUP_DIR),
             "wal_mode_enabled": (Path(f"{DATABASE_PATH}-wal").exists() if DATABASE_PATH else False),
+            "restore_pending": backup_service.pending_restore(),
         }
     except OSError as e:
         logger.error("File system error getting stats: %s", e)
@@ -228,10 +230,10 @@ async def restore_backup(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    """Restore settings from a backup file.
+    """Restore a settings backup now, or stage a full backup for the next start.
 
-    This creates a safety backup before restoring.
-    Full backup restore is only supported for SQLite databases.
+    Either way a safety backup comes first. A full restore is SQLite only and finishes when MyGarage
+    restarts.
 
     Args:
         filename: Name of the backup file to restore from
@@ -270,15 +272,20 @@ async def restore_backup(
 
             return {
                 "success": True,
-                "message": f"Full backup restored successfully from {filename}",
+                "message": "Restore staged. Restart MyGarage to finish.",
                 "details": details,
-                "warning": "Application restart may be required for changes to take effect.",
+                "warning": (
+                    "Until it restarts, MyGarage keeps running on the current data, "
+                    "and anything changed before the restart is replaced by the backup."
+                ),
             }
         else:
             raise HTTPException(status_code=400, detail="Invalid backup file type")
 
     except HTTPException:
         raise
+    except RestoreInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -291,6 +298,27 @@ async def restore_backup(
     except OSError as e:
         logger.error("File system error restoring backup: %s", e)
         raise HTTPException(status_code=500, detail="Error restoring backup files")
+
+
+@router.delete("/restore/pending")
+async def cancel_pending_restore(
+    current_user: User | None = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """Cancel a full restore staged for the next start; the current data stays.
+
+    404 when nothing is staged, so a stale Backup tab finds out the restore was cancelled
+    elsewhere or already applied by a restart. 409 while a restore is half applied.
+    """
+    try:
+        await get_backup_service().cancel_pending_restore()
+    except RestoreInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except OSError as e:
+        logger.error("File system error cancelling the staged restore: %s", e)
+        raise HTTPException(status_code=500, detail="Error removing the staged restore")
+    return {"success": True, "message": "Restore cancelled; the current data stays."}
 
 
 @router.post("/upload")

@@ -136,9 +136,21 @@ async def lifespan(app: FastAPI):
     # Up here so it shows in maintenance mode too.
     log_proxy_settings()
 
-    # Create data directories with error handling
+    # The data folder comes first: the restore below takes its lock there.
     try:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        logger.warning("Could not create the data directory (may already exist): %s", e)
+
+    # A staged full restore lands here, before anything opens the database, so this start's
+    # migrations bring an older backup up to date. Ahead of the folders below: an empty one
+    # made there would block a swap that a killed start left halfway.
+    from app.routes.backup import get_backup_service
+
+    get_backup_service().apply_pending_restore()
+
+    # Create data directories with error handling
+    try:
         settings.attachments_dir.mkdir(parents=True, exist_ok=True)
         settings.photos_dir.mkdir(parents=True, exist_ok=True)
         settings.documents_dir.mkdir(parents=True, exist_ok=True)

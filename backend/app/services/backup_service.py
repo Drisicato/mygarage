@@ -1,5 +1,6 @@
 """Backup service for settings and full data backups."""
 
+import asyncio
 import json
 import logging
 import os
@@ -16,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import restore_staging
 from app.services.settings_service import SettingsService
 from app.utils.default_unit_prefs import (
     DEFAULT_UNIT_PREFS_KEY,
@@ -385,10 +387,11 @@ class BackupService:
         Returns:
             Details about restore operation
         """
-        backup_path = self.backup_dir / filename
+        # A name in the backup folder, as download and delete take it: `../` can't reach past it.
+        backup_path = self.validate_filename(filename)
 
         if not backup_path.exists():
-            raise FileNotFoundError(f"Backup file not found: {filename}")
+            raise FileNotFoundError(f"Backup file not found: {backup_path.name}")
 
         # Create safety backup first if requested
         safety_filename = None
@@ -516,125 +519,199 @@ class BackupService:
     async def restore_full_backup(
         self, filename: str, create_safety: bool = True
     ) -> dict[str, Any]:
-        """Restore from a full backup file (SQLite only).
+        """Stage a full backup (SQLite only); MyGarage swaps it in at its next start.
 
-        WARNING: This will overwrite the current database and all files!
-        PostgreSQL restore is not supported via API — use pg_restore directly.
-
-        Args:
-            filename: Name of backup file to restore
-            create_safety: Whether to create a safety backup first
-
-        Returns:
-            Details about restore operation
+        Nothing live changes here but the new safety backup. PostgreSQL restores with
+        pg_restore instead.
 
         Raises:
-            RuntimeError: If called on a PostgreSQL database
+            RuntimeError: on PostgreSQL
+            ValueError: in-memory SQLite, a bad name, a media folder on another filesystem,
+                a live database the safety archive can't read, an archive tarfile can't read,
+                an unexpected entry or no mygarage.db in it, or a database SQLite can't open
+                or finds damaged
+            FileNotFoundError: no such backup in the backup folder
+            RestoreInProgressError: a restore is half applied (defensive)
         """
         if not self.is_sqlite:
             raise RuntimeError(
                 "PostgreSQL restore is not supported via the API. "
                 "Use pg_restore during a maintenance window."
             )
-
-        backup_path = self.backup_dir / filename
-
+        if self.database_path is None:
+            raise ValueError("In-memory SQLite has no database file to restore into")
+        # A name in the backup folder, as download and delete take it: `../` can't reach past it.
+        backup_path = self.validate_filename(filename)
         if not backup_path.exists():
-            raise FileNotFoundError(f"Backup file not found: {filename}")
+            raise FileNotFoundError(f"Backup file not found: {backup_path.name}")
+        self._refuse_media_on_another_filesystem()
+        # Seconds to minutes of tar, gzip and SQLite work: in a thread, so the app keeps answering.
+        return await asyncio.to_thread(
+            self._stage_full_backup, backup_path, self.database_path, create_safety
+        )
 
-        # Create safety backup of current database first if requested
-        safety_filename = None
-        if create_safety and self.database_path:
-            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            safety_filename = f"mygarage-full-safety-{timestamp}.tar.gz"
-            safety_path = self.backup_dir / safety_filename
-
-            logger.info("Creating safety backup: %s", safety_filename)
-
-            with tarfile.open(safety_path, "w:gz") as tar:
-                if self.database_path.exists():
-                    # Same consistent-snapshot rule as create_full_backup — the
-                    # safety copy is the last line of defense during a restore.
-                    with tempfile.TemporaryDirectory() as tmpdir:
-                        snapshot_path = Path(tmpdir) / "mygarage.db"
-                        self._snapshot_sqlite(snapshot_path)
-                        tar.add(snapshot_path, arcname="mygarage.db")
-
-                # Also backup current files
-                for dir_name in ["photos", "documents", "attachments"]:
-                    dir_path = self.data_dir / dir_name
-                    if dir_path.exists() and any(dir_path.iterdir()):
-                        tar.add(dir_path, arcname=dir_name)
-
-            logger.info("Created safety backup: %s", safety_filename)
-
-        # Extract backup
-        logger.info("Restoring full backup from: %s", sanitize_for_log(filename))
-
-        with tarfile.open(backup_path, "r:gz") as tar:
-            members = tar.getmembers()
-            self._validate_backup_members(members)
-
-            # Clear existing directories only after validation succeeds
-            for dir_name in self._SAFE_DIR_ROOTS:
-                target_dir = self.data_dir / dir_name
-                if target_dir.exists():
-                    shutil.rmtree(target_dir)
-                target_dir.mkdir(parents=True, exist_ok=True)
-
-            for member in members:
-                normalized_parts = self._normalize_member_parts(member.name)
-                if not normalized_parts:
-                    continue
-
-                normalized_name = "/".join(normalized_parts)
-                root = normalized_parts[0]
-                target_parts = normalized_parts
-
-                if normalized_name in self._SAFE_FILE_ENTRIES:
-                    destination_root = (
-                        self.database_path.parent if self.database_path else self.data_dir
-                    )
-                    if self.database_path and normalized_name in self._SQLITE_DB_ENTRIES:
-                        # The archive always calls it mygarage.db; the restore writes
-                        # whatever file the app opens, sidecars included.
-                        target_parts = [
-                            self.database_path.name + normalized_name.removeprefix("mygarage.db")
-                        ]
-                elif root in self._SAFE_DIR_ROOTS:
-                    destination_root = self.data_dir
-                else:
-                    continue
-
-                self._safe_extract_member(
-                    tar,
-                    member,
-                    destination_root,
-                    target_parts,
+    def _refuse_media_on_another_filesystem(self) -> None:
+        """The start swaps folders by renaming them, which can't cross filesystems: refuse that layout now."""
+        device = os.stat(self.data_dir).st_dev
+        for name in restore_staging.MEDIA_DIRS:
+            folder = self.data_dir / name
+            if folder.exists() and os.stat(folder).st_dev != device:
+                raise ValueError(
+                    f"{folder} is on a different filesystem from {self.data_dir}. A full restore "
+                    "swaps folders by renaming them, so they have to share one; restore this "
+                    "backup by hand instead."
                 )
 
-            # WAL hygiene: snapshot-style archives carry a self-contained
-            # mygarage.db with no wal/shm members. Any live sidecars that the
-            # archive did not overwrite belong to the PRE-restore database —
-            # left in place, SQLite would replay the old WAL over the freshly
-            # restored file on next open.
-            if self.database_path:
-                extracted_names = {"/".join(self._normalize_member_parts(m.name)) for m in members}
-                for suffix in ("-wal", "-shm"):
-                    if f"mygarage.db{suffix}" in extracted_names:
-                        continue
-                    stale = Path(str(self.database_path) + suffix)
-                    if stale.exists():
-                        stale.unlink()
-                        logger.info("Removed stale sidecar from previous database: %s", stale)
+    def _stage_full_backup(
+        self, backup_path: Path, database_file: Path, create_safety: bool
+    ) -> dict[str, Any]:
+        """The restore's blocking half. Under the restore lock, so two restores never interleave.
 
-        logger.info("Successfully restored full backup from %s", sanitize_for_log(filename))
-
+        A refusal before the discard (the safety archive) keeps an earlier staging; one after it
+        (the archive's own checks) leaves nothing staged. The safety archive is also the gate: a
+        live database the backup API can't read is refused here, not at the start.
+        """
+        with restore_staging.restore_lock(self.data_dir):
+            safety_filename = None
+            if create_safety:
+                timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                safety_filename = f"mygarage-full-safety-{timestamp}.tar.gz"
+                try:
+                    self._write_safety_archive(self.backup_dir / safety_filename)
+                except sqlite3.Error as exc:
+                    raise ValueError(
+                        f"The current database can't be read for the safety backup: {exc}"
+                    ) from exc
+            logger.info("Staging full backup %s", sanitize_for_log(backup_path.name))
+            # A second restore before the restart replaces the first.
+            restore_staging.discard_pending_restore(self.data_dir, database_file)
+            try:
+                self._stage_archive(backup_path, database_file)
+                restore_staging.write_manifest(
+                    self.data_dir, source_backup=backup_path.name, database_file=database_file
+                )
+            except Exception:
+                # Half a staging is no staging; don't leave one for the next start to find.
+                restore_staging.discard_pending_restore(self.data_dir, database_file)
+                raise
+        logger.info("Staged %s; it applies at the next start", sanitize_for_log(backup_path.name))
         return {
             "safety_backup": safety_filename,
-            "source_backup": filename,
-            "message": "Full backup restored successfully. Application restart may be required.",
+            "source_backup": backup_path.name,
+            "message": "Restore staged. Restart MyGarage to finish.",
         }
+
+    def _write_safety_archive(self, archive: Path) -> None:
+        """Archive the live data: a snapshot of the database and the three folders.
+
+        The snapshot goes through the SQLite backup API, never a file copy, which under WAL
+        misses committed rows. Published durably from a temporary name, so the name only ever
+        shows a complete archive that's on disk.
+        """
+        self.ensure_backup_dir()
+        partial = archive.with_name(archive.name + ".partial")
+        with tarfile.open(partial, "w:gz") as tar:
+            if self.database_path is not None and self.database_path.exists():
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    snapshot_path = Path(tmpdir) / "mygarage.db"
+                    self._snapshot_sqlite(snapshot_path)
+                    tar.add(snapshot_path, arcname="mygarage.db")
+            for dir_name in restore_staging.MEDIA_DIRS:
+                dir_path = self.data_dir / dir_name
+                if dir_path.exists() and any(dir_path.iterdir()):
+                    tar.add(dir_path, arcname=dir_name)
+        restore_staging.publish_file(partial, archive)
+        logger.info("Created safety backup: %s", archive.name)
+
+    def _write_prerestore_archive(self, filename: str) -> None:
+        """Archive the data a restore is about to replace, unless it's already there.
+
+        The apply calls this only before its applying marker is down. An archive that's
+        already there is kept: if the marker was deleted by hand after the live -wal went,
+        it is the only copy of those rows.
+        """
+        archive = self.validate_filename(filename)
+        if not archive.exists():
+            self._write_safety_archive(archive)
+
+    def apply_pending_restore(self) -> str | None:
+        """Swap in a restore staged by restore_full_backup. Call before anything opens the database."""
+        return restore_staging.apply_pending_restore(
+            self.data_dir,
+            self.database_path,
+            backup_dir=self.backup_dir,
+            before_swap=self._write_prerestore_archive,
+        )
+
+    def pending_restore(self) -> dict[str, str | None] | None:
+        """The staged restore, for the Backup tab: its backup's name and when it was staged."""
+        return restore_staging.pending_restore(self.data_dir)
+
+    async def cancel_pending_restore(self) -> None:
+        """Throw the staged restore away.
+
+        Raises:
+            FileNotFoundError: nothing is staged
+            RestoreInProgressError: a restore is half applied
+        """
+        cancelled = await asyncio.to_thread(
+            restore_staging.cancel_pending_restore, self.data_dir, self.database_path
+        )
+        if not cancelled:
+            raise FileNotFoundError("No restore is staged")
+
+    def _stage_archive(self, backup_path: Path, database_file: Path) -> None:
+        """Check the archive and stage its database and folders, touching nothing live."""
+        staging = self.data_dir / restore_staging.STAGING_DIRNAME
+        work = staging / "database"
+        try:
+            with tarfile.open(backup_path, "r:gz") as tar:
+                members = tar.getmembers()
+                self._validate_backup_members(members)
+                names = {"/".join(self._normalize_member_parts(m.name)) for m in members}
+                if "mygarage.db" not in names:
+                    raise ValueError("This backup has no SQLite database (mygarage.db) to restore")
+                # All three, empty if the archive has none: a full restore replaces every folder.
+                for name in restore_staging.MEDIA_DIRS:
+                    (staging / name).mkdir(parents=True, exist_ok=True)
+                for member in members:
+                    parts = self._normalize_member_parts(member.name)
+                    if "/".join(parts) in ("mygarage.db", "mygarage.db-wal"):
+                        # Archive names on purpose: SQLite finds a WAL by its database's name.
+                        self._safe_extract_member(tar, member, work, parts)
+                    elif parts[0] in self._SAFE_DIR_ROOTS:
+                        self._safe_extract_member(tar, member, staging, parts)
+                    # Left out: mygarage.db-shm (a dead process's WAL index; SQLite rebuilds it
+                    # from the WAL) and mygarage.pgdump (PostgreSQL's).
+        except (tarfile.TarError, EOFError) as exc:
+            # Neither is an OSError or a ValueError, so without this a truncated file is a 500.
+            raise ValueError("This backup can't be read as a tar.gz archive") from exc
+        self._fold_and_check(work / "mygarage.db")
+        shutil.move(work / "mygarage.db", restore_staging.pending_database(database_file))
+        shutil.rmtree(work)
+
+    @staticmethod
+    def _fold_and_check(database: Path) -> None:
+        """Fold any WAL into the file itself, then refuse it if SQLite finds damage.
+
+        integrity_check, not quick_check: only the full check compares each index with its
+        table, and a torn raw copy breaks exactly that.
+        """
+        try:
+            conn = sqlite3.connect(database)
+            try:
+                mode = conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+                problems = [row[0] for row in conn.execute("PRAGMA integrity_check")]
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError as exc:
+            raise ValueError(f"The backup's database can't be opened: {exc}") from exc
+        if mode != ("delete",):
+            raise ValueError(f"The backup's database kept its write-ahead log ({mode})")
+        if problems != ["ok"]:
+            raise ValueError(
+                f"The backup's database failed SQLite's integrity check: {problems[0]}"
+            )
 
     def validate_filename(self, filename: str) -> Path:
         """Validate and sanitize filename to prevent path traversal.

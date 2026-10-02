@@ -156,3 +156,20 @@ class TestSettingsRestoreValidatesDefaultUnitPrefs:
 
         assert await _stored(db_session, DEFAULT_UNIT_PREFS_KEY) == IMPERIAL_RAW
         assert details["restored_count"] == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a_settings_name_outside_the_backup_folder_is_not_read(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    """Like the full restore: the name is a file in the backup folder, and `../` can't reach past it.
+
+    The file holds no settings, so the old behaviour (reading it) writes nothing to the
+    shared database. Mutant: build the path from the raw name again.
+    """
+    service = _service(tmp_path)
+    (tmp_path / "outside.json").write_text(json.dumps({"version": "2.0", "settings": []}))
+
+    with pytest.raises(FileNotFoundError):
+        await service.restore_settings_backup("../outside.json", db_session, create_safety=False)
