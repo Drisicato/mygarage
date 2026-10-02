@@ -83,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With `MYGARAGE_TRUSTED_PROXIES` set, `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only count when they come from a trusted proxy
 - The SSO sign-in start and callback are rate limited per client like password login, and a limited attempt returns to the login page with a reason
 
+### Build
+- Backend dependencies bumped: sqlalchemy 2.1.2 (with its asyncio extra), pyjwt 2.15.1, ruff 0.16.10 and pillow-heif 1.8.0.
+- `MYGARAGE_DATABASE_URL`'s path is now URL-decoded, so a literal `%` in it must be written `%25`.
+
 ## [3.7.0] - 2026-09-24
 
 ### Added
