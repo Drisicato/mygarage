@@ -29,6 +29,7 @@ import {
 } from '../schemas/addressBook'
 import { Chip, Button, Field, Input, Textarea, Select, SearchField } from '../components/ui'
 import type { IconType } from '../components/ui/types'
+import ClickableCard from '../components/ClickableCard'
 import FormModalWrapper from '../components/FormModalWrapper'
 import api from '../services/api'
 import { applyServerErrors } from '../hooks/useApiFormErrors'
@@ -172,27 +173,25 @@ export default function AddressBook() {
             const cat = displayCategory(entry)
             const CatIcon = cat ? CATEGORY_ICONS[cat] : undefined
             return (
-              <div
+              <ClickableCard
                 key={entry.id}
-                className="relative isolate rounded-card border border-border bg-surface p-4 ui-motion hover:border-(--accent-line) hover:shadow-card-hover"
+                label={t('addressBook.editContactNamed', { name: entry.business_name })}
+                onActivate={() => handleEditClick(entry)}
+                padding="sm"
+                className="group isolate"
               >
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div>
                     <h3 className="text-lg font-semibold text-text">{entry.business_name}</h3>
                     {entry.name && <p className="mt-0.5 text-sm text-text-mute">{entry.name}</p>}
                   </div>
-                  {/* Stretched action button — a click anywhere on the card opens
-                      the edit sidecar (STATIC, so after:inset-0 anchors to the
-                      relative card root). The contact links below carry z-10 to
-                      stay independently clickable above it. */}
-                  <button
-                    type="button"
-                    onClick={() => handleEditClick(entry)}
-                    aria-label={t('addressBook.editContactNamed', { name: entry.business_name })}
-                    className="ui-focus-ring cursor-pointer rounded-control p-1 text-text-mute hover:text-text after:absolute after:inset-0 after:content-['']"
-                  >
-                    <ChevronRight aria-hidden="true" className="h-5 w-5" />
-                  </button>
+                  {/* Just a hint now: the card itself opens the editor, so nothing is
+                      stretched over the address and it can be long-pressed and copied
+                      (#179). The links below keep their own clicks. */}
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="m-1 h-5 w-5 shrink-0 text-text-mute group-hover:text-text"
+                  />
                 </div>
 
                 <div className="space-y-2 text-sm">
@@ -205,7 +204,7 @@ export default function AddressBook() {
                   {entry.email && (
                     <a
                       href={`mailto:${entry.email}`}
-                      className="relative z-10 flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
+                      className="flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
                     >
                       <Mail aria-hidden="true" className="h-4 w-4 shrink-0" />
                       <span className="truncate">{entry.email}</span>
@@ -215,7 +214,7 @@ export default function AddressBook() {
                   {entry.phone && (
                     <a
                       href={`tel:${entry.phone}`}
-                      className="relative z-10 flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
+                      className="flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
                     >
                       <Phone aria-hidden="true" className="h-4 w-4 shrink-0" />
                       <span>{entry.phone}</span>
@@ -227,7 +226,7 @@ export default function AddressBook() {
                       href={entry.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="relative z-10 flex items-center gap-2 text-(--accent-fg) hover:underline"
+                      className="flex items-center gap-2 text-(--accent-fg) hover:underline"
                     >
                       <Globe aria-hidden="true" className="h-4 w-4 shrink-0" />
                       <span className="truncate">{entry.website}</span>
@@ -253,7 +252,7 @@ export default function AddressBook() {
                     <p className="mt-2 border-t border-border pt-2 text-xs text-text-mute">{entry.notes}</p>
                   )}
                 </div>
-              </div>
+              </ClickableCard>
             )
           })}
         </div>

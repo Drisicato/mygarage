@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, fireEvent, waitFor, screen } from '../../__tests__/test-utils' // selects by id (i18n mock renders keys)
+import { render, fireEvent, waitFor, screen, within } from '../../__tests__/test-utils' // selects by id (i18n mock renders keys)
 import AddressBook, { AddressBookForm, displayCategory } from '../AddressBook'
 
 // vi.mock is hoisted above module-level consts, so spies must be created with vi.hoisted.
@@ -78,6 +78,148 @@ describe('AddressBook page: category chips', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common:addressBook.categoryGasStation' }))
 
     expect(screen.queryByText('Corner Fuel')).toBeInTheDocument()
+  })
+})
+
+/**
+ * Issue #179: the chevron button's `after:absolute after:inset-0` stretched a
+ * pseudo-element over the whole contact card, so a long-press on a phone hit
+ * the button and the address, phone and email couldn't be selected. The card
+ * now goes through ClickableCard, which puts the handler on the card itself.
+ *
+ * jsdom has no layout and no long-press, so these pin STRUCTURE and HANDLERS
+ * only: nothing stretched over the content, the click handled by the card, a
+ * selection-end click ignored, the links left alone. Whether the text is
+ * really on top in a browser is the E2E half (G9).
+ */
+describe('AddressBook page: the contact card keeps its text selectable (#179)', () => {
+  const CONTACT = {
+    id: 21,
+    business_name: 'Summit Auto',
+    name: 'Dana Reyes',
+    category: 'Service',
+    poi_category: null,
+    email: 'desk@summit.test',
+    phone: '555-0142',
+    website: 'https://summit.test',
+    address: '12 Main St',
+    city: 'Boulder',
+    state: 'CO',
+    zip_code: '80301',
+    notes: null,
+  }
+  const EDITOR = 'addressBook.editContact'
+  const EDIT_BUTTON = 'addressBook.editContactNamed'
+
+  beforeEach(() => {
+    get.mockResolvedValue({ data: { entries: [CONTACT] } })
+  })
+
+  async function contactCard(): Promise<HTMLElement> {
+    const card = (await screen.findByText('Summit Auto')).closest<HTMLElement>('.rounded-card')
+    if (card === null) throw new Error('contact card not found')
+    return card
+  }
+
+  const editorIsShut = (): void => {
+    // hidden: true so a drawer the page made inert still counts as open.
+    expect(screen.queryByRole('dialog', { name: EDITOR, hidden: true })).not.toBeInTheDocument()
+  }
+
+  it('no stretched link covers the contact card', async () => {
+    // RED before G6: the chevron button carries `after:absolute after:inset-0`
+    // and the three links sit on `relative z-10` to clear it. Now the only
+    // positioned, lifted thing is ClickableCard's focus chip in the corner.
+    // This pins the classes; how they paint is the browser's half.
+    render(<AddressBook />)
+    const card = await contactCard()
+    const chip = within(card).getByRole('button', { name: EDIT_BUTTON }).parentElement as HTMLElement
+
+    const everything = [card, ...Array.from(card.querySelectorAll<Element>('*'))]
+    const tokensOf = (el: Element): string[] => (el.getAttribute('class') ?? '').split(/\s+/)
+    const has = (el: Element, utility: RegExp): boolean => tokensOf(el).some((token) => utility.test(token))
+
+    expect(everything.filter((el) => has(el, /^(?:[\w-]+:)*inset-0$/))).toEqual([])
+    expect(everything.filter((el) => has(el, /^(?:[\w-]+:)*absolute$/))).toEqual([chip])
+    expect(everything.filter((el) => has(el, /^(?:[\w-]+:)*z-\d+$/))).toEqual([chip])
+  })
+
+  it('clicking the address opens the editor', async () => {
+    // RED before G6: the chevron button was a cousin of the address, not an
+    // ancestor, so a click on the address text bubbled through divs with no
+    // handler. jsdom does no hit-testing, so this is the handler half.
+    render(<AddressBook />)
+    await contactCard()
+    editorIsShut()
+
+    fireEvent.click(screen.getByText('12 Main St'))
+
+    expect(screen.getByRole('dialog', { name: EDITOR })).toBeInTheDocument()
+    expect(businessInput().value).toBe('Summit Auto')
+  })
+
+  it('the email, phone and website links do not open the editor', async () => {
+    // Guard: the links sat on z-10 clear of the stretched button, so before
+    // G6 their clicks never reached it either. Mutant that kills it: drop
+    // cameFromNestedControl from ClickableCard's handler, and each link click
+    // bubbles to the card and opens the editor on the way out. The last click
+    // is RED before G6 and keeps the rest from passing on a dead card.
+    render(<AddressBook />)
+    const card = await contactCard()
+    const links = [
+      within(card).getByRole('link', { name: 'desk@summit.test' }),
+      within(card).getByRole('link', { name: '555-0142' }),
+      within(card).getByRole('link', { name: 'https://summit.test' }),
+    ]
+
+    for (const link of links) {
+      // jsdom can't follow mailto:, tel: or another site and logs about it.
+      // The card never looks at defaultPrevented, so this hides nothing.
+      link.addEventListener('click', (event) => event.preventDefault())
+      fireEvent.click(link)
+      editorIsShut()
+    }
+
+    fireEvent.click(screen.getByText('12 Main St'))
+    expect(screen.getByRole('dialog', { name: EDITOR })).toBeInTheDocument()
+  })
+
+  it('ending a selection on the address does not open the editor', async () => {
+    // The first half is a guard (no handler on the card before G6, so nothing
+    // opened). Mutant that kills it: skip isSelectingText in ClickableCard's
+    // handler. The second half is RED before G6 and keeps the first from
+    // passing on a card that never opens anything.
+    render(<AddressBook />)
+    await contactCard()
+    const selection = vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      toString: () => '12 Main St',
+    } as unknown as Selection)
+    try {
+      fireEvent.click(screen.getByText('12 Main St'))
+      editorIsShut()
+    } finally {
+      selection.mockRestore()
+    }
+
+    fireEvent.click(screen.getByText('12 Main St'))
+    expect(screen.getByRole('dialog', { name: EDITOR })).toBeInTheDocument()
+  })
+
+  it('the edit action is reachable by a button named addressBook.editContactNamed', async () => {
+    // Guard: the chevron was a button by this name before G6, and the name
+    // moves to ClickableCard's keyboard button. Mutant that kills it: hand
+    // ClickableCard an empty label. getByRole also wants exactly ONE, so a
+    // chevron left behind as a second button by the same name fails too.
+    render(<AddressBook />)
+    const button = within(await contactCard()).getByRole('button', { name: EDIT_BUTTON })
+
+    button.focus()
+    expect(button).toHaveFocus()
+    fireEvent.click(button)
+
+    expect(screen.getByRole('dialog', { name: EDITOR })).toBeInTheDocument()
+    expect(businessInput().value).toBe('Summit Auto')
   })
 })
 
