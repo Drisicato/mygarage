@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from sqlalchemy import event
-from sqlalchemy.engine import URL
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -13,10 +13,19 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def is_sqlite_url(url: str) -> bool:
+    """Whether a database URL is SQLite, by its dialect.
+
+    A substring test took a PostgreSQL URL with "sqlite" in its password or database name for SQLite.
+    """
+    return make_url(url).get_backend_name() == "sqlite"
+
+
 # Create async engine with database-specific configuration
 # SQLite: aiosqlite pools file connections (AsyncAdaptedQueuePool); the pool settings below are PostgreSQL's
 # PostgreSQL/MySQL: Connection pooling settings apply
-is_sqlite = "sqlite" in settings.database_url.lower()
+is_sqlite = is_sqlite_url(settings.database_url)
 
 
 def _sqlite_connection_pragmas(dbapi_connection, connection_record) -> None:
@@ -57,8 +66,8 @@ def sqlite_database_path(url: URL) -> Path | None:
 
 
 if is_sqlite:
-    # Tune for concurrent writers so the MQTT
-    # ingest + scheduler + request paths don't raise "database is locked":
+    # Tune for concurrent writers so the MQTT ingest + scheduler + request
+    # paths don't raise "database is locked":
     #   busy_timeout (via connect_args "timeout") makes a writer WAIT up to 30s for
     #   the lock instead of erroring immediately. aiosqlite blocks in its worker
     #   thread, so the event loop is not stalled.

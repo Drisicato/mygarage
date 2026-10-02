@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 class BackupService:
     """Service for creating and managing backups."""
 
-    _SAFE_FILE_ENTRIES = {"mygarage.db", "mygarage.db-wal", "mygarage.db-shm", "mygarage.pgdump"}
+    _SQLITE_DB_ENTRIES = ("mygarage.db", "mygarage.db-wal", "mygarage.db-shm")
+    _SAFE_FILE_ENTRIES = {*_SQLITE_DB_ENTRIES, "mygarage.pgdump"}
     _SAFE_DIR_ROOTS = {"photos", "documents", "attachments"}
 
     def __init__(
@@ -160,7 +161,10 @@ class BackupService:
         Returns:
             Dictionary with database statistics
         """
-        if self.is_sqlite and self.database_path:
+        if self.is_sqlite:
+            if self.database_path is None:
+                # In-memory: nothing on disk to size, but it's still SQLite, not PostgreSQL.
+                return {"path": "in-memory", "size_mb": 0, "last_modified": None, "exists": False}
             try:
                 if self.database_path.exists():
                     stat = self.database_path.stat()
@@ -300,7 +304,7 @@ class BackupService:
     async def create_full_backup(self) -> dict[str, Any]:
         """Create a full backup including database and all uploaded files.
 
-        For SQLite: archives the .db, -wal, and -shm files.
+        For SQLite: archives a consistent snapshot of the database file (none for in-memory).
         For PostgreSQL: runs pg_dump and archives the dump file.
 
         Returns:
@@ -317,12 +321,14 @@ class BackupService:
 
         # Create tar.gz archive
         with tarfile.open(backup_path, "w:gz") as tar:
-            if self.is_sqlite and self.database_path:
+            if self.is_sqlite:
                 # SQLite: archive a consistent Online-Backup-API snapshot, not
                 # the live file. The snapshot is self-contained, so no -wal or
                 # -shm members are needed (restore still accepts them from
                 # older archives).
-                if self.database_path.exists():
+                if self.database_path is None:
+                    logger.warning("in-memory SQLite has no file to back up")
+                elif self.database_path.exists():
                     with tempfile.TemporaryDirectory() as tmpdir:
                         snapshot_path = Path(tmpdir) / "mygarage.db"
                         self._snapshot_sqlite(snapshot_path)
@@ -583,11 +589,18 @@ class BackupService:
 
                 normalized_name = "/".join(normalized_parts)
                 root = normalized_parts[0]
+                target_parts = normalized_parts
 
                 if normalized_name in self._SAFE_FILE_ENTRIES:
                     destination_root = (
                         self.database_path.parent if self.database_path else self.data_dir
                     )
+                    if self.database_path and normalized_name in self._SQLITE_DB_ENTRIES:
+                        # The archive always calls it mygarage.db; the restore writes
+                        # whatever file the app opens, sidecars included.
+                        target_parts = [
+                            self.database_path.name + normalized_name.removeprefix("mygarage.db")
+                        ]
                 elif root in self._SAFE_DIR_ROOTS:
                     destination_root = self.data_dir
                 else:
@@ -597,7 +610,7 @@ class BackupService:
                     tar,
                     member,
                     destination_root,
-                    normalized_parts,
+                    target_parts,
                 )
 
             # WAL hygiene: snapshot-style archives carry a self-contained

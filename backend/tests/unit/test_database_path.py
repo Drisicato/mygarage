@@ -6,6 +6,8 @@ mutants, each applied once and seen to fail here: `Path(url.database or "")`
 `Path(str(url).removeprefix("sqlite+aiosqlite:///"))`, the old settings.py shape
 (the `%25` and `#` cases come back escaped, and in-memory isn't None). That one
 gets `%41` right by luck: `str(url)` renders the decoded `A` unescaped.
+
+The `is_sqlite_url` tests at the bottom are the dialect check `is_sqlite` runs on.
 """
 
 from pathlib import Path
@@ -13,7 +15,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.engine import make_url
 
-from app.database import sqlite_database_path
+from app.database import is_sqlite_url, sqlite_database_path
 
 
 @pytest.mark.unit
@@ -53,3 +55,25 @@ def test_postgresql_has_no_file() -> None:
     url = make_url("postgresql+asyncpg://u:p@h/mygarage")
 
     assert sqlite_database_path(url) is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "url",
+    ["postgresql+asyncpg://u:p@h/sqlite_db", "postgresql+asyncpg://u:sqlite@h/mygarage"],
+)
+def test_a_postgresql_url_that_mentions_sqlite_is_not_sqlite(url: str) -> None:
+    """The dialect decides, not the word turning up in a database name or password.
+
+    The old substring test called these SQLite, so the app ran SQLite pragmas on PostgreSQL.
+    """
+    assert is_sqlite_url(url) is False
+
+
+@pytest.mark.unit
+def test_the_default_sqlite_url_is_sqlite() -> None:
+    """A guard: passes at t=0.
+
+    `make_url(url).drivername == "sqlite"` kills it, since the driver name is `sqlite+aiosqlite`.
+    """
+    assert is_sqlite_url("sqlite+aiosqlite:////data/mygarage.db") is True
