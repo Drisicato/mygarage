@@ -5,7 +5,8 @@
  * once a file was chosen it sat on top of Remove and a tap opened the picker
  * instead. jsdom has no layout, so these pin STRUCTURE only: no stretched file
  * input exists while a file is chosen, and Remove brings it back. Whether the
- * click really lands on Remove in a browser is G9's E2E half.
+ * click really lands on Remove in a browser is G9's E2E half. Remove also clears
+ * the last test's result and its error, so nothing describes a file that's gone.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -13,10 +14,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 const apiGet = vi.fn()
+const apiPost = vi.fn()
 vi.mock('../../services/api', () => ({
   default: {
     get: (...args: unknown[]) => apiGet(...args),
-    post: vi.fn(),
+    post: (...args: unknown[]) => apiPost(...args),
   },
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -76,5 +78,35 @@ describe('WindowStickerTest drop zone', () => {
     expect(screen.queryByText('sticker.pdf')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'windowSticker.testExtraction' })).toBeDisabled()
     expect(container.querySelector(OVERLAY_INPUT)).not.toBeNull()
+  })
+
+  // A FAILED result on purpose, so the error line is on screen too. Kills a mutant
+  // where Remove clears only a successful result and leaves a failure standing.
+  it('Remove also clears the last result and its error', async () => {
+    apiPost.mockResolvedValue({
+      data: {
+        success: false,
+        parser_name: 'FordParser',
+        manufacturer_detected: 'Ford',
+        raw_text: null,
+        extracted_data: null,
+        validation_warnings: [],
+        error: 'No MSRP found on the sticker',
+      },
+    })
+    const container = await renderPage()
+    chooseFile(container)
+
+    fireEvent.click(screen.getByRole('button', { name: 'windowSticker.testExtraction' }))
+    expect(await screen.findByText('No MSRP found on the sticker')).toBeInTheDocument()
+    expect(screen.getByText('windowSticker.extractionFailed')).toBeInTheDocument()
+    expect(screen.getByText('FordParser')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'common:remove' }))
+
+    expect(screen.queryByText('No MSRP found on the sticker')).not.toBeInTheDocument()
+    expect(screen.queryByText('windowSticker.extractionFailed')).not.toBeInTheDocument()
+    expect(screen.queryByText('FordParser')).not.toBeInTheDocument()
+    expect(screen.getByText('windowSticker.uploadPrompt')).toBeInTheDocument()
   })
 })

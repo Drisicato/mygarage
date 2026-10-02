@@ -187,8 +187,12 @@ export default function WindowStickerTest() {
                   <p className="text-garage-text-muted text-sm">
                     {t('windowSticker.test.fileSizeMb', { size: formatAtPrecision(file.size / 1024 / 1024, 2) })}
                   </p>
+                  {/* The result goes with the file, or it'd describe a file that's gone. */}
                   <button
-                    onClick={() => setFile(null)}
+                    onClick={() => {
+                      setFile(null)
+                      setResult(null)
+                    }}
                     className="text-red-500 text-sm hover:underline"
                   >
                     {t('common:remove')}
