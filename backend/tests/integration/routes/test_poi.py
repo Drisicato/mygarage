@@ -307,8 +307,14 @@ class TestPOIRoutes:
         [
             ({"category": "gas_station"}, {"category": "Gas Station"}),
             ({}, {"category": "Service"}),
+            # What the POI Finder actually asks: no category at all.
+            ({}, {"category": "Gas Station"}),
         ],
-        ids=["manual-gas-station-under-gas_station", "service-chip-with-no-category"],
+        ids=[
+            "manual-gas-station-under-gas_station",
+            "service-chip-with-no-category",
+            "manual-gas-station-with-no-category",
+        ],
     )
     async def test_recommendations_include_address_book_page_entries(
         self, client: AsyncClient, auth_headers, db_session, params, entry

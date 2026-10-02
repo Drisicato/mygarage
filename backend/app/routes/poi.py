@@ -295,11 +295,13 @@ async def get_poi_recommendations(
     elif category:
         conditions.append(AddressBookEntry.poi_category == category)
     else:
-        # Show all service-related entries (backward compatibility)
+        # Show all service-related entries (backward compatibility). A manual
+        # gas station has no poi_category, so it needs asking for by name.
         conditions.append(
             or_(
                 func.lower(func.trim(AddressBookEntry.category)) == "service",
                 AddressBookEntry.poi_category.isnot(None),
+                gas_station_clause(),
             )
         )
 
