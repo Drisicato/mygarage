@@ -6,11 +6,13 @@ Tests settings CRUD operations, POI provider management, and system info.
 
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.models.settings import Setting
 
@@ -393,6 +395,46 @@ class TestSettingsAdminRoutes:
         )
         # Regular users get 403, admin may get 200 or timeout error
         assert response.status_code in [200, 400, 403]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestSystemInfoDatabasePath:
+    """System info sizes the file the engine actually opens."""
+
+    async def test_size_is_read_from_the_file_the_engine_opens(
+        self,
+        client: AsyncClient,
+        auth_headers,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A `#` in the file name used to report 0.0 MB.
+
+        SQLAlchemy 2.1 percent-escapes `str(engine.url)`, so the route looked
+        for `my%23garage.db`, which doesn't exist. The redaction assert is a
+        guard (it passes today): its mutant is redacting with
+        `str(engine.url).replace(str(database_path), "***")`, which can't find
+        the decoded path in the escaped string and leaks it.
+        """
+        import app.routes.settings as settings_routes
+
+        db = tmp_path / "my#garage.db"
+        db.write_bytes(b"\0" * 1048576)
+        patched = create_async_engine("sqlite+aiosqlite:///" + str(db))
+        # The PG sidecar runs this file on asyncpg, and the route branches on
+        # its own module flag, so pin the SQLite branch here.
+        monkeypatch.setattr(settings_routes, "engine", patched)
+        monkeypatch.setattr(settings_routes, "is_sqlite", True)
+        try:
+            response = await client.get("/api/settings/system/info", headers=auth_headers)
+        finally:
+            await patched.dispose()
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["database_size_mb"] == 1.0
+        assert "garage" not in data["database_url"]
 
 
 @pytest.mark.integration

@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
+from sqlalchemy.engine import URL
+
 from app.utils.db_url import to_sync_url
 
 #: A URL scheme: letters, digits, +/-/. then "://". Requiring the slashes keeps
@@ -56,9 +58,9 @@ def resolve_sync_url(db_arg: str | None) -> str:
     elif _URL_SCHEME_RE.match(db_arg):
         url = to_sync_url(db_arg)
     else:
-        # A bare path. Three slashes then the path: an absolute path therefore
-        # yields the four-slash form SQLAlchemy expects.
-        url = f"sqlite:///{db_arg}"
+        # A path is a path. SQLAlchemy 2.1 would percent-decode it inside a URL,
+        # so let URL.create escape it rather than pasting it in raw.
+        url = URL.create("sqlite", database=db_arg).render_as_string(hide_password=False)
 
     if not url.startswith(_SUPPORTED_DIALECTS):
         dialect = url.split("://", 1)[0]

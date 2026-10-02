@@ -33529,9 +33529,38 @@
         ]
       }
     },
+    "/api/backup/restore/pending": {
+      "delete": {
+        "description": "Cancel a full restore staged for the next start; the current data stays.\n\n404 when nothing is staged, so a stale Backup tab finds out the restore was cancelled\nelsewhere or already applied by a restart. 409 while a restore is half applied.",
+        "operationId": "cancel_pending_restore_api_backup_restore_pending_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Pending Restore Api Backup Restore Pending Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Pending Restore",
+        "tags": [
+          "Backup"
+        ]
+      }
+    },
     "/api/backup/restore/{filename}": {
       "post": {
-        "description": "Restore settings from a backup file.\n\nThis creates a safety backup before restoring.\nFull backup restore is only supported for SQLite databases.\n\nArgs:\n    filename: Name of the backup file to restore from\n    db: Database session\n\nReturns:\n    Success message with details about restore operation",
+        "description": "Restore a settings backup now, or stage a full backup for the next start.\n\nEither way a safety backup comes first. A full restore is SQLite only and finishes when MyGarage\nrestarts.\n\nArgs:\n    filename: Name of the backup file to restore from\n    db: Database session\n\nReturns:\n    Success message with details about restore operation",
         "operationId": "restore_backup_api_backup_restore__filename__post",
         "parameters": [
           {

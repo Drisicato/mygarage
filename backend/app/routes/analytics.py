@@ -1095,11 +1095,11 @@ async def get_garage_analytics(
                 .join(InsurancePolicyVehicle)
                 .where(InsurancePolicyVehicle.vin.in_(garage_vins))
                 # This loop reads each link's id, vin, share and end date and
-                # nothing else. Without the noload, the links' `selectin`
+                # nothing else. Without the raiseload, the links' `selectin`
                 # coverages fetch every coverage row of every policy in the
                 # garage, on the heaviest endpoint the app has.
                 .options(
-                    selectinload(InsurancePolicy.vehicle_links).noload(
+                    selectinload(InsurancePolicy.vehicle_links).raiseload(
                         InsurancePolicyVehicle.coverages
                     )
                 )

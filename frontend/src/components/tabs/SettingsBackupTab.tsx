@@ -26,6 +26,11 @@ interface BackupFile {
   is_safety: boolean
 }
 
+interface RestorePending {
+  source_backup: string | null
+  staged_at: string | null
+}
+
 interface BackupStats {
   database: {
     size_mb: number
@@ -45,6 +50,7 @@ interface BackupStats {
   }
   is_sqlite?: boolean
   database_engine?: string
+  restore_pending?: RestorePending | null
 }
 
 function isPostgresBackupTarget(stats: BackupStats | null): boolean {
@@ -163,19 +169,35 @@ export default function SettingsBackupTab() {
       })
 
       await loadData()
-      // A restored settings file can carry a different timezone row; update
-      // the browser stores (household zone, unit defaults) right away.
-      await refreshPublicSettings()
 
       if (isFullBackup) {
+        // Staged, not applied: nothing the browser reads changes until the restart.
         setMessage({
           type: 'warning',
-          text: t('backupTab.fullRestoreComplete')
+          text: t('backupTab.fullRestoreStaged')
         })
+      } else {
+        // A restored settings file can carry a different timezone row; update
+        // the browser stores (household zone, unit defaults) right away.
+        await refreshPublicSettings()
       }
     } catch (err: unknown) {
       setMessage({ type: 'error', text: getActionErrorMessage(err, t('backupTab.restoreAction')) })
+      // A refused full restore can have dropped an earlier staging (a bad archive is found after the discard).
+      await loadData()
     }
+  }
+
+  const handleCancelRestore = async () => {
+    setMessage(null)
+    try {
+      await api.delete('/backup/restore/pending')
+      setMessage({ type: 'success', text: t('backupTab.cancelRestoreSuccess') })
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: getActionErrorMessage(err, t('backupTab.cancelRestoreAction')) })
+    }
+    // Either way: a 404 means this tab was stale (cancelled elsewhere, or applied by a restart).
+    await loadData()
   }
 
   const handleDelete = async (filename: string) => {
@@ -258,6 +280,28 @@ export default function SettingsBackupTab() {
           >
             ×
           </button>
+        </div>
+      )}
+
+      {stats?.restore_pending && (
+        <div role="status" className="bg-warning-500/10 border border-warning-500 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-warning-500 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-warning-500 mb-1">{t('backupTab.restorePendingTitle')}</h3>
+              <p className="text-sm font-mono text-garage-text">
+                {stats.restore_pending.source_backup ?? t('backupTab.restorePendingUnreadable')}
+              </p>
+              {stats.restore_pending.staged_at && (
+                <p className="text-sm text-garage-text-muted">
+                  {t('backupTab.restorePendingBody', { stagedAt: formatDate(stats.restore_pending.staged_at) })}
+                </p>
+              )}
+            </div>
+            <button onClick={handleCancelRestore} className="btn btn-secondary rounded-lg">
+              {t('backupTab.cancelRestore')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -445,7 +489,7 @@ export default function SettingsBackupTab() {
                 <li>• {t('backupTab.infoSizeDepends')}</li>
                 <li>• {t('backupTab.infoRestoreOverwrites')}</li>
                 <li>• {t('backupTab.infoSafetyBackup')}</li>
-                <li>• {t('backupTab.infoRestartRequired')}</li>
+                <li>• {t('backupTab.infoRestartFinishesRestore')}</li>
               </ul>
             </div>
           </div>

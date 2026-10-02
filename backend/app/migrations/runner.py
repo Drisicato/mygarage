@@ -28,8 +28,8 @@ class MigrationRunner:
 
     def _ensure_migration_tracking_table(self) -> None:
         """Create schema_migrations table if it doesn't exist."""
-        # Use database-agnostic syntax
-        is_postgres = "postgresql" in self.database_url.lower()
+        # Ask the engine's dialect, not the URL: a SQLite file can sit in a folder called postgresql.
+        is_postgres = self.engine.dialect.name == "postgresql"
 
         if is_postgres:
             create_sql = """

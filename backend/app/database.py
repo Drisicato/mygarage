@@ -2,8 +2,10 @@
 
 import logging
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from sqlalchemy import event
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -11,14 +13,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def is_sqlite_url(url: str) -> bool:
+    """Whether a database URL is SQLite, by its dialect.
+
+    A substring test took a PostgreSQL URL with "sqlite" in its password or database name for SQLite.
+    """
+    return make_url(url).get_backend_name() == "sqlite"
+
+
 # Create async engine with database-specific configuration
-# SQLite: Uses NullPool by default (pool settings ignored) - appropriate for async SQLite
+# SQLite: aiosqlite pools file connections (AsyncAdaptedQueuePool); the pool settings below are PostgreSQL's
 # PostgreSQL/MySQL: Connection pooling settings apply
-is_sqlite = "sqlite" in settings.database_url.lower()
+is_sqlite = is_sqlite_url(settings.database_url)
 
 
 def _sqlite_connection_pragmas(dbapi_connection, connection_record) -> None:
-    """Per-connection SQLite pragmas (NullPool = every connection is fresh).
+    """Per-connection SQLite pragmas (runs once per new pooled connection).
 
     - journal_mode=WAL: concurrent readers + a single writer without
       reader/writer blocking; synchronous=NORMAL is durable and fast under WAL.
@@ -44,9 +55,19 @@ def configure_sqlite_engine(async_engine) -> None:
     event.listens_for(async_engine.sync_engine, "connect")(_sqlite_connection_pragmas)
 
 
+def sqlite_database_path(url: URL) -> Path | None:
+    """The file a SQLite URL opens, as the engine sees it: decoded, and None for in-memory.
+
+    Not for `uri=true` URLs (the database part is then a URI, not a path); no deployment uses one.
+    """
+    if url.get_backend_name() != "sqlite":
+        return None
+    return Path(url.database) if url.database and url.database != ":memory:" else None
+
+
 if is_sqlite:
-    # SQLite async: NullPool is automatic. Tune for concurrent writers so the MQTT
-    # ingest + scheduler + request paths don't raise "database is locked":
+    # Tune for concurrent writers so the MQTT ingest + scheduler + request
+    # paths don't raise "database is locked":
     #   busy_timeout (via connect_args "timeout") makes a writer WAIT up to 30s for
     #   the lock instead of erroring immediately. aiosqlite blocks in its worker
     #   thread, so the event loop is not stalled.
@@ -66,9 +87,7 @@ if is_sqlite:
     )
     configure_sqlite_engine(engine)
 
-    logger.info(
-        "Database engine created for SQLite (NullPool, WAL, busy_timeout=30s, foreign_keys=ON)"
-    )
+    logger.info("Database engine created for SQLite (WAL, busy_timeout=30s, foreign_keys=ON)")
 else:
     # PostgreSQL/MySQL: Use connection pooling for production
     engine = create_async_engine(
@@ -137,8 +156,6 @@ def get_db_context():
 
 async def init_db():
     """Initialize database tables and run migrations."""
-    from pathlib import Path
-
     async with engine.begin() as conn:
         logger.info("Creating database tables...")
         await conn.run_sync(Base.metadata.create_all)

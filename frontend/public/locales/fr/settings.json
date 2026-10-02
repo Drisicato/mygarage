@@ -514,7 +514,6 @@
     "createFullSuccess": "Sauvegarde complète créée avec succès !",
     "confirmRestoreFull": "AVERTISSEMENT : cela écrasera toute votre base de données et tous les fichiers envoyés ! Une sauvegarde de sécurité sera créée d'abord. Êtes-vous absolument sûr ?",
     "confirmRestoreSettings": "Cela restaurera tous les paramètres depuis la sauvegarde. Une sauvegarde de sécurité sera créée d'abord. Continuer ?",
-    "fullRestoreComplete": "Sauvegarde complète restaurée ! Veuillez actualiser la page ou redémarrer l'application pour que les changements prennent effet.",
     "restoreFailed": "Échec de la restauration",
     "confirmDelete": "Êtes-vous sûr de vouloir supprimer {{filename}} ?",
     "deleteSuccess": "La sauvegarde {{filename}} a été supprimée avec succès",
@@ -527,8 +526,7 @@
     "infoIncludesEverything": "Les sauvegardes complètes incluent l'intégralité de votre base de données et tous les fichiers envoyés",
     "infoSizeDepends": "La taille de la sauvegarde dépend de la quantité de photos et de documents que vous avez envoyés",
     "infoRestoreOverwrites": "La restauration d'une sauvegarde complète ÉCRASERA toutes les données et fichiers actuels",
-    "infoSafetyBackup": "Une sauvegarde de sécurité est automatiquement créée avant toute opération de restauration",
-    "infoRestartRequired": "Un redémarrage de l'application peut être nécessaire après la restauration d'une sauvegarde complète"
+    "infoSafetyBackup": "Une sauvegarde de sécurité est automatiquement créée avant toute opération de restauration"
   },
   "filesTab": {
     "aboutWindowStickersBody": "Les étiquettes Monroney sont des étiquettes imposées par la loi fédérale sur les véhicules neufs, indiquant le MSRP, la consommation, l'équipement de série et les options. Envoyez l'étiquette Monroney de votre véhicule pour remplir automatiquement les données de prix et de spécifications.",

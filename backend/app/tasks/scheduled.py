@@ -383,6 +383,8 @@ async def check_def_levels() -> None:
                         continue
 
                     fill_level, record_date = row
+                    if fill_level is None:  # the WHERE drops these; this tells pyright
+                        continue
                     percent = fill_level * 100
 
                     if percent <= threshold_percent:

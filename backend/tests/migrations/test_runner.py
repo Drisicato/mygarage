@@ -24,6 +24,32 @@ def test_tracking_table_created(migration_db):
 
 
 @pytest.mark.migrations
+def test_tracking_table_follows_the_dialect_not_the_path(tmp_path: Path) -> None:
+    """A SQLite file in a folder called postgresql still gets SQLite's tracking table.
+
+    The runner looked for "postgresql" anywhere in the URL, so this one got
+    `id SERIAL PRIMARY KEY`, which SQLite takes as a plain nullable column: every id was NULL.
+    """
+    db_dir = tmp_path / "postgresql"
+    db_dir.mkdir()
+    db_file = db_dir / "mygarage.db"
+    runner = MigrationRunner(f"sqlite:///{db_file}", Path("/nonexistent"))
+    try:
+        runner._ensure_migration_tracking_table()
+        runner._mark_migration_applied("001_example")
+
+        conn = sqlite3.connect(str(db_file))
+        try:
+            ids = [row[0] for row in conn.execute("SELECT id FROM schema_migrations")]
+        finally:
+            conn.close()
+
+        assert ids == [1]
+    finally:
+        runner.engine.dispose()
+
+
+@pytest.mark.migrations
 def test_discovery_order(migrations_dir):
     """Migration files are discovered in strictly ascending numeric order with no duplicates."""
     runner = MigrationRunner("sqlite:///:memory:", migrations_dir)

@@ -107,6 +107,28 @@ COPY --from=backend-builder /app/pyproject.toml ./pyproject.toml
 # has no system tzdata, so this asserts the copied packages carry it.
 RUN python -c "from zoneinfo import ZoneInfo; ZoneInfo('America/Chicago')" 
 
+# SQLAlchemy 2.1 only brings greenlet with its [asyncio] extra, and without it the
+# app dies on import. Docker Build Test never starts the app, so run a real query
+# through the async engine here, and load the asyncpg and psycopg2 drivers too.
+RUN python - <<'EOF'
+import asyncio
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+
+async def main() -> None:
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.connect() as conn:
+        assert (await conn.execute(text("select 1"))).scalar_one() == 1
+    await engine.dispose()
+
+
+asyncio.run(main())
+create_async_engine("postgresql+asyncpg://smoke@localhost/smoke")
+create_engine("postgresql+psycopg2://smoke@localhost/smoke")
+EOF
+
 # Copy the maintenance tools. The upgrade notes in CHANGELOG.md tell operators
 # to run these against a live instance, and without this they are not in the
 # image at all: every documented command failed with "can't open file".

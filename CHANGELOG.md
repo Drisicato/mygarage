@@ -12,11 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Financing tracking for lease and loan payments and upfront fees, with a Financing tab and cost analytics
 - Admins can allow an SSO account to relink after its identity-provider account was re-created, from the member card; `tools/oidc_allow_relink.py` does it when the only admin is locked out
 - `MYGARAGE_TRUSTED_PROXIES` and `MYGARAGE_CLIENT_IP_HEADER`: behind a reverse proxy, rate limits and audit logs see the real client instead of the proxy
+- The Backup tab shows a full restore waiting for the restart, and can cancel it
 
 ### Changed
 - Vehicle cards and the vehicle hero flag reminders due within 30 days, by date or by projected mileage and hours, instead of every pending reminder; the fleet strip's count is the sum of those badges
 - The notification bell warns about mileage and hours reminders projected to come due within two weeks, not only dated ones
 - PostgreSQL money columns widen to hold the new maximums; the migration is forward-only and rewrites no data
+- A full backup restore finishes when MyGarage restarts: it checks and stages the backup, and the next start saves a safety backup of the data it replaces, then swaps the backup in before opening the database, so an older backup is migrated on that start
 
 ### Deprecated
 - The spending-anomaly `message` field in the analytics API is deprecated; the app builds its own sentence from `amount`, `baseline` and `deviation_percent`
@@ -77,11 +79,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adding or editing a POI provider with a missing or wrong-typed value, or saving a setting with a key longer than 50 characters, is a validation error instead of a server error or a silently stored value
 - Adding, changing or removing a POI search provider in Settings now saves
 - An address book email over 100 characters is refused instead of failing with a server error on PostgreSQL
+- A full backup restore writes the database file MyGarage actually uses; with a file not named mygarage.db it left the live database alone and deleted its write-ahead log
+- A PostgreSQL database URL with "sqlite" in its password or database name is no longer mistaken for SQLite
+- A full backup restore no longer rewrites the database while MyGarage has it open, which could corrupt the restored data; a backup whose database is damaged or missing is refused
+- A full or safety backup of a database whose path contains "#" or "?" archived an empty database instead of the real one
+- A full backup restore leaves out, and logs, a photo, document or attachment that was a link to a folder or to a file outside the backup, instead of failing
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
 - With `MYGARAGE_TRUSTED_PROXIES` set, `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only count when they come from a trusted proxy
 - The SSO sign-in start and callback are rate limited per client like password login, and a limited attempt returns to the login page with a reason
+
+### Build
+- Backend dependencies bumped: sqlalchemy 2.1.2 (with its asyncio extra), pyjwt 2.15.1, ruff 0.16.10 and pillow-heif 1.8.0.
+- `MYGARAGE_DATABASE_URL`'s path is now URL-decoded, so a literal `%` in it must be written `%25`.
 
 ## [3.7.0] - 2026-09-24
 

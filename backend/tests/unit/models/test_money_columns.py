@@ -14,7 +14,7 @@ listed in `NOT_MONEY_COLUMNS` with a reason. No database needed.
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Column, Numeric
+from sqlalchemy import Column, Float, Numeric
 
 import app.main  # noqa: F401 (registers every model on Base.metadata)
 from app.database import Base
@@ -51,7 +51,8 @@ def _numeric_columns() -> dict[str, Column[Any]]:
         f"{table.name}.{column.name}": column
         for table in Base.metadata.tables.values()
         for column in table.columns
-        if isinstance(column.type, Numeric)
+        # SQLAlchemy 2.1 split Float off Numeric, so it has to be named.
+        if isinstance(column.type, (Numeric, Float))
     }
 
 
@@ -106,7 +107,7 @@ def test_every_money_column_has_its_policy_type():
         qualified: f"{type(column.type).__name__}({column.type.precision}, {column.type.scale})"
         for qualified, column in columns.items()
         if qualified in MONEY_COLUMNS
-        # Exactly Numeric: a Float passes isinstance and stores a double.
+        # Exactly Numeric: the scan takes Floats too, and a Float stores a double.
         and (
             type(column.type) is not Numeric
             or (column.type.precision, column.type.scale) != MONEY_COLUMNS[qualified]
