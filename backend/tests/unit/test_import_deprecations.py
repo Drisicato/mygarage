@@ -1,8 +1,12 @@
 """The app imports with SQLAlchemy deprecations turned into errors.
 
-export.py builds its loader options at import time, so a deprecated loader there
-warns once, during conftest's import, where pytest's filter may not reach. A fresh
-interpreter sees it every time.
+pytest.ini already covers import time: its filter applies while conftest loads, so a
+deprecated loader in export.py's module-level options stops the whole session (exit 4).
+This probe is the backstop for when that stops holding: the ini entry gets narrowed or
+removed, or conftest's import order changes. A fresh interpreter sees the import every time.
+
+Guard: passes at t=0. Mutant that kills it: `noload` back in export.py's
+`_INSURANCE_LINK_LOADS`, run with `-p no:warnings` so conftest still loads.
 """
 
 import subprocess

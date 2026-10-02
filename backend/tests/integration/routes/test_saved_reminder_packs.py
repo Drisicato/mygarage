@@ -379,10 +379,10 @@ class TestChangingASavedPack:
 
         ★ `expunge_all` IS THE TEST. Every request in this fixture shares one
         session, so the pack saved two lines up is still in the identity map with
-        its items loaded, and a `noload` on a later query cannot empty a
-        collection that is already populated. Production gives each request a
-        FRESH session, where `noload` means exactly what it says. Without this
-        line the test passes against the bug.
+        its items loaded, and a later query that skips loading them cannot empty
+        a collection that is already populated. Production gives each request a
+        FRESH session, where nothing is loaded unless the query loads it. Without
+        this line the test passes against the bug.
         """
         await _vehicle(client, auth_headers, SOURCE_VIN)
         oil = await _rule(client, auth_headers, SOURCE_VIN)
