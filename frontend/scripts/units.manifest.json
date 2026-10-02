@@ -346,8 +346,8 @@
     {
       "path": "src/components/AddressBookAutocomplete.tsx",
       "disposition": "no unit behaviour",
-      "digest": "193e76dbdc512203d58fd24f97415b89964df7710ab803b84f1d9c91eadbd4af",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity."
+      "digest": "c014d0106b52b43fddfcc1ee73d3b982ee9a1b3629b14ea5306cac21ccdb6ab8",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-10-02 (selection-and-station-picker G3): the picker searches only what was typed and drops a search a pick or clear overtook, so a pick no longer reopens the list. No quantity, unit or conversion code."
     },
     {
       "path": "src/components/AddressBookQuickAddModal.tsx",

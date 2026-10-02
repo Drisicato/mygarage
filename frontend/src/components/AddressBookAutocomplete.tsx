@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, X } from 'lucide-react'
 import type { AddressBookEntry } from '../types/addressBook'
@@ -50,16 +50,39 @@ export default function AddressBookAutocomplete({
   const [showDropdown, setShowDropdown] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  // Only what the user typed gets searched. Picks, quick add and an edit form's
+  // saved name write the value too, and searching those reopened the list (#194).
+  const typedRef = useRef<string | null>(null)
+  // Every search takes a number and a stale one is dropped, so a slow answer
+  // can't reopen a list a pick or clear just closed.
+  const requestIdRef = useRef(0)
+  // The deps take this instead of onAddNew: callers pass inline functions, and
+  // a new one each render refired the search.
+  const hasAddNew = !!onAddNew
+
+  // Drops the running search. It clears the spinner too, because a dropped
+  // search skips its own finally.
+  const invalidate = useCallback((): void => {
+    requestIdRef.current += 1
+    setLoading(false)
+  }, [])
 
   // Search for entries when value changes
   useEffect(() => {
-    const searchEntries = async () => {
-      if (!value || value.length < 2) {
-        setEntries([])
-        setShowDropdown(false)
-        return
-      }
+    // Runs before the typed check: the clear button empties the value from the
+    // parent, and that still has to close the list.
+    if (!value || value.length < 2) {
+      setEntries([])
+      setShowDropdown(false)
+      invalidate()
+      return
+    }
 
+    const searchEntries = async (): Promise<void> => {
+      // Checked when the timer fires, not when it's set: picking the name that's
+      // already typed leaves the value alone, so nothing cancels this timer.
+      if (value !== typedRef.current) return
+      const id = ++requestIdRef.current
       try {
         setLoading(true)
         const params = new URLSearchParams()
@@ -68,28 +91,28 @@ export default function AddressBookAutocomplete({
         if (poiCategoryFilter) params.append('poi_category', poiCategoryFilter)
 
         const response = await api.get(`/address-book?${params}`)
+        if (id !== requestIdRef.current) return
         const fetched = response.data.entries || []
         setEntries(fetched)
         // Show the dropdown when there are results OR when the empty-state
         // has actionable affordances (the "+ Add to address book" footer
         // shipped in v2.27.0-rc2). Without this, an empty result hides the
         // entire dropdown and the user has no way to reach the modal.
-        setShowDropdown(fetched.length > 0 || !!onAddNew)
+        setShowDropdown(fetched.length > 0 || hasAddNew)
       } catch {
-        setEntries([])
+        if (id === requestIdRef.current) setEntries([])
       } finally {
-        setLoading(false)
+        if (id === requestIdRef.current) setLoading(false)
       }
     }
 
     // Debounce the search
     const timeoutId = setTimeout(searchEntries, 300)
     return () => clearTimeout(timeoutId)
-  // ``onAddNew`` is in the deps because the empty-state showDropdown
-  // path depends on whether it's provided. Most callers pass a stable
-  // function; if a caller inlines a new function each render the search
-  // re-fires, which is harmless (debounced + idempotent).
-  }, [value, categoryFilter, poiCategoryFilter, onAddNew])
+  }, [value, categoryFilter, poiCategoryFilter, hasAddNew, invalidate])
+
+  // A search still out when the picker goes away has nowhere to land.
+  useEffect(() => () => invalidate(), [invalidate])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -103,17 +126,28 @@ export default function AddressBookAutocomplete({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    typedRef.current = e.target.value
     onChange(e.target.value)
     setSelectedIndex(-1)
   }
 
-  const handleSelectEntry = (entry: AddressBookEntry) => {
+  const handleSelectEntry = (entry: AddressBookEntry): void => {
+    // The pick writes the value and the value drives the search, so the picked
+    // name must not count as typed, and a search still out must not land.
+    typedRef.current = null
+    invalidate()
     onChange(entry.business_name || entry.name || '')
     setShowDropdown(false)
     if (onSelectEntry) {
       onSelectEntry(entry)
     }
+  }
+
+  const handleClear = (): void => {
+    typedRef.current = null
+    invalidate()
+    onClear?.()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -173,7 +207,7 @@ export default function AddressBookAutocomplete({
       {!loading && onClear && value && (
         <button
           type="button"
-          onClick={onClear}
+          onClick={handleClear}
           aria-label={t('addressBookAutocomplete.clear')}
           className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-garage-text-muted hover:text-garage-text rounded hover:bg-garage-bg"
         >
