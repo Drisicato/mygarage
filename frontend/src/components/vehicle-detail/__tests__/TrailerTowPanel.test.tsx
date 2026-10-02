@@ -47,7 +47,7 @@ describe('TrailerTowPanel', () => {
     expect(await screen.findByText('detail.tow.notConnected')).toBeInTheDocument()
   })
 
-  it('shows the paired vehicle as a link, above the card edit overlay', async () => {
+  it('clicking the tow vehicle link does not open the editor', async () => {
     getTrailerDetailsMock.mockResolvedValue({ tow_vehicle_vin: TOW_VEHICLE.vin })
     renderPanel(TRAILER)
 
@@ -55,11 +55,16 @@ describe('TrailerTowPanel', () => {
     expect(link).toHaveAttribute('href', `/vehicles/${TOW_VEHICLE.vin}`)
     expect(screen.queryByText('detail.tow.notConnected')).not.toBeInTheDocument()
 
-    // The overlay is absolute inset-0 z-10, so a link left underneath it would
-    // render but never be clickable. Its wrapper must out-stack the overlay.
-    expect(link.parentElement).toHaveClass('z-20')
-    // Both affordances coexist: the link navigates, the rest of the card edits.
-    expect(screen.getByRole('button', { name: 'detail.tow.editTitle' })).toBeInTheDocument()
+    // The link sits inside the click-to-edit card, so its click used to bubble
+    // up and open the tow editor on the way out (#179). Asked by role, not by
+    // text: the hidden edit button's text IS detail.tow.editTitle.
+    fireEvent.click(link)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // And the rest of the card still edits, so the line above isn't passing
+    // just because the card stopped opening anything.
+    fireEvent.click(screen.getByText('detail.tow.hitch'))
+    expect(await screen.findByRole('dialog')).toHaveAccessibleName('detail.tow.editTitle')
   })
 
   it('keeps the form out of the card and opens it in a drawer on click', async () => {
@@ -79,8 +84,8 @@ describe('TrailerTowPanel', () => {
     renderPanel(TOW_VEHICLE)
 
     expect(await screen.findByText('detail.tow.linkedTrailers')).toBeInTheDocument()
-    // This card contains links, so it must NOT get the click-to-edit overlay:
-    // the overlay sits above everything and would swallow them.
+    // A tow vehicle's list is read-only (the pairing is edited from the
+    // trailer's side), so this card isn't click-to-edit at all.
     expect(screen.queryByRole('button', { name: 'detail.tow.editTitle' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /KZ-Durango/ })).toBeInTheDocument()
   })

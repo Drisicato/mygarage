@@ -404,6 +404,12 @@
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-24 (money fields): the currency prefix is now CurrencyInput or Input's prefix, padded to the symbol's drawn width; no quantity, unit or conversion code changed. 2026-09-29 (clear-means-clear): the total follows user edits only (useOnUserEdit), not the open; no quantity, unit or conversion code changed."
     },
     {
+      "path": "src/components/ClickableCard.tsx",
+      "disposition": "no unit behaviour",
+      "digest": "1fca970722d847b4c23f5dd2dfe16b7da7732a4c940b75d3f2d697794f3ae857",
+      "reason": "NEW 2026-10-02 (selection-and-station-picker G4), taking over the body of src/components/vehicle-detail/EditableCard.tsx (issue #179), whose row carries the same conclusion: it renders no value of any kind. It holds a card's click handler, the guard that ignores a click which ends a text selection or starts in a control nested in the card, and a focus-revealed button for keyboard and screen-reader users. Its only user-visible string is the label it is passed, already translated. No quantity, unit or conversion code."
+    },
+    {
       "path": "src/components/CompleteReminderDialog.tsx",
       "disposition": "audited",
       "digest": "2b309bcc3a331251f4dcfb8c4491da4af96e6ea71cefcdbe58d01b587dbb6a9d",
@@ -1810,8 +1816,8 @@
     {
       "path": "src/components/ui/Card.tsx",
       "disposition": "no unit behaviour",
-      "digest": "515dfe787817fb7b52a6849ebf2e2cea23c26fc741da85a5274b57f9264b7ae1",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. Re-reviewed 2026-09-21 for issue #179: the non-interactive branch now forwards `onClick` to its container div. Presentation and event wiring only; this file still holds no figure, unit or conversion."
+      "digest": "ff49ddf24073521d27611df84f88affbbceacd303a72f51e574f11558960a80b",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. Re-reviewed 2026-09-21 for issue #179: the non-interactive branch now forwards `onClick` to its container div. Presentation and event wiring only; this file still holds no figure, unit or conversion. 2026-10-02 (selection-and-station-picker G4): `onClick` now receives the click event, so ClickableCard can tell a click on the card from one that started in a control inside it. No quantity, unit or conversion code."
     },
     {
       "path": "src/components/ui/CardHeader.tsx",
@@ -1990,8 +1996,8 @@
     {
       "path": "src/components/vehicle-detail/EditableCard.tsx",
       "disposition": "no unit behaviour",
-      "digest": "c728b5311cfbb83cffa1f30cb7f1960004a821f047e91013ed2849db37882d45",
-      "reason": "NEW 2026-09-21, replacing src/components/vehicle-detail/CardEditOverlay.tsx (issue #179), whose row carried the same conclusion about the same responsibility: make an info card one click-to-edit target. It renders no value of any kind. It holds a card's click handler, a focus-revealed button for keyboard and screen-reader users, and the guard that stops a click which merely ends a text selection from opening the editor. The predecessor's own hardcoded-string scan found one hit, read in context and not a unit decision; this file has no user-visible string at all, since its only label is passed in already translated. Re-reviewed 2026-09-21: the local text-selection predicate moved to utils/textSelection so the dashboard cards share one definition of it. Behaviour unchanged; still renders no value. Amended same day: the focus-revealed edit button's position and chip styling moved onto a wrapper span, because Tailwind's `not-sr-only` resets position, padding and margin and would fight any focus: utility beside it on the same element. Still renders no value."
+      "digest": "f55c8b2685ed0120a1de19eebeb4087f889dd74c32c44408e3d83b1b81b66265",
+      "reason": "NEW 2026-09-21, replacing src/components/vehicle-detail/CardEditOverlay.tsx (issue #179), whose row carried the same conclusion about the same responsibility: make an info card one click-to-edit target. It renders no value of any kind. It holds a card's click handler, a focus-revealed button for keyboard and screen-reader users, and the guard that stops a click which merely ends a text selection from opening the editor. The predecessor's own hardcoded-string scan found one hit, read in context and not a unit decision; this file has no user-visible string at all, since its only label is passed in already translated. Re-reviewed 2026-09-21: the local text-selection predicate moved to utils/textSelection so the dashboard cards share one definition of it. Behaviour unchanged; still renders no value. Amended same day: the focus-revealed edit button's position and chip styling moved onto a wrapper span, because Tailwind's `not-sr-only` resets position, padding and margin and would fight any focus: utility beside it on the same element. Still renders no value. 2026-10-02 (selection-and-station-picker G4): its body moved to src/components/ClickableCard.tsx; this file is now a thin wrapper that keeps its props, re-exports the card class under its old name and falls back to a plain Card when there is nothing to edit. Still renders no value. No quantity, unit or conversion code."
     },
     {
       "path": "src/components/vehicle-detail/EquipmentDrawer.tsx",
@@ -2014,8 +2020,8 @@
     {
       "path": "src/components/vehicle-detail/TrailerTowPanel.tsx",
       "disposition": "no unit behaviour",
-      "digest": "9f94939ddf3cf0b19c412faa56dc557dab631e99f8cdebbc883f17ed59c4c891",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. Re-reviewed 2026-09-21 for issue #179: the click-to-edit overlay is gone. This card now takes its edit handler from EditableCard, so nothing is stacked over the card's own values and they can be selected and copied. No figure, unit or conversion in this file changed."
+      "digest": "52b2a9743764981dee95b1cecd6d28b258aa331327c53e600333af35639f6494",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. Re-reviewed 2026-09-21 for issue #179: the click-to-edit overlay is gone. This card now takes its edit handler from EditableCard, so nothing is stacked over the card's own values and they can be selected and copied. No figure, unit or conversion in this file changed. 2026-10-02 (selection-and-station-picker G4): comments only; the two that still described the deleted overlay now say the tow vehicle link keeps its own click. No figure, unit or conversion in this file changed."
     },
     {
       "path": "src/components/vehicle-detail/VehicleActionsToolbar.tsx",

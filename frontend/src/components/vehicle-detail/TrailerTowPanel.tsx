@@ -173,21 +173,17 @@ export default function TrailerTowPanel({ vehicle }: TrailerTowPanelProps) {
   return (
     <>
       {/* Summary card matching the other Overview cards. The whole card is the
-          click target via the transparent overlay, so there is no corner
-          control and the form lives in a sidecar rather than inline. The card
-          must therefore hold NO other interactive element, which is why the
-          paired vehicle is plain text rather than a link. */}
+          click target, so there's no corner control and the form lives in a
+          sidecar rather than inline. */}
       <EditableCard breakInside label={t('detail.tow.editTitle')} onEdit={() => setEditing(true)}>
         <CardHeader title={t('detail.tow.title')} />
         <div className="space-y-4">
           <div>
             <p className="text-sm text-text-mute">{t('detail.tow.towVehicle')}</p>
             {towVehicle ? (
-              // Lifted above the card's edit overlay (z-10) rather than left
-              // under it, which would make the link unreachable. Clicking the
-              // name navigates; clicking anywhere else on the card still opens
-              // the editor. Mirrors the Linked Trailers card: name is the link,
-              // VIN sits beside it as plain text.
+              // A link inside the card keeps its own click, so the name just
+              // navigates and anywhere else on the card still opens the editor.
+              // Mirrors the Linked Trailers card: name is the link, VIN beside it.
               <p className="relative z-20 mt-1">
                 <Link
                   className="font-medium text-primary hover:underline"
