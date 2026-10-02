@@ -102,9 +102,9 @@ describe('ServiceVisitList — keyboard-operable disclosure (B7)', () => {
     const user = userEvent.setup()
     render(<ServiceVisitList {...PROPS} />)
     // The disclosure button holds only the chevron and takes its name from the
-    // visit's title through aria-labelledby, so the date, chip, vendor and
-    // total stay outside it where a long-press can select them (#179).
-    const disclosure = screen.getByRole('button', { name: 'Tire rotation' })
+    // visit's title and date through aria-labelledby, so the date, chip, vendor
+    // and total stay outside it where a long-press can select them (#179).
+    const disclosure = screen.getByRole('button', { name: `Tire rotation ${formatDateForDisplay('2026-03-01')}` })
     expect(disclosure).toHaveAttribute('aria-expanded', 'false')
     // Notes live only in the expanded panel.
     expect(screen.queryByText('rotated tires')).not.toBeInTheDocument()
@@ -168,6 +168,19 @@ describe('ServiceVisitList: the visit row keeps its text selectable (#179)', () 
     expect(disclosure).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(screen.getByText(formatDateForDisplay('2026-03-01')))
     expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('two visits with the same title get different names', () => {
+    // RED with a title-only aria-labelledby: both read "Tire rotation". The
+    // date makes them tell apart. Mutant that kills it: drop the date's id
+    // from aria-labelledby.
+    const later = { ...visit, id: 2, date: '2026-06-15' } as unknown as ServiceVisit
+    useServiceVisitsMock.mockReturnValue({ data: { visits: [visit, later] }, isLoading: false, error: null })
+    render(<ServiceVisitList {...PROPS} />)
+
+    expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(2)
+    expect(screen.getByRole('button', { name: `Tire rotation ${formatDateForDisplay('2026-03-01')}` })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `Tire rotation ${formatDateForDisplay('2026-06-15')}` })).toBeInTheDocument()
   })
 
   it("Edit and Delete do their own thing and don't toggle the row", () => {

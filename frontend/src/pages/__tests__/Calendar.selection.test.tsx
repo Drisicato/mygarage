@@ -12,13 +12,17 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from '../../__tests__/test-utils'
 import { setHouseholdTimeZone } from '../../constants/i18n'
 
+const capturedCalendarConfig = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }))
 vi.mock('@schedule-x/react', () => ({
-  useCalendarApp: () => ({}),
+  useCalendarApp: (config: Record<string, unknown>) => {
+    capturedCalendarConfig.current = config
+    return {}
+  },
   ScheduleXCalendar: () => null,
 }))
 vi.mock('@schedule-x/calendar', () => ({
@@ -176,5 +180,49 @@ describe('Calendar upcoming event: selecting its text (#179)', () => {
     expect(apiPost).toHaveBeenCalledTimes(2)
 
     expect(mockNavigate).not.toHaveBeenCalled()
+  })
+})
+
+describe('Calendar month grid and bulk mode (G7 fold-in)', () => {
+  it('a reminder clicked in the month grid opens it, like the upcoming list', async () => {
+    // RED today: the grid's onEventClick has its own switch with no case for
+    // a reminder- id, so the click does nothing. Mutant that kills it: give
+    // the grid back its own switch instead of openEvent.
+    render(<CalendarPage />)
+    await waitFor(() => expect(capturedCalendarConfig.current).not.toBeNull())
+    const callbacks = capturedCalendarConfig.current?.callbacks as {
+      onEventClick: (calendarEvent: { _customData?: unknown }) => void
+    }
+
+    callbacks.onEventClick({ _customData: EVENT })
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1)
+    expect(mockNavigate).toHaveBeenCalledWith(EVENT_PATH)
+  })
+
+  it('in bulk mode the focusable button selects the event, by click, Enter and Space', async () => {
+    // RED today: bulk mode renders no focusable control on the item at all,
+    // so selecting from the keyboard is impossible.
+    const user = userEvent.setup()
+    render(<CalendarPage />)
+    await screen.findByText('Oil change')
+    fireEvent.click(screen.getByRole('button', { name: 'calendar.bulkMode' }))
+
+    const select = screen.getByRole('button', { name: 'calendar.selectEvent' })
+    expect(select).toHaveAttribute('aria-pressed', 'false')
+
+    select.focus()
+    await user.keyboard('{Enter}')
+    expect(select).toHaveAttribute('aria-pressed', 'true')
+    await user.keyboard(' ')
+    expect(select).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(select)
+    expect(select).toHaveAttribute('aria-pressed', 'true')
+    expect(mockNavigate).not.toHaveBeenCalled()
+
+    // Out of bulk mode it's the open button again, with no pressed state.
+    fireEvent.click(screen.getByRole('button', { name: 'calendar.bulkMode' }))
+    const open = screen.getByRole('button', { name: 'calendar.openEvent' })
+    expect(open).not.toHaveAttribute('aria-pressed')
   })
 })

@@ -93,6 +93,21 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
   const [showHistory, setShowHistory] = useState(false)
   const [date, setDate] = useState(new Date())
 
+  // Where an event goes, from the month grid, the upcoming item or its hidden
+  // keyboard button. One mapping, so a reminder can't open from one and do
+  // nothing from the other.
+  const openEvent = (event: CalendarEvent): void => {
+    const [type] = event.id.split('-')
+    if (type === 'insurance') {
+      // A policy is a household record covering several vehicles, so its
+      // renewal opens the Insurance page rather than one vehicle's tab.
+      navigate(`/insurance?policy=${event.id.slice('insurance-'.length)}`)
+      return
+    }
+    const tab = type === 'maintenance' ? 'maintenance' : type === 'warranty' ? 'warranties' : 'service'
+    navigate(`/vehicles/${event.vehicle_vin}?tab=${tab}`)
+  }
+
   // Schedule-X plugins (stable refs via useState initializer)
   const [eventsService] = useState(() => createEventsServicePlugin())
   const [calendarControls] = useState(() => createCalendarControlsPlugin())
@@ -118,23 +133,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
         // calendarEvent._customData holds the original CalendarEvent
         const original = calendarEvent._customData as CalendarEvent | undefined
         if (!original) return
-        const [type] = original.id.split('-')
-        switch (type) {
-          case 'maintenance':
-            navigate(`/vehicles/${original.vehicle_vin}?tab=maintenance`)
-            break
-          case 'insurance':
-            // A policy is a household record covering several vehicles, so its
-            // renewal opens the Insurance page rather than one vehicle's tab.
-            navigate(`/insurance?policy=${original.id.slice('insurance-'.length)}`)
-            break
-          case 'warranty':
-            navigate(`/vehicles/${original.vehicle_vin}?tab=warranties`)
-            break
-          case 'service':
-            navigate(`/vehicles/${original.vehicle_vin}?tab=service`)
-            break
-        }
+        openEvent(original)
       },
       onRangeUpdate(range) {
         // range.start may be a Temporal object or string like "2026-06-01 00:00"
@@ -396,18 +395,6 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
   const handleShowNotes = (event: CalendarEvent): void => {
     setSelectedEventForNotes(event)
     setShowNotesModal(true)
-  }
-
-  // Where an upcoming event goes. The item's click and its hidden keyboard
-  // button both land here.
-  const openEvent = (event: CalendarEvent): void => {
-    const [type] = event.id.split('-')
-    if (type === 'insurance') {
-      navigate(`/insurance?policy=${event.id.slice('insurance-'.length)}`)
-      return
-    }
-    const tab = type === 'maintenance' ? 'maintenance' : type === 'warranty' ? 'warranties' : 'service'
-    navigate(`/vehicles/${event.vehicle_vin}?tab=${tab}`)
   }
 
   // Event styling is handled via Schedule-X calendars config (per-type colors defined in EVENT_CALENDARS)
@@ -702,18 +689,20 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                   >
                     {/* The keyboard way in, hidden until focused. A real button
                         instead of role="button" on the item, which already holds
-                        buttons. Same chip as ClickableCard's. */}
-                    {!bulkMode && (
-                      <span className="absolute right-2 top-2 z-10 rounded-lg focus-within:bg-surface-2 focus-within:px-2 focus-within:py-1 focus-within:text-xs">
-                        <button
-                          type="button"
-                          onClick={() => openEvent(event)}
-                          className="ui-focus-ring sr-only focus:not-sr-only"
-                        >
-                          {t('calendar.openEvent', { title: event.title })}
-                        </button>
-                      </span>
-                    )}
+                        buttons. Same chip as ClickableCard's. In bulk mode it
+                        selects instead of opening, like a click on the item. */}
+                    <span className="absolute right-2 top-2 z-10 rounded-lg focus-within:bg-surface-2 focus-within:px-2 focus-within:py-1 focus-within:text-xs">
+                      <button
+                        type="button"
+                        aria-pressed={bulkMode ? selectedEvents.includes(event.id) : undefined}
+                        onClick={() => (bulkMode ? toggleEventSelection(event.id) : openEvent(event))}
+                        className="ui-focus-ring sr-only focus:not-sr-only"
+                      >
+                        {bulkMode
+                          ? t('calendar.selectEvent', { title: event.title })
+                          : t('calendar.openEvent', { title: event.title })}
+                      </button>
+                    </span>
                     <div className="flex items-start justify-between gap-2">
                       {/* Phase 3: Bulk selection checkbox */}
                       {bulkMode && (

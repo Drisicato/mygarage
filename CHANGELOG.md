@@ -93,6 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Text on the address book cards can be selected and copied (#179)
 - Selecting text in a calendar event, a family member header, a service visit row or the LiveLink widget no longer opens, toggles or navigates; calendar events open from the keyboard (#179)
 - The family member card's action buttons work from the keyboard; Enter on one toggled the card instead
+- Clicking a reminder in the calendar's month grid opens it, as in the upcoming list
+- Calendar bulk selection works from the keyboard
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

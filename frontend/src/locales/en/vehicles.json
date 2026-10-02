@@ -50,6 +50,7 @@
     "overdue": "Overdue",
     "reminderDone": "Reminder marked as done",
     "searchPlaceholder": "Search events by title, description, or vehicle...",
+    "selectEvent": "Select {{title}}",
     "subtitle": "View all upcoming maintenance, insurance renewals, and warranty expirations",
     "title": "Calendar",
     "totalEvents": "Total Events",

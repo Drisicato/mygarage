@@ -319,8 +319,10 @@ export default function ServiceVisitList({
         <div className="space-y-3">
           {filteredVisits.map((visit) => {
             const isExpanded = expandedVisits.has(visit.id)
-            // The chevron button's name is the visit's title.
+            // The chevron button's name is the visit's title then its date, so two
+            // visits with the same title still sound different.
             const titleId = `${rowIdPrefix}-title-${visit.id}`
+            const dateId = `${rowIdPrefix}-date-${visit.id}`
             const totalCost = calculateVisitTotal(visit)
             const lineItemCount = visit.line_items?.length || 0
             const hasFailedInspections = visit.line_items?.some(
@@ -353,12 +355,12 @@ export default function ServiceVisitList({
                       className="flex-shrink-0 cursor-pointer rounded-row text-text-mute ui-focus-ring"
                       onClick={() => toggleExpanded(visit.id)}
                       aria-expanded={isExpanded}
-                      aria-labelledby={titleId}
+                      aria-labelledby={`${titleId} ${dateId}`}
                     >
                       {isExpanded ? <ChevronUp aria-hidden="true" className="w-5 h-5" /> : <ChevronDown aria-hidden="true" className="w-5 h-5" />}
                     </button>
 
-                    <div className="flex items-center gap-2 min-w-[90px] sm:min-w-[120px]">
+                    <div id={dateId} className="flex items-center gap-2 min-w-[90px] sm:min-w-[120px]">
                       <Calendar aria-hidden="true" className="w-4 h-4 text-text-mute" />
                       <Mono size="sm">{formatDate(visit.date)}</Mono>
                     </div>
