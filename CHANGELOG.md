@@ -91,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Following the tow vehicle link on a trailer's Overview no longer also opens the tow editor (#179)
 - Text on the tire cards can be selected and copied; tapping the card still opens its history (#179)
 - Text on the address book cards can be selected and copied (#179)
+- Selecting text in a calendar event, a family member header, a service visit row or the LiveLink widget no longer opens, toggles or navigates; calendar events open from the keyboard (#179)
+- The family member card's action buttons work from the keyboard; Enter on one toggled the card instead
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

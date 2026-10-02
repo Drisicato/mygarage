@@ -18,6 +18,7 @@ import { formatTime, parseAPITimestamp } from '@/utils/parseAPITimestamp'
 import { useDateLocale } from '@/hooks/useDateLocale'
 import { useTimeFormat } from '@/hooks/useTimeFormat'
 import { withBase } from '@/utils/basePath'
+import { unlessSelectingText } from '@/utils/textSelection'
 
 /** Matches a bare ISO calendar date (YYYY-MM-DD). */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -172,7 +173,10 @@ export default function FamilyMemberCard({
   const canToggleRelink = showActions && ((isOidc && !isInactive) || relinkOpen) && !!onToggleRelink
   const canReorder = showActions && !isInactive && membersLoaded && !!(onMoveUp || onMoveDown)
 
-  const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
+  const handleHeaderKeyDown = (e: React.KeyboardEvent): void => {
+    // A key pressed on one of the header's buttons belongs to that button.
+    // Catching it here ate Enter on Edit and toggled the card instead.
+    if (e.target !== e.currentTarget) return
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       setIsExpanded(!isExpanded)
@@ -185,7 +189,7 @@ export default function FamilyMemberCard({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={unlessSelectingText(() => setIsExpanded(!isExpanded))}
         onKeyDown={handleHeaderKeyDown}
         className="w-full flex items-center gap-4 p-4 hover:bg-garage-bg transition-colors cursor-pointer"
       >

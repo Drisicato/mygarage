@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ServiceVisit } from '../../types/serviceVisit'
 import { METRIC_UNITS } from '../../__tests__/factories'
+import { formatDateForDisplay } from '../../utils/dateUtils'
 
 const useServiceVisitsMock = vi.fn()
 const deleteMutate = vi.fn()
@@ -100,11 +101,10 @@ describe('ServiceVisitList — keyboard-operable disclosure (B7)', () => {
   it('the header disclosure is a focusable <button> whose aria-expanded toggles on Enter and Space, revealing/hiding the notes (fails if it regresses to a non-focusable div or the toggle is unwired)', async () => {
     const user = userEvent.setup()
     render(<ServiceVisitList {...PROPS} />)
-    // The disclosure button's accessible name is the concatenation of its header
-    // text (date, category, summary, mileage, total); 'Maintenance' is a stable
-    // substring. The edit/delete IconButtons are SIBLINGS outside it, so this
-    // regex matches ONLY the disclosure control.
-    const disclosure = screen.getByRole('button', { name: /Maintenance/ })
+    // The disclosure button holds only the chevron and takes its name from the
+    // visit's title through aria-labelledby, so the date, chip, vendor and
+    // total stay outside it where a long-press can select them (#179).
+    const disclosure = screen.getByRole('button', { name: 'Tire rotation' })
     expect(disclosure).toHaveAttribute('aria-expanded', 'false')
     // Notes live only in the expanded panel.
     expect(screen.queryByText('rotated tires')).not.toBeInTheDocument()
@@ -114,6 +114,77 @@ describe('ServiceVisitList — keyboard-operable disclosure (B7)', () => {
     expect(disclosure).toHaveAttribute('aria-expanded', 'true')
     await waitFor(() => expect(screen.getByText('rotated tires')).toBeInTheDocument())
     await user.keyboard(' ') // Space activates a focused button → collapses
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  })
+})
+
+/**
+ * The visit row's text can be selected (issue #179). jsdom pins structure and
+ * handlers only: nothing readable sits inside a button, the row toggles on a
+ * click, and a click that ends a selection doesn't. Whether a long-press
+ * actually selects on a phone is the E2E half.
+ */
+describe('ServiceVisitList: the visit row keeps its text selectable (#179)', () => {
+  const vendorVisit = { ...visit, vendor: { id: 3, name: 'Summit Auto' } } as unknown as ServiceVisit
+
+  beforeEach(() => {
+    useServiceVisitsMock.mockReturnValue({ data: { visits: [vendorVisit] }, isLoading: false, error: null })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("the visit's date, odometer, vendor and total are not inside a button", async () => {
+    // RED today: the whole header is one <button>, and text inside a button
+    // can't be long-pressed on a phone.
+    render(<ServiceVisitList {...PROPS} />)
+    const readings = [
+      screen.getByText(formatDateForDisplay('2026-03-01')),
+      await screen.findByText(/80,467/),
+      screen.getByText('Summit Auto'),
+      screen.getByText('$40.00'),
+    ]
+
+    expect(readings.filter((el) => el.closest('button') !== null)).toEqual([])
+  })
+
+  it("clicking the row still toggles it; ending a selection doesn't", () => {
+    // RED today on the selection half: the button toggles on every click.
+    // Found by its state, not its name, so the RED is the toggle and not the
+    // query (the name changed with the restructure; the B7 test pins it).
+    render(<ServiceVisitList {...PROPS} />)
+    const disclosure = screen.getByRole('button', { expanded: false })
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      toString: () => 'Summit Auto',
+    } as unknown as Selection)
+
+    fireEvent.click(screen.getByText('Summit Auto'))
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+
+    vi.mocked(window.getSelection).mockRestore()
+    fireEvent.click(screen.getByText('Summit Auto'))
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByText(formatDateForDisplay('2026-03-01')))
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it("Edit and Delete do their own thing and don't toggle the row", () => {
+    // Guard: they were siblings of the disclosure button before, so they
+    // never toggled. Now they sit inside the clickable row and the row's
+    // cameFromNestedControl check is what keeps them out. Mutant that kills
+    // it: drop cameFromNestedControl from the row's onClick.
+    render(<ServiceVisitList {...PROPS} />)
+    const disclosure = screen.getByRole('button', { expanded: false })
+
+    // Checked after each click: two stray toggles would cancel out.
+    fireEvent.click(screen.getByRole('button', { name: 'common:edit' }))
+    expect(onEditClick).toHaveBeenCalledTimes(1)
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'common:delete' }))
+    expect(deleteMutate).toHaveBeenCalledTimes(1)
     expect(disclosure).toHaveAttribute('aria-expanded', 'false')
   })
 })

@@ -10,8 +10,9 @@
  * plain `new Date()` read of it lands hours late and an expired window looks
  * open.
  */
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '../../__tests__/test-utils'
+import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import FamilyMemberCard from '../FamilyMemberCard'
 import type { FamilyMemberData } from '@/types/family'
@@ -212,5 +213,95 @@ describe('FamilyMemberCard disable and delete', () => {
   it('offers no password reset to an SSO user', () => {
     renderActions(user())
     expect(screen.queryByTitle('familyCard.resetPassword')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The header is one big toggle that also holds the admin action buttons
+ * (issue #179). jsdom pins the handlers only: a click that ends a text
+ * selection doesn't toggle, and a key pressed on a header button belongs to
+ * that button. Whether the name is selectable on a phone is the E2E half.
+ */
+describe('FamilyMemberCard header', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const renderWithEdit = (): ReturnType<typeof vi.fn> => {
+    const onEdit = vi.fn()
+    render(
+      <FamilyMemberCard
+        member={member}
+        user={user({ auth_method: 'local' })}
+        currentUserId={1}
+        activeAdminCount={2}
+        showActions
+        onEdit={onEdit}
+      />,
+    )
+    return onEdit
+  }
+
+  // The expanded panel is the only place this text shows (no vehicles).
+  const panelIsOpen = (): boolean => screen.queryByText('familyCard.noVehicles') !== null
+
+  it('ending a selection in the header does not toggle the panel', () => {
+    // RED today: the header's onClick toggles on any click, including the one
+    // that lets go of a selection.
+    renderWithEdit()
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      toString: () => 'dana',
+    } as unknown as Selection)
+
+    fireEvent.click(screen.getByText('@dana'))
+    expect(panelIsOpen()).toBe(false)
+
+    // Selection gone, a plain click still toggles.
+    vi.mocked(window.getSelection).mockRestore()
+    fireEvent.click(screen.getByText('@dana'))
+    expect(panelIsOpen()).toBe(true)
+  })
+
+  it('Enter on a header action button (Edit) runs it and does not toggle the panel', async () => {
+    // RED today: handleHeaderKeyDown catches the bubbled Enter, calls
+    // preventDefault so the button never activates, and toggles the panel.
+    // The stopPropagation wrapper around the buttons stops clicks, not keys.
+    const userEv = userEvent.setup()
+    const onEdit = renderWithEdit()
+
+    screen.getByTitle('familyCard.editUser').focus()
+    await userEv.keyboard('{Enter}')
+
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(panelIsOpen()).toBe(false)
+  })
+
+  it('Space on a header action button (Edit) runs it and does not toggle the panel', async () => {
+    // RED today, same cause as Enter: the header's preventDefault on the
+    // keydown cancels the click Space would have made on keyup.
+    const userEv = userEvent.setup()
+    const onEdit = renderWithEdit()
+
+    screen.getByTitle('familyCard.editUser').focus()
+    await userEv.keyboard(' ')
+
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(panelIsOpen()).toBe(false)
+  })
+
+  it('Enter and Space on the header itself still toggle the panel', async () => {
+    // Guard for the target check: keys pressed on the header are still its
+    // own. Mutant that kills it: flip the early return to
+    // `e.target === e.currentTarget`.
+    const userEv = userEvent.setup()
+    renderWithEdit()
+    const header = screen.getByText('@dana').closest('[role="button"]') as HTMLElement
+
+    header.focus()
+    await userEv.keyboard('{Enter}')
+    expect(panelIsOpen()).toBe(true)
+    await userEv.keyboard(' ')
+    expect(panelIsOpen()).toBe(false)
   })
 })

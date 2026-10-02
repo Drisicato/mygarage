@@ -11,6 +11,7 @@ import type { VehicleLiveLinkStatus } from '@/types/livelink'
 import { useUnitFormat } from '@/hooks/useUnitFormat'
 import { convertTelemetryValue } from '@/utils/telemetryUnits'
 import { formatAtPrecision } from '@/utils/unitFormat'
+import { isSelectingText } from '@/utils/textSelection'
 
 /** RPM is outside the unit system: not converted, still grouped for the locale. */
 const RPM_PRECISION = 0
@@ -112,8 +113,11 @@ export default function VehicleLiveLinkWidget({ vin }: VehicleLiveLinkWidgetProp
   const openLiveTab = () => {
     navigate(`/vehicles/${vin}?tab=live`)
   }
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent): void => {
+    // Stopped before the selection check, so a click handler on whatever
+    // card hosts the widget never sees a selection-end click either.
     e.stopPropagation()
+    if (isSelectingText()) return
     openLiveTab()
   }
   const handleKeyDown = (e: React.KeyboardEvent) => {

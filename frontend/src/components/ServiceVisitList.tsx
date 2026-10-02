@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDateForDisplay } from '../utils/dateUtils'
 import { formatCurrency } from '../utils/formatUtils'
@@ -31,6 +31,8 @@ import { useUnitFormat } from '../hooks/useUnitFormat'
 import { getUsageTracking } from '../utils/usageTracking'
 import { useServiceVisits, useDeleteServiceVisit } from '../hooks/queries/useServiceVisits'
 import { Button, Card, IconButton, Chip, Mono, SearchField, EmptyState } from './ui'
+import { cameFromNestedControl } from './ClickableCard'
+import { isSelectingText } from '../utils/textSelection'
 import type { Tone } from './ui'
 
 /**
@@ -80,6 +82,7 @@ export default function ServiceVisitList({
   const { t } = useTranslation('vehicles')
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set())
+  const rowIdPrefix = useId()
   const [visitAttachments, setVisitAttachments] = useState<Record<number, Attachment[]>>({})
   const u = useUnitFormat()
   const { currencyCode, locale } = useCurrencyPreference()
@@ -316,6 +319,8 @@ export default function ServiceVisitList({
         <div className="space-y-3">
           {filteredVisits.map((visit) => {
             const isExpanded = expandedVisits.has(visit.id)
+            // The chevron button's name is the visit's title.
+            const titleId = `${rowIdPrefix}-title-${visit.id}`
             const totalCost = calculateVisitTotal(visit)
             const lineItemCount = visit.line_items?.length || 0
             const hasFailedInspections = visit.line_items?.some(
@@ -332,17 +337,26 @@ export default function ServiceVisitList({
                   hasFailedInspections ? 'border-warning' : 'border-border'
                 }`}
               >
-                {/* Visit header */}
-                <div className="flex items-center flex-wrap gap-2 sm:gap-4 p-4">
-                  <button
-                    type="button"
-                    className="flex flex-1 items-center flex-wrap gap-2 sm:gap-4 text-left cursor-pointer rounded-row ui-focus-ring hover:bg-surface-2/50"
-                    onClick={() => toggleExpanded(visit.id)}
-                    aria-expanded={isExpanded}
-                  >
-                    <span aria-hidden="true" className="flex-shrink-0 text-text-mute">
-                      {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                    </span>
+                {/* Visit header. The whole row toggles and only the chevron is the
+                    disclosure button, so the date, vendor and total aren't inside a
+                    button and a long-press can select them (#179). */}
+                <div
+                  className="flex items-center flex-wrap gap-2 sm:gap-4 p-4 cursor-pointer rounded-row hover:bg-surface-2/50"
+                  onClick={(e) => {
+                    if (cameFromNestedControl(e) || isSelectingText()) return
+                    toggleExpanded(visit.id)
+                  }}
+                >
+                  <div className="flex flex-1 items-center flex-wrap gap-2 sm:gap-4 text-left">
+                    <button
+                      type="button"
+                      className="flex-shrink-0 cursor-pointer rounded-row text-text-mute ui-focus-ring"
+                      onClick={() => toggleExpanded(visit.id)}
+                      aria-expanded={isExpanded}
+                      aria-labelledby={titleId}
+                    >
+                      {isExpanded ? <ChevronUp aria-hidden="true" className="w-5 h-5" /> : <ChevronDown aria-hidden="true" className="w-5 h-5" />}
+                    </button>
 
                     <div className="flex items-center gap-2 min-w-[90px] sm:min-w-[120px]">
                       <Calendar aria-hidden="true" className="w-4 h-4 text-text-mute" />
@@ -354,7 +368,7 @@ export default function ServiceVisitList({
                     )}
 
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-text truncate">
+                      <div id={titleId} className="text-sm text-text truncate">
                         {lineItemCount === 1 ? visit.line_items?.[0]?.description : t('serviceList.serviceCount', { count: lineItemCount })}
                       </div>
                       {visit.vendor && (
@@ -390,11 +404,11 @@ export default function ServiceVisitList({
                     </div>
 
                     {hasFailedInspections && <AlertTriangle aria-hidden="true" className="w-4 h-4 text-warning flex-shrink-0" />}
-                  </button>
+                  </div>
 
-                  {/* Actions are SIBLINGS of the disclosure <button> (B7) — never nested
-                      inside it — so the header stays a single keyboard-operable control
-                      with no button-in-button, and no stopPropagation is needed. */}
+                  {/* Edit and Delete sit inside the clickable row, so it's the row's
+                      cameFromNestedControl check that stops them toggling it. No
+                      stopPropagation needed (B7 still holds: no button in a button). */}
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <IconButton icon={Edit} label={t('common:edit')} variant="ghost" size="sm" onClick={() => onEditClick(visit)} />
                     <IconButton
