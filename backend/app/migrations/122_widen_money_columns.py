@@ -94,7 +94,7 @@ def _get_fallback_engine() -> Engine:
 def _numeric(column_type: TypeEngine[Any]) -> tuple[int, int] | None:
     """(precision, scale) of a bounded NUMERIC, or None for anything else.
 
-    A float reflects as a Numeric subclass with no scale, so it lands on None too.
+    A float (DOUBLE PRECISION) isn't a Numeric, so it lands on None too.
     """
     if not isinstance(column_type, Numeric):
         return None
