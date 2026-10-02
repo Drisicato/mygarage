@@ -470,6 +470,73 @@ class TestAddressBookRoutes:
         names = [e["business_name"] for e in resp.json()["entries"]]
         assert "Canonical Fuel" in names
 
+    # --- A gas station saved on the Address Book page (#194) ---
+
+    @pytest.mark.parametrize(
+        "category", ["Gas Station", "  gas station "], ids=["chip-value", "padded-lowercase"]
+    )
+    async def test_a_manual_gas_station_is_offered_to_the_fill_up(
+        self, client: AsyncClient, auth_headers, db_session, category
+    ):
+        """The Address Book page saves category "Gas Station" and no poi_category,
+        and the fill-up's picker asks ?poi_category=gas_station, so it never saw it."""
+        name = f"ZZ Manual Fuel {uuid.uuid4().hex[:8]}"
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": category},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+            assert created.json()["poi_category"] is None
+
+            response = await client.get(
+                "/api/address-book",
+                params={"search": "ZZ Manual Fuel", "poi_category": "gas_station"},
+                headers=auth_headers,
+            )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert name in [e["business_name"] for e in body["entries"]]
+            # The list isn't paged, so total has to count exactly what came back.
+            assert body["total"] == len(body["entries"])
+        finally:
+            await db_session.rollback()
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            # Before #194 the create copied the station into vendors too.
+            await db_session.execute(delete(Vendor).where(Vendor.name == name))
+            await db_session.commit()
+
+    async def test_a_manual_gas_station_is_not_copied_into_vendors(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """Vendor sync skipped poi_category stations only, so every station added on
+        the Address Book page landed in the vendor list as well."""
+        name = f"ZZ Manual Fuel {uuid.uuid4().hex[:8]}"
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": "Gas Station"},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+
+            vendors = (
+                (await db_session.execute(select(Vendor).where(Vendor.name == name)))
+                .scalars()
+                .all()
+            )
+            assert vendors == []
+        finally:
+            await db_session.rollback()
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            await db_session.execute(delete(Vendor).where(Vendor.name == name))
+            await db_session.commit()
+
     async def test_create_with_an_empty_poi_category_stores_none(
         self, client: AsyncClient, auth_headers, db_session
     ):

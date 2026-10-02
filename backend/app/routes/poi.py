@@ -8,7 +8,7 @@ from datetime import datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -26,6 +26,7 @@ from app.schemas.poi import (
 from app.services.auth import require_auth
 from app.services.poi.base import POICategory
 from app.services.poi_discovery import POIDiscoveryService
+from app.utils.gas_station import GAS_STATION_POI, gas_station_clause
 
 logger = logging.getLogger(__name__)
 
@@ -286,14 +287,18 @@ async def get_poi_recommendations(
     # Build query conditions
     conditions = [AddressBookEntry.usage_count > 0]
 
-    # Filter by category if provided
-    if category:
+    # Filter by category if provided. The Address Book page stores the chip
+    # values "Gas Station" and "Service", so a gas station is either field and
+    # service is any case (#194).
+    if category == GAS_STATION_POI:
+        conditions.append(gas_station_clause())
+    elif category:
         conditions.append(AddressBookEntry.poi_category == category)
     else:
         # Show all service-related entries (backward compatibility)
         conditions.append(
             or_(
-                AddressBookEntry.category == "service",
+                func.lower(func.trim(AddressBookEntry.category)) == "service",
                 AddressBookEntry.poi_category.isnot(None),
             )
         )

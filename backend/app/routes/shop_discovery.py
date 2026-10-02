@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -132,7 +132,9 @@ async def get_shop_recommendations(
         select(AddressBookEntry)
         .where(
             and_(
-                AddressBookEntry.category == "service",
+                # The Address Book page stores the chip value "Service", so an
+                # exact "service" never saw a shop added there.
+                func.lower(func.trim(AddressBookEntry.category)) == "service",
                 AddressBookEntry.usage_count > 0,
             )
         )

@@ -4,10 +4,38 @@ Integration tests for fuel record routes.
 Tests fuel record CRUD operations and MPG calculations.
 """
 
-import pytest
-from httpx import AsyncClient
+import uuid
+from collections.abc import AsyncIterator
 
-from app.models import AddressBookEntry
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import AddressBookEntry, FuelRecord, Vehicle, Vendor
+
+
+@pytest_asyncio.fixture
+async def fresh_vin(db_session: AsyncSession, test_user: dict[str, object]) -> AsyncIterator[str]:
+    """A vehicle of the test's own, deleted after (its fill-ups cascade)."""
+    vin = f"STN{uuid.uuid4().hex[:14].upper()}"
+    db_session.add(
+        Vehicle(
+            vin=vin,
+            user_id=test_user["id"],
+            nickname="Station picker",
+            vehicle_type="Car",
+            year=2019,
+            make="Mazda",
+            model="3",
+        )
+    )
+    await db_session.commit()
+    yield vin
+    await db_session.rollback()
+    await db_session.execute(delete(Vehicle).where(Vehicle.vin == vin))
+    await db_session.commit()
 
 
 @pytest.mark.integration
@@ -1108,6 +1136,81 @@ class TestFuelRecordStationName:
         record = response.json()
         assert record["station_address_book_id"] == station_id
         assert record["station_name"] == "Sticky Station"
+
+    async def test_a_typed_station_links_the_manual_entry_of_that_name(
+        self, client: AsyncClient, auth_headers, db_session, fresh_vin
+    ):
+        """A station saved on the Address Book page has category "Gas Station" and no
+        poi_category. Typing its name on a fill-up looked at poi_category only,
+        missed it and made a second entry of the same name (#194)."""
+        name = f"ZZ Typed Fuel {uuid.uuid4().hex[:8]}"
+        same_name = func.lower(AddressBookEntry.business_name) == name.lower()
+        try:
+            manual = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": "Gas Station"},
+                headers=auth_headers,
+            )
+            assert manual.status_code == 201, manual.text
+
+            created = await self._fill_up(
+                client, auth_headers, fresh_vin, station_name_freetext=name.upper()
+            )
+            reread = await client.get(
+                f"/api/vehicles/{fresh_vin}/fuel/{created['id']}", headers=auth_headers
+            )
+            assert reread.status_code == 200, reread.text
+            assert reread.json()["station_address_book_id"] == manual.json()["id"]
+
+            entries = (
+                await db_session.execute(
+                    select(func.count()).select_from(AddressBookEntry).where(same_name)
+                )
+            ).scalar_one()
+            assert entries == 1
+        finally:
+            await db_session.rollback()
+            await db_session.execute(delete(FuelRecord).where(FuelRecord.vin == fresh_vin))
+            await db_session.execute(delete(AddressBookEntry).where(same_name))
+            # Before #194 the manual create copied the station into vendors too.
+            await db_session.execute(delete(Vendor).where(func.lower(Vendor.name) == name.lower()))
+            await db_session.commit()
+
+    async def test_a_typed_station_links_the_poi_twin_over_the_manual_copy(
+        self, client: AsyncClient, auth_headers, db_session, fresh_vin
+    ):
+        """Guard: it passes before #194's fix too, because the manual row wasn't a
+        candidate at all. Now it is, so the lookup needs an order.
+
+        Users who hit #194 already have a manual "Gas Station" entry and a
+        poi_category twin of the same name, and ``.limit(1)`` with no order links
+        whichever row comes back first. Mutants that kill it: dropping the ORDER BY
+        (the manual row, inserted first, wins), and the bare comparison in place of
+        ``.is_(True)`` (its NULL sorts first under DESC on PostgreSQL only, so that
+        one dies in the PG sidecar).
+        """
+        name = f"ZZ Twin Fuel {uuid.uuid4().hex[:8]}"
+        try:
+            manual = AddressBookEntry(business_name=name, category="Gas Station", usage_count=0)
+            db_session.add(manual)
+            await db_session.commit()
+            twin = AddressBookEntry(business_name=name, poi_category="gas_station", usage_count=3)
+            db_session.add(twin)
+            await db_session.commit()
+            assert manual.id < twin.id
+
+            created = await self._fill_up(
+                client, auth_headers, fresh_vin, station_name_freetext=name.lower()
+            )
+
+            assert created["station_address_book_id"] == twin.id
+        finally:
+            await db_session.rollback()
+            await db_session.execute(delete(FuelRecord).where(FuelRecord.vin == fresh_vin))
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            await db_session.commit()
 
 
 @pytest.mark.integration

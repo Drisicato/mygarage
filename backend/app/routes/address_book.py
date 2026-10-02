@@ -18,6 +18,7 @@ from app.schemas.address_book import (
     AddressBookListResponse,
 )
 from app.services.auth import require_auth
+from app.utils.gas_station import GAS_STATION_POI, gas_station_clause, is_gas_station
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +35,19 @@ async def _sync_to_vendor(
     Updates to existing vendor fields are intentionally not performed here —
     a vendor may already be linked to service visits.
 
-    Skipped for `poi_category='gas_station'` entries — gas stations are not
-    vendors in MyGarage's domain model and would pollute the vendors table.
-    The fuel-record save path is the primary creator of these entries.
+    Skipped for gas stations (either field, see ``app.utils.gas_station``):
+    they are not vendors in MyGarage's domain model and would pollute the
+    vendors table.
 
     Known limitation: concurrent creates with only case/whitespace differences
     could produce duplicate vendors. Acceptable for single-user homelab use.
     """
     if not business_name or not business_name.strip():
         return
-    # Defense-in-depth guard: gas stations never sync to vendors, regardless
-    # of how the entry was created.
-    if getattr(entry, "poi_category", None) == "gas_station":
+    # Gas stations never sync to vendors, however the entry was made. This
+    # only checked poi_category, so every station added on the Address Book
+    # page landed in vendors too (#194).
+    if is_gas_station(entry):
         return
     name = business_name.strip()[:100]  # Enforce vendors.name VARCHAR(100) limit
     try:
@@ -88,6 +90,14 @@ async def list_entries(
     """List all address book entries with optional search and filtering."""
     query = select(AddressBookEntry)
 
+    # The fill-up's station picker asks for gas_station, and a station saved on
+    # the Address Book page only has the category, so ask both fields (#194).
+    poi_filter = (
+        gas_station_clause()
+        if poi_category == GAS_STATION_POI
+        else AddressBookEntry.poi_category == poi_category
+    )
+
     # Apply search filter
     if search:
         search_pattern = f"%{search}%"
@@ -103,11 +113,11 @@ async def list_entries(
     if category:
         query = query.where(AddressBookEntry.category == category)
     if poi_category:
-        query = query.where(AddressBookEntry.poi_category == poi_category)
+        query = query.where(poi_filter)
 
     # When filtering to fuel stations, rank by usage so frequently-visited
     # stations float to the top of autocomplete suggestions.
-    if poi_category == "gas_station":
+    if poi_category == GAS_STATION_POI:
         query = query.order_by(
             AddressBookEntry.usage_count.desc(),
             AddressBookEntry.last_used.desc().nullslast(),
@@ -133,7 +143,7 @@ async def list_entries(
     if category:
         count_query = count_query.where(AddressBookEntry.category == category)
     if poi_category:
-        count_query = count_query.where(AddressBookEntry.poi_category == poi_category)
+        count_query = count_query.where(poi_filter)
 
     count_result = await db.execute(count_query)
     total = count_result.scalar_one()
