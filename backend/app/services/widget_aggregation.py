@@ -28,6 +28,7 @@ from decimal import Decimal
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.constants.units import UnitSet
 from app.models.document import Document
@@ -412,13 +413,18 @@ class WidgetAggregationService:
     # Internal query helpers (each hits a single indexed path)
     # -------------------------------------------------------------------------
 
-    async def _scalar_count(self, column, vins: list[str]) -> int:
+    async def _scalar_count(self, column: InstrumentedAttribute[str], vins: list[str]) -> int:
         if not vins:
             return 0
         stmt = select(func.count()).where(column.in_(vins))
         return int((await self.db.execute(stmt)).scalar_one() or 0)
 
-    async def _count_and_latest(self, vin_col, date_col, vin: str) -> tuple[int, date_type | None]:
+    async def _count_and_latest(
+        self,
+        vin_col: InstrumentedAttribute[str],
+        date_col: InstrumentedAttribute[date_type],
+        vin: str,
+    ) -> tuple[int, date_type | None]:
         stmt = select(func.count(), func.max(date_col)).where(vin_col == vin)
         count, latest = (await self.db.execute(stmt)).one()
         return int(count or 0), latest

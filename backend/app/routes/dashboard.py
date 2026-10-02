@@ -294,8 +294,10 @@ async def _fleet_next_due(
     odo_by_vin = {s.vin: s.latest_odometer_km for s in vehicle_stats}
     # Plain tuples (id, vin, title, due_mileage_km) so the sort key is fully
     # typed without importing SQLAlchemy Row internals.
+    # The WHERE already drops NULL mileage; unpacking lets pyright see that too,
+    # since 2.1 types the column as Decimal | None.
     candidates: list[tuple[int, str, str, Decimal]] = [
-        (r[0], r[1], r[2], r[3]) for r in mileage_rows
+        (rid, vin, title, due) for rid, vin, title, due in mileage_rows if due is not None
     ]
 
     def _rank(item: tuple[int, str, str, Decimal]) -> tuple[int, Decimal, int]:
