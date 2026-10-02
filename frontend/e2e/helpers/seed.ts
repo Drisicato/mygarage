@@ -287,3 +287,160 @@ async function seedFuelRecord(
     `Seed fuel failed: ${resp.status()} ${await resp.text()}`,
   ).toBeTruthy()
 }
+
+/**
+ * A VIN no earlier run has used: 17 characters, none of them I, O or Q (VIN
+ * validation rejects those).
+ *
+ * Fresh per call because the e2e backend and its database outlive a local run
+ * (`reuseExistingServer`), so a fixed VIN finds last run's vehicle, tires and
+ * pairing still there.
+ *
+ * @param prefix A few letters that say which spec made it.
+ * @returns The VIN.
+ */
+export function randomVin(prefix: string): string {
+  const noise = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+  return (prefix + noise.toUpperCase()).replace(/[IOQ]/g, 'X').padEnd(17, '0').slice(0, 17)
+}
+
+/** Fields a spec sets on a vehicle it seeds. */
+export interface VehicleSeed {
+  vin: string
+  nickname: string
+  vehicle_type: string
+  year: number
+  make: string
+  model: string
+}
+
+/** Fields a spec sets on an address-book entry it seeds. */
+export interface AddressBookSeed {
+  business_name: string
+  address?: string
+  city?: string
+  state?: string
+  phone?: string
+  category?: string
+  poi_category?: string
+}
+
+/**
+ * Seeds rows through the API and remembers them, so `cleanup` can delete every
+ * one, including the vendor an address-book create quietly syncs.
+ */
+export interface SeedLedger {
+  /** Create a vehicle; returns its VIN. Deleted (with everything under it) by `cleanup`. */
+  vehicle(data: VehicleSeed): Promise<string>
+  /** Create an address-book entry; returns its id. Its vendor twin goes in `cleanup` too. */
+  addressBookEntry(data: AddressBookSeed): Promise<number>
+  /** POST something under a seeded vehicle (a tire, a pairing), expecting a 201. */
+  post(path: string, data: Record<string, unknown>): Promise<Record<string, unknown>>
+  /** GET a path as the admin and return the JSON body. */
+  get(path: string): Promise<Record<string, unknown>>
+  /** Delete everything this ledger made. Tries every row before failing. */
+  cleanup(): Promise<void>
+}
+
+/**
+ * A ledger for one spec file's seeded rows.
+ *
+ * Seeded rows aren't tidiness, they're other specs' inputs: an extra vehicle on
+ * the dashboard is a strict-mode failure in `vehicle.spec.ts`, and an extra
+ * address-book entry with the same name doubles an autocomplete option. So
+ * every row goes in here and `cleanup` takes them all back out.
+ *
+ * @param request A request context that outlives the tests (made in beforeAll).
+ * @param apiBase Absolute API root, e.g. `http://localhost:3000/api`.
+ * @param headers The admin's cookie + CSRF headers.
+ * @returns The ledger.
+ */
+export function seedLedger(
+  request: APIRequestContext,
+  apiBase: string,
+  headers: Record<string, string>,
+): SeedLedger {
+  const vins: string[] = []
+  const entryIds: number[] = []
+  const vendorNames: string[] = []
+
+  /** Delete entries (and their vendor twins) a killed run left under this name. */
+  async function purgeName(name: string): Promise<void> {
+    const entries = await request.get(
+      `${apiBase}/address-book?search=${encodeURIComponent(name)}`,
+      { headers },
+    )
+    expect(entries.ok(), `list address book: ${entries.status()}`).toBeTruthy()
+    for (const entry of (await entries.json()).entries as { id: number; business_name: string }[]) {
+      if (entry.business_name === name) {
+        await request.delete(`${apiBase}/address-book/${entry.id}`, { headers })
+      }
+    }
+    await deleteVendorsNamed(name)
+  }
+
+  /** The address-book create syncs a vendor for anything that isn't a gas station. */
+  async function deleteVendorsNamed(name: string): Promise<string[]> {
+    const failures: string[] = []
+    const vendors = await request.get(`${apiBase}/vendors?search=${encodeURIComponent(name)}`, {
+      headers,
+    })
+    if (!vendors.ok()) return [`list vendors ${name}: ${vendors.status()}`]
+    for (const vendor of (await vendors.json()).vendors as { id: number; name: string }[]) {
+      if (vendor.name.toLowerCase() !== name.toLowerCase()) continue
+      const gone = await request.delete(`${apiBase}/vendors/${vendor.id}`, { headers })
+      if (!gone.ok() && gone.status() !== 404) failures.push(`vendor ${vendor.id}: ${gone.status()}`)
+    }
+    return failures
+  }
+
+  return {
+    async vehicle(data: VehicleSeed): Promise<string> {
+      const made = await request.post(`${apiBase}/vehicles`, { headers, data })
+      expect(made.status(), `seed vehicle ${data.vin}: ${await made.text()}`).toBe(201)
+      vins.push(data.vin)
+      return data.vin
+    },
+
+    async addressBookEntry(data: AddressBookSeed): Promise<number> {
+      await purgeName(data.business_name)
+      const made = await request.post(`${apiBase}/address-book`, { headers, data })
+      expect(made.status(), `seed address book ${data.business_name}: ${await made.text()}`).toBe(201)
+      const id = (await made.json()).id as number
+      entryIds.push(id)
+      vendorNames.push(data.business_name)
+      return id
+    },
+
+    async post(path: string, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+      const made = await request.post(`${apiBase}${path}`, { headers, data })
+      expect(made.status(), `POST ${path}: ${await made.text()}`).toBe(201)
+      return (await made.json()) as Record<string, unknown>
+    },
+
+    async get(path: string): Promise<Record<string, unknown>> {
+      const got = await request.get(`${apiBase}${path}`, { headers })
+      expect(got.ok(), `GET ${path}: ${got.status()} ${await got.text()}`).toBeTruthy()
+      return (await got.json()) as Record<string, unknown>
+    },
+
+    async cleanup(): Promise<void> {
+      const failures: string[] = []
+      // Newest first: a trailer is paired to the tow vehicle seeded before it.
+      for (const vin of [...vins].reverse()) {
+        const gone = await request.delete(`${apiBase}/vehicles/${vin}`, { headers })
+        if (!gone.ok() && gone.status() !== 404) failures.push(`vehicle ${vin}: ${gone.status()}`)
+      }
+      // After the vehicles, so nothing still points at an entry (a fill-up's station).
+      for (const id of entryIds) {
+        const gone = await request.delete(`${apiBase}/address-book/${id}`, { headers })
+        if (!gone.ok() && gone.status() !== 404) failures.push(`address book ${id}: ${gone.status()}`)
+      }
+      for (const name of vendorNames) failures.push(...(await deleteVendorsNamed(name)))
+      vins.length = 0
+      entryIds.length = 0
+      vendorNames.length = 0
+      expect(failures, 'cleanup left rows behind').toEqual([])
+    },
+  }
+}
