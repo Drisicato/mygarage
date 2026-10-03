@@ -109,7 +109,7 @@ export default function NotificationBell() {
     <span className="relative inline-flex">
       <IconButton icon={Bell} label={t('notifications')} variant="surface" onClick={() => setOpen(true)} />
       {unreadCount > 0 ? (
-        <span aria-hidden="true" className="absolute -right-1 -top-1">
+        <span aria-hidden="true" className="pointer-events-none absolute -right-1 -top-1">
           <Badge count={unreadCount} tone="danger" />
         </span>
       ) : null}

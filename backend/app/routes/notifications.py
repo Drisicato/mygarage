@@ -1,7 +1,9 @@
 """Notification API endpoints for testing notification services and in-app inbox."""
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any, Literal
 
 import httpx
@@ -25,8 +27,11 @@ from app.services.reminder_service import (
 )
 from app.services.settings_service import SettingsService
 from app.services.telegram_poller import PollerErrorCode, PollerState, telegram_poller
+from app.utils.hours_formatting import format_hours
 from app.utils.household_time import household_today
 from app.utils.http_errors import describe_http_error
+from app.utils.render_context import RenderContext, render_context_for_request, with_vehicle
+from app.utils.unit_formatting import format_quantity
 
 logger = logging.getLogger(__name__)
 
@@ -438,6 +443,15 @@ async def test_email_connection(
         }
 
 
+def _due_at(target: Decimal, current: Decimal | None, fmt: Callable[[Decimal], str]) -> str:
+    """One usage dimension's inbox bit: the target, plus the current reading
+    once the target has been reached (the evidence for the OVERDUE label)."""
+    bit = f"due at {fmt(target)}"
+    if current is not None and current >= target:
+        bit += f" (now {fmt(current)})"
+    return bit
+
+
 class InboxItem(BaseModel):
     """In-app notification derived from overdue / upcoming reminders."""
 
@@ -468,6 +482,10 @@ async def notification_inbox(
     today = household_today()
     soon = today + timedelta(days=14)
     items: list[InboxItem] = []
+    # Caller's units with the vehicle's odometer unit laid on top (#172).
+    # Resolved lazily on the first mileage bit: on auth_mode=none the base
+    # context costs a Setting query, and most polls emit nothing.
+    base_ctx: RenderContext | None = None
 
     # One reminder query for the whole garage. This used to be three queries per
     # vehicle (reminders + odometer + hours), and the bell polls every 60s from
@@ -485,6 +503,7 @@ async def notification_inbox(
         pending = pending_by_vin.get(vehicle.vin, [])
         if not pending:
             continue
+        vehicle_ctx: RenderContext | None = None
 
         # Readings are fetched through the canonical helpers, and only for a
         # vehicle that actually has a reminder keyed on one. `is_reminder_overdue`
@@ -530,9 +549,28 @@ async def notification_inbox(
                 "reminder_overdue" if overdue else "reminder_upcoming"
             )
             severity: Literal["warning", "critical", "info"] = "critical" if overdue else "warning"
+            # Name every set dimension, and show the current reading next to a
+            # dimension that has been reached: an OVERDUE label next to a
+            # future hard date, with the tripped mileage unmentioned, read as
+            # a contradiction (#195).
             due_bits: list[str] = []
             if reminder.due_date is not None:
                 due_bits.append(f"due {reminder.due_date.isoformat()}")
+            if reminder.due_mileage_km is not None:
+                if vehicle_ctx is None:
+                    if base_ctx is None:
+                        base_ctx = await render_context_for_request(current_user, db)
+                    vehicle_ctx = with_vehicle(base_ctx, vehicle)
+                ctx = vehicle_ctx
+                due_bits.append(
+                    _due_at(
+                        reminder.due_mileage_km,
+                        current_km,
+                        lambda v: format_quantity(v, ctx, "distance"),
+                    )
+                )
+            if reminder.due_hours is not None:
+                due_bits.append(_due_at(reminder.due_hours, current_hours, format_hours))
             body = f"{vehicle.nickname or vehicle.vin}" + (
                 f" — {', '.join(due_bits)}" if due_bits else ""
             )

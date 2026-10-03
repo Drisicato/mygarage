@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The spending-anomaly `message` field in the analytics API is deprecated; the app builds its own sentence from `amount`, `baseline` and `deviation_percent`
 
 ### Fixed
+- Overdue reminders always surface on the calendar as "Overdue" on today, whether tripped by date, mileage, or hours; before, a mileage-overdue reminder sat months out as on-track or vanished outside the fetched window (#195)
+- Calendar reminders not yet due sit at the earlier of their hard date and usage projection, matching the reminders list; a snoozed reminder already due moves to the day the snooze ends instead of disappearing
+- The notification bell names the mileage or hours target that tripped a reminder, with the current reading, instead of only a date; the unread badge no longer swallows clicks meant for the bell (#195)
 - Theme and accent apply before first paint in production: the CSP now allows the shell's inline script by hash instead of refusing it
 - The smallest font subset was inlined as a data: URL and refused by the CSP; fonts are always emitted as files
 - The dashboard sort trigger read "Sort: Sort by Name"; the order is now "Name" in every language, and the French trigger is translated

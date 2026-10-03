@@ -7,14 +7,13 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import (
     InsurancePolicy,
-    OdometerRecord,
     Reminder,
     ServiceVisit,
     Vehicle,
@@ -24,9 +23,14 @@ from app.models.user import User
 from app.schemas.calendar import CalendarEvent, CalendarResponse, CalendarSummary
 from app.services.auth import require_auth, visible_vehicles_filter
 from app.services.reminder_service import (
+    DUE_SOON_WINDOW,
+    calculate_driving_rate,
     calculate_hours_driving_rate,
-    calculate_smart_estimated_date,
+    expected_due_date,
     get_current_hours,
+    get_current_mileage,
+    is_reminder_overdue,
+    is_reminder_snoozed,
 )
 from app.utils.household_time import household_today
 
@@ -35,17 +39,28 @@ router = APIRouter(prefix="/api", tags=["calendar"])
 
 UrgencyLevel = Literal["overdue", "high", "medium", "low", "historical"]
 
+# Reminder event status per urgency; due_soon spans the DUE_SOON_WINDOW the
+# card badge and hero counts use (calculate_urgency's "medium" ceiling).
+_REMINDER_STATUS: dict[str, str] = {
+    "overdue": "overdue",
+    "high": "due_soon",
+    "medium": "due_soon",
+    "low": "on_track",
+}
 
-def calculate_urgency(event_date: date, is_overdue: bool) -> UrgencyLevel:
+
+def calculate_urgency(
+    event_date: date, is_overdue: bool, today: date | None = None
+) -> UrgencyLevel:
     """Calculate urgency level based on date."""
     if is_overdue:
         return "overdue"
 
-    days_until = (event_date - household_today()).days
+    days_until = (event_date - (today or household_today())).days
 
     if days_until <= 7:
         return "high"
-    elif days_until <= 30:
+    elif days_until <= DUE_SOON_WINDOW.days:
         return "medium"
     else:
         return "low"
@@ -107,97 +122,120 @@ async def get_calendar_events(
         reminder_result = await db.execute(reminder_query)
         reminders = reminder_result.scalars().all()
 
+        # Readings and rates once per vehicle, not per reminder (the inbox's
+        # structure in routes/notifications.py): several usage reminders on
+        # one vehicle would repeat identical queries otherwise.
+        reminders_by_vin: dict[str, list[Reminder]] = {}
         for reminder in reminders:
-            vehicle = vehicles_dict.get(reminder.vin)
+            reminders_by_vin.setdefault(reminder.vin, []).append(reminder)
 
-            # Determine the event date from reminder fields
-            event_date = reminder.due_date
-            is_estimated = False
-            due_mileage_km = reminder.due_mileage_km
-            due_hours = reminder.due_hours
+        for vin, vin_reminders in reminders_by_vin.items():
+            vehicle = vehicles_dict.get(vin)
+            needs_km = any(r.due_mileage_km is not None for r in vin_reminders)
+            needs_hours = any(r.due_hours is not None for r in vin_reminders)
+            current_odometer_km = await get_current_mileage(vin, db) if needs_km else None
+            current_hours = await get_current_hours(vin, db) if needs_hours else None
+            km_per_day = (
+                await calculate_driving_rate(vin, db) if current_odometer_km is not None else None
+            )
+            hours_per_day = (
+                await calculate_hours_driving_rate(vin, db) if current_hours is not None else None
+            )
 
-            # For mileage-only reminders, estimate date
-            if event_date is None and due_mileage_km is not None:
-                event_date = await estimate_date_from_mileage(reminder.vin, due_mileage_km, db)
-                is_estimated = event_date is not None
+            for reminder in vin_reminders:
+                due_mileage_km = reminder.due_mileage_km
+                due_hours = reminder.due_hours
 
-            # For hours-only reminders, estimate date from the engine-hours
-            # accumulation rate (mirrors the mileage branch above).
-            if event_date is None and due_hours is not None:
-                event_date = await estimate_date_from_hours(reminder.vin, due_hours, db)
-                is_estimated = event_date is not None
-
-            # Skip if no date can be determined
-            if event_date is None:
-                continue
-
-            # Filter by date range
-            if event_date < start_date or event_date > end_date:
-                continue
-
-            # Map to urgency
-            days_until_due = (event_date - today).days
-            urgency: UrgencyLevel
-            if days_until_due < 0:
-                urgency = "overdue"
-                status = "overdue"
-            elif days_until_due <= 7:
-                urgency = "high"
-                status = "due_soon"
-            elif days_until_due <= 30:
-                urgency = "medium"
-                status = "due_soon"
-            else:
-                urgency = "low"
-                status = "on_track"
-
-            km_until_due: Decimal | None = None
-            if due_mileage_km is not None:
-                odo_result = await db.execute(
-                    select(OdometerRecord.odometer_km)
-                    .where(OdometerRecord.vin == reminder.vin)
-                    .order_by(
-                        OdometerRecord.date.desc(),
-                        OdometerRecord.odometer_km.desc(),
-                        OdometerRecord.id.desc(),
+                # A reminder overdue by ANY set dimension (date, mileage,
+                # hours) surfaces TODAY: the grid only fetches a few months
+                # around the viewed one, so an event left on a long-past due
+                # date falls out of the window and the reminder silently
+                # vanishes (#195). A reminder past its mileage but not its
+                # date would otherwise sit months ahead looking on_track
+                # while the bell calls it overdue.
+                if is_reminder_overdue(reminder, current_odometer_km, current_hours, today):
+                    event_date = today
+                    # The pin is the real state when the calendar date itself
+                    # has passed; an estimate when only a usage target tripped.
+                    is_estimated = not (reminder.due_date and reminder.due_date <= today)
+                    urgency: UrgencyLevel = "overdue"
+                else:
+                    # Not overdue: the earliest expected date, exactly what
+                    # the reminders list and the bell show (expected_due_date).
+                    expected = expected_due_date(
+                        reminder,
+                        current_odometer_km,
+                        current_hours,
+                        km_per_day,
+                        hours_per_day,
+                        today,
                     )
-                    .limit(1)
-                )
-                current_odometer_km = odo_result.scalar_one_or_none()
-                if current_odometer_km is not None:
+                    if is_reminder_snoozed(reminder, today) and reminder.snoozed_until is not None:
+                        # A snooze silences the nag, not the plan: a reminder
+                        # still ahead keeps its expected date (decision 4 of
+                        # the snooze plan: the calendar keeps showing it).
+                        # One already due (expected today or past, which is
+                        # also what a reached usage target projects to), or
+                        # with no determinable date at all, moves to the day
+                        # the snooze ends (the list's "Snoozed until X" chip)
+                        # instead of sitting on a long-past date outside the
+                        # fetch window (#195) or nagging on today straight
+                        # through the snooze. The return day is a fact, not
+                        # an estimate.
+                        if expected is not None and expected > today:
+                            event_date = expected
+                            is_estimated = event_date != reminder.due_date
+                        else:
+                            event_date = reminder.snoozed_until
+                            is_estimated = False
+                    elif expected is None:
+                        # Skip if no date can be determined
+                        continue
+                    else:
+                        event_date = expected
+                        is_estimated = event_date != reminder.due_date
+                    urgency = calculate_urgency(event_date, False, today)
+                status = _REMINDER_STATUS[urgency]
+
+                # Filter by date range
+                if event_date < start_date or event_date > end_date:
+                    continue
+
+                days_until_due = (event_date - today).days
+
+                km_until_due: Decimal | None = None
+                if due_mileage_km is not None and current_odometer_km is not None:
                     km_until_due = due_mileage_km - current_odometer_km
 
-            hours_until_due: Decimal | None = None
-            if due_hours is not None:
-                current_hours = await get_current_hours(reminder.vin, db)
-                if current_hours is not None:
+                hours_until_due: Decimal | None = None
+                if due_hours is not None and current_hours is not None:
                     hours_until_due = due_hours - current_hours
 
-            events.append(
-                CalendarEvent(
-                    id=f"reminder-{reminder.id}",
-                    type="maintenance",
-                    title=reminder.title,
-                    description=f"Reminder ({reminder.reminder_type})",
-                    date=event_date,
-                    vehicle_vin=reminder.vin,
-                    vehicle_nickname=vehicle.nickname if vehicle else None,
-                    vehicle_color=None,
-                    urgency=urgency,
-                    is_recurring=False,
-                    is_completed=False,
-                    is_estimated=is_estimated,
-                    category="maintenance",
-                    notes=reminder.notes,
-                    due_mileage_km=due_mileage_km,
-                    due_hours=due_hours,
-                    status=status,
-                    days_until_due=days_until_due,
-                    km_until_due=km_until_due,
-                    hours_until_due=hours_until_due,
-                    vehicle_distance_unit=vehicle.distance_unit if vehicle else None,
+                events.append(
+                    CalendarEvent(
+                        id=f"reminder-{reminder.id}",
+                        type="maintenance",
+                        title=reminder.title,
+                        description=f"Reminder ({reminder.reminder_type})",
+                        date=event_date,
+                        vehicle_vin=vin,
+                        vehicle_nickname=vehicle.nickname if vehicle else None,
+                        vehicle_color=None,
+                        urgency=urgency,
+                        is_recurring=False,
+                        is_completed=False,
+                        is_estimated=is_estimated,
+                        category="maintenance",
+                        notes=reminder.notes,
+                        due_mileage_km=due_mileage_km,
+                        due_hours=due_hours,
+                        status=status,
+                        days_until_due=days_until_due,
+                        km_until_due=km_until_due,
+                        hours_until_due=hours_until_due,
+                        vehicle_distance_unit=vehicle.distance_unit if vehicle else None,
+                    )
                 )
-            )
 
     # Fetch insurance policies. A policy is a household record covering several
     # vehicles, so it is ONE event, anchored on the first covered vehicle the
@@ -361,15 +399,24 @@ async def get_calendar_events(
 
     # Calculate summary statistics
     overdue_count = sum(1 for e in events if e.urgency == "overdue")
+    # Overdue reminders are pinned to today's cell, so the upcoming sums must
+    # exclude them by urgency or every overdue row would double into the
+    # Next 7/30 Days KPIs beside the Overdue one.
     upcoming_7_count = sum(
         1
         for e in events
-        if not e.is_completed and e.date >= today and e.date <= today + timedelta(days=7)
+        if not e.is_completed
+        and e.urgency != "overdue"
+        and e.date >= today
+        and e.date <= today + timedelta(days=7)
     )
     upcoming_30_count = sum(
         1
         for e in events
-        if not e.is_completed and e.date >= today and e.date <= today + timedelta(days=30)
+        if not e.is_completed
+        and e.urgency != "overdue"
+        and e.date >= today
+        and e.date <= today + timedelta(days=30)
     )
 
     summary = CalendarSummary(
@@ -380,117 +427,6 @@ async def get_calendar_events(
     )
 
     return CalendarResponse(events=events, summary=summary)
-
-
-async def calculate_average_km_per_day(vin: str, db: AsyncSession) -> float | None:
-    """Calculate average km per day for a vehicle based on odometer history."""
-    # Get last 30 days of odometer readings (or all if less than 30 days of data).
-    # The newest is read as the current odometer, so a day's highest reading
-    # comes first within its day (an odometer does not run backwards in a day).
-    odometer_query = (
-        select(OdometerRecord)
-        .where(OdometerRecord.vin == vin)
-        .order_by(
-            desc(OdometerRecord.date), desc(OdometerRecord.odometer_km), desc(OdometerRecord.id)
-        )
-        .limit(30)
-    )
-
-    result = await db.execute(odometer_query)
-    records = result.scalars().all()
-
-    if len(records) < 2:
-        # Not enough data to calculate average
-        return None
-
-    # Calculate km per day using oldest and newest records
-    oldest = records[-1]
-    newest = records[0]
-
-    days_diff = (newest.date - oldest.date).days
-    km_diff = newest.odometer_km - oldest.odometer_km
-
-    if days_diff == 0 or km_diff < 0:
-        return None
-
-    return float(km_diff) / days_diff
-
-
-async def estimate_date_from_mileage(
-    vin: str, due_mileage_km: Decimal, db: AsyncSession
-) -> date | None:
-    """Estimate due date for a mileage-based reminder."""
-    # Get current odometer_km
-    odometer_query = (
-        select(OdometerRecord)
-        .where(OdometerRecord.vin == vin)
-        .order_by(
-            desc(OdometerRecord.date), desc(OdometerRecord.odometer_km), desc(OdometerRecord.id)
-        )
-        .limit(1)
-    )
-
-    result = await db.execute(odometer_query)
-    current_record = result.scalar_one_or_none()
-
-    if not current_record:
-        return None
-
-    current_odometer_km = current_record.odometer_km
-    km_remaining = due_mileage_km - current_odometer_km
-
-    if km_remaining <= 0:
-        # Already past due
-        return household_today()
-
-    # Get average km per day
-    avg_km_per_day = await calculate_average_km_per_day(vin, db)
-
-    if not avg_km_per_day or avg_km_per_day <= 0:
-        # Can't estimate without average
-        return None
-
-    # Calculate estimated days until due
-    days_until_due = int(float(km_remaining) / avg_km_per_day)
-
-    return household_today() + timedelta(days=days_until_due)
-
-
-async def estimate_date_from_hours(vin: str, due_hours: Decimal, db: AsyncSession) -> date | None:
-    """Estimate due date for an hours-based reminder.
-
-    Mirrors ``estimate_date_from_mileage`` above, but reuses the
-    reminder_service helpers instead of a calendar-local rate calculator:
-    the canonical current-hours reading (``get_current_hours``) in place of
-    the odometer, and the 90-day-window engine-hours rate
-    (``calculate_hours_driving_rate``) in place of
-    ``calculate_average_km_per_day``. The actual projection is
-    ``calculate_smart_estimated_date`` — the same formula
-    ``estimate_date_from_mileage`` duplicates inline — called with
-    ``date.max`` as the hard-date ceiling, a no-op cap since a pure
-    ``hours`` reminder has no date to cap against (only ``smart`` reminders
-    have a real hard_date, and those already surface via ``due_date``
-    directly without ever reaching this function).
-    """
-    current_hours = await get_current_hours(vin, db)
-
-    if current_hours is None:
-        return None
-
-    hours_remaining = due_hours - current_hours
-
-    if hours_remaining <= 0:
-        # Already past due
-        return household_today()
-
-    # Get average engine-hours per day
-    avg_hours_per_day = await calculate_hours_driving_rate(vin, db)
-
-    if not avg_hours_per_day or avg_hours_per_day <= 0:
-        # Can't estimate without a rate
-        return None
-
-    return calculate_smart_estimated_date(current_hours, due_hours, avg_hours_per_day, date.max)
 
 
 @router.get("/calendar/export")
