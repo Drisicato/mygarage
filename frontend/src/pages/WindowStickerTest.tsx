@@ -3,7 +3,7 @@
  * Allows testing window sticker extraction without saving
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -90,26 +90,34 @@ export default function WindowStickerTest() {
       .catch(() => {/* silently fail if parsers endpoint not available */})
   }, [])
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0]
-    if (selectedFile) {
-      setFile(selectedFile)
-      setResult(null)
-    }
+  // Every test run takes a number, and a new file or Remove moves it on, so a
+  // slow answer for a file that's gone gets dropped.
+  const requestIdRef = useRef(0)
+
+  // The result and any running test go with the file, or they'd describe one
+  // that's gone. Loading clears here because a dropped run skips its finally.
+  const replaceFile = useCallback((next: File | null): void => {
+    requestIdRef.current += 1
+    setFile(next)
+    setResult(null)
+    setLoading(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>): void => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile) replaceFile(selectedFile)
+  }, [replaceFile])
+
+  const handleDrop = useCallback((e: React.DragEvent): void => {
     e.preventDefault()
     const droppedFile = e.dataTransfer.files[0]
-    if (droppedFile) {
-      setFile(droppedFile)
-      setResult(null)
-    }
-  }, [])
+    if (droppedFile) replaceFile(droppedFile)
+  }, [replaceFile])
 
-  const handleTest = async () => {
+  const handleTest = async (): Promise<void> => {
     if (!file || !vin) return
 
+    const id = ++requestIdRef.current
     setLoading(true)
     try {
       const formData = new FormData()
@@ -122,6 +130,7 @@ export default function WindowStickerTest() {
       const response = await api.post(url, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
+      if (id !== requestIdRef.current) return
 
       setResult(response.data)
 
@@ -131,9 +140,10 @@ export default function WindowStickerTest() {
         toast.error(response.data.error || t('windowSticker.extractionFailed'))
       }
     } catch (error: unknown) {
+      if (id !== requestIdRef.current) return
       toast.error(getActionErrorMessage(error, t('windowSticker.test.testAction')))
     } finally {
-      setLoading(false)
+      if (id === requestIdRef.current) setLoading(false)
     }
   }
 
@@ -188,7 +198,7 @@ export default function WindowStickerTest() {
                     {t('windowSticker.test.fileSizeMb', { size: formatAtPrecision(file.size / 1024 / 1024, 2) })}
                   </p>
                   <button
-                    onClick={() => setFile(null)}
+                    onClick={() => replaceFile(null)}
                     className="text-red-500 text-sm hover:underline"
                   >
                     {t('common:remove')}
@@ -205,12 +215,16 @@ export default function WindowStickerTest() {
                   </p>
                 </div>
               )}
-              <input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
+              {/* The invisible input covered Remove, so Remove opened the picker.
+                  It only covers the panel while there's no file now. */}
+              {!file && (
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={handleFileChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              )}
             </div>
 
             {/* Parser Selection */}

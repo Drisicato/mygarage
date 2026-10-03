@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '../../../__tests__/test-utils'
 import type { VehicleLiveLinkStatus } from '../../../types/livelink'
 
@@ -129,5 +129,50 @@ describe('VehicleLiveLinkWidget keyboard activation (I12 a11y fix)', () => {
 
     fireEvent.keyDown(region, { key: 'Tab' })
     expect(mockNavigate).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Selecting a reading (issue #179). jsdom pins the handler only: the click
+ * that ends a selection neither navigates nor reaches the card around the
+ * widget. Whether the text is selectable on a phone is the E2E half.
+ */
+describe('VehicleLiveLinkWidget text selection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getVehicleStatus.mockResolvedValue(RUNNING)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('ending a selection on a reading does not navigate', async () => {
+    // RED today: handleClick navigates on any click, including the one that
+    // lets go of a selection. The parent spy stands in for the vehicle card:
+    // the widget still stops the click, so a card handler can't navigate
+    // instead (mutant: return before stopPropagation).
+    const parentClick = vi.fn()
+    render(
+      <div onClick={parentClick}>
+        <VehicleLiveLinkWidget vin={VIN} />
+      </div>,
+    )
+    const reading = await screen.findByText('3,200')
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      toString: () => '3,200',
+    } as unknown as Selection)
+
+    fireEvent.click(reading)
+    expect(mockNavigate).not.toHaveBeenCalled()
+    expect(parentClick).not.toHaveBeenCalled()
+
+    // Selection gone, a plain click still opens the Live tab.
+    vi.mocked(window.getSelection).mockRestore()
+    fireEvent.click(reading)
+    expect(mockNavigate).toHaveBeenCalledTimes(1)
+    expect(mockNavigate).toHaveBeenCalledWith(`/vehicles/${VIN}?tab=live`)
+    expect(parentClick).not.toHaveBeenCalled()
   })
 })

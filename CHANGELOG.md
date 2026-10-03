@@ -84,6 +84,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A full backup restore no longer rewrites the database while MyGarage has it open, which could corrupt the restored data; a backup whose database is damaged or missing is refused
 - A full or safety backup of a database whose path contains "#" or "?" archived an empty database instead of the real one
 - A full backup restore leaves out, and logs, a photo, document or attachment that was a link to a folder or to a file outside the backup, instead of failing
+- A gas station added on the Address Book page can be picked on a fill-up, and isn't copied into the vendor list (#194)
+- A station added from a fill-up shows under Gas Station in the address book (#194)
+- A place saved from the POI Finder shows under its Address Book category, and places it saved before show under theirs
+- A gas station moved to another category in the address book stops being offered on fill-ups and can be picked as a vendor (#194)
+- Picking a saved place in the fill-up station or spot rental location field no longer reopens the list (#194)
+- Following the tow vehicle link on a trailer's Overview no longer also opens the tow editor (#179)
+- Text on the tire cards can be selected and copied; tapping the card still opens its history (#179)
+- Text on the address book cards can be selected and copied (#179)
+- Selecting text in a calendar event, a family member header, a service visit row or the LiveLink widget no longer opens, toggles or navigates; calendar events open from the keyboard (#179)
+- The family member card's action buttons work from the keyboard; Enter on one toggled the card instead
+- Clicking a reminder in the calendar's month grid opens it, as in the upcoming list
+- Calendar bulk selection works from the keyboard
+- On the window sticker test page, Remove clears the chosen file instead of opening the file picker
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

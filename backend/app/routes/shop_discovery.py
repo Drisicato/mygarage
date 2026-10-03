@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -92,7 +92,8 @@ async def save_discovered_shop(
 
     Notes:
         - Shop source should be set to 'tomtom' or 'osm'
-        - Category defaults to 'service'
+        - Category is stored as sent (none if omitted); the app sends the
+          Address Book chip for the POI type
     """
     # Create address book entry
     entry = AddressBookEntry(**entry_data.model_dump())
@@ -123,7 +124,8 @@ async def get_shop_recommendations(
         ShopRecommendationsResponse with top shops by usage
 
     Notes:
-        - Only returns shops with category='service'
+        - Only returns shops whose category is 'service' in any case (the
+          Address Book page stores 'Service'), ignoring surrounding spaces
         - Sorted by usage_count DESC (most used first)
         - Only includes shops that have been used at least once
     """
@@ -132,7 +134,9 @@ async def get_shop_recommendations(
         select(AddressBookEntry)
         .where(
             and_(
-                AddressBookEntry.category == "service",
+                # The Address Book page stores the chip value "Service", so an
+                # exact "service" never saw a shop added there.
+                func.lower(func.trim(AddressBookEntry.category)) == "service",
                 AddressBookEntry.usage_count > 0,
             )
         )

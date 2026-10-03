@@ -21,9 +21,15 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AddressBookEntry, AddressBookEntryCreate, AddressBookEntryUpdate } from '../types/addressBook'
-import { addressBookSchema, type AddressBookFormData, ADDRESS_BOOK_CATEGORIES } from '../schemas/addressBook'
+import {
+  addressBookSchema,
+  type AddressBookFormData,
+  ADDRESS_BOOK_CATEGORIES,
+  chipForPoiCategory,
+} from '../schemas/addressBook'
 import { Chip, Button, Field, Input, Textarea, Select, SearchField } from '../components/ui'
 import type { IconType } from '../components/ui/types'
+import ClickableCard from '../components/ClickableCard'
 import FormModalWrapper from '../components/FormModalWrapper'
 import api from '../services/api'
 import { applyServerErrors } from '../hooks/useApiFormErrors'
@@ -39,19 +45,16 @@ const CATEGORY_ICONS: Record<string, IconType> = {
   'Gas Station': Fuel,
 }
 
-// A discovery-sourced entry may carry a poi_category but no manual category.
-// Map the two POI types that correspond to a chip so those entries still land
-// in the right one without a data migration.
-function poiCategoryLabel(poi: string | null | undefined): string {
-  if (poi === 'gas_station') return 'Gas Station'
-  if (poi === 'rv_park' || poi === 'rv_shop') return 'RV Park'
-  return ''
-}
-
 // The category a card badge and the chip filter operate on: the manual
-// category if set, else derived from the POI type.
+// category (as its chip when it is one, in any case), else the POI type's chip.
 export function displayCategory(entry: Pick<AddressBookEntry, 'category' | 'poi_category'>): string {
-  return entry.category?.trim() || poiCategoryLabel(entry.poi_category)
+  const manual = entry.category?.trim() ?? ''
+  // The POI Finder and the old fill-up quick add wrote lowercase 'service' for
+  // everything they saved, and no chip writes that, so the POI type knows better.
+  if (manual === 'service' && entry.poi_category) return chipForPoiCategory(entry.poi_category)
+  const chip = ADDRESS_BOOK_CATEGORIES.find((c) => c.value.toLowerCase() === manual.toLowerCase())
+  if (chip) return chip.value
+  return manual || chipForPoiCategory(entry.poi_category)
 }
 
 export default function AddressBook() {
@@ -170,27 +173,25 @@ export default function AddressBook() {
             const cat = displayCategory(entry)
             const CatIcon = cat ? CATEGORY_ICONS[cat] : undefined
             return (
-              <div
+              <ClickableCard
                 key={entry.id}
-                className="relative isolate rounded-card border border-border bg-surface p-4 ui-motion hover:border-(--accent-line) hover:shadow-card-hover"
+                label={t('addressBook.editContactNamed', { name: entry.business_name })}
+                onActivate={() => handleEditClick(entry)}
+                padding="sm"
+                className="group isolate"
               >
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div>
                     <h3 className="text-lg font-semibold text-text">{entry.business_name}</h3>
                     {entry.name && <p className="mt-0.5 text-sm text-text-mute">{entry.name}</p>}
                   </div>
-                  {/* Stretched action button — a click anywhere on the card opens
-                      the edit sidecar (STATIC, so after:inset-0 anchors to the
-                      relative card root). The contact links below carry z-10 to
-                      stay independently clickable above it. */}
-                  <button
-                    type="button"
-                    onClick={() => handleEditClick(entry)}
-                    aria-label={t('addressBook.editContactNamed', { name: entry.business_name })}
-                    className="ui-focus-ring cursor-pointer rounded-control p-1 text-text-mute hover:text-text after:absolute after:inset-0 after:content-['']"
-                  >
-                    <ChevronRight aria-hidden="true" className="h-5 w-5" />
-                  </button>
+                  {/* Just a hint now: the card itself opens the editor, so nothing is
+                      stretched over the address and it can be long-pressed and copied
+                      (#179). The links below keep their own clicks. */}
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="m-1 h-5 w-5 shrink-0 text-text-mute group-hover:text-text"
+                  />
                 </div>
 
                 <div className="space-y-2 text-sm">
@@ -203,7 +204,7 @@ export default function AddressBook() {
                   {entry.email && (
                     <a
                       href={`mailto:${entry.email}`}
-                      className="relative z-10 flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
+                      className="flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
                     >
                       <Mail aria-hidden="true" className="h-4 w-4 shrink-0" />
                       <span className="truncate">{entry.email}</span>
@@ -213,7 +214,7 @@ export default function AddressBook() {
                   {entry.phone && (
                     <a
                       href={`tel:${entry.phone}`}
-                      className="relative z-10 flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
+                      className="flex items-center gap-2 text-text-mute hover:text-(--accent-fg)"
                     >
                       <Phone aria-hidden="true" className="h-4 w-4 shrink-0" />
                       <span>{entry.phone}</span>
@@ -225,7 +226,7 @@ export default function AddressBook() {
                       href={entry.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="relative z-10 flex items-center gap-2 text-(--accent-fg) hover:underline"
+                      className="flex items-center gap-2 text-(--accent-fg) hover:underline"
                     >
                       <Globe aria-hidden="true" className="h-4 w-4 shrink-0" />
                       <span className="truncate">{entry.website}</span>
@@ -251,7 +252,7 @@ export default function AddressBook() {
                     <p className="mt-2 border-t border-border pt-2 text-xs text-text-mute">{entry.notes}</p>
                   )}
                 </div>
-              </div>
+              </ClickableCard>
             )
           })}
         </div>
@@ -314,9 +315,9 @@ export function AddressBookForm({ entry, onClose, onSuccess }: AddressBookFormPr
   const onSubmit = async (data: AddressBookFormData) => {
     setError(null)
     try {
-      // poi_category is intentionally never sent from here: manual gas stations
-      // use category='Gas Station', and omitting poi_category preserves any
-      // discovery-set value on the backend (PUT merge).
+      // poi_category is left out, so the backend keeps any discovery-set value
+      // (PUT merge). Manual gas stations use category='Gas Station'. The one
+      // exception is below: re-filing a gas station under another chip.
       const payload: AddressBookEntryCreate = {
         business_name: data.business_name,
         name: data.name,
@@ -339,6 +340,15 @@ export function AddressBookForm({ entry, onClose, onSuccess }: AddressBookFormPr
         const { source: _source, category: _category, ...fields } = payload
         const update: AddressBookEntryUpdate = fields
         if (data.category !== defaultCategory) update.category = data.category || null
+        // A gas station saved under a chip that isn't Gas Station stops being
+        // one. The backend keeps a gas_station tag unless told, so the page said
+        // Service while fill-ups still offered it. Other POI tags stay put.
+        if (
+          entry.poi_category === 'gas_station' &&
+          displayCategory({ category: data.category, poi_category: entry.poi_category }) !== 'Gas Station'
+        ) {
+          update.poi_category = null
+        }
         await api.put(`/address-book/${entry.id}`, update)
       } else {
         await api.post('/address-book', payload)

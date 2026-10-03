@@ -8,6 +8,20 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.schemas._nullability import reject_null
 
 
+def stripped_category(value: object) -> object:
+    """Strip whitespace round a category; one that is only whitespace is none.
+
+    SQL trim() strips spaces only, while Python and JS also strip tabs and NBSP,
+    so "Gas Station" with a trailing tab showed under the Gas Station chip but
+    was never offered on a fill-up. Stored clean, every trim agrees. Lives on
+    Create and Update only, so the Response still reads a category saved before
+    this.
+    """
+    if not isinstance(value, str):
+        return value
+    return value.strip() or None
+
+
 class AddressBookEntryBase(BaseModel):
     """Base address book entry schema."""
 
@@ -38,8 +52,8 @@ class AddressBookEntryBase(BaseModel):
     user_rating: int | None = None
 
     # POI categorization (e.g. 'gas_station' for gas-station entries created
-    # from the fuel-record form). 'gas_station' entries are excluded from
-    # vendor sync — see routes/address_book.py::_sync_to_vendor.
+    # from the fuel-record form). A gas station is either this or the category
+    # "Gas Station", and neither syncs to vendors; see app.utils.gas_station.
     poi_category: str | None = Field(None, max_length=50)
     poi_metadata: str | None = None
 
@@ -57,7 +71,7 @@ class AddressBookEntryBase(BaseModel):
 class AddressBookEntryCreate(AddressBookEntryBase):
     """Schema for creating an address book entry."""
 
-    pass
+    _category = field_validator("category", mode="before")(stripped_category)
 
 
 class AddressBookEntryUpdate(BaseModel):
@@ -98,6 +112,8 @@ class AddressBookEntryUpdate(BaseModel):
         if v == "":
             return None
         return v
+
+    _category = field_validator("category", mode="before")(stripped_category)
 
     # NOT NULL columns: omitted keeps the stored value, null is a 422.
     _no_null = reject_null("business_name", "source")

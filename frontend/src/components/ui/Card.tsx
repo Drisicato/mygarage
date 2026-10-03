@@ -8,8 +8,10 @@ interface CardProps {
   /**
    * Click handler. On an `interactive` card this is the <button>'s; on a plain
    * card it is the container's, which keeps the card's own text selectable.
+   * It gets the event so a card can tell a click on itself from one that
+   * started in a control inside it (see ClickableCard).
    */
-  onClick?: () => void
+  onClick?: (event: React.MouseEvent<HTMLElement>) => void
   /** For masonry/column layouts that must not split a card. */
   breakInside?: boolean
   className?: string
@@ -61,7 +63,7 @@ export default function Card({
   // button cannot be long-pressed to select on a phone. The vehicle info cards
   // are click-to-edit and full of values a reader wants to copy (issue #179),
   // so they take this branch and supply their own keyboard route. See
-  // `vehicle-detail/EditableCard`.
+  // `ClickableCard`.
   return (
     <div className={classes} onClick={onClick}>
       {children}

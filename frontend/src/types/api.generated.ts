@@ -3341,10 +3341,13 @@ export interface paths {
          *         POIRecommendationsResponse with top POIs by usage
          *
          *     Notes:
-         *         - Returns POIs with category='service' OR poi_category is set
+         *         - With no category, returns entries whose category is 'service' in any
+         *           case, entries with a poi_category set, and gas stations by either field
+         *           (poi_category 'gas_station' or category 'Gas Station')
          *         - Sorted by usage_count DESC (most used first)
          *         - Only includes POIs that have been used at least once
-         *         - Can filter by specific poi_category if provided
+         *         - Can filter by specific poi_category if provided; 'gas_station' also
+         *           matches the category 'Gas Station'
          */
         get: operations["get_poi_recommendations_api_poi_recommendations_get"];
         put?: never;
@@ -3378,7 +3381,8 @@ export interface paths {
          *
          *     Notes:
          *         - Source should be set to provider name (tomtom, osm, google, etc.)
-         *         - Category defaults to 'service'
+         *         - Category is stored as sent (none if omitted); the app sends the
+         *           Address Book chip for the POI type
          *         - poi_category should be set (one of POICategory: auto_shop,
          *           rv_shop, ev_charging, gas_station, propane)
          *         - metadata can contain category-specific JSON data
@@ -3857,7 +3861,8 @@ export interface paths {
          *         ShopRecommendationsResponse with top shops by usage
          *
          *     Notes:
-         *         - Only returns shops with category='service'
+         *         - Only returns shops whose category is 'service' in any case (the
+         *           Address Book page stores 'Service'), ignoring surrounding spaces
          *         - Sorted by usage_count DESC (most used first)
          *         - Only includes shops that have been used at least once
          */
@@ -3893,7 +3898,8 @@ export interface paths {
          *
          *     Notes:
          *         - Shop source should be set to 'tomtom' or 'osm'
-         *         - Category defaults to 'service'
+         *         - Category is stored as sent (none if omitted); the app sends the
+         *           Address Book chip for the POI type
          */
         post: operations["save_discovered_shop_api_shop_discovery_save_post"];
         delete?: never;
@@ -10550,7 +10556,7 @@ export interface components {
             soc_start_pct?: number | string | null;
             /**
              * Station Address Book Id
-             * @description FK to address_book entry with poi_category='gas_station'
+             * @description FK to a gas station address_book entry (poi_category 'gas_station' or category 'Gas Station')
              */
             station_address_book_id?: number | null;
             /**
@@ -10814,7 +10820,7 @@ export interface components {
             soc_start_pct?: string | null;
             /**
              * Station Address Book Id
-             * @description FK to address_book entry with poi_category='gas_station'
+             * @description FK to a gas station address_book entry (poi_category 'gas_station' or category 'Gas Station')
              */
             station_address_book_id?: number | null;
             /**

@@ -18,6 +18,7 @@ from app.schemas.address_book import (
     AddressBookListResponse,
 )
 from app.services.auth import require_auth
+from app.utils.gas_station import GAS_STATION_POI, gas_station_clause, is_gas_station
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +35,19 @@ async def _sync_to_vendor(
     Updates to existing vendor fields are intentionally not performed here —
     a vendor may already be linked to service visits.
 
-    Skipped for `poi_category='gas_station'` entries — gas stations are not
-    vendors in MyGarage's domain model and would pollute the vendors table.
-    The fuel-record save path is the primary creator of these entries.
+    Skipped for gas stations (either field, see ``app.utils.gas_station``):
+    they are not vendors in MyGarage's domain model and would pollute the
+    vendors table.
 
     Known limitation: concurrent creates with only case/whitespace differences
     could produce duplicate vendors. Acceptable for single-user homelab use.
     """
     if not business_name or not business_name.strip():
         return
-    # Defense-in-depth guard: gas stations never sync to vendors, regardless
-    # of how the entry was created.
-    if getattr(entry, "poi_category", None) == "gas_station":
+    # Gas stations never sync to vendors, however the entry was made. This
+    # only checked poi_category, so every station added on the Address Book
+    # page landed in vendors too (#194).
+    if is_gas_station(entry):
         return
     name = business_name.strip()[:100]  # Enforce vendors.name VARCHAR(100) limit
     try:
@@ -88,6 +90,14 @@ async def list_entries(
     """List all address book entries with optional search and filtering."""
     query = select(AddressBookEntry)
 
+    # The fill-up's station picker asks for gas_station, and a station saved on
+    # the Address Book page only has the category, so ask both fields (#194).
+    poi_filter = (
+        gas_station_clause()
+        if poi_category == GAS_STATION_POI
+        else AddressBookEntry.poi_category == poi_category
+    )
+
     # Apply search filter
     if search:
         search_pattern = f"%{search}%"
@@ -103,11 +113,11 @@ async def list_entries(
     if category:
         query = query.where(AddressBookEntry.category == category)
     if poi_category:
-        query = query.where(AddressBookEntry.poi_category == poi_category)
+        query = query.where(poi_filter)
 
     # When filtering to fuel stations, rank by usage so frequently-visited
     # stations float to the top of autocomplete suggestions.
-    if poi_category == "gas_station":
+    if poi_category == GAS_STATION_POI:
         query = query.order_by(
             AddressBookEntry.usage_count.desc(),
             AddressBookEntry.last_used.desc().nullslast(),
@@ -133,7 +143,7 @@ async def list_entries(
     if category:
         count_query = count_query.where(AddressBookEntry.category == category)
     if poi_category:
-        count_query = count_query.where(AddressBookEntry.poi_category == poi_category)
+        count_query = count_query.where(poi_filter)
 
     count_result = await db.execute(count_query)
     total = count_result.scalar_one()
@@ -221,12 +231,12 @@ async def update_entry(
     for field, value in changes.items():
         setattr(entry, field, value)
 
-    # The editor's "Gas station" checkbox sends only None/""/"gas_station".
-    # Honor an explicit poi_category (model_fields_set) so unchecking can CLEAR,
-    # while an omitted key preserves the existing value. Server-side guard: a
-    # gas/clear value must never overwrite an existing non-gas POI category
-    # (auto_shop/rv_shop/ev_charging/propane) — protects against a stale client
-    # snapshot (#108). Non-gas values (e.g. from POI import) still apply.
+    # An omitted poi_category keeps the stored one, and an explicit one is
+    # honoured (model_fields_set), so a null clears it. The Address Book page
+    # sends null only when it re-files a gas station under another chip; other
+    # callers can send any value. Guard: a gas or clear value never overwrites a
+    # non-gas POI tag (auto_shop/rv_shop/ev_charging/propane), so a stale client
+    # snapshot can't wipe one (#108). A non-gas value always applies.
     if "poi_category" in update_data.model_fields_set:
         incoming = update_data.poi_category
         _gas_or_clear = {None, "", "gas_station"}

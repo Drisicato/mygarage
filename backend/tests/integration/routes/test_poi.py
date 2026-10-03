@@ -13,6 +13,9 @@ from sqlalchemy import delete, select
 
 from app.models.address_book import AddressBookEntry
 
+# Usage far above anything the rest of the suite records.
+_HEAVY_USE = 10_000
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -298,6 +301,48 @@ class TestPOIRoutes:
         data = response.json()
         # Result count should not exceed limit
         assert data["count"] <= 3
+
+    @pytest.mark.parametrize(
+        ("params", "entry"),
+        [
+            ({"category": "gas_station"}, {"category": "Gas Station"}),
+            ({}, {"category": "Service"}),
+            # What the POI Finder actually asks: no category at all.
+            ({}, {"category": "Gas Station"}),
+        ],
+        ids=[
+            "manual-gas-station-under-gas_station",
+            "service-chip-with-no-category",
+            "manual-gas-station-with-no-category",
+        ],
+    )
+    async def test_recommendations_include_address_book_page_entries(
+        self, client: AsyncClient, auth_headers, db_session, params, entry
+    ):
+        """The Address Book page stores the chip values "Gas Station" and "Service".
+        The POI Finder's "used N times" list asked poi_category or an exact
+        lowercase "service", so neither ever showed up there (#194)."""
+        name = f"ZZ Rec {uuid.uuid4().hex[:8]}"
+        try:
+            # Far above any other row's usage, so the limit can't push it out.
+            db_session.add(AddressBookEntry(business_name=name, usage_count=_HEAVY_USE, **entry))
+            await db_session.commit()
+
+            response = await client.get(
+                "/api/poi/recommendations",
+                headers=auth_headers,
+                params={**params, "limit": 50},
+            )
+
+            assert response.status_code == 200, response.text
+            names = [r["business_name"] for r in response.json()["recommendations"]]
+            assert name in names
+        finally:
+            await db_session.rollback()
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            await db_session.commit()
 
     # -------------------------------------------------------------------------
     # /increment-usage endpoint tests

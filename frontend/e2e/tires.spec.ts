@@ -401,8 +401,10 @@ test.describe('Tires', () => {
     await refusedDrawer.getByRole('button', { name: 'Cancel' }).click()
     await expect(refusedDrawer).toBeHidden({ timeout: 10000 })
 
-    // The repair: the tire's history, Delete on that reading, confirmed.
-    await card.getByRole('button', { name: /View reading history/ }).click()
+    // The repair: the tire's history, Delete on that reading, confirmed. The
+    // card's own text opens it now; the named history button only shows on
+    // keyboard focus, so Playwright can't click it (#179).
+    await card.getByText('E2E Typo', { exact: true }).click()
     const history = page.getByRole('dialog')
     const confirmed = new Promise<string>((resolve) => {
       page.once('dialog', async (dialog) => {
@@ -457,7 +459,8 @@ test.describe('Tires', () => {
     await openTires(page, vin)
     const card = page.locator('.rounded-card', { hasText: 'E2E PastPeriod' }).first()
     await expect(card).toBeVisible({ timeout: 10000 })
-    await card.getByRole('button', { name: /View reading history/ }).click()
+    // A click on the card's text, the way a person opens it (#179).
+    await card.getByText('E2E PastPeriod', { exact: true }).click()
     const history = page.getByRole('dialog').first()
     await expect(history).toBeVisible({ timeout: 5000 })
 

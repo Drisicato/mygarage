@@ -19,6 +19,8 @@ import { useDateLocale } from '../hooks/useDateLocale'
 import { formatDateForDisplay } from '../utils/dateUtils'
 import { withBase } from '../utils/basePath'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { isSelectingText } from '../utils/textSelection'
+import { cameFromNestedControl } from '../components/ClickableCard'
 import { todayInHousehold } from '@/constants/i18n'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -91,6 +93,21 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
   const [showHistory, setShowHistory] = useState(false)
   const [date, setDate] = useState(new Date())
 
+  // Where an event goes, from the month grid, the upcoming item or its hidden
+  // keyboard button. One mapping, so a reminder can't open from one and do
+  // nothing from the other.
+  const openEvent = (event: CalendarEvent): void => {
+    const [type] = event.id.split('-')
+    if (type === 'insurance') {
+      // A policy is a household record covering several vehicles, so its
+      // renewal opens the Insurance page rather than one vehicle's tab.
+      navigate(`/insurance?policy=${event.id.slice('insurance-'.length)}`)
+      return
+    }
+    const tab = type === 'maintenance' ? 'maintenance' : type === 'warranty' ? 'warranties' : 'service'
+    navigate(`/vehicles/${event.vehicle_vin}?tab=${tab}`)
+  }
+
   // Schedule-X plugins (stable refs via useState initializer)
   const [eventsService] = useState(() => createEventsServicePlugin())
   const [calendarControls] = useState(() => createCalendarControlsPlugin())
@@ -116,23 +133,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
         // calendarEvent._customData holds the original CalendarEvent
         const original = calendarEvent._customData as CalendarEvent | undefined
         if (!original) return
-        const [type] = original.id.split('-')
-        switch (type) {
-          case 'maintenance':
-            navigate(`/vehicles/${original.vehicle_vin}?tab=maintenance`)
-            break
-          case 'insurance':
-            // A policy is a household record covering several vehicles, so its
-            // renewal opens the Insurance page rather than one vehicle's tab.
-            navigate(`/insurance?policy=${original.id.slice('insurance-'.length)}`)
-            break
-          case 'warranty':
-            navigate(`/vehicles/${original.vehicle_vin}?tab=warranties`)
-            break
-          case 'service':
-            navigate(`/vehicles/${original.vehicle_vin}?tab=service`)
-            break
-        }
+        openEvent(original)
       },
       onRangeUpdate(range) {
         // range.start may be a Temporal object or string like "2026-06-01 00:00"
@@ -291,10 +292,9 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
 
   // Event click is handled via Schedule-X callbacks.onEventClick in useCalendarApp config above
 
-  // Quick complete reminder
-  const handleQuickComplete = async (eventId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-
+  // Quick complete reminder. No stopPropagation: the upcoming item ignores
+  // clicks that start in its own buttons.
+  const handleQuickComplete = async (eventId: string): Promise<void> => {
     const [type, id] = eventId.split('-')
     if (type !== 'reminder') return
 
@@ -392,8 +392,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
   }
 
   // Phase 3: Show notes modal
-  const handleShowNotes = (event: CalendarEvent, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleShowNotes = (event: CalendarEvent): void => {
     setSelectedEventForNotes(event)
     setShowNotesModal(true)
   }
@@ -670,20 +669,17 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                 {upcomingEvents.map(event => (
                   <div
                     key={event.id}
-                    onClick={() => {
+                    onClick={(e) => {
+                      // Notes and Quick complete own their clicks, and letting go
+                      // of a text selection isn't a click on the event (#179).
+                      if (cameFromNestedControl(e) || isSelectingText()) return
                       if (bulkMode) {
                         toggleEventSelection(event.id)
                       } else {
-                        const [type] = event.id.split('-')
-                        if (type === 'insurance') {
-                          navigate(`/insurance?policy=${event.id.slice('insurance-'.length)}`)
-                          return
-                        }
-                        const tab = type === 'maintenance' ? 'maintenance' : type === 'warranty' ? 'warranties' : 'service'
-                        navigate(`/vehicles/${event.vehicle_vin}?tab=${tab}`)
+                        openEvent(event)
                       }
                     }}
-                    className={`p-3 rounded-lg border cursor-pointer transition-colors hover:border-primary ${
+                    className={`relative p-3 rounded-lg border cursor-pointer transition-colors hover:border-primary ${
                       event.urgency === 'overdue'
                         ? 'border-danger bg-danger/5'
                         : event.urgency === 'high'
@@ -691,6 +687,24 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                         : 'border-garage-border'
                     } ${bulkMode && selectedEvents.includes(event.id) ? 'ring-2 ring-primary' : ''}`}
                   >
+                    {/* The keyboard way in, hidden until focused. A real button
+                        instead of role="button" on the item, which already holds
+                        buttons. Same chip as ClickableCard's. In bulk mode it
+                        selects instead of opening, like a click on the item.
+                        Like ClickableCard's, it takes no pointer clicks, so it
+                        can't steal one from Notes or Quick complete under it. */}
+                    <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-lg focus-within:bg-surface-2 focus-within:px-2 focus-within:py-1 focus-within:text-xs">
+                      <button
+                        type="button"
+                        aria-pressed={bulkMode ? selectedEvents.includes(event.id) : undefined}
+                        onClick={() => (bulkMode ? toggleEventSelection(event.id) : openEvent(event))}
+                        className="ui-focus-ring sr-only focus:not-sr-only"
+                      >
+                        {bulkMode
+                          ? t('calendar.selectEvent', { title: event.title })
+                          : t('calendar.openEvent', { title: event.title })}
+                      </button>
+                    </span>
                     <div className="flex items-start justify-between gap-2">
                       {/* Phase 3: Bulk selection checkbox */}
                       {bulkMode && (
@@ -780,7 +794,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                           {/* Phase 3: Notes button */}
                           {event.notes && (
                             <button
-                              onClick={(e) => handleShowNotes(event, e)}
+                              onClick={() => handleShowNotes(event)}
                               className="p-1 hover:bg-primary/20 rounded transition-colors"
                               title={t('calendar.misc.viewNotes')}
                             >
@@ -790,7 +804,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                           {/* Quick complete button */}
                           {event.type === 'maintenance' && !event.is_completed && (
                             <button
-                              onClick={(e) => handleQuickComplete(event.id, e)}
+                              onClick={() => handleQuickComplete(event.id)}
                               className="p-1 hover:bg-success/20 rounded transition-colors"
                               title={t('calendar.misc.markComplete')}
                             >

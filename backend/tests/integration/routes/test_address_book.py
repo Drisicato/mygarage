@@ -10,9 +10,37 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.address_book import AddressBookEntry
 from app.models.vendor import Vendor
+
+
+async def _offered_to_fill_up(client: AsyncClient, headers: dict, search: str) -> list[str]:
+    """The names the fill-up's station picker is offered for this search."""
+    response = await client.get(
+        "/api/address-book",
+        params={"search": search, "poi_category": "gas_station"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return [e["business_name"] for e in response.json()["entries"]]
+
+
+async def _stored_category(db_session: AsyncSession, entry_id: int) -> str | None:
+    """The category as the database holds it, not as a response renders it."""
+    result = await db_session.execute(
+        select(AddressBookEntry.category).where(AddressBookEntry.id == entry_id)
+    )
+    return result.scalar_one()
+
+
+async def _delete_named(db_session: AsyncSession, name: str) -> None:
+    """Remove a test's entries and the vendor a non-station create syncs."""
+    await db_session.rollback()
+    await db_session.execute(delete(AddressBookEntry).where(AddressBookEntry.business_name == name))
+    await db_session.execute(delete(Vendor).where(Vendor.name == name))
+    await db_session.commit()
 
 
 @pytest.mark.integration
@@ -382,9 +410,7 @@ class TestAddressBookRoutes:
 
     # --- poi_category clear/preserve/guard tests (#108) ---
 
-    async def test_update_clears_gas_station_when_unchecked(
-        self, client: AsyncClient, auth_headers
-    ):
+    async def test_update_null_clears_gas_station(self, client: AsyncClient, auth_headers):
         """PUT poi_category=null clears an existing gas_station tag."""
         created = (
             await client.post(
@@ -440,7 +466,7 @@ class TestAddressBookRoutes:
         assert resp.json()["poi_category"] == "ev_charging"
 
     async def test_update_sets_gas_station(self, client: AsyncClient, auth_headers):
-        """Checking the box on an untagged entry sets gas_station."""
+        """An explicit gas_station on an untagged entry sets it."""
         created = (
             await client.post(
                 "/api/address-book", json={"business_name": "New Fuel"}, headers=auth_headers
@@ -469,6 +495,185 @@ class TestAddressBookRoutes:
         assert resp.status_code == 200
         names = [e["business_name"] for e in resp.json()["entries"]]
         assert "Canonical Fuel" in names
+
+    # --- A gas station saved on the Address Book page (#194) ---
+
+    @pytest.mark.parametrize(
+        "category", ["Gas Station", "  gas station "], ids=["chip-value", "padded-lowercase"]
+    )
+    async def test_a_manual_gas_station_is_offered_to_the_fill_up(
+        self, client: AsyncClient, auth_headers, db_session, category
+    ):
+        """The Address Book page saves category "Gas Station" and no poi_category,
+        and the fill-up's picker asks ?poi_category=gas_station, so it never saw it."""
+        name = f"ZZ Manual Fuel {uuid.uuid4().hex[:8]}"
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": category},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+            assert created.json()["poi_category"] is None
+
+            response = await client.get(
+                "/api/address-book",
+                params={"search": "ZZ Manual Fuel", "poi_category": "gas_station"},
+                headers=auth_headers,
+            )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert name in [e["business_name"] for e in body["entries"]]
+            # The list isn't paged, so total has to count exactly what came back.
+            assert body["total"] == len(body["entries"])
+        finally:
+            await db_session.rollback()
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            # Before #194 the create copied the station into vendors too.
+            await db_session.execute(delete(Vendor).where(Vendor.name == name))
+            await db_session.commit()
+
+    async def test_a_manual_gas_station_is_not_copied_into_vendors(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """Vendor sync skipped poi_category stations only, so every station added on
+        the Address Book page landed in the vendor list as well."""
+        name = f"ZZ Manual Fuel {uuid.uuid4().hex[:8]}"
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": "Gas Station"},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+
+            vendors = (
+                (await db_session.execute(select(Vendor).where(Vendor.name == name)))
+                .scalars()
+                .all()
+            )
+            assert vendors == []
+        finally:
+            await db_session.rollback()
+            await db_session.execute(
+                delete(AddressBookEntry).where(AddressBookEntry.business_name == name)
+            )
+            await db_session.execute(delete(Vendor).where(Vendor.name == name))
+            await db_session.commit()
+
+    # --- A category with whitespace round it (#194) ---
+
+    @pytest.mark.parametrize(
+        "category",
+        ["Gas Station\t", " Gas Station", "Gas Station "],
+        ids=["trailing-tab", "leading-space", "trailing-nbsp"],
+    )
+    async def test_create_strips_the_category_so_the_fill_up_offers_it(
+        self, client: AsyncClient, auth_headers, db_session, category
+    ):
+        """SQL trim() strips spaces only, so a tab or NBSP from the API kept a station
+        off the fill-up while the page, trimming in JS, showed it as a Gas Station."""
+        name = f"ZZ Padded Fuel {uuid.uuid4().hex[:8]}"
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": category},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+            assert await _stored_category(db_session, created.json()["id"]) == "Gas Station"
+            assert name in await _offered_to_fill_up(client, auth_headers, "ZZ Padded Fuel")
+        finally:
+            await _delete_named(db_session, name)
+
+    @pytest.mark.parametrize(
+        "category",
+        ["Gas Station\t", " Gas Station", "Gas Station "],
+        ids=["trailing-tab", "leading-space", "trailing-nbsp"],
+    )
+    async def test_update_strips_the_category_so_the_fill_up_offers_it(
+        self, client: AsyncClient, auth_headers, db_session, category
+    ):
+        """Same as the create, through an edit."""
+        name = f"ZZ Padded Fuel {uuid.uuid4().hex[:8]}"
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": "Parts"},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+            entry_id = created.json()["id"]
+            updated = await client.put(
+                f"/api/address-book/{entry_id}",
+                json={"category": category},
+                headers=auth_headers,
+            )
+            assert updated.status_code == 200, updated.text
+            assert await _stored_category(db_session, entry_id) == "Gas Station"
+            assert name in await _offered_to_fill_up(client, auth_headers, "ZZ Padded Fuel")
+        finally:
+            await _delete_named(db_session, name)
+
+    async def test_an_all_whitespace_category_is_stored_as_none(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """Stripped to nothing, the optional category is none rather than an empty string."""
+        name = f"ZZ Blank Category {uuid.uuid4().hex[:8]}"
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "category": " \t "},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+            entry_id = created.json()["id"]
+            assert await _stored_category(db_session, entry_id) is None
+
+            await client.put(
+                f"/api/address-book/{entry_id}", json={"category": "Parts"}, headers=auth_headers
+            )
+            updated = await client.put(
+                f"/api/address-book/{entry_id}", json={"category": "\t "}, headers=auth_headers
+            )
+            assert updated.status_code == 200, updated.text
+            assert await _stored_category(db_session, entry_id) is None
+        finally:
+            await _delete_named(db_session, name)
+
+    async def test_a_gas_station_refiled_as_service_stops_being_one(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """What the Address Book form sends when a gas station is saved under another
+        chip. The page reads it as Service, so the fill-up stops offering it and it
+        syncs to vendors like any other Service entry."""
+        name = f"ZZ Refiled Station {uuid.uuid4().hex[:8]}"
+        vendors_named = select(Vendor.name).where(Vendor.name == name)
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "poi_category": "gas_station"},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+            # Both halves have to start true, or the after-state proves nothing.
+            assert name in await _offered_to_fill_up(client, auth_headers, "ZZ Refiled Station")
+            assert (await db_session.execute(vendors_named)).scalars().all() == []
+
+            updated = await client.put(
+                f"/api/address-book/{created.json()['id']}",
+                json={"category": "Service", "poi_category": None},
+                headers=auth_headers,
+            )
+            assert updated.status_code == 200, updated.text
+            assert updated.json()["category"] == "Service"
+            assert updated.json()["poi_category"] is None
+            assert name not in await _offered_to_fill_up(client, auth_headers, "ZZ Refiled Station")
+            assert (await db_session.execute(vendors_named)).scalars().all() == [name]
+        finally:
+            await _delete_named(db_session, name)
 
     async def test_create_with_an_empty_poi_category_stores_none(
         self, client: AsyncClient, auth_headers, db_session

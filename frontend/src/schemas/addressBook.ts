@@ -19,6 +19,27 @@ export const ADDRESS_BOOK_CATEGORIES = [
 
 export type AddressBookCategory = (typeof ADDRESS_BOOK_CATEGORIES)[number]['value']
 
+/**
+ * The Address Book chip a POI type belongs in, or '' for a type with no chip
+ * (ev_charging, propane, none).
+ *
+ * The POI Finder saves a place with this as its category, and the Address
+ * Book page files an entry with no category under it.
+ */
+export function chipForPoiCategory(poi: string | null | undefined): AddressBookCategory | '' {
+  switch (poi) {
+    case 'gas_station':
+      return 'Gas Station'
+    case 'rv_shop':
+    case 'rv_park':
+      return 'RV Park'
+    case 'auto_shop':
+      return 'Service'
+    default:
+      return ''
+  }
+}
+
 export const addressBookSchema = z.object({
   business_name: z.string().min(1, 'Business name is required').max(150, 'Business name too long'),
   name: z.string().max(100, 'Contact name too long').optional(),

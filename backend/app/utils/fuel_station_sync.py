@@ -5,18 +5,21 @@ existing address-book id) plus the form's "one-time visit" toggle into a
 final `(station_address_book_id, station_name_freetext)` tuple, while
 optionally creating the address-book row inside the caller's transaction.
 
-`gas_station` POI entries deliberately bypass the vendor sync path — see
-routes/address_book.py::_sync_to_vendor for the defense-in-depth guard.
+What counts as a gas station is ``app.utils.gas_station``: the lookup asks
+``gas_station_clause()``, so a station saved on the Address Book page (category
+"Gas Station", no poi_category) is found instead of copied (#194). Gas stations
+never sync to vendors; see routes/address_book.py::_sync_to_vendor.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AddressBookEntry
+from app.utils.gas_station import GAS_STATION_POI, gas_station_clause
 
 
 async def resolve_fuel_station(
@@ -74,15 +77,21 @@ async def resolve_fuel_station(
         return None, name[:150]
 
     # Case 3: promote to address book.
-    # Look for an existing gas_station entry with the same business_name
+    # Look for an existing gas station with the same business_name
     # (case-insensitive) before creating, to keep the autocomplete dataset
     # tidy under casual-typing concurrency.
-    from sqlalchemy import func
-
+    # Users who hit #194 have a manual entry and a poi_category twin of the same
+    # name, so prefer the twin, then the most used. IS TRUE, not the bare
+    # compare: that's NULL for a manual row and PostgreSQL sorts NULL first.
     result = await db.execute(
         select(AddressBookEntry)
-        .where(AddressBookEntry.poi_category == "gas_station")
+        .where(gas_station_clause())
         .where(func.lower(AddressBookEntry.business_name) == name.lower())
+        .order_by(
+            (AddressBookEntry.poi_category == GAS_STATION_POI).is_(True).desc(),
+            AddressBookEntry.usage_count.desc(),
+            AddressBookEntry.id,
+        )
         .limit(1)
     )
     existing = result.scalar_one_or_none()
@@ -94,7 +103,7 @@ async def resolve_fuel_station(
 
     new_entry = AddressBookEntry(
         business_name=name[:150],
-        poi_category="gas_station",
+        poi_category=GAS_STATION_POI,
         source="manual",
         usage_count=1,
         last_used=datetime.now(),
