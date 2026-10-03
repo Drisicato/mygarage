@@ -26,6 +26,9 @@ from app.constants.units import METRIC_PRESET
 from app.models import HoursRecord, OdometerRecord, Reminder
 from app.models.user import User
 from app.services.reminder_service import (
+    DUE_SOON_PROGRESS,
+    DueContext,
+    ReminderStart,
     _build_reminder_message,
     calculate_hours_driving_rate,
     check_due_reminders,
@@ -34,6 +37,11 @@ from app.services.reminder_service import (
     enrich_with_estimate,
     expected_due_date,
     get_current_hours,
+    leading_progress,
+    progress_fractions,
+    reminder_due_status,
+    reminder_start,
+    tally_due_statuses,
     validate_reminder_state,
 )
 from app.utils.render_context import RenderContext
@@ -427,10 +435,268 @@ class TestClassifyPendingReminders:
         counts = classify_pending_reminders(pending, Decimal("56000"), None, 100.0, None, TODAY)
         assert (counts.overdue, counts.upcoming, counts.due_soon) == (0, 1, 1)
 
-    def test_without_rates_a_usage_reminder_is_never_due_soon(self):
+    def test_without_rates_or_a_start_a_usage_reminder_is_not_due_soon(self):
         pending = [_pending(reminder_type="mileage", due_mileage_km=Decimal("57000"))]
         counts = classify_pending_reminders(pending, Decimal("56000"), None, None, None, TODAY)
         assert (counts.overdue, counts.upcoming, counts.due_soon) == (0, 1, 0)
+
+    def test_the_counts_tally_the_statuses(self):
+        pending = [
+            _pending(id=1, due_date=TODAY),
+            _pending(id=2, due_date=TODAY + timedelta(days=10)),
+            _pending(id=3, due_date=TODAY + timedelta(days=90)),
+            _pending(
+                id=4,
+                due_date=TODAY - timedelta(days=1),
+                snoozed_until=TODAY + timedelta(days=5),
+            ),
+            _anchored(
+                id=5,
+                reminder_type="mileage",
+                anchor_odometer_km=Decimal("50000"),
+                due_mileage_km=Decimal("60000"),
+            ),
+        ]
+        ctx = _ctx(km="59500")
+        assert [reminder_due_status(r, ctx) for r in pending] == [
+            "overdue",
+            "due_soon",
+            "on_track",
+            "snoozed",
+            "due_soon",
+        ]
+        counts = tally_due_statuses(pending, ctx)
+        assert (counts.overdue, counts.upcoming, counts.due_soon) == (1, 3, 2)
+        assert classify_pending_reminders(pending, Decimal("59500"), None, None, None, TODAY) == (
+            counts
+        )
+
+    def test_derived_starts_reach_the_fallback(self):
+        one_off = _pending(id=9, reminder_type="mileage", due_mileage_km=Decimal("60000"))
+        starts = {9: ReminderStart(TODAY - timedelta(days=100), Decimal("50000"), None)}
+        without = classify_pending_reminders([one_off], Decimal("59500"), None, None, None, TODAY)
+        with_start = classify_pending_reminders(
+            [one_off], Decimal("59500"), None, None, None, TODAY, starts
+        )
+        assert (without.due_soon, with_start.due_soon) == (0, 1)
+
+
+# ---------------------------------------------------------------------------
+# Due status and progress (#192 D1-D3)
+# ---------------------------------------------------------------------------
+
+
+def _ctx(
+    km: str | None = None,
+    hours: str | None = None,
+    km_rate: float | None = None,
+    hours_rate: float | None = None,
+    starts: dict[int, ReminderStart] | None = None,
+) -> DueContext:
+    return DueContext(
+        today=TODAY,
+        current_km=Decimal(km) if km is not None else None,
+        current_hours=Decimal(hours) if hours is not None else None,
+        km_per_day=km_rate,
+        hours_per_day=hours_rate,
+        starts=starts or {},
+    )
+
+
+def _anchored(**kwargs) -> Reminder:
+    """A pending reminder anchored on a service 100 days before TODAY."""
+    base = {"anchor_kind": "service", "anchor_date": TODAY - timedelta(days=100)}
+    base.update(kwargs)
+    return _pending(**base)
+
+
+def _fractions(reminder: Reminder, ctx: DueContext) -> dict:
+    return progress_fractions(reminder, reminder_start(reminder, ctx), ctx)
+
+
+@pytest.mark.unit
+class TestProgressFractions:
+    def test_anchored_date(self):
+        reminder = _anchored(due_date=TODAY + timedelta(days=100))
+        assert _fractions(reminder, _ctx()) == pytest.approx({"date": 0.5})
+
+    def test_anchored_distance(self):
+        reminder = _anchored(
+            reminder_type="mileage",
+            anchor_odometer_km=Decimal("50000"),
+            due_mileage_km=Decimal("60000"),
+        )
+        assert _fractions(reminder, _ctx(km="59000")) == pytest.approx({"distance": 0.9})
+
+    def test_anchored_hours(self):
+        reminder = _anchored(
+            reminder_type="hours", anchor_hours=Decimal("100.0"), due_hours=Decimal("200.0")
+        )
+        assert _fractions(reminder, _ctx(hours="150.0")) == pytest.approx({"hours": 0.5})
+
+    def test_past_due_is_unclamped(self):
+        reminder = _anchored(
+            reminder_type="mileage",
+            anchor_odometer_km=Decimal("50000"),
+            due_mileage_km=Decimal("60000"),
+        )
+        assert _fractions(reminder, _ctx(km="62500")) == pytest.approx({"distance": 1.25})
+
+    def test_a_reading_below_the_start_is_negative_not_dropped(self):
+        reminder = _anchored(
+            reminder_type="mileage",
+            anchor_odometer_km=Decimal("50000"),
+            due_mileage_km=Decimal("60000"),
+        )
+        assert _fractions(reminder, _ctx(km="49000")) == pytest.approx({"distance": -0.1})
+
+    def test_a_span_of_zero_or_less_is_skipped(self):
+        same_day = _anchored(due_date=TODAY - timedelta(days=100))
+        assert _fractions(same_day, _ctx()) == {}
+        no_distance = _anchored(
+            reminder_type="mileage",
+            anchor_odometer_km=Decimal("60000"),
+            due_mileage_km=Decimal("60000"),
+        )
+        assert _fractions(no_distance, _ctx(km="61000")) == {}
+
+    def test_a_missing_reading_skips_its_dimension(self):
+        reminder = _anchored(
+            reminder_type="smart",
+            due_date=TODAY + timedelta(days=100),
+            anchor_odometer_km=Decimal("50000"),
+            due_mileage_km=Decimal("60000"),
+        )
+        assert _fractions(reminder, _ctx()) == pytest.approx({"date": 0.5})
+
+    def test_no_start_no_fractions(self):
+        # Unanchored, and the context holds no derived start for it.
+        reminder = _pending(id=7, due_date=TODAY + timedelta(days=10))
+        assert _fractions(reminder, _ctx()) == {}
+
+    def test_an_unanchored_reminder_reads_its_derived_start(self):
+        reminder = _pending(
+            id=7,
+            reminder_type="smart",
+            due_date=TODAY + timedelta(days=10),
+            due_mileage_km=Decimal("50000"),
+        )
+        ctx = _ctx(
+            km="45000",
+            starts={7: ReminderStart(TODAY - timedelta(days=10), Decimal("40000"), None)},
+        )
+        assert _fractions(reminder, ctx) == pytest.approx({"date": 0.5, "distance": 0.5})
+
+    def test_a_kind_without_a_date_is_unanchored(self):
+        # maintenance_service treats this row as unanchored (no anchor_date), so it
+        # counts from its derived start: 0.5, where its anchor reading would give 0.875.
+        reminder = _pending(
+            id=7,
+            reminder_type="mileage",
+            anchor_kind="service",
+            anchor_date=None,
+            anchor_odometer_km=Decimal("10000"),
+            due_mileage_km=Decimal("50000"),
+        )
+        ctx = _ctx(km="45000", starts={7: ReminderStart(TODAY, Decimal("40000"), None)})
+        assert _fractions(reminder, ctx) == pytest.approx({"distance": 0.5})
+
+
+@pytest.mark.unit
+class TestLeadingProgress:
+    def test_the_highest_fraction_leads(self):
+        assert leading_progress({"date": 0.4, "distance": 0.8}) == ("distance", 0.8)
+        assert leading_progress({"date": 0.9, "hours": 0.3}) == ("date", 0.9)
+
+    def test_ties_go_to_distance_then_hours_then_date(self):
+        assert leading_progress({"date": 0.5, "distance": 0.5}) == ("distance", 0.5)
+        assert leading_progress({"date": 0.5, "hours": 0.5}) == ("hours", 0.5)
+
+    def test_nothing_measured_is_none(self):
+        assert leading_progress({}) is None
+
+
+@pytest.mark.unit
+class TestReminderDueStatus:
+    def _belt(self) -> Reminder:
+        """Anchored at 50,000 km, due at 60,000 km."""
+        return _anchored(
+            reminder_type="mileage",
+            anchor_odometer_km=Decimal("50000"),
+            due_mileage_km=Decimal("60000"),
+        )
+
+    def test_a_snooze_wins_over_overdue(self):
+        reminder = _pending(
+            due_date=TODAY - timedelta(days=1), snoozed_until=TODAY + timedelta(days=5)
+        )
+        assert reminder_due_status(reminder, _ctx()) == "snoozed"
+
+    def test_a_snooze_ends_on_its_date(self):
+        reminder = _pending(due_date=TODAY - timedelta(days=1), snoozed_until=TODAY)
+        assert reminder_due_status(reminder, _ctx()) == "overdue"
+
+    def test_due_today_is_overdue(self):
+        assert reminder_due_status(_pending(due_date=TODAY), _ctx()) == "overdue"
+
+    def test_the_thirty_day_window(self):
+        assert reminder_due_status(_pending(due_date=TODAY + timedelta(days=30)), _ctx()) == (
+            "due_soon"
+        )
+        assert reminder_due_status(_pending(due_date=TODAY + timedelta(days=31)), _ctx()) == (
+            "on_track"
+        )
+
+    def test_a_projection_inside_the_window_is_due_soon(self):
+        reminder = _pending(reminder_type="mileage", due_mileage_km=Decimal("57000"))
+        assert reminder_due_status(reminder, _ctx(km="56000", km_rate=100.0)) == "due_soon"
+
+    def test_the_fallback_fires_at_ninety_percent_without_a_projection(self):
+        assert DUE_SOON_PROGRESS == 0.9
+        assert reminder_due_status(self._belt(), _ctx(km="59000")) == "due_soon"
+
+    def test_the_fallback_does_not_fire_at_eighty_nine_percent(self):
+        assert reminder_due_status(self._belt(), _ctx(km="58900")) == "on_track"
+
+    def test_the_fallback_never_contradicts_a_projection(self):
+        # 95% of the way, but at 1 km/day the last 500 km take 500 days.
+        assert reminder_due_status(self._belt(), _ctx(km="59500", km_rate=1.0)) == "on_track"
+
+    def test_a_smart_reminder_with_a_far_date_is_due_soon_on_its_mileage(self):
+        reminder = _anchored(
+            reminder_type="smart",
+            due_date=TODAY + timedelta(days=300),
+            anchor_odometer_km=Decimal("50000"),
+            due_mileage_km=Decimal("60000"),
+        )
+        assert reminder_due_status(reminder, _ctx(km="59500")) == "due_soon"
+
+    def test_the_fallback_reads_hours_too(self):
+        reminder = _anchored(
+            reminder_type="hours", anchor_hours=Decimal("100.0"), due_hours=Decimal("200.0")
+        )
+        assert reminder_due_status(reminder, _ctx(hours="190.0")) == "due_soon"
+        assert reminder_due_status(reminder, _ctx(hours="180.0")) == "on_track"
+
+    def test_the_fallback_reads_the_usage_dimension_not_the_leading_one(self):
+        # 95% of the way by date, but the date is 40 days out and the mileage is half way.
+        reminder = _anchored(
+            reminder_type="smart",
+            anchor_date=TODAY - timedelta(days=760),
+            due_date=TODAY + timedelta(days=40),
+            anchor_odometer_km=Decimal("50000"),
+            due_mileage_km=Decimal("60000"),
+        )
+        assert reminder_due_status(reminder, _ctx(km="55000")) == "on_track"
+
+    def test_a_date_reminder_never_takes_the_fallback(self):
+        reminder = _anchored(
+            anchor_date=TODAY - timedelta(days=760), due_date=TODAY + timedelta(days=40)
+        )
+        assert reminder_due_status(reminder, _ctx()) == "on_track"
+
+    def test_nothing_to_measure_is_on_track(self):
+        assert reminder_due_status(_pending(), _ctx()) == "on_track"
 
 
 # ---------------------------------------------------------------------------

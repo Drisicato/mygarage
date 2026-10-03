@@ -21,6 +21,10 @@ from app.schemas.maintenance import (
 )
 
 ReminderType = Literal["date", "mileage", "both", "smart", "hours"]
+#: Where a pending reminder stands (#192 D1). Computed, never stored.
+DueStatus = Literal["overdue", "due_soon", "on_track", "snoozed"]
+#: The dimension a reminder's progress is measured along (#192 D3).
+ProgressBasis = Literal["date", "distance", "hours"]
 
 
 class ReminderCreate(BaseModel):

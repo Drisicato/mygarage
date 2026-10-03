@@ -1,8 +1,8 @@
 """Reminder business logic service layer."""
 
 import logging
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -15,7 +15,13 @@ from app.models.odometer import OdometerRecord
 from app.models.reminder import Reminder
 from app.models.service_line_item import ServiceLineItem
 from app.models.service_visit import ServiceVisit
-from app.schemas.reminder import ReminderCreate, ReminderResponse, ReminderUpdate
+from app.schemas.reminder import (
+    DueStatus,
+    ProgressBasis,
+    ReminderCreate,
+    ReminderResponse,
+    ReminderUpdate,
+)
 from app.services.hours_service import latest_engine_hours_and_date
 from app.services.maintenance_recurrence import project_usage_date
 from app.utils.hours_formatting import format_hours
@@ -32,6 +38,8 @@ NOTIFICATION_COOLDOWN = timedelta(hours=24)
 
 # A pending reminder expected within this window is "due soon" (card/hero badge, fleet strip).
 DUE_SOON_WINDOW = timedelta(days=30)
+# A usage target the rates can't project is due soon this far along its span (#192 D2).
+DUE_SOON_PROGRESS = 0.9
 
 
 def validate_reminder_state(
@@ -267,13 +275,160 @@ def expected_due_date(
     return reminder.due_date or projected
 
 
+#: Ties between dimensions go to the first: a distance or hours figure tells a
+#: row more than a day count does.
+_BASIS_ORDER: tuple[ProgressBasis, ...] = ("distance", "hours", "date")
+
+
+@dataclass(frozen=True)
+class ReminderStart:
+    """What a pending reminder counts from (#192 D4): its anchor, or for an
+    unanchored reminder the household day it was created and the readings
+    nearest that day."""
+
+    day: date | None
+    km: Decimal | None
+    hours: Decimal | None
+
+
+@dataclass(frozen=True)
+class DueContext:
+    """One vehicle's readings and rates on one day, plus the derived starts of
+    its unanchored reminders by id. Built once per list or count, so every row
+    reads the same values the badges count with."""
+
+    today: date
+    current_km: Decimal | None
+    current_hours: Decimal | None
+    km_per_day: float | None
+    hours_per_day: float | None
+    starts: Mapping[int, ReminderStart] = field(default_factory=dict[int, ReminderStart])
+
+
+def anchor_start(reminder: Reminder) -> ReminderStart | None:
+    """The reminder's anchor as its start, or ``None`` when it has none on record.
+
+    Unanchored is the test ``maintenance_service`` applies (no kind or no
+    date): a hand-made one-off, or a legacy reminder from before anchors.
+    """
+    if reminder.anchor_kind is None or reminder.anchor_date is None:
+        return None
+    return ReminderStart(
+        day=reminder.anchor_date, km=reminder.anchor_odometer_km, hours=reminder.anchor_hours
+    )
+
+
+def reminder_start(reminder: Reminder, ctx: DueContext) -> ReminderStart | None:
+    """The reminder's anchor, else the start ``ctx`` derived for it."""
+    return anchor_start(reminder) or ctx.starts.get(reminder.id)
+
+
+def progress_fractions(
+    reminder: Reminder, start: ReminderStart | None, ctx: DueContext
+) -> dict[ProgressBasis, float]:
+    """Elapsed over span for each dimension the reminder has (#192 D3).
+
+    A dimension is left out when its start, its current reading or a positive
+    span is missing. Unclamped both ways: past due reads above 1, and a reading
+    below the start (a typo, or a nearest reading taken after creation) reads
+    below 0. The bar clamps; the sort doesn't need to.
+    """
+    if start is None:
+        return {}
+    fractions: dict[ProgressBasis, float] = {}
+    if reminder.due_date is not None and start.day is not None:
+        span_days = (reminder.due_date - start.day).days
+        if span_days > 0:
+            fractions["date"] = (ctx.today - start.day).days / span_days
+    if reminder.due_mileage_km is not None and start.km is not None and ctx.current_km is not None:
+        span_km = reminder.due_mileage_km - start.km
+        if span_km > 0:
+            fractions["distance"] = float((ctx.current_km - start.km) / span_km)
+    if reminder.due_hours is not None and start.hours is not None and ctx.current_hours is not None:
+        span_hours = reminder.due_hours - start.hours
+        if span_hours > 0:
+            fractions["hours"] = float((ctx.current_hours - start.hours) / span_hours)
+    return fractions
+
+
+def leading_progress(
+    fractions: Mapping[ProgressBasis, float],
+) -> tuple[ProgressBasis, float] | None:
+    """The dimension closest to due and its fraction, or ``None`` with none."""
+    leading: tuple[ProgressBasis, float] | None = None
+    for basis in _BASIS_ORDER:
+        value = fractions.get(basis)
+        if value is not None and (leading is None or value > leading[1]):
+            leading = (basis, value)
+    return leading
+
+
+def _usage_basis(reminder: Reminder) -> ProgressBasis | None:
+    """The usage dimension ``projected_usage_date`` projects: mileage first, else hours."""
+    if reminder.due_mileage_km is not None:
+        return "distance"
+    if reminder.due_hours is not None:
+        return "hours"
+    return None
+
+
+def reminder_due_status(reminder: Reminder, ctx: DueContext) -> DueStatus:
+    """Where a pending reminder stands (#192 D1).
+
+    The hero, dashboard-card and fleet-strip counts tally these, so a row's
+    colour and the badge beside it agree. Snoozed wins, then overdue, then due
+    soon: expected within ``DUE_SOON_WINDOW``, or, for a usage target the rates
+    can't project, ``DUE_SOON_PROGRESS`` of the way there (D2). The fallback
+    reads the usage dimension's own fraction, never the date's, and never fires
+    when a projection exists, so it can't contradict one.
+    """
+    if is_reminder_snoozed(reminder, ctx.today):
+        return "snoozed"
+    if is_reminder_overdue(reminder, ctx.current_km, ctx.current_hours, ctx.today):
+        return "overdue"
+    expected = expected_due_date(
+        reminder, ctx.current_km, ctx.current_hours, ctx.km_per_day, ctx.hours_per_day, ctx.today
+    )
+    if expected is not None and expected <= ctx.today + DUE_SOON_WINDOW:
+        return "due_soon"
+    basis = _usage_basis(reminder)
+    projected = projected_usage_date(
+        reminder, ctx.current_km, ctx.current_hours, ctx.km_per_day, ctx.hours_per_day, ctx.today
+    )
+    if basis is not None and projected is None:
+        share = progress_fractions(reminder, reminder_start(reminder, ctx), ctx).get(basis)
+        if share is not None and share >= DUE_SOON_PROGRESS:
+            return "due_soon"
+    return "on_track"
+
+
 @dataclass(frozen=True)
 class ReminderCounts:
-    """Per-vehicle counts; ``due_soon`` is the subset of ``upcoming`` expected within ``DUE_SOON_WINDOW``."""
+    """Per-vehicle counts; ``due_soon`` is the subset of ``upcoming`` that ``reminder_due_status`` calls due soon: expected within ``DUE_SOON_WINDOW``, or the D2 progress fallback."""
 
     overdue: int
     upcoming: int
     due_soon: int
+
+
+def tally_due_statuses(pending: Sequence[Reminder], ctx: DueContext) -> ReminderCounts:
+    """Count a vehicle's pending reminders by ``reminder_due_status``.
+
+    Upcoming is pending and not overdue; due soon is its subset. A snoozed
+    reminder is in no count until its date passes.
+    """
+    overdue = upcoming = due_soon = 0
+    for reminder in pending:
+        status = reminder_due_status(reminder, ctx)
+        if status == "snoozed":
+            continue
+        if status == "overdue":
+            overdue += 1
+            continue
+        upcoming += 1
+        if status == "due_soon":
+            due_soon += 1
+    return ReminderCounts(overdue=overdue, upcoming=upcoming, due_soon=due_soon)
 
 
 def classify_pending_reminders(
@@ -283,28 +438,24 @@ def classify_pending_reminders(
     km_per_day: float | None,
     hours_per_day: float | None,
     today: date,
+    starts: Mapping[int, ReminderStart] | None = None,
 ) -> ReminderCounts:
-    """Sort a vehicle's pending reminders into overdue, upcoming (pending, not
-    overdue) and due soon (upcoming, expected within ``DUE_SOON_WINDOW``).
+    """``tally_due_statuses`` from loose readings, for callers that hold them.
 
-    A snoozed reminder is in no count until its date passes. ``None`` rates
-    skip the usage projection, so a usage-only reminder is then never due
-    soon: the widget and family dashboard count that way, needing no rates.
+    ``None`` rates skip the usage projection, and without ``starts`` an
+    unanchored reminder has no progress, so a usage reminder is then due soon
+    only through its anchor (D2). The widget and the family dashboard call this
+    with neither and read only overdue and upcoming, which D2 never moves.
     """
-    overdue = upcoming = due_soon = 0
-    for reminder in pending:
-        if is_reminder_snoozed(reminder, today):
-            continue
-        if is_reminder_overdue(reminder, current_km, current_hours, today):
-            overdue += 1
-            continue
-        upcoming += 1
-        expected = expected_due_date(
-            reminder, current_km, current_hours, km_per_day, hours_per_day, today
-        )
-        if expected is not None and expected <= today + DUE_SOON_WINDOW:
-            due_soon += 1
-    return ReminderCounts(overdue=overdue, upcoming=upcoming, due_soon=due_soon)
+    ctx = DueContext(
+        today=today,
+        current_km=current_km,
+        current_hours=current_hours,
+        km_per_day=km_per_day,
+        hours_per_day=hours_per_day,
+        starts=starts or {},
+    )
+    return tally_due_statuses(pending, ctx)
 
 
 async def count_pending_reminders(
