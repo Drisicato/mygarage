@@ -6930,7 +6930,7 @@
                 "type": "null"
               }
             ],
-            "description": "FK to address_book entry with poi_category='gas_station'",
+            "description": "FK to a gas station address_book entry (poi_category 'gas_station' or category 'Gas Station')",
             "title": "Station Address Book Id"
           },
           "station_name_freetext": {
@@ -7500,7 +7500,7 @@
                 "type": "null"
               }
             ],
-            "description": "FK to address_book entry with poi_category='gas_station'",
+            "description": "FK to a gas station address_book entry (poi_category 'gas_station' or category 'Gas Station')",
             "title": "Station Address Book Id"
           },
           "station_name": {

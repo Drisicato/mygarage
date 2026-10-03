@@ -293,7 +293,10 @@ class FuelRecordBase(BaseModel):
     # Issue #69 — extended fuel tracking
     station_address_book_id: int | None = Field(
         None,
-        description="FK to address_book entry with poi_category='gas_station'",
+        description=(
+            "FK to a gas station address_book entry "
+            "(poi_category 'gas_station' or category 'Gas Station')"
+        ),
         ge=1,
     )
     station_name_freetext: str | None = Field(
@@ -682,7 +685,11 @@ class FuelRecordResponse(FuelRecordBase):
         ),
     )
     station_address_book_id: int | None = Field(
-        None, description="FK to address_book entry with poi_category='gas_station'"
+        None,
+        description=(
+            "FK to a gas station address_book entry "
+            "(poi_category 'gas_station' or category 'Gas Station')"
+        ),
     )
     driver_user_id: int | None = Field(
         None, description="FK to users.id when driver is a known household user"

@@ -10556,7 +10556,7 @@ export interface components {
             soc_start_pct?: number | string | null;
             /**
              * Station Address Book Id
-             * @description FK to address_book entry with poi_category='gas_station'
+             * @description FK to a gas station address_book entry (poi_category 'gas_station' or category 'Gas Station')
              */
             station_address_book_id?: number | null;
             /**
@@ -10820,7 +10820,7 @@ export interface components {
             soc_start_pct?: string | null;
             /**
              * Station Address Book Id
-             * @description FK to address_book entry with poi_category='gas_station'
+             * @description FK to a gas station address_book entry (poi_category 'gas_station' or category 'Gas Station')
              */
             station_address_book_id?: number | null;
             /**
