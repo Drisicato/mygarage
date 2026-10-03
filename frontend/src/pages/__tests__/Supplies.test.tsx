@@ -340,6 +340,32 @@ describe('Supplies page quick actions', () => {
   })
 })
 
+describe('SupplyForm category suggestions', () => {
+  it('the add form offers one datalist option per canonical category', () => {
+    useSuppliesMock.mockReturnValue({
+      data: {
+        supplies: [
+          { ...mockSupply, id: 41, category: 'fluids' },
+          { ...mockSupply, id: 42, category: 'Fluids' },
+          { ...mockSupply, id: 43, category: 'Fluids' },
+        ],
+        total: 3,
+      },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    fireEvent.click(screen.getByText('supplies.addSupply'))
+
+    // The form modal portals, so query the document, not the container.
+    const datalist = document.querySelector('datalist#supply-category-suggestions')
+    expect(datalist).not.toBeNull()
+    expect([...datalist!.querySelectorAll('option')].map((o) => o.value)).toEqual(['Fluids'])
+    expect(document.getElementById('category')).toHaveAttribute('list', 'supply-category-suggestions')
+  })
+})
+
 describe('Supplies page — the average unit cost is a rate', () => {
   it('shows a yen unit cost with its decimals', () => {
     currencyMock.code = 'JPY'

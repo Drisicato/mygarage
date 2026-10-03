@@ -530,7 +530,12 @@ export default function Supplies() {
 
       {/* Form Modal */}
       {showForm && (
-        <SupplyForm supply={editingSupply} onClose={handleCloseForm} onSuccess={handleCloseForm} />
+        <SupplyForm
+          supply={editingSupply}
+          onClose={handleCloseForm}
+          onSuccess={handleCloseForm}
+          categorySuggestions={categories}
+        />
       )}
 
       {/* History Modal */}
@@ -550,9 +555,11 @@ interface SupplyFormProps {
   supply?: Supply | null
   onClose: () => void
   onSuccess: () => void
+  /** Canonical category spellings offered as datalist suggestions. Free text stays free. */
+  categorySuggestions?: string[]
 }
 
-export function SupplyForm({ supply, onClose, onSuccess }: SupplyFormProps) {
+export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [] }: SupplyFormProps) {
   const { t } = useTranslation('common')
   const isEdit = !!supply
   const [error, setError] = useState<string | null>(null)
@@ -714,7 +721,13 @@ export function SupplyForm({ supply, onClose, onSuccess }: SupplyFormProps) {
               placeholder={t('suppliesPage.categoryPlaceholder')}
               invalid={!!errors.category}
               disabled={isSubmitting}
+              list="supply-category-suggestions"
             />
+            <datalist id="supply-category-suggestions">
+              {categorySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </Field>
         </div>
 
