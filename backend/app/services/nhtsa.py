@@ -276,12 +276,10 @@ class NHTSAService:
         result = await db.execute(select(Setting).where(Setting.key == "nhtsa_recalls_api_url"))
         setting = result.scalar_one_or_none()
         # Blank or NULL is nobody having set one, so it's the default and not
-        # an SSRF block worth an ERROR. The value column is nullable.
-        recalls_api_base = (
-            setting.value
-            if setting and setting.value and setting.value.strip()
-            else DEFAULT_RECALLS_API_URL
-        )
+        # an SSRF block worth an ERROR. The value column is nullable. Spaces
+        # round a pasted URL aren't part of it, and httpx can't fetch it with them.
+        stored_url = setting.value.strip() if setting and setting.value else ""
+        recalls_api_base = stored_url or DEFAULT_RECALLS_API_URL
 
         # SECURITY: Validate recalls API base URL against SSRF attacks
         try:
@@ -408,12 +406,10 @@ class NHTSAService:
 
         result = await db.execute(select(Setting).where(Setting.key == "nhtsa_tsb_api_url"))
         setting = result.scalar_one_or_none()
-        # Same as recalls: blank or NULL means the default, quietly.
-        tsb_api_base = (
-            setting.value
-            if setting and setting.value and setting.value.strip()
-            else DEFAULT_TSB_API_URL
-        )
+        # Same as recalls: blank or NULL means the default, quietly, and a URL
+        # is used stripped.
+        stored_url = setting.value.strip() if setting and setting.value else ""
+        tsb_api_base = stored_url or DEFAULT_TSB_API_URL
 
         # SECURITY: Validate TSB API base URL against SSRF attacks
         try:

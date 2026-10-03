@@ -17,7 +17,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.settings import Setting
-from app.services.nhtsa import NHTSAService
+from app.services.nhtsa import DEFAULT_RECALLS_API_URL, DEFAULT_TSB_API_URL, NHTSAService
 
 pytestmark = pytest.mark.asyncio
 
@@ -131,6 +131,39 @@ async def test_a_blank_stored_url_quietly_uses_the_default(
 
     assert len(requested) == 1
     assert requested[0].startswith(default_request), requested[0]
+    assert _errors(caplog) == []
+
+
+_DEFAULTS = {
+    "nhtsa_recalls_api_url": DEFAULT_RECALLS_API_URL,
+    "nhtsa_tsb_api_url": DEFAULT_TSB_API_URL,
+}
+
+
+@pytest.mark.parametrize("which", ["default", "mirror"])
+@pytest.mark.parametrize(("method", "key", "default_request"), FETCHES)
+async def test_a_stored_url_with_outer_spaces_is_used_stripped(
+    db_session: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+    requested: list[str],
+    method: str,
+    key: str,
+    default_request: str,
+    which: str,
+) -> None:
+    """Spaces round a pasted URL aren't part of it. Unstripped, the URL failed
+    the SSRF check, logged an ERROR and fell back to the default.
+
+    With the default padded only the no-ERROR half can fail (the fallback is
+    the same URL), so the mirror is there for the URL half.
+    """
+    base = _DEFAULTS[key] if which == "default" else "https://api.nhtsa.gov/mirror"
+    caplog.set_level(logging.WARNING, logger=LOGGER)
+    async with _stored(db_session, key, f"  {base}  "):
+        await getattr(NHTSAService(), method)("1HGCM82633A123456", db_session)
+
+    assert len(requested) == 1
+    assert requested[0].startswith(base), requested[0]
     assert _errors(caplog) == []
 
 

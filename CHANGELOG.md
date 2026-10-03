@@ -104,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clearing a LiveLink sensor's name falls back to its device id everywhere, including the delete prompt
 - A recall campaign number longer than 20 characters is refused instead of failing to save on PostgreSQL
 - A LiveLink sensor name longer than 100 characters is refused instead of failing to save on PostgreSQL
+- An NHTSA API URL setting saved with spaces around it is used without them, instead of breaking recall and TSB checks
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
