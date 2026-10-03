@@ -174,8 +174,10 @@ class FirmwareService:
         out: list[dict] = []
         for device in devices:
             # A blank version is the device not saying what it runs, so there's
-            # nothing to compare. check_device_firmware skips it the same way.
-            if not device.fw_version:
+            # nothing to compare. Spaces count: rows from before ingest turned
+            # them into None still hold them. check_device_firmware skips it the
+            # same way.
+            if not device.fw_version or not device.fw_version.strip():
                 continue
             track = self.device_firmware_track(device.hw_version)
             if track is None:
@@ -336,7 +338,8 @@ class FirmwareService:
             release_url=cache_info["release_url"],
             checked_at=cache_info["checked_at"],
         )
-        if device.fw_version:
+        # Same blank rule as get_devices_needing_update, so the two agree.
+        if device.fw_version and device.fw_version.strip():
             result_dict["update_available"] = (
                 self.compare_versions(device.fw_version, cache_info["latest_version"]) < 0
             )

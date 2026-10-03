@@ -160,9 +160,12 @@ async def test_unknown_hardware_surfaces_no_update(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_blank_firmware_version_never_needs_an_update(db_session, monkeypatch):
-    """A device stored with fw_version '' never said what it runs. '' sorted
-    below every release, so it "needed" each one."""
+@pytest.mark.parametrize("blank", ["", "   "], ids=["empty", "spaces"])
+async def test_a_blank_firmware_version_never_needs_an_update(db_session, monkeypatch, blank):
+    """A device stored with a blank fw_version never said what it runs. A
+    blank sorted below every release, so it "needed" each one. Spaces are
+    blank too: ingest only turns them into None from H4 on, so older rows
+    still hold them. The per-device check has to agree with the list."""
 
     async def fake_get(self, url, **kwargs):
         return _FakeResp(RELEASES)
@@ -177,16 +180,20 @@ async def test_a_blank_firmware_version_never_needs_an_update(db_session, monkey
         # With a real version the same row does need 4.50, so the blank is
         # the only thing keeping it off the list below.
         assert device_id in [d["device_id"] for d in await svc.get_devices_needing_update()]
+        assert (await svc.check_device_firmware(device_id))["update_available"] is True
 
         await db_session.execute(
-            text("UPDATE livelink_devices SET fw_version = '' WHERE device_id = :device_id"),
-            {"device_id": device_id},
+            text("UPDATE livelink_devices SET fw_version = :blank WHERE device_id = :device_id"),
+            {"blank": blank, "device_id": device_id},
         )
         await db_session.commit()
         db_session.expire_all()
 
         needing = await svc.get_devices_needing_update()
         assert device_id not in [d["device_id"] for d in needing]
+        check = await svc.check_device_firmware(device_id)
+        assert check["update_available"] is None
+        assert check["compatible"] is None
     finally:
         await db_session.rollback()
         await db_session.execute(
