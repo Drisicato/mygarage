@@ -800,37 +800,80 @@ async def enrich_with_estimate(
     return response
 
 
+#: Pending rows sort by this rank first (#192 D5).
+_STATUS_RANK: dict[str, int] = {"overdue": 0, "due_soon": 1, "on_track": 2, "snoozed": 3}
+
+
+def _due_order_key(response: ReminderResponse) -> tuple[int, bool, date, bool, float, int]:
+    """Status rank, then the expected date (undated last), then progress (most
+    first), then id. ``estimated_due_date`` is set only when a projection exists,
+    and is then the earlier of it and ``due_date``, so this pair is exactly
+    ``expected_due_date``."""
+    expected = response.estimated_due_date or response.due_date
+    return (
+        _STATUS_RANK.get(response.due_status or "on_track", 2),
+        expected is None,
+        expected or date.max,
+        response.progress is None,
+        -(response.progress or 0.0),
+        response.id,
+    )
+
+
+def _history_key(response: ReminderResponse) -> tuple[date, datetime, int]:
+    """When a closed reminder was closed: its completion date, else its last update.
+
+    ``completed_date`` is a household day, so the fallback is converted to one
+    too; a raw UTC date would put a row updated late in the evening west of UTC
+    on the next day (Codex R1-M1).
+    """
+    return (
+        response.completed_date or _household_day(response.updated_at),
+        response.updated_at,
+        response.id,
+    )
+
+
+def order_reminders(responses: Sequence[ReminderResponse]) -> list[ReminderResponse]:
+    """Pending first, by how soon each is due; then done and dismissed, newest first (#192 D5)."""
+    pending = sorted((r for r in responses if r.status == "pending"), key=_due_order_key)
+    closed = sorted((r for r in responses if r.status != "pending"), key=_history_key, reverse=True)
+    return [*pending, *closed]
+
+
 async def list_reminders(
     vin: str, db: AsyncSession, status: str | None = None
 ) -> list[ReminderResponse]:
-    """List reminders for a vehicle, optionally filtered by status."""
+    """List a vehicle's reminders, optionally filtered by status, in ``order_reminders`` order.
+
+    The readings, rates and starts are fetched once for the vehicle's pending
+    reminders (#192 D6), not once per row.
+    """
     query = select(Reminder).where(Reminder.vin == vin)
     if status and status != "all":
         query = query.where(Reminder.status == status)
+    # The response order is order_reminders'. This one is for duplicate_map, which
+    # lists each row's siblings in the order it meets them.
     query = query.order_by(Reminder.created_at.desc())
-
-    result = await db.execute(query)
-    reminders = list(result.scalars().all())
+    reminders = list((await db.execute(query)).scalars().all())
+    pending = [r for r in reminders if r.status == "pending"]
 
     # Duplicates are judged over the vehicle's PENDING reminders whatever the
     # filter, so a done-tab listing still carries no flags and a pending-tab
     # listing sees every sibling.
     from app.services.maintenance_service import duplicate_map
 
-    if status and status != "all" and status != "pending":
-        duplicates: dict[int, list[int]] = {}
-    else:
-        pending = (
-            reminders if status == "pending" else [r for r in reminders if r.status == "pending"]
-        )
-        duplicates = duplicate_map(pending)
+    duplicates: dict[int, list[int]] = (
+        {} if status and status not in ("all", "pending") else duplicate_map(pending)
+    )
 
-    responses = []
+    ctx = await load_due_context(db, vin, pending, household_today()) if pending else None
+    responses: list[ReminderResponse] = []
     for r in reminders:
-        response = await enrich_with_estimate(r, db)
+        response = await enrich_with_estimate(r, db, ctx)
         response.duplicate_of = duplicates.get(r.id, [])
         responses.append(response)
-    return responses
+    return order_reminders(responses)
 
 
 async def check_due_reminders(db: AsyncSession) -> None:

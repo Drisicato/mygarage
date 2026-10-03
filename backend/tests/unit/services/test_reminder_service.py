@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants.units import METRIC_PRESET
 from app.models import HoursRecord, OdometerRecord, Reminder
 from app.models.user import User
+from app.schemas.reminder import ReminderResponse
 from app.services import reminder_service
 from app.services.reminder_service import (
     DUE_SOON_PROGRESS,
@@ -45,7 +46,9 @@ from app.services.reminder_service import (
     expected_due_date,
     get_current_hours,
     leading_progress,
+    list_reminders,
     load_reminder_starts,
+    order_reminders,
     progress_fractions,
     reminder_due_status,
     reminder_start,
@@ -967,6 +970,130 @@ class TestEnrichDueStatus:
         assert response.km_until_due == Decimal("1000")
         reading.assert_not_awaited()
         rate.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# List order (#192 D5) and one context per list (D6)
+# ---------------------------------------------------------------------------
+
+_STAMP = datetime(2026, 9, 1, 12, 0)
+
+
+def _resp(rid: int, **kwargs) -> ReminderResponse:
+    base = {
+        "id": rid,
+        "vin": "1HGBH41JXMN109186",
+        "line_item_id": None,
+        "title": f"r{rid}",
+        "reminder_type": "date",
+        "due_date": None,
+        "due_mileage_km": None,
+        "due_hours": None,
+        "status": "pending",
+        "notes": None,
+        "last_notified_at": None,
+        "created_at": _STAMP,
+        "updated_at": _STAMP,
+    }
+    base.update(kwargs)
+    return ReminderResponse(**base)
+
+
+@pytest.mark.unit
+class TestOrderReminders:
+    def _ids(self, responses: list[ReminderResponse]) -> list[int]:
+        return [r.id for r in order_reminders(responses)]
+
+    def test_status_rank_comes_first(self):
+        rows = [
+            _resp(1, due_status="on_track"),
+            _resp(2, due_status="snoozed"),
+            _resp(3, due_status="due_soon"),
+            _resp(4, due_status="overdue"),
+        ]
+        assert self._ids(rows) == [4, 3, 1, 2]
+
+    def test_then_the_expected_date_with_undated_last(self):
+        rows = [
+            _resp(1, due_status="on_track", due_date=TODAY + timedelta(days=50)),
+            _resp(2, due_status="on_track"),
+            # The projection (40 days) is what's expected, not the date (90).
+            _resp(
+                3,
+                due_status="on_track",
+                due_date=TODAY + timedelta(days=90),
+                estimated_due_date=TODAY + timedelta(days=40),
+            ),
+        ]
+        assert self._ids(rows) == [3, 1, 2]
+
+    def test_then_progress_most_first_then_id(self):
+        due = TODAY + timedelta(days=50)
+        rows = [
+            _resp(1, due_status="on_track", due_date=due, progress=0.2),
+            _resp(2, due_status="on_track", due_date=due),
+            _resp(4, due_status="on_track", due_date=due, progress=0.7),
+            _resp(3, due_status="on_track", due_date=due, progress=0.7),
+        ]
+        assert self._ids(rows) == [3, 4, 1, 2]
+
+    def test_pending_first_then_closed_newest_first(self):
+        rows = [
+            _resp(1, status="done", completed_date=date(2026, 9, 10)),
+            _resp(2, status="done", updated_at=datetime(2026, 9, 20, 9, 0)),
+            _resp(3, status="dismissed", updated_at=datetime(2026, 9, 15, 9, 0)),
+            _resp(4, due_status="on_track"),
+        ]
+        assert self._ids(rows) == [4, 2, 3, 1]
+
+    def test_closed_rows_compare_household_days_not_utc_days(self):
+        # Chicago is UTC-5 in October. The legacy row's 00:00 UTC update is 19:00 on
+        # the 3rd locally, an hour before the completed row: the completed row is newer.
+        rows = [
+            _resp(1, status="done", updated_at=datetime(2026, 10, 4, 0, 0)),
+            _resp(
+                2,
+                status="done",
+                completed_date=date(2026, 10, 3),
+                updated_at=datetime(2026, 10, 4, 1, 0),
+            ),
+        ]
+        with _household_zone("America/Chicago"):
+            assert self._ids(rows) == [2, 1]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestListRemindersFetchesOnce:
+    async def test_readings_and_rates_are_fetched_once_for_the_list(
+        self, db_session, test_vehicle, clean_odometer_records, clean_reminders, monkeypatch
+    ):
+        vin = test_vehicle["vin"]
+        await _add_odometer_record(
+            db_session, vin, date.today() - timedelta(days=20), Decimal("10000")
+        )
+        await _add_odometer_record(db_session, vin, date.today(), Decimal("11000"))
+        for km in ("12000", "13000", "14000"):
+            db_session.add(
+                Reminder(
+                    vin=vin,
+                    title=f"At {km}",
+                    reminder_type="mileage",
+                    status="pending",
+                    due_mileage_km=Decimal(km),
+                )
+            )
+        await db_session.commit()
+        rate = AsyncMock(wraps=reminder_service.calculate_driving_rate)
+        reading = AsyncMock(wraps=reminder_service.get_current_mileage)
+        monkeypatch.setattr(reminder_service, "calculate_driving_rate", rate)
+        monkeypatch.setattr(reminder_service, "get_current_mileage", reading)
+
+        responses = await list_reminders(vin, db_session, "pending")
+
+        assert [r.title for r in responses] == ["At 12000", "At 13000", "At 14000"]
+        assert rate.await_count == 1
+        assert reading.await_count == 1
 
 
 # ---------------------------------------------------------------------------
