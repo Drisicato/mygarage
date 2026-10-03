@@ -28,22 +28,42 @@ A validator is the same trap: one on a shared base runs on every response
 built from it, so a stored value it refuses 500s the read too. Each one a
 response runs has to be read-tolerant, held by a CHECK, or on an input model a
 response reuses on purpose. Anything else belongs on the input schemas.
+
+So is a vocabulary. A `Literal` refuses a stored value outside it, and a
+vocabulary column with no CHECK can hold one: a restored backup, a hand edit or
+a downgrade puts it there. So every response field that reaches a `Literal`,
+computed fields included, reads leniently (`app.utils.lenient_vocab`), sits
+behind a read-tolerant validator, a CHECK or a filter that drops what it
+doesn't know, or is computed by the app from its own constants.
 """
 
 import annotationlib
+import importlib
+import inspect
+import re
 import typing
 from collections.abc import Iterable, Iterator
 from decimal import Decimal
 from typing import Annotated, Any, Literal, TypeAliasType
 
+import pytest
 from fastapi.routing import APIRoute, iter_route_contexts
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    EmailStr,
+    Field,
+    ValidationError,
+    computed_field,
+    create_model,
+)
 from pydantic.fields import FieldInfo
 from sqlalchemy import CheckConstraint
 
 from app.database import Base
 from app.main import app
 from app.schemas._money import OptionalMoney
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
 from tests.unit.schemas._schema_walk import NUMBER_TYPES, unwrap, walk
 
 _BOUND_ATTRS = ("ge", "gt", "le", "lt", "multiple_of", "max_digits", "decimal_places")
@@ -134,6 +154,8 @@ def test_the_walk_found_the_responses():
     assert len(RESPONSE_MODELS) >= 200
     # Reached only through a parent's field, never as a route's own model.
     assert {"PolicyVehicleResponse", "ServiceLineItemResponse", "SupplyUsageResponse"} <= names
+    # Reached only through a computed field (UserResponse.resolved_units).
+    assert "UnitSet" in names
     numbers = sum(len(_number_fields(model)) for model in RESPONSE_MODELS)
     assert numbers >= 600
 
@@ -438,6 +460,316 @@ def test_no_stale_validator_entries():
     assert stale == [], "no response runs these now: drop their entries"
 
 
+# Vocabularies. A Literal refuses a stored value outside it, the same way a bound does.
+
+#: Vocabulary fields a CHECK keeps inside the vocabulary: (model, field) -> (table, check).
+#: The table is where the value is stored, which isn't always the response's own.
+CHECK_BACKED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
+    ("FinancingRecordResponse", "category"): (
+        "financing_records",
+        "check_financing_records_category",
+    ),
+    ("ServiceLineItemResponse", "inspection_result"): (
+        "service_line_items",
+        "check_inspection_result",
+    ),
+    ("ServiceLineItemResponse", "inspection_severity"): (
+        "service_line_items",
+        "check_inspection_severity",
+    ),
+    ("ServiceVisitResponse", "service_category"): (
+        "service_visits",
+        "check_service_visit_category",
+    ),
+    ("SupplyResponse", "unit_type"): ("supplies", "check_supply_unit_type"),
+    # The usage's own row has no unit type: it reads the joined supply's.
+    ("SupplyUsageResponse", "unit_type"): ("supplies", "check_supply_unit_type"),
+    ("TaxRecordResponse", "tax_type"): ("tax_records", "check_tax_type"),
+}
+#: Vocabulary fields the app works out rather than reads: (model, field) -> what
+#: produces it, and why every branch lands in the vocabulary.
+COMPUTED_VOCAB: dict[tuple[str, str], str] = {
+    ("AnchorProposal", "origin"): "maintenance_service._plan_item: every branch sets a constant",
+    ("AnomalyAlert", "severity"): (
+        "analytics.build_anomalies_from_monthly_df: a ternary of two constants"
+    ),
+    ("AssistantCitation", "source"): (
+        "garage_assistant_service._coerce_citations drops a source outside `allowed`, "
+        "which is the Literal's values"
+    ),
+    ("CalendarEvent", "type"): "calendar.get_calendar_events: a constant per kind of event",
+    ("CalendarEvent", "urgency"): (
+        "calendar.get_calendar_events and calculate_urgency: constants on every branch"
+    ),
+    ("CalendarEvent", "category"): "calendar.get_calendar_events: a constant per kind of event",
+    ("DeviceReading", "format"): (
+        "livelink_admin.get_device_readings: the code preset's typed format, else 'value'"
+    ),
+    ("DeviceReading", "alert_lines"): (
+        "livelink_admin.get_device_readings: the code preset's typed alert lines, else none"
+    ),
+    ("FuelEfficiencyAlert", "code"): "analytics.build_fuel_alerts: a constant per alert",
+    ("FuelEfficiencyAlert", "severity"): "analytics.build_fuel_alerts: constants on every branch",
+    ("InboxItem", "kind"): "notifications.notification_inbox: a ternary of two constants",
+    ("InboxItem", "severity"): "notifications.notification_inbox: a ternary of two constants",
+    ("InsurancePolicyResponse", "status"): (
+        "insurance_service.policy_status: every branch returns a constant"
+    ),
+    ("LiveSensorReading", "format"): (
+        "presets.sensors._live_reading: the code preset's typed format, else the default"
+    ),
+    ("PackItemPlan", "rule_action"): "maintenance_service._plan_item: every branch sets a constant",
+    ("PolicyHistoryEntry", "status"): (
+        "insurance_service.history copies the computed InsurancePolicyResponse.status"
+    ),
+    ("SearchHit", "type"): "search.global_search: a constant per kind of hit",
+    ("SupplyLedgerEntry", "entry_type"): (
+        "supply_service.get_supply_history: a constant per kind of entry"
+    ),
+    ("TelegramFuelStatus", "state"): (
+        "telegram_poller.status: in-memory state that only _set_state and _fail write, "
+        "from constants"
+    ),
+    ("TelegramFuelStatus", "error_code"): "telegram_poller._fail: every caller passes a constant",
+    ("TelemetryLatestValue", "alert_band"): (
+        "livelink_alerts.alert_band: every branch returns a constant"
+    ),
+    **{
+        ("UnitSet", quantity): (
+            "UserResponse.resolved_units via resolve_units: a preset's value, or an "
+            "override it checked against the vocabulary first"
+        )
+        for quantity in (
+            "distance",
+            "speed",
+            "length",
+            "volume",
+            "consumption",
+            "pressure",
+            "temperature",
+            "mass",
+            "torque",
+            "tread",
+            "secondary_gallon",
+        )
+    },
+}
+#: Vocabulary fields whose one builder drops a stored value outside the
+#: vocabulary before validating it: (model, field) -> (the filter, why).
+FILTERED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
+    ("CoverageEntryResponse", "coverage_key"): (
+        "app.services.insurance_service._coverage_responses",
+        "drops and logs a key outside the catalogue, and the catalogue is the Literal "
+        "(test_the_literal_matches_the_catalogue)",
+    ),
+}
+#: Names a stored vocabulary column goes by on a response.
+VOCABULARY_NAMESAKES = ("vehicle_type", "usage_unit", "ecu_status", "device_status", "anchor_kind")
+#: Namesakes that carry something else: (model, field) -> what they carry.
+FREE_TEXT_NAMESAKES: dict[tuple[str, str], str] = {
+    ("ExternalVehicleResponse", "vehicle_type"): (
+        "external_vehicles.vehicle_type: free text about someone else's vehicle"
+    ),
+    ("VINDecodeResponse", "vehicle_type"): "NHTSA's own text from a VIN decode, never stored",
+}
+
+#: Sits outside every vocabulary, for reading a lenient field back.
+_OUT_OF_VOCABULARY = "<not in any vocabulary>"
+
+
+def _vocabulary(annotation: Any) -> frozenset[object]:
+    """Every Literal value an annotation can hold, at any depth: inside an
+    Optional, a list, an Annotated or a `type` alias. Empty if it holds none."""
+    if isinstance(annotation, TypeAliasType):
+        return _vocabulary(annotation.__value__)
+    if typing.get_origin(annotation) is Literal:
+        return frozenset(typing.get_args(annotation))
+    return frozenset().union(*(_vocabulary(arg) for arg in typing.get_args(annotation)))
+
+
+def _annotations(model: type[BaseModel]) -> Iterator[tuple[str, Any, FieldInfo | None]]:
+    """Each field's name, annotation and FieldInfo, computed fields included.
+
+    A computed field gets no FieldInfo: it's never validated, so nothing can
+    make it lenient.
+    """
+    for name, info in model.model_fields.items():
+        yield name, info.annotation, info
+    for name, computed in model.model_computed_fields.items():
+        yield name, computed.return_type, None
+
+
+def _vocabulary_fields(
+    models: Iterable[type[BaseModel]],
+) -> dict[tuple[str, str], tuple[frozenset[object], FieldInfo | None]]:
+    """(model, field) -> (its vocabulary, its FieldInfo), for every field that reaches a Literal."""
+    return {
+        (model.__name__, name): (vocabulary, info)
+        for model in models
+        for name, annotation, info in _annotations(model)
+        if (vocabulary := _vocabulary(annotation))
+    }
+
+
+def _reads_leniently(info: FieldInfo) -> bool:
+    """Whether the field carries `LenientVocab` and keeps its promise.
+
+    The marker alone proves nothing, so a bad value and None go through the
+    field's own type and validators, and both have to come back as the
+    marker's fallback.
+    """
+    metadata = [*info.metadata, *unwrap(info.annotation)[1]]
+    marker = next((item for item in metadata if isinstance(item, LenientVocab)), None)
+    if marker is None:
+        return False
+    annotation = Annotated[info.annotation, *info.metadata] if info.metadata else info.annotation
+    read_back = create_model("_ReadBack", value=(annotation, ...))
+    try:
+        return all(
+            read_back.model_validate({"value": value}).value == marker.fallback
+            for value in (_OUT_OF_VOCABULARY, None)
+        )
+    except ValidationError:
+        return False
+
+
+def _tolerated(model: type[BaseModel]) -> set[str]:
+    """Fields a READ_TOLERANT validator sees before their Literal does.
+
+    An after-validator only runs once the Literal has passed the value, so it
+    can't rescue a bad one.
+    """
+    return {
+        field
+        for name, decorator in model.__pydantic_decorators__.field_validators.items()
+        if (_owner(model, name), name) in READ_TOLERANT and decorator.info.mode != "after"
+        for field in decorator.info.fields
+    }
+
+
+def _unaccounted_vocabulary(models: Iterable[type[BaseModel]]) -> list[str]:
+    """Each vocabulary field a stored value can push outside its vocabulary."""
+    registered = CHECK_BACKED_VOCAB.keys() | COMPUTED_VOCAB.keys() | FILTERED_VOCAB.keys()
+    unaccounted = []
+    for model in models:
+        tolerated = _tolerated(model)
+        for (_model, name), (_values, info) in _vocabulary_fields([model]).items():
+            if (model.__name__, name) in registered or name in tolerated:
+                continue
+            if info is not None and _reads_leniently(info):
+                continue
+            unaccounted.append(f"{model.__name__}.{name}")
+    return sorted(unaccounted)
+
+
+def _namesakes(models: Iterable[type[BaseModel]]) -> dict[tuple[str, str], bool]:
+    """(model, field) -> whether it reaches a Literal, for each field named like a
+    stored vocabulary column."""
+    return {
+        (model.__name__, name): bool(_vocabulary(annotation))
+        for model in models
+        for name, annotation, _info in _annotations(model)
+        if name in VOCABULARY_NAMESAKES
+    }
+
+
+# Red until the eight strict stored fields read leniently; that change drops the mark.
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="H2")
+def test_every_vocabulary_field_is_accounted_for():
+    assert _unaccounted_vocabulary(RESPONSE_MODELS) == [], (
+        "a stored value outside these vocabularies 500s the read: make the field "
+        "lenient (app.utils.lenient_vocab), or register the CHECK, the filter or "
+        "the computation that keeps it inside"
+    )
+
+
+# Red until the ten plain-text copies get the lenient types; that change drops the mark.
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="H2")
+def test_vocabulary_namesakes_reach_a_literal():
+    free_text = sorted(
+        f"{model}.{field}"
+        for (model, field), reaches in _namesakes(RESPONSE_MODELS).items()
+        if not reaches and (model, field) not in FREE_TEXT_NAMESAKES
+    )
+    assert free_text == [], (
+        "these copy a stored vocabulary column as plain text, so a bad value goes "
+        "to the UI as is: type them with the vocabulary's lenient alias, or "
+        "register what else they carry"
+    )
+
+
+def test_a_check_backed_vocabulary_names_a_real_check():
+    """A guard: each CHECK_BACKED_VOCAB entry names a CHECK on its table that is
+    about the field and allows nothing the field's Literal refuses.
+
+    Mutants: rename `check_supply_unit_type` in `models/supply.py`, or add a
+    value to its IN list.
+    """
+    fields = _vocabulary_fields(RESPONSE_MODELS)
+    for (model_name, field), (table, check) in CHECK_BACKED_VOCAB.items():
+        checks = {
+            constraint.name: str(constraint.sqltext)
+            for constraint in Base.metadata.tables[table].constraints
+            if isinstance(constraint, CheckConstraint)
+        }
+        assert check in checks, f"{table} has no CHECK named {check}"
+        assert field in checks[check], f"{check} doesn't mention {field}: {checks[check]}"
+        assert (model_name, field) in fields, f"{model_name}.{field} isn't a vocabulary field"
+        allowed = set(re.findall(r"'([^']*)'", checks[check]))
+        refused = allowed - fields[(model_name, field)][0]
+        assert allowed and not refused, f"{check} lets in {sorted(refused)}, which {field} refuses"
+
+
+def test_a_filtered_vocabulary_names_a_real_filter():
+    """A guard: each FILTERED_VOCAB entry names a function that exists and
+    builds that response from that field.
+
+    Mutant: rename `_coverage_responses` in `services/insurance_service.py`.
+    """
+    for (model_name, field), (path, _why) in FILTERED_VOCAB.items():
+        module_name, _, function_name = path.rpartition(".")
+        function = getattr(importlib.import_module(module_name), function_name, None)
+        assert callable(function), f"{path} doesn't exist"
+        source = inspect.getsource(function)
+        assert model_name in source and field in source, (
+            f"{path} doesn't build {model_name} from {field}"
+        )
+
+
+def test_no_stale_vocabulary_entries():
+    """A guard: every registry entry still names a vocabulary field on a
+    response, one that doesn't read leniently already.
+
+    Mutants: add a COMPUTED_VOCAB entry for a field no response has, or make a
+    registered field lenient.
+    """
+    fields = _vocabulary_fields(RESPONSE_MODELS)
+    # 65 today. A floor, so a detector gone blind can't pass the vocabulary
+    # accounting over nothing.
+    assert len(fields) >= 65
+    stale = []
+    for key in (*CHECK_BACKED_VOCAB, *COMPUTED_VOCAB, *FILTERED_VOCAB):
+        info = fields[key][1] if key in fields else None
+        if key not in fields or (info is not None and _reads_leniently(info)):
+            stale.append(".".join(key))
+    assert stale == [], "these name no strict vocabulary field now: drop their entries"
+
+
+def test_no_stale_namesake_entries():
+    """A guard: every FREE_TEXT_NAMESAKES entry is still a namesake on a
+    response, and still free text.
+
+    Mutant: register `VehicleResponse.vehicle_type`, which reaches a Literal.
+    """
+    namesakes = _namesakes(RESPONSE_MODELS)
+    stale = [
+        f"{model}.{field}"
+        for model, field in FREE_TEXT_NAMESAKES
+        if namesakes.get((model, field), True)
+    ]
+    assert stale == [], "these reach a Literal now, or are gone: drop their entries"
+
+
 # The detector itself, on one field per way a bound can be written.
 
 type _BoundedAlias = Annotated[Decimal, Field(ge=0)]
@@ -570,3 +902,110 @@ def test_the_twin_check_sees_each_drift():
         "_TwinProbe.typed": ["type"],
     }
     assert stale == [("_TwinProbe", "settled")]
+
+
+# The vocabulary detector itself, on one field per way a vocabulary can be written.
+
+type _PepVocab = Literal["x", "y"]
+_ModuleVocab = Literal["x", "y"]
+
+
+class _VocabNested(BaseModel):
+    kind: Literal["a", "b"] = "a"
+
+
+class _VocabResolved(BaseModel):
+    """Reached only through a computed field, the way `UnitSet` is."""
+
+    unit: _ModuleVocab = "x"
+
+
+class _VocabBase(BaseModel):
+    inherited: _ModuleVocab = "x"
+
+
+class _VocabProbe(_VocabBase):
+    bare: Literal["a", "b"] = "a"
+    aliased: _ModuleVocab = "x"
+    pep695: _PepVocab = "x"
+    annotated: Annotated[_ModuleVocab, "tagged"] | None = None
+    optional: _ModuleVocab | None = None
+    listed: list[Literal["a", "b"]] = []
+    nested: list[_VocabNested] = []
+    # No vocabulary, so they stay out.
+    text: str = ""
+    count: int = 0
+
+    @computed_field
+    @property
+    def resolved(self) -> _VocabResolved:
+        return _VocabResolved()
+
+    @computed_field
+    @property
+    def derived(self) -> Literal["a", "b"]:
+        return "a"
+
+
+def test_the_vocabulary_detector_sees_every_form():
+    """A guard: bare, through a module alias and a PEP 695 alias, inside an
+    Annotated, an Optional and a list, inherited from a base, one model down,
+    a model behind a computed field, and a computed field that is the Literal.
+
+    Mutants: drop the computed-field loop from `_schema_walk.walk`, drop the
+    `TypeAliasType` unwrap from `_vocabulary`, or skip computed fields in
+    `_annotations` (the walk still follows their models).
+    """
+    assert set(_vocabulary_fields(walk([_VocabProbe]))) == {
+        ("_VocabProbe", "inherited"),
+        ("_VocabProbe", "bare"),
+        ("_VocabProbe", "aliased"),
+        ("_VocabProbe", "pep695"),
+        ("_VocabProbe", "annotated"),
+        ("_VocabProbe", "optional"),
+        ("_VocabProbe", "listed"),
+        ("_VocabProbe", "derived"),
+        ("_VocabNested", "kind"),
+        ("_VocabResolved", "unit"),
+    }
+
+
+def _lenient_probe() -> type[BaseModel]:
+    """One lenient field per shape, and three that only look it.
+
+    Built when called, so a missing reader fails its test and not the module.
+    """
+    lenient = Annotated[
+        _ModuleVocab | None, BeforeValidator(lenient_reader(_ModuleVocab)), LenientVocab(None)
+    ]
+
+    class _LenientProbe(BaseModel):
+        nullable: lenient = None
+        nested: lenient | None = None
+        required: Annotated[
+            _ModuleVocab,
+            BeforeValidator(lenient_reader(_ModuleVocab, fallback="x")),
+            LenientVocab("x"),
+        ] = "x"
+        # The marker, and nothing that reads a bad value.
+        marker_only: Annotated[_ModuleVocab | None, LenientVocab(None)] = None
+        # Reads a bad value as None, where its marker promises "x".
+        wrong_fallback: Annotated[
+            _ModuleVocab, BeforeValidator(lenient_reader(_ModuleVocab)), LenientVocab("x")
+        ] = "x"
+        strict: _ModuleVocab = "x"
+
+    return _LenientProbe
+
+
+def test_only_a_field_that_reads_leniently_counts_as_lenient():
+    """A guard: true the day the reader lands. A field counts as lenient when a
+    bad value really reads as its marker's fallback, not because it has one.
+
+    Mutant: return True from `_reads_leniently` as soon as it finds the marker.
+    """
+    assert _unaccounted_vocabulary([_lenient_probe()]) == [
+        "_LenientProbe.marker_only",
+        "_LenientProbe.strict",
+        "_LenientProbe.wrong_fallback",
+    ]

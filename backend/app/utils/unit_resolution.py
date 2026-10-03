@@ -28,6 +28,7 @@ from app.constants.units import (
     field_to_column,
 )
 from app.utils.default_unit_prefs import load_default_unit_prefs
+from app.utils.lenient_vocab import LenientVocab
 from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
@@ -216,5 +217,9 @@ def _lenient_distance_unit(value: object, info: ValidationInfo) -> DistanceUnit 
     return normalise_distance_unit(value, vin=vin if isinstance(vin, str) else None)
 
 
-LenientDistanceUnit = Annotated[DistanceUnit | None, BeforeValidator(_lenient_distance_unit)]
+# Keeps its own validator rather than lenient_reader's, because this one names
+# the VIN. The marker is what the response contract test looks for.
+LenientDistanceUnit = Annotated[
+    DistanceUnit | None, BeforeValidator(_lenient_distance_unit), LenientVocab(None)
+]
 """A response field carrying a vehicle's `distance_unit`: bad stored values serve as null."""
