@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import ClickableCard, { cameFromNestedControl } from '../ClickableCard'
 
 const LABEL = 'Open tire history'
@@ -135,6 +136,22 @@ describe('ClickableCard', () => {
     fireEvent.click(screen.getByText('DOT 4521'))
 
     expect(onActivate).toHaveBeenCalledTimes(1)
+  })
+
+  it('a click inside a portal rendered from the card does not activate it', () => {
+    // React clicks bubble through portals, so a dialog rendered as a child of
+    // the card hands its clicks to the card's handler with a target outside the
+    // card. Before the fix that read as a click on the card and opened it.
+    const { onActivate } = renderCard(
+      <>
+        <p>DOT 4521</p>
+        {createPortal(<p>Reading history dialog</p>, document.body)}
+      </>,
+    )
+
+    fireEvent.click(screen.getByText('Reading history dialog'))
+
+    expect(onActivate).not.toHaveBeenCalled()
   })
 })
 

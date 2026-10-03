@@ -42,6 +42,9 @@ const NESTED_CONTROL =
 
 /** Whether a click on the card actually started in a control nested inside it. */
 export function cameFromNestedControl(event: React.MouseEvent<HTMLElement>): boolean {
+  // React clicks bubble through portals, so a dialog rendered as a child of the
+  // card lands here with a target outside it. That click belongs to the dialog.
+  if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return true
   const target = event.target instanceof Element ? event.target : null
   const control = target?.closest(NESTED_CONTROL)
   return control !== null && control !== undefined && control !== event.currentTarget && event.currentTarget.contains(control)
