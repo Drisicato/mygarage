@@ -46,6 +46,8 @@ const CONTACT = {
   state: 'TX',
   phone: '555-0179',
 }
+/** A one-off reminder with notes, so the Calendar's upcoming list shows a Notes button on it. */
+const REMINDER = { title: 'E2E Select Reminder', notes: 'Bring the torque wrench.' }
 
 let api: APIRequestContext
 let ledger: SeedLedger
@@ -70,6 +72,14 @@ test.beforeAll(async () => {
   })
   await ledger.post(`/vehicles/${trailerVin}/trailer`, { vin: trailerVin, tow_vehicle_vin: carVin })
   await ledger.addressBookEntry(CONTACT)
+  // Five days out sits inside the upcoming list's 30 days in any household timezone.
+  const dueDate = new Date(Date.now() + 5 * 86_400_000).toISOString().split('T')[0]
+  await ledger.post(`/vehicles/${carVin}/reminders`, {
+    title: REMINDER.title,
+    reminder_type: 'date',
+    due_date: dueDate,
+    notes: REMINDER.notes,
+  })
 })
 
 test.afterAll(async () => {
@@ -173,6 +183,18 @@ async function dragAcross(page: Page, value: Locator): Promise<void> {
 async function clickCentre(page: Page, value: Locator): Promise<void> {
   const box = await textBox(value)
   await page.mouse.click((box.left + box.right) / 2, (box.top + box.bottom) / 2)
+}
+
+/**
+ * A mouse click at the middle of a control's box. The mouse, not
+ * `locator.click()`: that one waits for whatever covers the control to move,
+ * and something covering it is the thing under test.
+ */
+async function clickCentreOf(page: Page, control: Locator): Promise<void> {
+  await control.scrollIntoViewIfNeeded()
+  const box = await control.boundingBox()
+  if (box === null) throw new Error('the control has no box, so it is not on screen')
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
 }
 
 /** What a plain click on a card does. */
@@ -365,6 +387,51 @@ test.describe('Card text stays selectable (#179)', () => {
     await expect(page.getByRole('dialog', { name: editor })).toBeVisible({ timeout: 5000 })
     await page.waitForTimeout(SETTLE_MS)
     expect(await dialogsSeen(page)).toEqual([editor])
+  })
+
+  /**
+   * Browser pass BP-1. Focused, the keyboard button shows as a chip in the
+   * card's top-right corner, over the card's own Edit button, and it took the
+   * mouse click meant for Edit. Seen after a History drawer opened from the
+   * keyboard closed and handed focus back to that button.
+   */
+  test('tire card: with the keyboard button focused, a click on Edit opens the editor', async ({
+    page,
+  }) => {
+    await page.goto(`/vehicles/${carVin}?tab=tires`)
+    const card = page.locator('.rounded-card', { hasText: TIRE.brand })
+    await expect(card).toBeVisible({ timeout: 15000 })
+    const keyboardButton = card.getByRole('button', { name: /^View reading history for/ })
+    await keyboardButton.focus()
+    await expect(keyboardButton).toBeFocused()
+    await recordDialogs(page)
+
+    await clickCentreOf(page, card.getByRole('button', { name: 'Edit', exact: true }))
+
+    const editor = `${TIRE.corner} Tire`
+    await expect(page.getByRole('dialog', { name: editor })).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(SETTLE_MS)
+    expect(await dialogsSeen(page), 'the focus chip took the click').toEqual([editor])
+  })
+
+  /** The Calendar's upcoming list carries the same chip over its Notes button. */
+  test('calendar item: with the keyboard button focused, a click on Notes shows the notes', async ({
+    page,
+  }) => {
+    await page.goto('/calendar')
+    const keyboardButton = page.getByRole('button', { name: `Open ${REMINDER.title}`, exact: true })
+    await expect(keyboardButton).toBeAttached({ timeout: 15000 })
+    // The keyboard button's chip wrapper, then the upcoming item it sits in.
+    const item = keyboardButton.locator('xpath=../..')
+    await keyboardButton.focus()
+    await expect(keyboardButton).toBeFocused()
+    const urlBefore = page.url()
+
+    await clickCentreOf(page, item.getByRole('button', { name: 'View notes', exact: true }))
+
+    await expect(page.getByRole('heading', { name: 'Event Notes' })).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(SETTLE_MS)
+    expect(page.url(), 'the focus chip took the click and opened the event').toBe(urlBefore)
   })
 
   /**

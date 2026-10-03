@@ -690,8 +690,10 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                     {/* The keyboard way in, hidden until focused. A real button
                         instead of role="button" on the item, which already holds
                         buttons. Same chip as ClickableCard's. In bulk mode it
-                        selects instead of opening, like a click on the item. */}
-                    <span className="absolute right-2 top-2 z-10 rounded-lg focus-within:bg-surface-2 focus-within:px-2 focus-within:py-1 focus-within:text-xs">
+                        selects instead of opening, like a click on the item.
+                        Like ClickableCard's, it takes no pointer clicks, so it
+                        can't steal one from Notes or Quick complete under it. */}
+                    <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-lg focus-within:bg-surface-2 focus-within:px-2 focus-within:py-1 focus-within:text-xs">
                       <button
                         type="button"
                         aria-pressed={bulkMode ? selectedEvents.includes(event.id) : undefined}

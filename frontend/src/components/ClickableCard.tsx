@@ -91,8 +91,11 @@ export default function ClickableCard({
           element is in a fight it wins or loses purely on the order the two
           utilities happen to be emitted in. Keeping the button to nothing but
           `sr-only` / `focus:not-sr-only`, and hanging the position and the chip
-          styling off the wrapper's `focus-within`, leaves nothing to conflict. */}
-      <span className="absolute right-2 top-2 z-10 rounded-lg focus-within:bg-surface-2 focus-within:px-2 focus-within:py-1 focus-within:text-xs">
+          styling off the wrapper's `focus-within`, leaves nothing to conflict.
+          `pointer-events-none` because the focused chip sits over the card's
+          top-right controls and took their clicks. It's a keyboard cue only;
+          Enter and Space don't hit-test, so they still reach the button. */}
+      <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-lg focus-within:bg-surface-2 focus-within:px-2 focus-within:py-1 focus-within:text-xs">
         <button
           type="button"
           onClick={(event) => {
