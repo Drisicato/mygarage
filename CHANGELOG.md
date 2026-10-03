@@ -98,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calendar bulk selection works from the keyboard
 - On the window sticker test page, Remove clears the chosen file instead of opening the file picker
 - A vehicle, tire, service line, LiveLink device, topic map or reminder anchor holding a value the app doesn't recognise (for example from a restored backup) loads, showing it as unknown, instead of failing the page
+- Saving over a reminder pack that names a vehicle type the app doesn't recognise drops that type and saves, instead of failing
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
