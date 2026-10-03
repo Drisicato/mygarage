@@ -84,12 +84,12 @@ export default function Supplies() {
     setOutOfStockOnly(false)
   }
 
+  // Write after setState, not inside the updater: updaters must stay pure and
+  // StrictMode double-invokes them (same shape as useDashboardSort's choose).
   const updatePrefs = (patch: Partial<SuppliesViewPrefs>) => {
-    setPrefs((prev) => {
-      const next = { ...prev, ...patch }
-      rememberSuppliesView(next)
-      return next
-    })
+    const next = { ...prefs, ...patch }
+    setPrefs(next)
+    rememberSuppliesView(next)
   }
 
   const sortItems: DropdownItem[] = [
@@ -417,7 +417,7 @@ export default function Supplies() {
         ) : (
           <div className="space-y-6">
             {groups.map((group) => (
-              <div key={group.value ?? '__trailing__'}>
+              <div key={group.value === null ? '__trailing__' : `v:${group.value}`}>
                 {prefs.group !== 'none' && (
                   <h2 className="text-lg font-semibold text-garage-text mb-3">
                     {groupHeading(group)}{' '}

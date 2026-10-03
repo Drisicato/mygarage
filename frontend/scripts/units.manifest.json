@@ -2652,8 +2652,8 @@
     {
       "path": "src/pages/Supplies.tsx",
       "disposition": "audited",
-      "digest": "82293ba8d8d6aa27d83827c3c189f85697526c07a3f358bbc742b4a5c05f32ab",
-      "reason": "as SupplyHistoryModal 2026-09-30 (money-fits B7 fix 1): the average unit cost passes fractionDigits: RATE_DIGITS so it keeps two decimals in every currency; money precision only, no quantity, unit or conversion code changed. 2026-10-03 (#191 unit cost): the average unit cost now goes through unitCostToDisplay and its label names the unit (Avg. Cost/qt), so an imperial user sees the price of a quart instead of a litre's price next to quarts. 2026-10-03 (#191 page tools): search, filters, sort, grouping, list view and quick actions; display composition only, every quantity still goes through formatOnHand and unitCostToDisplay; no quantity, unit or conversion code changed.",
+      "digest": "e26dfa707128f9898a2a0a7e105226f563bb6c47dabc706a461083dff6572ae4",
+      "reason": "as SupplyHistoryModal 2026-09-30 (money-fits B7 fix 1): the average unit cost passes fractionDigits: RATE_DIGITS so it keeps two decimals in every currency; money precision only, no quantity, unit or conversion code changed (review fix pass same day: pure prefs updater and group React keys; still none). 2026-10-03 (#191 unit cost): the average unit cost now goes through unitCostToDisplay and its label names the unit (Avg. Cost/qt), so an imperial user sees the price of a quart instead of a litre's price next to quarts. 2026-10-03 (#191 page tools): search, filters, sort, grouping, list view and quick actions; display composition only, every quantity still goes through formatOnHand and unitCostToDisplay; no quantity, unit or conversion code changed.",
       "tests": [
         "pages/__tests__/Supplies.test.tsx",
         "utils/__tests__/supplyUnits.test.ts"

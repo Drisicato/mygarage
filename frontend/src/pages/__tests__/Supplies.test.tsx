@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within } from '../../__tests__/test-utils'
 import type { Supply } from '../../types/supplies'
@@ -310,6 +311,52 @@ describe('Supplies page: out of stock highlight and the vehicle line', () => {
     expect(within(sharedCard as HTMLElement).getByText('supplies.sharedVehicle')).toBeInTheDocument()
     const pinnedCard = screen.getByText('Pinned Oil').closest('div[class*="bg-garage-surface"]')
     expect(within(pinnedCard as HTMLElement).getByText('VINUNKNOWN123')).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page: review findings stay fixed', () => {
+  it('persisting the view pick writes storage once per change (pure updater)', () => {
+    // StrictMode double-invokes setState updaters, so a write inside the
+    // updater runs twice; the write belongs beside setPrefs, not in it.
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    render(
+      <StrictMode>
+        <Supplies />
+      </StrictMode>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
+
+    expect(setItemSpy.mock.calls.filter(([key]) => key === 'mygarage:supplies:view')).toHaveLength(1)
+    setItemSpy.mockRestore()
+  })
+
+  it('a category literally named __trailing__ does not collide with the no-category bucket', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    useSuppliesMock.mockReturnValue({
+      data: {
+        supplies: [
+          { ...mockSupply, id: 51, name: 'Weird Part', category: '__trailing__' },
+          { ...mockSupply, id: 52, name: 'Bare Part', category: null },
+        ],
+        total: 2,
+      },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.groupSupplies' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'supplies.groupByCategory' }))
+
+    const headings = screen.getAllByRole('heading', { level: 2 })
+    expect(headings[0]).toHaveTextContent('__trailing__')
+    expect(headings[1]).toHaveTextContent('supplies.noCategory')
+    const keyWarnings = errSpy.mock.calls.filter((args) =>
+      args.some((a) => typeof a === 'string' && a.includes('same key')),
+    )
+    expect(keyWarnings).toHaveLength(0)
+    errSpy.mockRestore()
   })
 })
 
