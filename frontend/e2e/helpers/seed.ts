@@ -364,7 +364,13 @@ export function seedLedger(
   const entryIds: number[] = []
   const vendorNames: string[] = []
 
-  /** Delete entries (and their vendor twins) a killed run left under this name. */
+  /**
+   * Delete entries (and their vendor twins) a killed run left under this name.
+   *
+   * A failed delete fails here, not later as a duplicate option in some spec.
+   * No 404 allowance: the id comes from a list made a moment ago and the suite
+   * runs on one worker, so nothing else can have deleted it.
+   */
   async function purgeName(name: string): Promise<void> {
     const entries = await request.get(
       `${apiBase}/address-book?search=${encodeURIComponent(name)}`,
@@ -373,10 +379,11 @@ export function seedLedger(
     expect(entries.ok(), `list address book: ${entries.status()}`).toBeTruthy()
     for (const entry of (await entries.json()).entries as { id: number; business_name: string }[]) {
       if (entry.business_name === name) {
-        await request.delete(`${apiBase}/address-book/${entry.id}`, { headers })
+        const gone = await request.delete(`${apiBase}/address-book/${entry.id}`, { headers })
+        expect(gone.ok(), `purge address book ${entry.id} (${name}): ${gone.status()}`).toBeTruthy()
       }
     }
-    await deleteVendorsNamed(name)
+    expect(await deleteVendorsNamed(name), `purge vendors named ${name}`).toEqual([])
   }
 
   /** The address-book create syncs a vendor for anything that isn't a gas station. */
