@@ -47,6 +47,73 @@ export function canonicalCategories(supplies: Supply[]): string[] {
   return canonical.sort((a, b) => a.localeCompare(b))
 }
 
+export function sortSupplies(supplies: Supply[], sort: SupplySortKey): Supply[] {
+  const copy = [...supplies]
+  const byName = (a: Supply, b: Supply): number => a.name.localeCompare(b.name)
+  if (sort === 'stock') {
+    // Ranks keep counts and litres from ever comparing against each other.
+    const rank = (s: Supply): number => {
+      if (isOutOfStock(s)) return 0
+      return s.unit_type === 'count' ? 1 : 2
+    }
+    return copy.sort((a, b) => {
+      const ra = rank(a)
+      const rb = rank(b)
+      if (ra !== rb) return ra - rb
+      if (ra === 0) return byName(a, b)
+      return Number(a.on_hand) - Number(b.on_hand) || byName(a, b)
+    })
+  }
+  if (sort === 'category') {
+    return copy.sort((a, b) => {
+      if (!a.category && !b.category) return byName(a, b)
+      if (!a.category) return 1
+      if (!b.category) return -1
+      return a.category.toLowerCase().localeCompare(b.category.toLowerCase()) || byName(a, b)
+    })
+  }
+  return copy.sort(byName)
+}
+
+export interface SupplyGroup {
+  kind: SupplyGroupKey
+  /** canonical category or a VIN; null = the trailing bucket (no category / shared) */
+  value: string | null
+  supplies: Supply[]
+}
+
+/**
+ * Buckets an already-sorted list without re-sorting inside groups. Category
+ * buckets merge case-insensitively under the canonical spelling.
+ */
+export function groupSupplies(
+  sorted: Supply[],
+  group: SupplyGroupKey,
+  vehicleLabelFor: (vin: string) => string,
+): SupplyGroup[] {
+  if (group === 'none') {
+    return [{ kind: 'none', value: null, supplies: sorted }]
+  }
+  const spellings = group === 'category' ? canonicalCategories(sorted) : []
+  const canonicalFor = new Map(spellings.map((s) => [s.toLowerCase(), s]))
+  const buckets = new Map<string | null, Supply[]>()
+  for (const s of sorted) {
+    const value = group === 'category'
+      ? (s.category ? (canonicalFor.get(s.category.toLowerCase()) ?? s.category) : null)
+      : (s.vin ?? null)
+    const bucket = buckets.get(value) ?? []
+    bucket.push(s)
+    buckets.set(value, bucket)
+  }
+  const labelFor = (value: string): string => (group === 'vehicle' ? vehicleLabelFor(value) : value)
+  const named = [...buckets.entries()]
+    .filter((entry): entry is [string, Supply[]] => entry[0] !== null)
+    .sort((a, b) => labelFor(a[0]).localeCompare(labelFor(b[0])))
+    .map(([value, supplies]) => ({ kind: group, value, supplies }))
+  const trailing = buckets.get(null)
+  return trailing ? [...named, { kind: group, value: null, supplies: trailing }] : named
+}
+
 export function filterSupplies(supplies: Supply[], filters: SupplyFilters): Supply[] {
   const query = filters.query.trim().toLowerCase()
   const category = filters.category?.toLowerCase() ?? null
