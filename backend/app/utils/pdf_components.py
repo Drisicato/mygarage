@@ -281,12 +281,13 @@ def style_as_card(table: Table, padding: int = 8) -> Table:
 def make_vehicle_banner(
     vehicle_name: str,
     vin: str,
-    vehicle_type: str,
+    vehicle_type: str | None,
     days_owned: int | None = None,
 ) -> Table:
     """Create the vehicle banner card.
 
     Shows year/make/model in blue, VIN in monospace, and badges for type + tracking.
+    A missing type (a stored one the app doesn't know reads as None) badges as Unknown.
     """
     styles = get_styles()
 
@@ -299,7 +300,8 @@ def make_vehicle_banner(
     vin_para = Paragraph(f"VIN {vin}", styles["VIN"])
 
     # Badges (right side)
-    type_badge = _make_badge(vehicle_type, ACCENT_BLUE, ACCENT_BLUE_LIGHT)
+    # reportlab can't measure None, and the PDFs are English-only.
+    type_badge = _make_badge(vehicle_type or "Unknown", ACCENT_BLUE, ACCENT_BLUE_LIGHT)
     tracked_badge = _make_badge(tracking_text, ACCENT_GREEN, ACCENT_GREEN_LIGHT)
 
     badge_table = Table([[type_badge], [tracked_badge]])

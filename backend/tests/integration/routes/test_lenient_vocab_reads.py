@@ -15,6 +15,7 @@ from collections.abc import Callable
 from datetime import date
 from typing import Any
 
+import fitz  # PyMuPDF
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, text
@@ -144,6 +145,25 @@ async def test_a_vehicle_column_outside_its_vocabulary_reads_as_null(
 
     assert pick(body, vin)[column] is None
     _assert_one_warning(caplog, model, column, bad)
+
+
+async def test_the_analytics_pdf_of_a_vehicle_with_an_unknown_type_still_exports(
+    client, auth_headers, db_session, own_vehicle
+):
+    """The export is a StreamingResponse with no response model, so the
+    meta-test can't see it: it dumps VehicleAnalytics and hands the null type
+    to the PDF banner."""
+    vin = own_vehicle.vin
+    await _corrupt(db_session, "vehicles", "vehicle_type", "Hovercraft", key="vin", value=vin)
+
+    response = await client.get(f"/api/analytics/vehicles/{vin}/export", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    with fitz.open(stream=response.content, filetype="pdf") as doc:
+        text = "".join(page.get_text() for page in doc)
+    assert "Unknown" in text
+    assert "Hovercraft" not in text
 
 
 # --- LiveLink devices: the two statuses read as "unknown" ---------------------
