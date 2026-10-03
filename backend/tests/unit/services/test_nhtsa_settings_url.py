@@ -151,11 +151,11 @@ async def test_a_stored_url_with_outer_spaces_is_used_stripped(
     default_request: str,
     which: str,
 ) -> None:
-    """Spaces round a pasted URL aren't part of it. Unstripped, the URL failed
-    the SSRF check, logged an ERROR and fell back to the default.
+    """Spaces round a pasted URL aren't part of it. Unstripped, the padded URL
+    passed the SSRF check (urlparse drops the leading spaces) and httpx then
+    refused it, so the check failed before any request.
 
-    With the default padded only the no-ERROR half can fail (the fallback is
-    the same URL), so the mirror is there for the URL half.
+    The mirror base proves the stored URL is the one fetched, not the default.
     """
     base = _DEFAULTS[key] if which == "default" else "https://api.nhtsa.gov/mirror"
     caplog.set_level(logging.WARNING, logger=LOGGER)

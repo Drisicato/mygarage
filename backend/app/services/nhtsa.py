@@ -282,8 +282,9 @@ class NHTSAService:
         # an SSRF block worth an ERROR. The value column is nullable. Spaces
         # round a pasted URL aren't part of it, and httpx can't fetch it with them.
         stored_url = setting.value.strip() if setting and setting.value else ""
-        # The Integrations tab used to save the full endpoint, which the fetch
-        # below then doubled. Those rows still hold it, so read it as the base.
+        # Before v2.19.0 the seed was the full endpoint, and the Integrations tab
+        # saved it when the field was blank. The fetch below appends the path,
+        # so those rows doubled it. Read a stored endpoint as its base.
         stored_url = stored_url.rstrip("/").removesuffix(RECALLS_BY_VEHICLE_PATH)
         recalls_api_base = stored_url or DEFAULT_RECALLS_API_URL
 
