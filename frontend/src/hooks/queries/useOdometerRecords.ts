@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/services/api'
+import { invalidateReadingViews } from '@/hooks/useReminders'
 import type {
   OdometerRecordListResponse,
   OdometerRecordCreate,
@@ -29,6 +30,7 @@ export function useCreateOdometerRecord(vin: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
+      invalidateReadingViews(queryClient, vin)
     },
   })
 }
@@ -42,6 +44,7 @@ export function useUpdateOdometerRecord(vin: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
+      invalidateReadingViews(queryClient, vin)
     },
   })
 }
@@ -54,6 +57,7 @@ export function useDeleteOdometerRecord(vin: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
+      invalidateReadingViews(queryClient, vin)
     },
   })
 }
@@ -82,6 +86,7 @@ export function useImportOdometerCSV(vin: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
+      invalidateReadingViews(queryClient, vin)
     },
   })
 }

@@ -75,6 +75,8 @@ export function useTires(vin: string, includeRetired = false) {
 function invalidateTireViews(queryClient: ReturnType<typeof useQueryClient>, vin: string) {
   queryClient.invalidateQueries({ queryKey: ['tires', vin] })
   queryClient.invalidateQueries({ queryKey: ['reminders', vin] })
+  // The hero counts those reminders and shows the reading a mount can move (#192).
+  queryClient.invalidateQueries({ queryKey: ['vehicleDetailStats', vin] })
   queryClient.invalidateQueries({ queryKey: ['tire-sets', vin] })
   // Every tire write publishes, moves or deletes a vehicle odometer record,
   // and the nearest-reading suggestion lives under this prefix too. Missing

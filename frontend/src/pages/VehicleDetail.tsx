@@ -387,6 +387,9 @@ export default function VehicleDetail() {
 
       // Reload the vehicle data
       await loadVehicle()
+      // An import can write every record type, reminders and readings
+      // included, so every query for this vehicle is stale (#192).
+      void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === vin })
     } catch (err) {
       toast.error(t('detail.importError'), {
         description: getActionErrorMessage(err, t('detail.importAction'))

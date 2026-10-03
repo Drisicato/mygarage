@@ -32,7 +32,19 @@ export function invalidateMaintenanceQueries(queryClient: QueryClient, vin: stri
     'latestHours',
     'odometerRecords',
     'hoursRecords',
+    'vehicleDetailStats', // the hero counts these reminders (#192)
   ]) {
+    void queryClient.invalidateQueries({ queryKey: [key, vin] })
+  }
+}
+
+/**
+ * What a new or changed reading moves: each pending reminder's progress, chip
+ * and order, and the hero's counts and latest reading (#192). For the reading
+ * hooks (odometer, hours, fuel, DEF), whose writes touch no reminder row.
+ */
+export function invalidateReadingViews(queryClient: QueryClient, vin: string): void {
+  for (const key of ['reminders', 'vehicleDetailStats']) {
     void queryClient.invalidateQueries({ queryKey: [key, vin] })
   }
 }

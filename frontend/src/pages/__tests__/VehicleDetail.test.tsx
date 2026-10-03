@@ -135,6 +135,7 @@ vi.mock('../../contexts/AuthContext', () => ({
 }))
 
 // Import after mocks
+import api from '../../services/api'
 import vehicleService from '../../services/vehicleService'
 import { livelinkService } from '../../services/livelinkService'
 import { useAuth } from '../../contexts/AuthContext'
@@ -729,6 +730,25 @@ describe('VehicleDetail', () => {
       await client.invalidateQueries({ queryKey: ['vehicleDetailStats', 'TEST12345678901234'] })
     })
     expect(mockedVehicleService.getDetailStats.mock.calls.length).toBe(baseline + 1)
+  })
+
+  it('a vehicle JSON import refreshes every query for that vehicle (#192: it writes reminders and readings)', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {} } as { data: unknown })
+    const { client, container } = renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+    const spy = vi.spyOn(client, 'invalidateQueries')
+    const input = container.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement
+    fireEvent.change(input, {
+      target: { files: [new File(['{}'], 'vehicle.json', { type: 'application/json' })] },
+    })
+    type Filter = { predicate?: (query: { queryKey: readonly unknown[] }) => boolean }
+    const byVehicle = (): Filter | undefined =>
+      spy.mock.calls.map(([filter]) => filter as Filter).find((f) => typeof f?.predicate === 'function')
+    await waitFor(() => expect(byVehicle()).toBeDefined())
+    const matches = byVehicle()!.predicate!
+    expect(matches({ queryKey: ['reminders', 'TEST12345678901234', 'pending'] })).toBe(true)
+    expect(matches({ queryKey: ['vehicleDetailStats', 'TEST12345678901234'] })).toBe(true)
+    expect(matches({ queryKey: ['reminders', 'OTHERV123456789012'] })).toBe(false)
   })
 
   it('an older stats response never overwrites a newer one (codex R1-M2: a refresh cancels the one in flight)', async () => {

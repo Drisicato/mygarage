@@ -2179,7 +2179,7 @@
     {
       "path": "src/hooks/queries/useDEFRecords.ts",
       "disposition": "no unit behaviour",
-      "digest": "8699dcbc95ccd794a7b0cc64faab5ca819c6125c99b45eb7044e8f375c8ee631",
+      "digest": "c75f673e420f81f5d0761b625a95cbfb71c22c77fde2b2a3b1efb965f3252ac9",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them."
     },
     {
@@ -2197,13 +2197,13 @@
     {
       "path": "src/hooks/queries/useFuelRecords.ts",
       "disposition": "no unit behaviour",
-      "digest": "22f4d1238079bff51410c15dea704ac48145943ca0e754f19877442acad78837",
+      "digest": "3b1fd996a7280f63c197d2237c81c75e64d32bac79742292d788fd9d51ce6bd6",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 3 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity."
     },
     {
       "path": "src/hooks/queries/useHoursRecords.ts",
       "disposition": "no unit behaviour",
-      "digest": "fb6fb8ac3b1c7a14e07710235cb2b6195a145cdabedb28e2edfb672066e037ea",
+      "digest": "68c0a971feadf7339bb4a340f0900f4bf7e6946d8d9426edfbbc4f627bbad98f",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 4 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity."
     },
     {
@@ -2221,7 +2221,7 @@
     {
       "path": "src/hooks/queries/useOdometerRecords.ts",
       "disposition": "no unit behaviour",
-      "digest": "216933b34c70ed1597a9f293087fcdf1a19bead1f4b9663dd4655775cf9d1051",
+      "digest": "38678ec74741acf137a9584913ce56c95dd5145aa44d6185b4569cada00c3426",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. Re-reviewed for v3.4.0's useNearestOdometer: a plain data-fetch hook returning the raw NearestOdometerResponse (canonical odometer_km, a date, and a dimensionless days_away) with no formatting or conversion; the caller (MountEventFields.tsx) does the unit work through u.distance.format and seedUnitField. Still no unit behaviour in this file."
     },
     {
@@ -2275,7 +2275,7 @@
     {
       "path": "src/hooks/queries/useTires.ts",
       "disposition": "no unit behaviour",
-      "digest": "c26fa9c4bea1f21479e53c953f6cecdd3dabd6e7e93bb8838ccd4cbd6058dc5b",
+      "digest": "769811098f32e24c89becaafad21fd8dfa6a06176d811d3f8df8b78cdabf9668",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. The five tire-set hooks added with D6 pass their payloads through untouched, like every hook already here: no conversion, no formatting, no unit named. The one behavioural change in this file is which query keys a tire write invalidates, which is a cache concern rather than a unit one. Re-reviewed for v3.4.0's includeRetired flag (a boolean, no unit), useRestoreTire (a bare POST) and useUpdateMountPeriod, which forwards its MountPeriodUpdate payload untouched -- the caller (MountPeriodEditor.tsx) has already run canonicalFromUnitField before calling mutate. Still no unit decision made in this file. Re-reviewed for the v3.4.0 review fixes: useTires gained placeholderData, which keeps the same vehicle's already-fetched list on screen while the other includeRetired variant loads. It passes the cached response through untouched; still no unit decision made in this file. Re-reviewed for reading delete: useDeleteTireReading sends a bare DELETE addressed by tire and reading id and invalidates through invalidateTireViews like every other tire write. No payload, no conversion, no formatting; still no unit decision made in this file. Re-reviewed for v3.4.0 task 12: `useCreateMountPeriod` posts its `MountPeriodCreate & { tireId }` payload untouched, addressed by `tireId` extracted off the object like every other tire mutation here, and invalidates through `invalidateTireViews` like every other write. The caller (`AddPastPeriodDrawer.tsx`) has already run `canonicalFromUnitField` on both odometer fields before calling `mutate`, the same division of labour `useUpdateMountPeriod` already established above. Still no unit decision made in this file."
     },
     {
@@ -2401,7 +2401,7 @@
     {
       "path": "src/hooks/useReminders.ts",
       "disposition": "no unit behaviour",
-      "digest": "ba71fff408053b7f3a4b367da0b2fae70bfce3d0a011590bc737d960c1712ab0",
+      "digest": "d9d516c5afa4e4b14f8080d8922c369b9dff16905d558f1e875d5cf6a91b5d58",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. Re-reviewed for v3.5.0: lifecycle hooks (complete, packs, preview, duplicates, maintenance types) and one invalidation helper whose key list names 'latestMileage' and 'odometerRecords' as CACHE KEYS; nothing here renders or converts a quantity. 2026-09-18: re-reviewed for the snooze frontend: two new mutations (snooze passes an ISO date, unsnooze an id) reuse the same invalidation helper; nothing renders or converts a quantity. Re-reviewed for the pack mutations and the override query key (2026-09-21): the new hooks forward opaque request bodies to reminderService and invalidate query keys. Any interval in those bodies was already made canonical by the component that collected it. Re-reviewed after the cleanup pass (2026-09-21): added refetchOnWindowFocus: false to the pack preview and 'maintenanceRules' to the maintenance invalidation list. Both are cache plumbing; no value is read or converted."
     },
     {
@@ -2662,7 +2662,7 @@
     {
       "path": "src/pages/VehicleDetail.tsx",
       "disposition": "audited",
-      "digest": "5c01a943c9d9805f67bb8b556f33aa5c146da39dc0a17c73424200baec364af9",
+      "digest": "b905f4183d13d7fbe409b77b47fafdd96dfe7f2bab9cb06e65e4a4a72d0c05a2",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 6 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-09-18: re-reviewed for the snooze frontend: a refreshDetailStats callback (stats refetch with a vin staleness guard) handed to ReminderList; no unit decision or unit-bearing quantity touched. Re-reviewed for the codex code-review fixes (2026-09-18): the detail-stats loads unified under one generation counter (newest response wins); plumbing only, no unit decision or quantity. 2026-09-18 (pass 2): an active-vin check on the stats refresh callback (codex R2-M1); plumbing only. Re-acknowledged for the LiveLink capability gating: the change gates the LiveLink sub-tabs on the capabilities the backend reports. No value is read, formatted or converted. 2026-09-24 (Quick Entry parity): the per-type tab rules moved to vehicleLogKinds; no unit behaviour changed. 2026-09-24 (#172 per-vehicle distance unit): the page renders inside VehicleUnitScope KEYED on the vehicle's distance_unit, so a unit change remounts it and no open form outlives its unit; every sidecar save goes through handleVehicleUpdated (offline copy + Quick Entry row). Pinned in pages/__tests__/VehicleDetail.vehicleSave.test.tsx. 2026-10-02 (lenient-vocabulary-reads H3): the spot-rentals gate is a boolean that is false for a null vehicle_type (a stored type the app doesn't know); the logging tabs follow vehicleLogKinds, which now counts that vehicle as motorized. Tab gates only; VehicleUnitScope and every sidecar save are untouched, so no unit behaviour moves. Re-reviewed 2026-10-03 for #192: detail-stats moved from page state to useVehicleDetailStats and reach VehicleHero and VehicleKeyFacts unchanged, so no unit behaviour moved.",
       "tests": [
         "pages/__tests__/VehicleDetail.vehicleSave.test.tsx"
