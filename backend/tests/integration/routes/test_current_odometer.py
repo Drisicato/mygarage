@@ -24,8 +24,7 @@ from sqlalchemy import delete
 
 from app.models.odometer import OdometerRecord
 from app.models.vehicle import Vehicle
-from app.routes.calendar import calculate_average_km_per_day, estimate_date_from_mileage
-from app.services.reminder_service import get_current_mileage
+from app.services.reminder_service import calculate_driving_rate, get_current_mileage
 from app.services.tire_service import TireService
 from app.services.widget_aggregation import WidgetAggregationService
 from app.utils.odometer_sync import auto_sync_marker
@@ -131,19 +130,23 @@ class TestTheHighestReadingOfTheLatestDayIsCurrent:
         assert await widget._latest_odometer_reading(vehicle) == (Decimal("50012"), DAY)
         assert await widget._latest_odometer_km(vehicle) == 50012
 
-    async def test_the_calendar_rate_runs_to_the_days_highest_reading(
-        self, vehicle, mounted_then_serviced, db_session
-    ):
-        """(50,012 - 49,000) km over ten days, not (50,000 - 49,000)."""
-        assert await calculate_average_km_per_day(vehicle, db_session) == pytest.approx(101.2)
+    async def test_the_calendar_rate_spans_the_windowed_min_and_max(self, vehicle, db_session):
+        """(50,012 - 49,000) km over ten days = 101.2 km/day.
 
-    async def test_the_calendar_due_date_counts_from_the_days_highest_reading(
-        self, vehicle, mounted_then_serviced, db_session
-    ):
-        """Due at 50,112 km: 100 km from 50,012 at 101.2 km a day is due today;
-        112 km from 50,000 would be tomorrow."""
-        due = await estimate_date_from_mileage(vehicle, Decimal("50112"), db_session)
-        assert due == date.today()
+        The calendar shares ``calculate_driving_rate`` with the reminders
+        list and the bell (#195). It is a MIN/MAX aggregate over a 90-day
+        window, so it reads the day's 50,012 whatever order the rows landed
+        in, and the file's fixed ``DAY`` rows (outside the window) are not
+        seeded here."""
+        today = date.today()
+        for when, km in (
+            (today - timedelta(days=10), "49000"),
+            (today, "50012"),
+            (today, "50000"),
+        ):
+            db_session.add(OdometerRecord(vin=vehicle, date=when, odometer_km=Decimal(km)))
+        await db_session.commit()
+        assert await calculate_driving_rate(vehicle, db_session) == pytest.approx(101.2)
 
     async def test_vehicle_analytics_total_runs_to_the_days_highest_reading(
         self, client: AsyncClient, auth_headers, vehicle, mounted_then_serviced
