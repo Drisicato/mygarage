@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.livelink_topic_map import LiveLinkTopicMap
+from app.schemas.livelink import DeviceStatusType
 from app.services.livelink_sources.base import (
     BaseSourceModule,
     Capability,
@@ -161,7 +162,7 @@ class GenericMqttModule(BaseSourceModule):
 
         device_id = entries[0].device_id
         readings: list[Reading] = []
-        device_status: str | None = None
+        device_status: DeviceStatusType | None = None
 
         for entry in entries:
             value = _dig(raw, entry.value_path) if entry.value_path else _coerce(raw)

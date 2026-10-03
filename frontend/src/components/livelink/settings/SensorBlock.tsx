@@ -71,7 +71,8 @@ export default function SensorBlock({ device, vehicles, onChanged }: Props): Rea
   }
 
   const remove = async (): Promise<void> => {
-    if (!confirm(t('integrations.confirmDeleteSensor', { name: device.label ?? device.device_id }))) return
+    // ||, not ??: a name cleared before blanks were stored as null is still ''.
+    if (!confirm(t('integrations.confirmDeleteSensor', { name: device.label || device.device_id }))) return
     setBusy(true)
     try {
       await livelinkService.deleteDevice(device.device_id)

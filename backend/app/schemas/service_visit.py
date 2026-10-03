@@ -5,18 +5,24 @@ from __future__ import annotations
 from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 
 from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.schemas.maintenance import validate_maintenance_type
 from app.schemas.reminder import ReminderCreate  # noqa: F401 — used in type annotations
 from app.schemas.supply import SupplyUsageInput, SupplyUsageResponse
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
 
 # Service category type (same as existing)
 ServiceCategory = Literal["Maintenance", "Inspection", "Collision", "Upgrades", "Detailing"]
+# A line item's category has no CHECK (the visit's does), so its response reads
+# an unknown one as null instead of 500ing the visit.
+LenientServiceCategory = Annotated[
+    ServiceCategory | None, BeforeValidator(lenient_reader(ServiceCategory)), LenientVocab(None)
+]
 
 # Inspection result types
 InspectionResult = Literal["passed", "failed", "needs_attention"]
@@ -165,6 +171,8 @@ class ServiceLineItemResponse(ServiceLineItemBase):
         ),
     )
     notes: str | None = Field(None, description="Additional notes")
+    # A category we don't know reads as null instead of 500ing the visit.
+    category: LenientServiceCategory = Field(None, description="Service category")
     id: int
     visit_id: int
     created_at: datetime

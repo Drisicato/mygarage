@@ -1,15 +1,29 @@
 """Pydantic schemas for LiveLink device and settings operations."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 from app.schemas._nullability import reject_null
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
 
 # Shared status literals for OpenAPI schema generation
 DeviceStatusType = Literal["online", "offline", "unknown"]
 ECUStatusType = Literal["online", "offline", "unknown"]
+
+# For responses: a stored status we don't know is just "unknown", which the
+# vocabulary already has, so these stay non-null.
+LenientDeviceStatus = Annotated[
+    DeviceStatusType,
+    BeforeValidator(lenient_reader(DeviceStatusType, fallback="unknown")),
+    LenientVocab("unknown"),
+]
+LenientECUStatus = Annotated[
+    ECUStatusType,
+    BeforeValidator(lenient_reader(ECUStatusType, fallback="unknown")),
+    LenientVocab("unknown"),
+]
 
 # =============================================================================
 # Device Schemas
@@ -73,7 +87,14 @@ class LiveLinkDeviceManualCreate(BaseModel):
 class LiveLinkDeviceUpdate(BaseModel):
     """Schema for updating a device."""
 
-    label: str | None = Field(None, description="User-friendly device name")
+    label: str | None = Field(
+        None,
+        max_length=100,
+        description=(
+            "User-friendly device name, stored stripped. Null or blank clears it; "
+            "longer than the column's 100 characters is a 422."
+        ),
+    )
     vin: str | None = Field(
         None,
         max_length=17,
@@ -120,6 +141,13 @@ class LiveLinkDeviceUpdate(BaseModel):
             raise ValueError("vin must be 17 characters, or empty to unlink")
         return normalised
 
+    @field_validator("label", mode="before")
+    @classmethod
+    def _label_is_stripped(cls, value: object) -> object:
+        """Strip before max_length counts it. The name is stored stripped, so
+        padding shouldn't push a 100-character name over the column."""
+        return value.strip() if isinstance(value, str) else value
+
 
 class LiveLinkDeviceResponse(LiveLinkDeviceBase):
     """Schema for device response."""
@@ -132,8 +160,10 @@ class LiveLinkDeviceResponse(LiveLinkDeviceBase):
     sta_ip: str | None = Field(None, description="Device IP on local network")
     rssi: int | None = Field(None, description="WiFi signal strength (dBm)")
     battery_voltage: float | None = Field(None, description="Vehicle battery voltage (V)")
-    ecu_status: ECUStatusType = Field("unknown", description="ECU status: online/offline/unknown")
-    device_status: DeviceStatusType = Field(
+    ecu_status: LenientECUStatus = Field(
+        "unknown", description="ECU status: online/offline/unknown"
+    )
+    device_status: LenientDeviceStatus = Field(
         "unknown", description="Device status: online/offline/unknown"
     )
     has_device_token: bool = Field(False, description="Whether device has per-device token")

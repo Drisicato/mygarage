@@ -531,7 +531,7 @@ export default function VehicleDetail() {
   const hasDEF = logKinds.defHistory
 
   // Check if vehicle is RV, Fifth Wheel, or Travel Trailer (for spot rentals)
-  const isRVOrFifthWheel = vehicle?.vehicle_type &&
+  const isRVOrFifthWheel = vehicle?.vehicle_type != null &&
     ['RV', 'FifthWheel', 'TravelTrailer'].includes(vehicle.vehicle_type)
 
   // Primary tabs configuration

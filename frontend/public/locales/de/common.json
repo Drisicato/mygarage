@@ -559,7 +559,7 @@
       "fillLevelInvalid": "Gib eine gültige Nummer ein"
     },
     "recall": {
-      "campaignNumberTooLong": "Kampagnennummer zu lang (maximal 50 Zeichen)",
+      "campaignNumberTooLong": "Kampagnennummer zu lang (maximal 20 Zeichen)",
       "componentRequired": "Komponente ist erforderlich",
       "componentTooLong": "Komponentenbeschreibung zu lang (maximal 200 Zeichen)",
       "summaryRequired": "Zusammenfassung ist erforderlich",

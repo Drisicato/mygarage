@@ -66,6 +66,23 @@ describe('Recall Schema', () => {
     expect(result.success).toBe(false)
   })
 
+  it('rejects a campaign number over 20 characters, like the backend column', () => {
+    const result = recallSchema.safeParse({
+      ...validRecall,
+      nhtsa_campaign_number: '2'.repeat(21),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  // A guard: 20 still fits. Mutant: `.max(19)`.
+  it('accepts a 20-character campaign number', () => {
+    const result = recallSchema.safeParse({
+      ...validRecall,
+      nhtsa_campaign_number: '2'.repeat(20),
+    })
+    expect(result.success).toBe(true)
+  })
+
   it('rejects invalid date_announced format', () => {
     const result = recallSchema.safeParse({
       ...validRecall,

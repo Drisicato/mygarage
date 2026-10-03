@@ -97,6 +97,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicking a reminder in the calendar's month grid opens it, as in the upcoming list
 - Calendar bulk selection works from the keyboard
 - On the window sticker test page, Remove clears the chosen file instead of opening the file picker
+- A vehicle, tire, service line, LiveLink device, topic map or reminder anchor holding a value the app doesn't recognise (for example from a restored backup) loads (the value shows as unknown or unset) instead of failing the page
+- Saving over a reminder pack that names a vehicle type the app doesn't recognise drops that type and saves, instead of failing
+- The vehicle page's type chip shows the translated type name (Fifth Wheel) instead of the raw value (FifthWheel)
+- A LiveLink device that reports a blank firmware version no longer gets an update notice for every release
+- Clearing a LiveLink sensor's name falls back to its device id everywhere, including the delete prompt
+- A recall campaign number longer than 20 characters is refused instead of failing to save on PostgreSQL
+- A LiveLink sensor name longer than 100 characters is refused instead of failing to save on PostgreSQL
+- An NHTSA API URL setting saved with spaces around it is used without them, instead of breaking recall and TSB checks
+- Recall checks work again where the stored NHTSA recalls URL is the full endpoint (an install from before v2.19.0, or the Integrations tab saved with the field blank); it's read as its base
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

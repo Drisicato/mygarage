@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.livelink_device import LiveLinkDevice
@@ -254,3 +254,25 @@ async def test_unskip_after_an_already_sent_notification_stays_suppressed(
 
     await check_firmware_updates()
     assert sent == [(_DEVICE_ID, "4.50")]
+
+
+async def test_a_blank_firmware_version_is_never_notified(db_session, firmware_world):
+    """A WiCAN that stored a blank version never said what it runs, so there's
+    nothing to compare. It used to get a notice for every release."""
+    _, sent, _, _ = firmware_world
+    try:
+        await db_session.execute(
+            text("UPDATE livelink_devices SET fw_version = '' WHERE device_id = :device_id"),
+            {"device_id": _DEVICE_ID},
+        )
+        await db_session.commit()
+        db_session.expire_all()
+
+        await check_firmware_updates()
+        assert sent == []
+    finally:
+        await db_session.rollback()
+        await db_session.execute(
+            delete(LiveLinkDevice).where(LiveLinkDevice.device_id == _DEVICE_ID)
+        )
+        await db_session.commit()

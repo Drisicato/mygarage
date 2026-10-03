@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.schemas._nullability import reject_null
 from app.schemas.maintenance import (
     AnchorSpec,
+    LenientAnchorKind,
     MaintenanceRuleSummary,
     RecurrenceSpec,
     validate_maintenance_type,
@@ -147,7 +148,7 @@ class ReminderResponse(BaseModel):
     maintenance_type: str | None = None
     rule_id: int | None = None
     rule: MaintenanceRuleSummary | None = None
-    anchor_kind: str | None = None
+    anchor_kind: LenientAnchorKind = None
     anchor_date: date | None = None
     anchor_odometer_km: Decimal | None = None
     anchor_hours: Decimal | None = None

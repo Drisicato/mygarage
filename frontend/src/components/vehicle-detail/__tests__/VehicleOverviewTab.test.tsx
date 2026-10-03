@@ -63,6 +63,13 @@ describe('VehicleOverviewTab — cards stay addable when the vehicle has no deco
     expect(screen.getByRole('heading', { name: 'detail.warranty' })).toBeInTheDocument()
   })
 
+  it('keeps Powertrain for a vehicle whose type the app does not know', () => {
+    // The API reads an unknown stored type as null, and null counts as motorized.
+    renderTab({ ...bareVehicle, vehicle_type: null })
+
+    expect(screen.getByRole('heading', { name: 'detail.powertrain' })).toBeInTheDocument()
+  })
+
   it('offers an edit affordance on each empty card, so the fields can be ADDED', () => {
     const { onEditCard } = renderTab(bareVehicle)
     // All four onEditCard cards (basic, details, powertrain, warranty) are

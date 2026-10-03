@@ -108,6 +108,14 @@ describe('VehicleHero', () => {
     expect(screen.queryByText('vehicleStats.overdue')).not.toBeInTheDocument()
   })
 
+  it('labels the type chip with the translated type, not the raw enum', () => {
+    render(<VehicleHero vehicle={{ ...VEHICLE, vehicle_type: 'FifthWheel' } as Vehicle}
+      photoUrl={null} fromCache={false} detailStats={null} />)
+
+    expect(screen.getByText('vehicleTypeLabels.FifthWheel')).toBeInTheDocument()
+    expect(screen.queryByText('FifthWheel')).not.toBeInTheDocument()
+  })
+
   it('omits the odometer reading for a non-motorized vehicle even with stats', () => {
     render(<VehicleHero vehicle={{ ...VEHICLE, vehicle_type: 'FifthWheel' } as Vehicle}
       photoUrl={null} fromCache={false} detailStats={STATS} />)
@@ -163,6 +171,38 @@ describe('VehicleHero', () => {
     expect(screen.getByText('vehicleStats.hoursValue (321.75)')).toBeInTheDocument()
     expect(screen.getByText('detail.misc.odometer')).toBeInTheDocument()
     expect(screen.getByText(expectedDistance)).toBeInTheDocument()
+  })
+
+  describe('a type or usage mode the app does not recognise', () => {
+    // The API reads an unknown stored value as null. These are the fixtures a
+    // restored backup with a type this version doesn't know would produce.
+    const unknownType = { ...VEHICLE, vehicle_type: null } as Vehicle
+
+    it('labels the type chip Unknown instead of leaving it blank', () => {
+      render(<VehicleHero vehicle={unknownType} photoUrl={null} fromCache={false} detailStats={null} />)
+
+      expect(screen.getByText('common:unknown')).toBeInTheDocument()
+    })
+
+    it('still shows the odometer, since an unknown type counts as motorized', () => {
+      render(<VehicleHero vehicle={unknownType} photoUrl={null} fromCache={false} detailStats={STATS} />)
+      const expected = makeUnitFormat(IMPERIAL_UNITS).distance.formatPrimary(
+        parseFloat(STATS.latest_odometer_km!)
+      )
+
+      expect(screen.getByText('detail.misc.odometer')).toBeInTheDocument()
+      expect(screen.getByText(expected)).toBeInTheDocument()
+    })
+
+    it('reads an unknown usage mode as distance: odometer, not hours (guard)', () => {
+      // Guard, passes at t=0: getUsageTracking already falls back to distance.
+      // Mutant: make it fall back to hours (`usage_unit === 'distance' ? ... : 'hours'`).
+      render(<VehicleHero vehicle={VEHICLE} photoUrl={null} fromCache={false}
+        detailStats={{ ...STATS, usage_unit: null, latest_hours: '321.75' }} />)
+
+      expect(screen.getByText('detail.misc.odometer')).toBeInTheDocument()
+      expect(screen.queryByText('vehicleStats.hoursValue (321.75)')).not.toBeInTheDocument()
+    })
   })
 
   it('never reads detailStats.current_hours (grep-style source check — the stale column is retired)', () => {

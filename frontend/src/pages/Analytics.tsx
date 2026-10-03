@@ -147,9 +147,12 @@ export default function Analytics() {
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false)
 
-  // Check if vehicle is motorized (not a trailer, fifth wheel, or travel trailer)
-  const isMotorized = analytics?.vehicle_type &&
+  // Check if vehicle is motorized (not a trailer, fifth wheel, or travel trailer).
+  // A null type is one the app doesn't know, which counts as motorized.
+  const isMotorized = analytics != null && (
+    analytics.vehicle_type == null ||
     !(NON_MOTORIZED_TYPES as readonly string[]).includes(analytics.vehicle_type)
+  )
 
   // Check if vehicle is a fifth wheel, travel trailer, or RV (for propane and spot rental tracking)
   const hasPropane = analytics?.vehicle_type &&

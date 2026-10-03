@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas._nullability import reject_null
 from app.schemas.livelink import DEVICE_ID_PATTERN
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
+
+TopicMapRole = Literal["telemetry", "status"]
+# For TopicMapResponse: `role` has no CHECK, so a role we don't know reads as
+# null instead of 500ing the whole topic-map list.
+LenientTopicMapRole = Annotated[
+    TopicMapRole | None, BeforeValidator(lenient_reader(TopicMapRole)), LenientVocab(None)
+]
 
 
 def _exact_topic(v: str) -> str:
@@ -23,7 +31,7 @@ class TopicMapBase(BaseModel):
 
     device_id: str = Field(..., max_length=20)
     topic: str = Field(..., max_length=255)
-    role: Literal["telemetry", "status"] = "telemetry"
+    role: TopicMapRole = "telemetry"
     param_key: str | None = Field(None, max_length=100)
     value_path: str | None = Field(None, max_length=100)
     unit: str | None = Field(None, max_length=20)
@@ -94,6 +102,8 @@ class TopicMapResponse(TopicMapBase):
     value_path: str | None = None
     unit: str | None = None
     param_class: str | None = None
+    # A role we don't know reads as null, so one odd row can't 500 the list.
+    role: LenientTopicMapRole = "telemetry"
     id: int
 
 

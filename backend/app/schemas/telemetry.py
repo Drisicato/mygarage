@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.livelink import LenientDeviceStatus, LenientECUStatus
+
 # =============================================================================
 # Latest Value Schemas (for live dashboard)
 # =============================================================================
@@ -89,7 +91,7 @@ class VehicleLiveLinkStatus(BaseModel):
             "alone and must not be offered DTCs, sessions or trips."
         ),
     )
-    device_status: str = Field("offline", description="Device: online/offline")
+    device_status: LenientDeviceStatus = Field("offline", description="Device: online/offline")
     online: bool = Field(
         False,
         description=(
@@ -99,7 +101,7 @@ class VehicleLiveLinkStatus(BaseModel):
             "within the offline timeout. Read this, not device_status."
         ),
     )
-    ecu_status: str = Field("unknown", description="ECU: online/offline/unknown")
+    ecu_status: LenientECUStatus = Field("unknown", description="ECU: online/offline/unknown")
     last_seen: datetime | None = Field(None, description="Last data received")
     battery_voltage: float | None = Field(None, description="Vehicle battery (V)")
     rssi: int | None = Field(None, description="WiFi signal (dBm)")

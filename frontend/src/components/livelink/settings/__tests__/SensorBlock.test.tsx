@@ -1,6 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { LiveLinkDevice } from '@/types/livelink'
+import settingsEn from '../../../../locales/en/settings.json'
+
+// The delete prompt renders the way en reads, since what name it shows is
+// the point of a test below. Every other key stays bare, like the global mock.
+vi.mock('react-i18next', () => {
+  const t = (key: string, options?: Record<string, unknown>): string =>
+    key === 'integrations.confirmDeleteSensor'
+      ? settingsEn.integrations.confirmDeleteSensor.replace('{{name}}', String(options?.name))
+      : key
+  return {
+    useTranslation: () => ({ t, i18n: { language: 'en', changeLanguage: () => Promise.resolve() } }),
+    Trans: ({ children }: { children: ReactNode }) => children,
+    initReactI18next: { type: '3rdParty', init: () => {} },
+  }
+})
 
 const svc = vi.hoisted(() => ({
   getDeviceReadings: vi.fn(),
@@ -134,6 +150,16 @@ describe('SensorBlock', () => {
 
     await waitFor(() => expect(svc.deleteDevice).toHaveBeenCalledWith('mopeka-t1'))
     expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('names a sensor with a stored blank label by its device id in the delete prompt', async () => {
+    // A name cleared before blanks were stored as null is still '' in the row.
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderBlock(sensor({ label: '' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'integrations.deleteSensor' }))
+
+    expect(confirm).toHaveBeenCalledWith('Delete mopeka-t1 and all of its readings? This cannot be undone.')
   })
 
   it('keeps the sensor when the confirmation is declined', async () => {

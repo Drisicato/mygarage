@@ -6,6 +6,18 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+CitationSource = Literal[
+    "vehicle_spec",
+    "service_visit",
+    "note",
+    "supply",
+    "tire",
+    "reminder",
+    "dtc",
+    "dtc_definition",
+    "trailer",
+]
+
 
 class AssistantHistoryMessage(BaseModel):
     role: Literal["user", "assistant"] = Field(..., description="Chat turn role")
@@ -22,17 +34,7 @@ class GarageAssistantChatRequest(BaseModel):
 
 
 class AssistantCitation(BaseModel):
-    source: Literal[
-        "vehicle_spec",
-        "service_visit",
-        "note",
-        "supply",
-        "tire",
-        "reminder",
-        "dtc",
-        "dtc_definition",
-        "trailer",
-    ]
+    source: CitationSource
     # No length rules: _coerce_citations clips both already, and a rule here
     # could only turn a long one into a 500.
     label: str

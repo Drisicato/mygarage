@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, get_args
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.garage_assistant import (
     AssistantCitation,
     AssistantHistoryMessage,
+    CitationSource,
     GarageAssistantChatResponse,
 )
 from app.services import llm_client
@@ -37,17 +38,8 @@ Use an empty citations/missing array when none apply. citation source must be on
 def _coerce_citations(raw: Any) -> list[AssistantCitation]:
     if not isinstance(raw, list):
         return []
-    allowed = {
-        "vehicle_spec",
-        "service_visit",
-        "note",
-        "supply",
-        "tire",
-        "reminder",
-        "dtc",
-        "dtc_definition",
-        "trailer",
-    }
+    # Straight from the Literal, so a new source can't be refused here by a stale copy.
+    allowed = frozenset(get_args(CitationSource))
     out: list[AssistantCitation] = []
     for item in raw:
         if not isinstance(item, dict):

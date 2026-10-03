@@ -13,7 +13,7 @@ export const makeRecallSchema = (t: TFunction) =>
   z.object({
     nhtsa_campaign_number: z
       .string()
-      .max(50, t('common:validation.recall.campaignNumberTooLong'))
+      .max(20, t('common:validation.recall.campaignNumberTooLong'))
       .optional(),
     component: z
       .string()

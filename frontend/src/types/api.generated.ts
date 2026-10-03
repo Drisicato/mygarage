@@ -8098,11 +8098,8 @@ export interface components {
             date: string;
             /** Hours */
             hours: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "service" | "completion" | "baseline";
+            /** Kind */
+            kind: ("service" | "completion" | "baseline") | null;
             /** Line Item Id */
             line_item_id?: number | null;
             /** Note */
@@ -12035,7 +12032,7 @@ export interface components {
             enabled?: boolean | null;
             /**
              * Label
-             * @description User-friendly device name
+             * @description User-friendly device name, stored stripped. Null or blank clears it; longer than the column's 100 characters is a 422.
              */
             label?: string | null;
             /**
@@ -13866,9 +13863,9 @@ export interface components {
              * Usage Unit
              * @default distance
              */
-            usage_unit: string;
+            usage_unit: ("distance" | "hours") | null;
             /** Vehicle Type */
-            vehicle_type: string;
+            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
             /** Vin */
             vin: string;
             /** Year */
@@ -14234,7 +14231,7 @@ export interface components {
             /** Anchor Hours */
             anchor_hours?: string | null;
             /** Anchor Kind */
-            anchor_kind?: string | null;
+            anchor_kind?: ("service" | "completion" | "baseline") | null;
             /** Anchor Odometer Km */
             anchor_odometer_km?: string | null;
             /** Completed At */
@@ -16998,9 +16995,8 @@ export interface components {
             /**
              * Role
              * @default telemetry
-             * @enum {string}
              */
-            role: "telemetry" | "status";
+            role: ("telemetry" | "status") | null;
             /**
              * Scale
              * @default 1
@@ -17108,8 +17104,9 @@ export interface components {
             /**
              * Device Status
              * @description online / offline / unknown
+             * @enum {string}
              */
-            device_status: string;
+            device_status: "online" | "offline" | "unknown";
             /**
              * Label
              * @description Friendly name for this source
@@ -17879,7 +17876,7 @@ export interface components {
             /** Vehicle Name */
             vehicle_name: string;
             /** Vehicle Type */
-            vehicle_type: string;
+            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
             /** Vin */
             vin: string;
         };
@@ -18324,7 +18321,7 @@ export interface components {
             /** Upcoming Count */
             upcoming_count: number;
             /** Usage Unit */
-            usage_unit: string;
+            usage_unit: ("distance" | "hours") | null;
             /** Year */
             year: number;
         };
@@ -18381,14 +18378,16 @@ export interface components {
              * Device Status
              * @description Device: online/offline
              * @default offline
+             * @enum {string}
              */
-            device_status: string;
+            device_status: "online" | "offline" | "unknown";
             /**
              * Ecu Status
              * @description ECU: online/offline/unknown
              * @default unknown
+             * @enum {string}
              */
-            ecu_status: string;
+            ecu_status: "online" | "offline" | "unknown";
             /**
              * Kind
              * @description Source kind of the reporting device
@@ -18691,15 +18690,13 @@ export interface components {
              * Usage Unit
              * @description Usage tracking dimension: 'distance' (odometer) or 'hours' (hour meter)
              * @default distance
-             * @enum {string}
              */
-            usage_unit: "distance" | "hours";
+            usage_unit: ("distance" | "hours") | null;
             /**
              * Vehicle Type
              * @description Type of vehicle
-             * @enum {string}
              */
-            vehicle_type: "Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike";
+            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
             /** Vin */
             vin: string;
             /** Warranty Basic */
@@ -18880,9 +18877,9 @@ export interface components {
              * Usage Unit
              * @default distance
              */
-            usage_unit: string;
+            usage_unit: ("distance" | "hours") | null;
             /** Vehicle Type */
-            vehicle_type?: string | null;
+            vehicle_type?: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
             /** Vin */
             vin: string;
             /** Year */
@@ -19734,8 +19731,9 @@ export interface components {
              * Ecu Status
              * @description ECU status: online/offline
              * @default unknown
+             * @enum {string}
              */
-            ecu_status: string;
+            ecu_status: "online" | "offline" | "unknown";
             /**
              * Fw Version
              * @description Firmware version

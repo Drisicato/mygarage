@@ -19,11 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Literal, Protocol
+from typing import Protocol
 
 from dateutil.relativedelta import relativedelta
 
-AnchorKind = Literal["service", "completion", "baseline"]
+from app.schemas.maintenance import AnchorKind
 
 KM_QUANTUM = Decimal("0.01")
 HOURS_QUANTUM = Decimal("0.1")

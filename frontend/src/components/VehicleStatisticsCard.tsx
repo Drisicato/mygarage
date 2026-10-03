@@ -122,9 +122,11 @@ function VehicleStatisticsCard({ stats, selectMode = false, selected = false, on
     Bicycle: t('vehicleTypeLabels.Bicycle'),
     EBike: t('vehicleTypeLabels.EBike'),
   }
+  // Null is a stored type the app doesn't know, so it says so rather than
+  // dropping the badge.
   const typeLabel = stats.vehicle_type
     ? (typeLabels[stats.vehicle_type] ?? stats.vehicle_type)
-    : null
+    : t('common:unknown')
 
   return (
     <article
@@ -179,7 +181,7 @@ function VehicleStatisticsCard({ stats, selectMode = false, selected = false, on
             <h3 className="text-[19px] font-bold tracking-[-.01em] text-text">
               {stats.year} {stats.make} {stats.model}
             </h3>
-            {typeLabel ? <Badge>{typeLabel}</Badge> : null}
+            <Badge>{typeLabel}</Badge>
           </div>
           <Mono size="sm" tone="muted" variant="vin" className="mt-1 block">
             {stats.vin}

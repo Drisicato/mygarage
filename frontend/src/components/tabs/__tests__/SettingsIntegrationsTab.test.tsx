@@ -195,6 +195,31 @@ describe('SettingsIntegrationsTab', () => {
     expect(body.settings).not.toHaveProperty('telegram_inbound_enabled')
   })
 
+  describe('the NHTSA recalls URL', () => {
+    // The backend adds /recallsByVehicle itself, so the form's default has to be
+    // the base. The full endpoint got saved and fetched with the path twice.
+    const RECALLS_BASE = 'https://api.nhtsa.gov/recalls'
+
+    it("saves the backend's base when nothing is stored", async () => {
+      renderTab()
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'integrations.enableCarComplaints' }))
+
+      await waitFor(() => expect(mockedApi.post).toHaveBeenCalled(), { timeout: 3000 })
+      const [url, body] = mockedApi.post.mock.calls.at(-1) as [string, { settings: Record<string, string> }]
+      expect(url).toBe('/settings/batch')
+      expect(body.settings.nhtsa_recalls_api_url).toBe(RECALLS_BASE)
+    })
+
+    it('suggests the same base as its placeholder', async () => {
+      renderTab()
+
+      expect(await screen.findByLabelText('integrationsTab.nhtsaRecallsApiUrl')).toHaveAttribute(
+        'placeholder',
+        RECALLS_BASE,
+      )
+    })
+  })
+
   it('describes LiveLink by its sources, not by one vendor', async () => {
     // A new key rather than a rewrite of livelinkDesc: six locales translate
     // the old WiCAN-specific text, and rewriting its English value would leave

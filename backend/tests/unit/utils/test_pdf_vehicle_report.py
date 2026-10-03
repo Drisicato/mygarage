@@ -7,9 +7,12 @@ from typing import Any
 
 import fitz  # PyMuPDF
 import pytest
+from reportlab.platypus import SimpleDocTemplate
 
 from app.constants.units import IMPERIAL_PRESET, METRIC_PRESET
 from app.utils import pdf_vehicle_report
+from app.utils.pdf_components import make_vehicle_banner
+from app.utils.pdf_styles import register_fonts
 from app.utils.pdf_vehicle_report import generate_vehicle_analytics_pdf
 from app.utils.render_context import RenderContext
 from app.utils.unit_resolution import apply_vehicle_units
@@ -222,6 +225,29 @@ class TestGenerateVehicleAnalyticsPdf:
         buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
         text = _extract_text(buf.read())
         assert "3C63RRGL9NG000001" in text
+
+    def test_an_unknown_vehicle_type_renders_as_unknown(self) -> None:
+        """A stored type the app doesn't know dumps as None (the lenient read),
+        and the key is there, so a `.get` default never kicks in. The badge has
+        to say Unknown instead of reportlab choking on None."""
+        known = _extract_text(
+            generate_vehicle_analytics_pdf(_make_analytics_data(), render_context=METRIC_CTX).read()
+        )
+        assert "Unknown" not in known
+
+        data = {**_make_analytics_data(), "vehicle_type": None}
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        assert "Unknown" in _extract_text(buf.read())
+
+    def test_the_banner_itself_takes_a_missing_type(self) -> None:
+        """The fallback lives in the banner too, so the next dict caller can't
+        hand it None and 500 the export again."""
+        register_fonts()
+        buf = BytesIO()
+        SimpleDocTemplate(buf).build(
+            [make_vehicle_banner("2021 Honda Accord", "1HGCV1F31MA000001", None)]
+        )
+        assert "Unknown" in _extract_text(buf.getvalue())
 
     def test_contains_section_headings(self) -> None:
         data = _make_analytics_data()

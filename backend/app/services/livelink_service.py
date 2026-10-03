@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.livelink_device import LiveLinkDevice
 from app.models.livelink_topic_map import LiveLinkTopicMap
 from app.models.vehicle_telemetry import VehicleTelemetry
+from app.schemas.livelink import DeviceStatusType, ECUStatusType
 from app.services.livelink_sources.presets.sensors import delete_sensor_readings
 from app.services.settings_service import SettingsService
 from app.utils.datetime_utils import utc_now
@@ -491,9 +492,9 @@ class LiveLinkService:
         """Update device settings.
 
         ``changes`` holds only the fields the request sent (``exclude_unset``).
-        An omitted field keeps its value. A null ``label`` clears it; separate
-        parameters defaulting to None couldn't tell that from omitted, so a
-        cleared label said saved and stayed.
+        An omitted field keeps its value. A null or blank ``label`` clears it;
+        separate parameters defaulting to None couldn't tell that from omitted,
+        so a cleared label said saved and stayed. A name is stored stripped.
 
         ``vin``: ``""`` unlinks, None leaves the link alone.
 
@@ -512,7 +513,9 @@ class LiveLinkService:
             return None
 
         if "label" in changes:
-            device.label = changes["label"]
+            # An emptied name box is no name. Stored as blanks it beat the
+            # device id fallback, so the sensor showed up nameless.
+            device.label = (changes["label"] or "").strip() or None
         vin = changes.get("vin")
         if vin is not None:
             # "" is the unlink sentinel (schemas.livelink.LiveLinkDeviceUpdate.vin).
@@ -628,8 +631,8 @@ class LiveLinkService:
     async def update_device_status(
         self,
         device_id: str,
-        device_status: str | None = None,
-        ecu_status: str | None = None,
+        device_status: DeviceStatusType | None = None,
+        ecu_status: ECUStatusType | None = None,
         rssi: int | None = None,
         battery_voltage: float | None = None,
         sta_ip: str | None = None,

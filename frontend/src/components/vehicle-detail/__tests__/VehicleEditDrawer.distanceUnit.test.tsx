@@ -57,7 +57,7 @@ const baseVehicle: Vehicle = {
   distance_unit: null,
 }
 
-const stats = (usage_unit: string): VehicleDetailStats =>
+const stats = (usage_unit: VehicleDetailStats['usage_unit']): VehicleDetailStats =>
   makeDetailStats({ usage_unit, spent_this_year: '0', year: 2024 })
 
 function renderDrawer(vehicle: Vehicle): void {

@@ -12,7 +12,8 @@ export interface TopicMap {
   id: number
   device_id: string
   topic: string
-  role: 'telemetry' | 'status'
+  /** Null when the stored role is one the app doesn't know. */
+  role: 'telemetry' | 'status' | null
   param_key: string | null
   value_path: string | null
   unit: string | null

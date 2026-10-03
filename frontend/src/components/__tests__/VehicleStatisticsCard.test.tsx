@@ -76,6 +76,14 @@ describe('VehicleStatisticsCard', () => {
     expect(screen.queryByText('FifthWheel')).not.toBeInTheDocument()
   })
 
+  it('labels a type the app does not recognise Unknown instead of dropping the badge', () => {
+    // The dashboard row the API sends for a stored type this version doesn't know.
+    render(<VehicleStatisticsCard stats={makeVehicleStatistics({ vehicle_type: null })} />)
+
+    expect(screen.getByText('common:unknown')).toBeInTheDocument()
+    expect(screen.queryByText(/vehicleTypeLabels\./)).not.toBeInTheDocument()
+  })
+
   it('navigates to the vehicle via the whole-card stretched-link button', () => {
     render(<VehicleStatisticsCard stats={STATS} />)
     fireEvent.click(

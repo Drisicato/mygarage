@@ -41,8 +41,10 @@ export interface VehicleLogKinds {
 const PROPANE_TYPES: readonly string[] = ['RV', 'FifthWheel', 'TravelTrailer']
 
 export function vehicleLogKinds(vehicle: VehicleLogSource | null | undefined): VehicleLogKinds {
-  const type = vehicle?.vehicle_type ?? ''
-  if (!vehicle || !type) {
+  // No vehicle yet (still loading, or nothing picked in Quick Entry) offers
+  // nothing. A loaded vehicle with a null type has a stored type the app
+  // doesn't know, and that one still gets the full motorized set.
+  if (!vehicle) {
     return {
       motorized: false,
       fuel: false,
@@ -53,6 +55,8 @@ export function vehicleLogKinds(vehicle: VehicleLogSource | null | undefined): V
       hours: false,
     }
   }
+  // '' matches none of the type lists, so an unknown type lands on motorized.
+  const type = vehicle.vehicle_type ?? ''
   const motorized = !(NON_MOTORIZED_TYPES as readonly string[]).includes(type)
   const { tracksDistance, tracksHours } = getUsageTracking(vehicle)
   const def = isDieselFuelType(vehicle.fuel_type) || isDieselFuelType(vehicle.fuel_type_secondary)

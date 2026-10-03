@@ -46,7 +46,11 @@ def unwrap(
 
 
 def walk(roots: Iterable[Any]) -> Iterator[type[BaseModel]]:
-    """Every model reachable from the root annotations, each once."""
+    """Every model reachable from the root annotations, each once.
+
+    Follows computed fields too: they serialize like any other field, but
+    `model_fields` doesn't list them.
+    """
     seen: set[type[BaseModel]] = set()
     queue = [model for root in roots for model in unwrap(root)[2]]
     while queue:
@@ -57,3 +61,5 @@ def walk(roots: Iterable[Any]) -> Iterator[type[BaseModel]]:
         yield model
         for info in model.model_fields.values():
             queue += unwrap(info.annotation)[2]
+        for computed in model.model_computed_fields.values():
+            queue += unwrap(computed.return_type)[2]

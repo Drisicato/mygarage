@@ -13,6 +13,10 @@ import LiveLinkSettingsDrawers, { type SettingsTarget } from '@/components/livel
 
 // Sample VIN for testing NHTSA API connection
 const TEST_VIN = '1HGCM82633A123456'
+// The base, not the endpoint: the backend adds /recallsByVehicle itself, so the
+// full endpoint got saved and fetched with the path twice. Same as the
+// backend's DEFAULT_RECALLS_API_URL.
+const NHTSA_RECALLS_BASE_URL = 'https://api.nhtsa.gov/recalls'
 
 type SettingRecord = {
   key: string
@@ -114,7 +118,7 @@ function IntegrationsAdminView(): React.ReactElement {
     nhtsa_enabled: 'true',
     nhtsa_auto_check: 'true',
     nhtsa_recall_check_interval: '7',
-    nhtsa_recalls_api_url: 'https://api.nhtsa.gov/recalls/recallsByVehicle',
+    nhtsa_recalls_api_url: NHTSA_RECALLS_BASE_URL,
     carcomplaints_enabled: 'true',
     tomtom_api_key: '',
     tomtom_enabled: 'false',
@@ -141,7 +145,7 @@ function IntegrationsAdminView(): React.ReactElement {
         nhtsa_enabled: settingsMap['nhtsa_enabled'] || 'true',
         nhtsa_auto_check: settingsMap['nhtsa_auto_check'] || 'true',
         nhtsa_recall_check_interval: settingsMap['nhtsa_recall_check_interval'] || '7',
-        nhtsa_recalls_api_url: settingsMap['nhtsa_recalls_api_url'] || 'https://api.nhtsa.gov/recalls/recallsByVehicle',
+        nhtsa_recalls_api_url: settingsMap['nhtsa_recalls_api_url'] || NHTSA_RECALLS_BASE_URL,
         carcomplaints_enabled: settingsMap['carcomplaints_enabled'] || 'true',
         tomtom_api_key: settingsMap['tomtom_api_key'] || '',
         tomtom_enabled: settingsMap['tomtom_enabled'] || 'false',
@@ -411,7 +415,7 @@ function IntegrationsAdminView(): React.ReactElement {
               disabled={formData.nhtsa_enabled === 'false'}
               onChange={(e) => setFormData({ ...formData, nhtsa_recalls_api_url: e.target.value })}
               className="w-full px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 font-mono text-sm"
-              placeholder="https://api.nhtsa.gov/recalls/recallsByVehicle"
+              placeholder={NHTSA_RECALLS_BASE_URL}
             />
             <p className="mt-1 text-sm text-garage-text-muted">
               {t('integrations.nhtsaApiUrlDesc')}

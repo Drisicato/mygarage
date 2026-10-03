@@ -10,6 +10,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
+from pydantic import ValidationError
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.livelink_device import LiveLinkDevice
+from app.schemas.livelink_ingest import WiCANStatus
+
+BLANKABLE_STATUS_FIELDS = ["fw_version", "hw_version", "git_version", "sta_ip"]
 
 
 @pytest.mark.integration
@@ -81,6 +89,30 @@ class TestLiveLinkIngest:
             json=payload,
             headers={"Authorization": "Bearer token"},
         )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("ecu_status", [None, 1])
+    async def test_ingest_refuses_an_ecu_status_that_isnt_text(
+        self, client: AsyncClient, ecu_status: object
+    ):
+        """A guard: the ecu_status normaliser runs before the Literal and only
+        touches text, so a null or a number is still a 422 and never a 500.
+
+        Mutant: call `.strip()` on whatever arrives (an AttributeError escapes
+        pydantic and 500s the ingest).
+        """
+        payload = {
+            "autopid_data": {},
+            "config": {},
+            "status": {"device_id": "test12345678", "ecu_status": ecu_status},
+        }
+
+        response = await client.post(
+            "/api/v1/livelink/ingest",
+            json=payload,
+            headers={"Authorization": "Bearer token"},
+        )
+
         assert response.status_code == 422
 
     async def test_ingest_valid_minimal_payload(self, client: AsyncClient):
@@ -157,6 +189,64 @@ class TestLiveLinkIngest:
             )
 
         assert response.status_code == 202
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("livelink_enabled")
+@pytest.mark.parametrize("blank", ["", "   "])
+@pytest.mark.parametrize("field", BLANKABLE_STATUS_FIELDS)
+async def test_a_blank_status_field_creates_a_device_with_none(
+    client: AsyncClient, db_session: AsyncSession, field: str, blank: str
+) -> None:
+    """A WiCAN that sends a blank version or IP didn't say, so the new device
+    stores None. A stored '' firmware version sorted below every release."""
+    device_id = "h4blankstatus"
+    payload = {
+        "autopid_data": {},
+        "config": {},
+        "status": {"device_id": device_id, field: blank},
+    }
+    try:
+        with patch(
+            "app.routes.livelink.validate_livelink_token", new_callable=AsyncMock
+        ) as validate:
+            validate.return_value = True
+            response = await client.post(
+                "/api/v1/livelink/ingest",
+                json=payload,
+                headers={"Authorization": "Bearer t"},
+            )
+
+        assert response.status_code == 202
+        assert "processing_error" not in response.json()
+        db_session.expire_all()
+        device = (
+            await db_session.execute(
+                select(LiveLinkDevice).where(LiveLinkDevice.device_id == device_id)
+            )
+        ).scalar_one()
+        assert getattr(device, field) is None
+    finally:
+        await db_session.rollback()
+        await db_session.execute(
+            delete(LiveLinkDevice).where(LiveLinkDevice.device_id == device_id)
+        )
+        await db_session.commit()
+
+
+@pytest.mark.parametrize("field", BLANKABLE_STATUS_FIELDS)
+def test_the_blank_normaliser_leaves_anything_that_isnt_blank_text_alone(field: str) -> None:
+    """A guard: like the ecu_status normaliser, the blank one only touches
+    text. A real value is kept, a null stays None and a number is still a 422.
+
+    Mutant: `return v.strip() or None` for whatever arrives (None and the
+    number raise AttributeError, which pydantic doesn't turn into a 422).
+    """
+    assert getattr(WiCANStatus(device_id="aabbccddeeff", **{field: "4.45"}), field) == "4.45"
+    assert getattr(WiCANStatus(device_id="aabbccddeeff", **{field: None}), field) is None
+    with pytest.raises(ValidationError):
+        WiCANStatus(device_id="aabbccddeeff", **{field: 4.45})
 
 
 @pytest.mark.integration
@@ -246,3 +336,16 @@ class TestLiveLinkTokenValidation:
             )
 
         assert result is True
+
+
+@pytest.mark.parametrize(
+    ("sent", "stored"),
+    [("online", "online"), (" ON ", "online"), ("0", "offline"), ("melted", "unknown")],
+)
+def test_the_ecu_status_normaliser_feeds_the_literal(sent: str, stored: str):
+    """A guard: the normaliser maps every word a device sends onto the
+    vocabulary before the Literal sees it, so no WiCAN status is a 422.
+
+    Mutant: make it an after-validator again (the Literal refuses " ON ").
+    """
+    assert WiCANStatus(device_id="aabbccddeeff", ecu_status=sent).ecu_status == stored

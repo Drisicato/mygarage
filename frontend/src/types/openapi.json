@@ -1123,13 +1123,20 @@
             "title": "Hours"
           },
           "kind": {
-            "enum": [
-              "service",
-              "completion",
-              "baseline"
+            "anyOf": [
+              {
+                "enum": [
+                  "service",
+                  "completion",
+                  "baseline"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Kind",
-            "type": "string"
+            "title": "Kind"
           },
           "line_item_id": {
             "anyOf": [
@@ -10253,13 +10260,14 @@
           "label": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "User-friendly device name",
+            "description": "User-friendly device name, stored stripped. Null or blank clears it; longer than the column's 100 characters is a 422.",
             "title": "Label"
           },
           "odometer_param_key": {
@@ -14676,13 +14684,49 @@
             "title": "Thumbnail Url"
           },
           "usage_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "distance",
+                  "hours"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "distance",
-            "title": "Usage Unit",
-            "type": "string"
+            "title": "Usage Unit"
           },
           "vehicle_type": {
-            "title": "Vehicle Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "Car",
+                  "Truck",
+                  "SUV",
+                  "Motorcycle",
+                  "ATV",
+                  "RV",
+                  "Trailer",
+                  "FifthWheel",
+                  "TravelTrailer",
+                  "Electric",
+                  "Hybrid",
+                  "Boat",
+                  "UTV",
+                  "Snowmobile",
+                  "Bicycle",
+                  "EBike"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Type"
           },
           "vin": {
             "title": "Vin",
@@ -14773,7 +14817,7 @@
           "nhtsa_campaign_number": {
             "anyOf": [
               {
-                "maxLength": 50,
+                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -15033,7 +15077,7 @@
           "nhtsa_campaign_number": {
             "anyOf": [
               {
-                "maxLength": 50,
+                "maxLength": 20,
                 "type": "string"
               },
               {
@@ -15691,6 +15735,11 @@
           "anchor_kind": {
             "anyOf": [
               {
+                "enum": [
+                  "service",
+                  "completion",
+                  "baseline"
+                ],
                 "type": "string"
               },
               {
@@ -22877,13 +22926,20 @@
             "title": "Param Key"
           },
           "role": {
-            "default": "telemetry",
-            "enum": [
-              "telemetry",
-              "status"
+            "anyOf": [
+              {
+                "enum": [
+                  "telemetry",
+                  "status"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Role",
-            "type": "string"
+            "default": "telemetry",
+            "title": "Role"
           },
           "scale": {
             "default": "1",
@@ -23114,6 +23170,11 @@
           },
           "device_status": {
             "description": "online / offline / unknown",
+            "enum": [
+              "online",
+              "offline",
+              "unknown"
+            ],
             "title": "Device Status",
             "type": "string"
           },
@@ -24973,8 +25034,33 @@
             "type": "string"
           },
           "vehicle_type": {
-            "title": "Vehicle Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "Car",
+                  "Truck",
+                  "SUV",
+                  "Motorcycle",
+                  "ATV",
+                  "RV",
+                  "Trailer",
+                  "FifthWheel",
+                  "TravelTrailer",
+                  "Electric",
+                  "Hybrid",
+                  "Boat",
+                  "UTV",
+                  "Snowmobile",
+                  "Bicycle",
+                  "EBike"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Type"
           },
           "vin": {
             "title": "Vin",
@@ -26052,8 +26138,19 @@
             "type": "integer"
           },
           "usage_unit": {
-            "title": "Usage Unit",
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "distance",
+                  "hours"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage Unit"
           },
           "year": {
             "title": "Year",
@@ -26168,12 +26265,22 @@
           "device_status": {
             "default": "offline",
             "description": "Device: online/offline",
+            "enum": [
+              "online",
+              "offline",
+              "unknown"
+            ],
             "title": "Device Status",
             "type": "string"
           },
           "ecu_status": {
             "default": "unknown",
             "description": "ECU: online/offline/unknown",
+            "enum": [
+              "online",
+              "offline",
+              "unknown"
+            ],
             "title": "Ecu Status",
             "type": "string"
           },
@@ -26990,37 +27097,51 @@
             "title": "Updated At"
           },
           "usage_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "distance",
+                  "hours"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "distance",
             "description": "Usage tracking dimension: 'distance' (odometer) or 'hours' (hour meter)",
-            "enum": [
-              "distance",
-              "hours"
-            ],
-            "title": "Usage Unit",
-            "type": "string"
+            "title": "Usage Unit"
           },
           "vehicle_type": {
-            "description": "Type of vehicle",
-            "enum": [
-              "Car",
-              "Truck",
-              "SUV",
-              "Motorcycle",
-              "ATV",
-              "RV",
-              "Trailer",
-              "FifthWheel",
-              "TravelTrailer",
-              "Electric",
-              "Hybrid",
-              "Boat",
-              "UTV",
-              "Snowmobile",
-              "Bicycle",
-              "EBike"
+            "anyOf": [
+              {
+                "enum": [
+                  "Car",
+                  "Truck",
+                  "SUV",
+                  "Motorcycle",
+                  "ATV",
+                  "RV",
+                  "Trailer",
+                  "FifthWheel",
+                  "TravelTrailer",
+                  "Electric",
+                  "Hybrid",
+                  "Boat",
+                  "UTV",
+                  "Snowmobile",
+                  "Bicycle",
+                  "EBike"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Vehicle Type",
-            "type": "string"
+            "description": "Type of vehicle",
+            "title": "Vehicle Type"
           },
           "vin": {
             "title": "Vin",
@@ -27595,13 +27716,42 @@
             "type": "integer"
           },
           "usage_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "distance",
+                  "hours"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "distance",
-            "title": "Usage Unit",
-            "type": "string"
+            "title": "Usage Unit"
           },
           "vehicle_type": {
             "anyOf": [
               {
+                "enum": [
+                  "Car",
+                  "Truck",
+                  "SUV",
+                  "Motorcycle",
+                  "ATV",
+                  "RV",
+                  "Trailer",
+                  "FifthWheel",
+                  "TravelTrailer",
+                  "Electric",
+                  "Hybrid",
+                  "Boat",
+                  "UTV",
+                  "Snowmobile",
+                  "Bicycle",
+                  "EBike"
+                ],
                 "type": "string"
               },
               {
@@ -29757,6 +29907,11 @@
           "ecu_status": {
             "default": "unknown",
             "description": "ECU status: online/offline",
+            "enum": [
+              "online",
+              "offline",
+              "unknown"
+            ],
             "title": "Ecu Status",
             "type": "string"
           },
