@@ -108,6 +108,14 @@ describe('VehicleHero', () => {
     expect(screen.queryByText('vehicleStats.overdue')).not.toBeInTheDocument()
   })
 
+  it('labels the type chip with the translated type, not the raw enum', () => {
+    render(<VehicleHero vehicle={{ ...VEHICLE, vehicle_type: 'FifthWheel' } as Vehicle}
+      photoUrl={null} fromCache={false} detailStats={null} />)
+
+    expect(screen.getByText('vehicleTypeLabels.FifthWheel')).toBeInTheDocument()
+    expect(screen.queryByText('FifthWheel')).not.toBeInTheDocument()
+  })
+
   it('omits the odometer reading for a non-motorized vehicle even with stats', () => {
     render(<VehicleHero vehicle={{ ...VEHICLE, vehicle_type: 'FifthWheel' } as Vehicle}
       photoUrl={null} fromCache={false} detailStats={STATS} />)

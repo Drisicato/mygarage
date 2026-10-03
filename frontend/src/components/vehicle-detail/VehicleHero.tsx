@@ -127,7 +127,11 @@ export default function VehicleHero({ vehicle, photoUrl, fromCache, detailStats 
           taking selection away again. */}
       <div className="absolute inset-x-6 bottom-5">
         <div className="mb-2 flex flex-wrap items-center gap-2.5">
-          <Chip tone="accent">{vehicle.vehicle_type ?? t('common:unknown')}</Chip>
+          <Chip tone="accent">
+            {vehicle.vehicle_type
+              ? t(`vehicleTypeLabels.${vehicle.vehicle_type}`, { defaultValue: vehicle.vehicle_type })
+              : t('common:unknown')}
+          </Chip>
           {primaryReading ? (
             <span className="inline-flex items-center gap-1.5 rounded-chip bg-badge-bg px-2.5 py-1 text-text-dim">
               <Gauge aria-hidden="true" className="h-3.5 w-3.5" />

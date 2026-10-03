@@ -99,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On the window sticker test page, Remove clears the chosen file instead of opening the file picker
 - A vehicle, tire, service line, LiveLink device, topic map or reminder anchor holding a value the app doesn't recognise (for example from a restored backup) loads (the value shows as unknown or unset) instead of failing the page
 - Saving over a reminder pack that names a vehicle type the app doesn't recognise drops that type and saves, instead of failing
+- The vehicle page's type chip shows the translated type name (Fifth Wheel) instead of the raw value (FifthWheel)
 - A LiveLink device that reports a blank firmware version no longer gets an update notice for every release
 - Clearing a LiveLink sensor's name falls back to its device id everywhere, including the delete prompt
 - A recall campaign number longer than 20 characters is refused instead of failing to save on PostgreSQL
