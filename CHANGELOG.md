@@ -13,12 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Admins can allow an SSO account to relink after its identity-provider account was re-created, from the member card; `tools/oidc_allow_relink.py` does it when the only admin is locked out
 - `MYGARAGE_TRUSTED_PROXIES` and `MYGARAGE_CLIENT_IP_HEADER`: behind a reverse proxy, rate limits and audit logs see the real client instead of the proxy
 - The Backup tab shows a full restore waiting for the restart, and can cancel it
+- Pending reminders are listed by how soon they're due, and each shows whether it's overdue or due soon, with a progress bar and what's left (#192)
 
 ### Changed
 - Vehicle cards and the vehicle hero flag reminders due within 30 days, by date or by projected mileage and hours, instead of every pending reminder; the fleet strip's count is the sum of those badges
 - The notification bell warns about mileage and hours reminders projected to come due within two weeks, not only dated ones
 - PostgreSQL money columns widen to hold the new maximums; the migration is forward-only and rewrites no data
 - A full backup restore finishes when MyGarage restarts: it checks and stages the backup, and the next start saves a safety backup of the data it replaces, then swaps the backup in before opening the database, so an older backup is migrated on that start
+- A mileage or hours reminder with no recent driving rate to project from counts as due soon once it's 90% of the way to its target (#192)
 
 ### Deprecated
 - The spending-anomaly `message` field in the analytics API is deprecated; the app builds its own sentence from `amount`, `baseline` and `deviation_percent`
@@ -109,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A LiveLink sensor name longer than 100 characters is refused instead of failing to save on PostgreSQL
 - An NHTSA API URL setting saved with spaces around it is used without them, instead of breaking recall and TSB checks
 - Recall checks work again where the stored NHTSA recalls URL is the full endpoint (an install from before v2.19.0, or the Integrations tab saved with the field blank); it's read as its base
+- The vehicle page's header counts, reminders, and odometer and hours readings now refresh after a new reading, fill-up, service visit, tire change, vehicle import or a reminder completed on the calendar, instead of waiting for a reload
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
