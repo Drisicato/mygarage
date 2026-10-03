@@ -22,6 +22,11 @@ import {
   useImportFuelCSV,
 } from '../useFuelRecords'
 import { useCreateDEFRecord, useUpdateDEFRecord, useDeleteDEFRecord } from '../useDEFRecords'
+import {
+  useCreatePropaneRecord,
+  useUpdatePropaneRecord,
+  useDeletePropaneRecord,
+} from '../usePropaneRecords'
 import { useCreateServiceVisit } from '../useServiceVisits'
 import { useCreateTire } from '../useTires'
 import {
@@ -72,6 +77,9 @@ const CASES: [string, AnyMutationHook, unknown][] = [
   ['DEF create', useCreateDEFRecord, { date: '2026-10-01', odometer_km: 1000 }],
   ['DEF update', useUpdateDEFRecord, { id: 1, odometer_km: 1000 }],
   ['DEF delete', useDeleteDEFRecord, 1],
+  ['propane create', useCreatePropaneRecord, { date: '2026-10-01' }],
+  ['propane update', useUpdatePropaneRecord, { id: 1 }],
+  ['propane delete', useDeletePropaneRecord, 1],
   ['service visit create', useCreateServiceVisit, { date: '2026-10-01' }],
   ['tire create', useCreateTire, { brand: 'Test' }],
 ]

@@ -2227,7 +2227,7 @@
     {
       "path": "src/hooks/queries/usePropaneRecords.ts",
       "disposition": "no unit behaviour",
-      "digest": "4ead5d2611f12e2a08a92c6d0f05a0ce24f6ee8b87770044a7780f191f7cf922",
+      "digest": "faa190aa7c46928e30fa90ea0923f88306fb7c9ae3754283289f555426f61f9d",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity."
     },
     {
