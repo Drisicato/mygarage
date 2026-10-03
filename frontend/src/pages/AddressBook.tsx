@@ -315,9 +315,9 @@ export function AddressBookForm({ entry, onClose, onSuccess }: AddressBookFormPr
   const onSubmit = async (data: AddressBookFormData) => {
     setError(null)
     try {
-      // poi_category is intentionally never sent from here: manual gas stations
-      // use category='Gas Station', and omitting poi_category preserves any
-      // discovery-set value on the backend (PUT merge).
+      // poi_category is left out, so the backend keeps any discovery-set value
+      // (PUT merge). Manual gas stations use category='Gas Station'. The one
+      // exception is below: re-filing a gas station under another chip.
       const payload: AddressBookEntryCreate = {
         business_name: data.business_name,
         name: data.name,
@@ -340,6 +340,15 @@ export function AddressBookForm({ entry, onClose, onSuccess }: AddressBookFormPr
         const { source: _source, category: _category, ...fields } = payload
         const update: AddressBookEntryUpdate = fields
         if (data.category !== defaultCategory) update.category = data.category || null
+        // A gas station saved under a chip that isn't Gas Station stops being
+        // one. The backend keeps a gas_station tag unless told, so the page said
+        // Service while fill-ups still offered it. Other POI tags stay put.
+        if (
+          entry.poi_category === 'gas_station' &&
+          displayCategory({ category: data.category, poi_category: entry.poi_category }) !== 'Gas Station'
+        ) {
+          update.poi_category = null
+        }
         await api.put(`/address-book/${entry.id}`, update)
       } else {
         await api.post('/address-book', payload)

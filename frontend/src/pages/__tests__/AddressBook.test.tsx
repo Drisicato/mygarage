@@ -245,7 +245,7 @@ describe('AddressBookForm — category (no more gas-station checkbox)', () => {
   })
 })
 
-describe('AddressBookForm — submit never serializes poi_category', () => {
+describe('AddressBookForm: submit leaves poi_category out unless it re-files a gas station', () => {
   it('editing a POI entry omits poi_category (backend preserves the discovery value) and keeps category', async () => {
     render(<AddressBookForm entry={{ id: 3, business_name: 'Joe Auto', category: 'Service', poi_category: 'auto_shop' } as never} onClose={() => {}} onSuccess={() => {}} />)
     fireEvent.submit(formEl())
@@ -268,6 +268,64 @@ describe('AddressBookForm — submit never serializes poi_category', () => {
     expect(body.category).toBe('Gas Station')
     expect('poi_category' in body).toBe(false)
   })
+})
+
+describe('AddressBookForm: a gas station filed under another chip stops being one (#194)', () => {
+  const lastPut = () => put.mock.calls.at(-1)?.[1] as Record<string, unknown>
+  const save = async (): Promise<void> => {
+    fireEvent.submit(formEl())
+    await waitFor(() => expect(put).toHaveBeenCalled())
+  }
+
+  it('clears the gas_station tag when another chip is picked', async () => {
+    // The backend keeps the tag unless told, so the page said Service while the
+    // fill-up still offered it and vendor sync skipped it.
+    render(<AddressBookForm entry={{ id: 1, business_name: 'Shell', category: null, poi_category: 'gas_station' } as never} onClose={() => {}} onSuccess={() => {}} />)
+    fireEvent.change(categorySelect(), { target: { value: 'Service' } })
+    await save()
+    expect(lastPut().category).toBe('Service')
+    expect(lastPut()).toHaveProperty('poi_category', null)
+  })
+
+  it('clears it on a save of a station already filed under another chip', async () => {
+    render(<AddressBookForm entry={{ id: 2, business_name: 'Corner Shop', category: 'Service', poi_category: 'gas_station' } as never} onClose={() => {}} onSuccess={() => {}} />)
+    expect(categorySelect().value).toBe('Service')
+    await save()
+    expect(lastPut()).toHaveProperty('poi_category', null)
+    expect('category' in lastPut()).toBe(false)
+  })
+
+  it('clears it under a custom category too, which the page shows instead of Gas Station', async () => {
+    render(<AddressBookForm entry={{ id: 3, business_name: 'Tow Stop', category: 'Towing', poi_category: 'gas_station' } as never} onClose={() => {}} onSuccess={() => {}} />)
+    expect(categorySelect().value).toBe('Towing')
+    await save()
+    expect(lastPut()).toHaveProperty('poi_category', null)
+  })
+
+  it('guard: keeps the tag while Gas Station stays picked (mutant: clear any gas_station tag)', async () => {
+    render(<AddressBookForm entry={{ id: 4, business_name: 'Shell', category: null, poi_category: 'gas_station' } as never} onClose={() => {}} onSuccess={() => {}} />)
+    await save()
+    expect('poi_category' in lastPut()).toBe(false)
+  })
+
+  it('guard: keeps the tag when the category is emptied, since it still reads Gas Station (mutant: clear unless the value is Gas Station)', async () => {
+    render(<AddressBookForm entry={{ id: 5, business_name: 'Corner Shop', category: 'Service', poi_category: 'gas_station' } as never} onClose={() => {}} onSuccess={() => {}} />)
+    fireEvent.change(categorySelect(), { target: { value: '' } })
+    await save()
+    expect(lastPut().category).toBeNull()
+    expect('poi_category' in lastPut()).toBe(false)
+  })
+
+  it.each(['auto_shop', 'rv_shop', 'ev_charging', 'propane'])(
+    'guard: a %s tag stays whatever chip is picked (mutant: clear any tag when the chip is not Gas Station)',
+    async (poi) => {
+      render(<AddressBookForm entry={{ id: 6, business_name: 'Somewhere', category: null, poi_category: poi } as never} onClose={() => {}} onSuccess={() => {}} />)
+      fireEvent.change(categorySelect(), { target: { value: 'Dealer' } })
+      await save()
+      expect(lastPut().category).toBe('Dealer')
+      expect('poi_category' in lastPut()).toBe(false)
+    },
+  )
 })
 
 describe('AddressBookForm — delete + notes placeholder', () => {

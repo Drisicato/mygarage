@@ -645,6 +645,38 @@ class TestAddressBookRoutes:
         finally:
             await _delete_named(db_session, name)
 
+    async def test_a_gas_station_refiled_as_service_stops_being_one(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """What the Address Book form sends when a gas station is saved under another
+        chip. The page reads it as Service, so the fill-up stops offering it and it
+        syncs to vendors like any other Service entry."""
+        name = f"ZZ Refiled Station {uuid.uuid4().hex[:8]}"
+        vendors_named = select(Vendor.name).where(Vendor.name == name)
+        try:
+            created = await client.post(
+                "/api/address-book",
+                json={"business_name": name, "poi_category": "gas_station"},
+                headers=auth_headers,
+            )
+            assert created.status_code == 201, created.text
+            # Both halves have to start true, or the after-state proves nothing.
+            assert name in await _offered_to_fill_up(client, auth_headers, "ZZ Refiled Station")
+            assert (await db_session.execute(vendors_named)).scalars().all() == []
+
+            updated = await client.put(
+                f"/api/address-book/{created.json()['id']}",
+                json={"category": "Service", "poi_category": None},
+                headers=auth_headers,
+            )
+            assert updated.status_code == 200, updated.text
+            assert updated.json()["category"] == "Service"
+            assert updated.json()["poi_category"] is None
+            assert name not in await _offered_to_fill_up(client, auth_headers, "ZZ Refiled Station")
+            assert (await db_session.execute(vendors_named)).scalars().all() == [name]
+        finally:
+            await _delete_named(db_session, name)
+
     async def test_create_with_an_empty_poi_category_stores_none(
         self, client: AsyncClient, auth_headers, db_session
     ):
