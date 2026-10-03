@@ -876,6 +876,99 @@ class TestCountPendingRemindersFallback:
         assert (counts.overdue, counts.upcoming, counts.due_soon) == (0, 1, 1)
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestEnrichDueStatus:
+    async def test_a_pending_reminder_says_where_it_stands(
+        self, db_session, test_vehicle, clean_odometer_records, clean_reminders
+    ):
+        vin = test_vehicle["vin"]
+        today = household_today()
+        # One reading: no rate, so the mileage can't project and D2 decides.
+        await _add_odometer_record(db_session, vin, today, Decimal("59000"))
+        reminder = Reminder(
+            vin=vin,
+            title="Oil",
+            reminder_type="smart",
+            status="pending",
+            due_date=today + timedelta(days=60),
+            due_mileage_km=Decimal("60000"),
+            anchor_kind="service",
+            anchor_date=today - timedelta(days=120),
+            anchor_odometer_km=Decimal("50000"),
+        )
+        db_session.add(reminder)
+        await db_session.commit()
+        await db_session.refresh(reminder)
+
+        response = await enrich_with_estimate(reminder, db_session)
+
+        assert response.due_status == "due_soon"
+        assert response.progress_basis == "distance"  # 0.9 beats the date's 120/180
+        assert response.progress == pytest.approx(0.9)
+        assert response.days_until_due == 60
+        assert response.km_until_due == Decimal("1000")
+        assert response.hours_until_due is None
+        assert response.estimated_due_date is None  # no rate, no projection
+
+    async def test_done_and_dismissed_rows_carry_nulls(
+        self, db_session, test_vehicle, clean_reminders
+    ):
+        for status in ("done", "dismissed"):
+            reminder = Reminder(
+                vin=test_vehicle["vin"],
+                title=f"Closed {status}",
+                reminder_type="date",
+                status=status,
+                due_date=household_today() - timedelta(days=5),
+            )
+            db_session.add(reminder)
+            await db_session.commit()
+            await db_session.refresh(reminder)
+            response = await enrich_with_estimate(reminder, db_session)
+            assert (
+                response.due_status,
+                response.progress,
+                response.progress_basis,
+                response.days_until_due,
+                response.km_until_due,
+                response.hours_until_due,
+            ) == (None, None, None, None, None, None)
+
+    async def test_a_passed_context_is_used_and_nothing_is_fetched(
+        self, db_session, test_vehicle, clean_reminders, monkeypatch
+    ):
+        reading = AsyncMock(wraps=reminder_service.get_current_mileage)
+        rate = AsyncMock(wraps=reminder_service.calculate_driving_rate)
+        monkeypatch.setattr(reminder_service, "get_current_mileage", reading)
+        monkeypatch.setattr(reminder_service, "calculate_driving_rate", rate)
+        reminder = Reminder(
+            vin=test_vehicle["vin"],
+            title="Oil",
+            reminder_type="mileage",
+            status="pending",
+            due_mileage_km=Decimal("57000"),
+        )
+        db_session.add(reminder)
+        await db_session.commit()
+        await db_session.refresh(reminder)
+        ctx = DueContext(
+            today=TODAY,
+            current_km=Decimal("56000"),
+            current_hours=None,
+            km_per_day=100.0,
+            hours_per_day=None,
+        )
+
+        response = await enrich_with_estimate(reminder, db_session, ctx)
+
+        assert response.estimated_due_date == TODAY + timedelta(days=10)
+        assert response.due_status == "due_soon"
+        assert response.km_until_due == Decimal("1000")
+        reading.assert_not_awaited()
+        rate.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # enrich_with_estimate — smart projection (backward-compat + hours)
 # ---------------------------------------------------------------------------

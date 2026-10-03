@@ -15824,6 +15824,17 @@
             "title": "Created At",
             "type": "string"
           },
+          "days_until_due": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Until Due"
+          },
           "due_date": {
             "anyOf": [
               {
@@ -15860,6 +15871,23 @@
             ],
             "title": "Due Mileage Km"
           },
+          "due_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "overdue",
+                  "due_soon",
+                  "on_track",
+                  "snoozed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Status"
+          },
           "duplicate_of": {
             "items": {
               "type": "integer"
@@ -15879,9 +15907,33 @@
             ],
             "title": "Estimated Due Date"
           },
+          "hours_until_due": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours Until Due"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "km_until_due": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Km Until Due"
           },
           "last_notified_at": {
             "anyOf": [
@@ -15927,6 +15979,33 @@
               }
             ],
             "title": "Notes"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "progress_basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "date",
+                  "distance",
+                  "hours"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Basis"
           },
           "projected_usage_date": {
             "anyOf": [

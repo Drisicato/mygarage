@@ -747,8 +747,10 @@ async def update_reminder(reminder: Reminder, data: ReminderUpdate, db: AsyncSes
     return reminder
 
 
-async def enrich_with_estimate(reminder: Reminder, db: AsyncSession) -> ReminderResponse:
-    """Build ReminderResponse with the usage projection for a pending reminder.
+async def enrich_with_estimate(
+    reminder: Reminder, db: AsyncSession, ctx: DueContext | None = None
+) -> ReminderResponse:
+    """Build ReminderResponse with the projection and due status of a pending reminder.
 
     Any pending reminder with a mileage or hours target and a usage rate gets
     ``projected_usage_date``, the uncapped date the target is reached at the
@@ -760,29 +762,41 @@ async def enrich_with_estimate(reminder: Reminder, db: AsyncSession) -> Reminder
 
     A reminder with both targets (legacy ``both``-typed rows can only carry
     mileage; a rule never produces both) projects from the mileage.
+
+    #192 adds where it stands: ``due_status``, ``progress`` and its basis, and
+    what is left by date, distance and hours. ``list_reminders`` passes one
+    ``ctx`` for the whole vehicle. Any other caller leaves it out, and the
+    readings, rates and start are fetched for this reminder alone, so a row a
+    write returns keeps its colour until the list refetches.
     """
     response = ReminderResponse.model_validate(reminder)
     if reminder.status != "pending":
         return response
-    today = household_today()
-    km_per_day: float | None = None
-    hours_per_day: float | None = None
-    current_km: Decimal | None = None
-    current_hours: Decimal | None = None
-    if reminder.due_mileage_km is not None:
-        km_per_day = await calculate_driving_rate(reminder.vin, db)
-        current_km = await get_current_mileage(reminder.vin, db)
-    elif reminder.due_hours is not None:
-        hours_per_day = await calculate_hours_driving_rate(reminder.vin, db)
-        current_hours = await get_current_hours(reminder.vin, db)
+    if ctx is None:
+        ctx = await load_due_context(db, reminder.vin, [reminder], household_today())
     projected = projected_usage_date(
-        reminder, current_km, current_hours, km_per_day, hours_per_day, today
+        reminder, ctx.current_km, ctx.current_hours, ctx.km_per_day, ctx.hours_per_day, ctx.today
     )
     if projected is not None:
         response.projected_usage_date = projected
         response.estimated_due_date = expected_due_date(
-            reminder, current_km, current_hours, km_per_day, hours_per_day, today
+            reminder,
+            ctx.current_km,
+            ctx.current_hours,
+            ctx.km_per_day,
+            ctx.hours_per_day,
+            ctx.today,
         )
+    response.due_status = reminder_due_status(reminder, ctx)
+    leading = leading_progress(progress_fractions(reminder, reminder_start(reminder, ctx), ctx))
+    if leading is not None:
+        response.progress_basis, response.progress = leading
+    if reminder.due_date is not None:
+        response.days_until_due = (reminder.due_date - ctx.today).days
+    if reminder.due_mileage_km is not None and ctx.current_km is not None:
+        response.km_until_due = reminder.due_mileage_km - ctx.current_km
+    if reminder.due_hours is not None and ctx.current_hours is not None:
+        response.hours_until_due = reminder.due_hours - ctx.current_hours
     return response
 
 
