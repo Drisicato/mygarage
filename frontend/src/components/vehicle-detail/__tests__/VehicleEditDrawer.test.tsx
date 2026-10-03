@@ -218,6 +218,47 @@ describe('VehicleEditDrawer — clear-on-blank vs. NOT NULL required fields', ()
     expect(select.value).toBe('Car')
   })
 
+  // The API reads a stored type or usage mode it doesn't recognise as null.
+  describe('a stored value the app does not recognise', () => {
+    it('offers a Select type prompt for an unknown type instead of a blank select', async () => {
+      renderVehicleEdit({ ...baseVehicle, vehicle_type: null })
+
+      const select = (await screen.findByLabelText('edit.vehicleType')) as HTMLSelectElement
+
+      expect(select.options[0].value).toBe('')
+      expect(select.options[0].textContent).toBe('common:selectType')
+      expect(select.value).toBe('')
+    })
+
+    it('will not save an unknown type until a real one is picked (guard)', async () => {
+      // Guard, passes at t=0: the zod enum already refuses null.
+      // Mutant: `.nullable()` on vehicleTypeSchema in schemas/vehicle.ts.
+      renderVehicleEdit({ ...baseVehicle, vehicle_type: null })
+      await screen.findByLabelText('edit.vehicleType')
+
+      fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
+
+      expect(await screen.findByText('Vehicle type is required')).toBeInTheDocument()
+      expect(mockedApi.put).not.toHaveBeenCalled()
+
+      fireEvent.change(screen.getByLabelText('edit.vehicleType'), { target: { value: 'Car' } })
+      fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
+
+      await waitFor(() => expect(mockedApi.put).toHaveBeenCalled())
+      const body = mockedApi.put.mock.calls.at(-1)?.[1] as Record<string, unknown>
+      expect(body.vehicle_type).toBe('Car')
+    })
+
+    it('seeds distance for an unknown usage mode (guard)', async () => {
+      // Guard, passes at t=0: the seed already falls back to the column default.
+      // Mutant: drop the `?? 'distance'` from the usage_unit seed.
+      renderVehicleEdit({ ...baseVehicle, usage_unit: null })
+
+      const select = (await screen.findByLabelText('edit.usageTracking')) as HTMLSelectElement
+
+      expect(select.value).toBe('distance')
+    })
+  })
 })
 
 describe('VehicleEditDrawer — DEF tank capacity diesel-only gate', () => {

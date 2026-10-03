@@ -138,6 +138,7 @@ import vehicleService from '../../services/vehicleService'
 import { livelinkService } from '../../services/livelinkService'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Vehicle, VehicleDetailStats, VehicleType } from '../../types/vehicle'
+import type { VehicleLiveLinkStatus } from '../../types/livelink'
 import { makeUnitFormat } from '../../utils/unitFormat'
 import VehicleDetail from '../VehicleDetail'
 import { IMPERIAL_UNITS, makeUser, makeDetailStats } from '../../__tests__/factories'
@@ -178,7 +179,7 @@ function renderVehicleDetail(initialPath = '/vehicles/TEST12345678901234') {
 // The LiveLink tab strip is driven entirely by the status endpoint: a null
 // device_id hides the primary tab, and `capabilities` decides which sub-tabs
 // exist. These are the Capability values from the backend registry.
-const status = (device_id: string | null, capabilities: string[]) => ({
+const status = (device_id: string | null, capabilities: string[]): VehicleLiveLinkStatus => ({
   vin: 'TEST12345678901234',
   device_id,
   capabilities,
@@ -447,6 +448,20 @@ describe('VehicleDetail', () => {
     const subNav = screen.getByTestId('sub-tab-nav')
     expect(within(subNav).getByRole('tab', { name: 'detail.misc.odometer' })).toBeInTheDocument()
     expect(within(subNav).getByRole('tab', { name: 'common:engineHours' })).toBeInTheDocument()
+  })
+
+  it('gives a vehicle whose type the app does not know the full logging tabs', async () => {
+    // The API reads an unknown stored type as null; the vehicle still logs fuel,
+    // mileage and tires like any motorized one.
+    mockedVehicleService.get.mockResolvedValue({ ...mockVehicle, vehicle_type: null })
+    renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+
+    expect(screen.getAllByText('detail.tabs.fuel').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByText('detail.tabs.maintenance')[0])
+    const subNav = await screen.findByTestId('sub-tab-nav')
+    expect(within(subNav).getByRole('tab', { name: 'detail.misc.odometer' })).toBeInTheDocument()
+    expect(within(subNav).getByRole('tab', { name: 'detail.misc.tires' })).toBeInTheDocument()
   })
 
   it('mounts HoursTab when the Hours sub-tab is selected (reachability: HoursTab is imported and rendered from VehicleDetail)', async () => {

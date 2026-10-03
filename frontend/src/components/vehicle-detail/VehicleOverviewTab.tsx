@@ -51,9 +51,10 @@ export default function VehicleOverviewTab({
   const [specsEditKey, setSpecsEditKey] = useState(0)
 
   // Recomputed locally (was VehicleDetail.tsx:444) — the Overview reads it for
-  // the VIN-decoded / powertrain / non-motorized-fuel-type gates.
+  // the VIN-decoded / powertrain / non-motorized-fuel-type gates. Null is a
+  // stored type the app doesn't know, which counts as motorized.
   const isMotorized =
-    vehicle.vehicle_type &&
+    vehicle.vehicle_type == null ||
     !(NON_MOTORIZED_TYPES as readonly string[]).includes(vehicle.vehicle_type)
 
   // "Has anything" flags for the three VIN-decode-populated cards. When false,

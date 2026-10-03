@@ -313,6 +313,18 @@ describe('Analytics — hours chart gating (Task 17)', () => {
   })
 })
 
+describe('Analytics: a vehicle type the app does not recognise', () => {
+  it('keeps the motorized fuel sections, since an unknown type counts as motorized', async () => {
+    // The API reads an unknown stored type as null on VehicleAnalytics.
+    mockAnalyticsResponse(baseAnalytics({ vehicle_type: null }))
+    renderAnalytics()
+    await screen.findByText('Test Tractor')
+
+    expect(screen.getByText('vehicle.avgFuelEconomy')).toBeInTheDocument()
+    expect(screen.getByText('vehicle.fuelEfficiencyAlerts')).toBeInTheDocument()
+  })
+})
+
 describe('Analytics — the plotted series follow the resolved tokens, like their axis labels', () => {
   /** One fuel-economy point, at a canonical figure that divides cleanly. */
   const ECONOMY = {

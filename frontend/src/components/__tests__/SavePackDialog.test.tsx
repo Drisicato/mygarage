@@ -244,4 +244,13 @@ describe('an untouched overwrite keeps what the pack already says', () => {
     const body = await overwrite({ description: '', vehicle_types: [] })
     expect(body.vehicle_types).toEqual([])
   })
+
+  it('drops a stored type the app does not know, so the edit saves instead of 422ing', async () => {
+    // A restored backup can carry a type this version has never heard of. The
+    // save input is strict, so sending it back would refuse the whole edit.
+    const body = await overwrite({ description: '', vehicle_types: ['Car', 'Hovercraft'] })
+
+    expect(screen.getByLabelText('vehicleTypeLabels.Car')).toBeChecked()
+    expect(body.vehicle_types).toEqual(['Car'])
+  })
 })

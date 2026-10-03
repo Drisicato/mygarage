@@ -15,7 +15,6 @@ import { Select } from '../components/ui'
 import { useQuickEntryVehicles } from '../hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '../utils/vehicleLabel'
 import { withBase } from '../utils/basePath'
-import type { VehicleType } from '../types/vehicle'
 import { fillUpKind, vehicleLogKinds } from '../utils/vehicleLogKinds'
 import { VehicleUnitScope, type VehicleDistanceUnit } from '../contexts/VehicleUnitScope'
 
@@ -276,7 +275,7 @@ export default function QuickEntry() {
           {openEntry === 'service' && (
             <ServiceVisitForm
               vin={selectedVin}
-              vehicleType={selectedVehicle?.vehicle_type as VehicleType | undefined}
+              vehicleType={selectedVehicle?.vehicle_type}
               onClose={() => setEntryType(null)}
               onSuccess={() => handleSuccess('service')}
             />

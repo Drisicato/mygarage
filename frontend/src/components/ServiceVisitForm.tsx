@@ -59,7 +59,8 @@ function convertSupplyUsages(
 
 interface ServiceVisitFormProps {
   vin: string
-  vehicleType?: VehicleType
+  /** Null is a stored type the app doesn't know; it counts as motorized. */
+  vehicleType?: VehicleType | null
   visit?: ServiceVisit
   onClose: () => void
   onSuccess: () => void

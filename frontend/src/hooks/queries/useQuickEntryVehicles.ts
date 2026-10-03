@@ -1,25 +1,14 @@
 import { useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '../../services/api'
+import type { components } from '../../types/api.generated'
 import type { Vehicle } from '../../types/vehicle'
 
-export interface QuickEntryVehicle {
-  vin: string
-  nickname: string
-  year: number | null
-  make: string | null
-  model: string | null
-  vehicle_type: string
-  usage_unit?: string | null
-  secondary_usage_enabled?: boolean | null
-  /** The vehicle's own odometer unit; null follows the account (#172). */
-  distance_unit?: 'km' | 'mi' | null
-  thumbnail_url: string | null
-}
+// The generated schema, so a type the app doesn't know arrives typed as null
+// rather than hiding behind a hand-written `string`.
+export type QuickEntryVehicle = components['schemas']['QuickEntryVehicle']
 
-interface QuickEntryVehicleListResponse {
-  vehicles: QuickEntryVehicle[]
-}
+type QuickEntryVehicleListResponse = components['schemas']['QuickEntryVehicleList']
 
 /**
  * Writable, non-archived vehicles for the Quick Entry page.

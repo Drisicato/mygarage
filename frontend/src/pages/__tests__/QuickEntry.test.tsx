@@ -97,6 +97,23 @@ describe('QuickEntry actions follow the vehicle', () => {
     expect(offered()).toEqual(['fuelUp', 'serviceVisit', 'engineHours'])
   })
 
+  it('offers a vehicle whose type the app does not know the full logging set', () => {
+    // The API reads an unknown stored type as null; the vehicle is still motorized.
+    h.vehicles = [vehicle({ vehicle_type: null })]
+    renderAt()
+
+    expect(offered()).toEqual(['fuelUp', 'serviceVisit', 'mileage'])
+  })
+
+  it('offers mileage, not hours, when the usage mode is unknown (guard)', () => {
+    // Guard, passes at t=0: an unknown usage mode falls back to distance.
+    // Mutant: make getUsageTracking fall back to hours instead.
+    h.vehicles = [vehicle({ usage_unit: null })]
+    renderAt()
+
+    expect(offered()).toEqual(['fuelUp', 'serviceVisit', 'mileage'])
+  })
+
   it('opens the propane form from the propane button', async () => {
     h.vehicles = [vehicle({ vehicle_type: 'FifthWheel', fuel_type: null })]
     renderAt()

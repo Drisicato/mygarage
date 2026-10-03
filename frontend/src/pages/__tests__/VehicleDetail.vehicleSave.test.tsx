@@ -157,6 +157,8 @@ const qeRow = (vin: string): QuickEntryVehicle => ({
   make: null,
   model: null,
   vehicle_type: 'Car',
+  usage_unit: 'distance',
+  secondary_usage_enabled: false,
   thumbnail_url: null,
   distance_unit: null,
 })

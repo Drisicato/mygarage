@@ -142,10 +142,11 @@ export default function VehicleEditDrawer({
   // not send it back or it restamps an old reading with today's date.
   const hoursSeed = useRef<number | null>(null)
 
-  const isMotorized = seedSource ? !NON_MOTORIZED.includes(seedSource.vehicle_type) : false
-  const hasWindowSticker = seedSource
-    ? WINDOW_STICKER_TYPES.includes(seedSource.vehicle_type)
-    : false
+  // A null type is one the app doesn't know: motorized, but no sticker until
+  // a real type is picked.
+  const seedType = seedSource?.vehicle_type ?? null
+  const isMotorized = seedSource ? seedType === null || !NON_MOTORIZED.includes(seedType) : false
+  const hasWindowSticker = seedType !== null && WINDOW_STICKER_TYPES.includes(seedType)
 
   // Zod bakes its messages in at construction, so the schema is rebuilt when
   // the language changes. Only the resolver depends on it — no fetch, no
@@ -384,9 +385,10 @@ export default function VehicleEditDrawer({
               />
             </Field>
 
-            {/* No blank option: vehicle_type is NOT NULL (the wizard's select
-                has none either) — a null submit would 409 server-side and roll
-                back the whole update. */}
+            {/* A known type gets no blank option, same as the wizard. A type
+                the app doesn't know arrives as null, so that one gets a
+                Select type prompt, and the schema won't save until a real
+                type is picked. */}
             <Field id="vehicle_type" label={t('edit.vehicleType')} error={errors.vehicle_type}>
               {/* Deliberately no onChange resetting usage_unit. The wizard does
                   that because a new vehicle has no choice to destroy; here it is
@@ -398,6 +400,8 @@ export default function VehicleEditDrawer({
                 {...register('vehicle_type')}
                 invalid={!!errors.vehicle_type}
                 disabled={isSubmitting}
+                placeholder={seedType === null ? t('common:selectType') : undefined}
+                placeholderDisabled
                 options={vehicleTypeOptions(t)}
               />
             </Field>

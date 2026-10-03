@@ -254,12 +254,14 @@ export default function RecallList({ vin, onAddClick, onEditClick, onRefresh }: 
         </div>
       )}
 
-      {/* CarComplaints Integration */}
+      {/* CarComplaints Integration. Road vehicles only, so a type the app
+          doesn't know (null) doesn't get the link. */}
       {carComplaintsEnabled &&
         vehicle &&
         vehicle.make &&
         vehicle.model &&
         vehicle.year &&
+        vehicle.vehicle_type != null &&
         ['Car', 'Truck', 'SUV', 'Motorcycle'].includes(vehicle.vehicle_type) && (
         <div className="mt-6 rounded-card border border-(--accent-line) bg-(--accent-soft) p-6">
           <div className="flex items-start gap-3">

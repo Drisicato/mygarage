@@ -33,7 +33,10 @@ const BRAKE_OPTIONS = [
  */
 export default function TrailerTowPanel({ vehicle }: TrailerTowPanelProps) {
   const { t } = useTranslation('vehicles')
-  const isTrailerLike = (NON_MOTORIZED_TYPES as readonly string[]).includes(vehicle.vehicle_type)
+  // A type the app doesn't know (null) isn't a trailer: it counts as motorized.
+  const isTrailerLike =
+    vehicle.vehicle_type != null &&
+    (NON_MOTORIZED_TYPES as readonly string[]).includes(vehicle.vehicle_type)
   const [details, setDetails] = useState<TrailerDetails | null>(null)
   const [towed, setTowed] = useState<Vehicle[]>([])
   const [garageVehicles, setGarageVehicles] = useState<Vehicle[]>([])
@@ -90,10 +93,11 @@ export default function TrailerTowPanel({ vehicle }: TrailerTowPanelProps) {
     void load()
   }, [load])
 
+  // An unknown-typed (null) vehicle can still tow, like any motorized one.
   const towCandidates = garageVehicles.filter(
     (v) =>
       v.vin !== vehicle.vin &&
-      !(NON_MOTORIZED_TYPES as readonly string[]).includes(v.vehicle_type),
+      (v.vehicle_type == null || !(NON_MOTORIZED_TYPES as readonly string[]).includes(v.vehicle_type)),
   )
 
   const save = async () => {
@@ -163,6 +167,7 @@ export default function TrailerTowPanel({ vehicle }: TrailerTowPanelProps) {
   }
 
   const towVehicle = garageVehicles.find((v) => v.vin === details?.tow_vehicle_vin) ?? null
+  // Only trailer-like types get this far, so the key is never built from null.
   const typeLabel = t(`vehicleTypeLabels.${vehicle.vehicle_type}`, {
     defaultValue: vehicle.vehicle_type,
   })

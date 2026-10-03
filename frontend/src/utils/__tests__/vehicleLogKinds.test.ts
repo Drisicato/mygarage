@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { fillUpKind, vehicleLogKinds } from '../vehicleLogKinds'
+import { makeVehicleStatistics } from '../../__tests__/factories'
 
 describe('vehicleLogKinds', () => {
   it('gives a fifth wheel propane, and no fuel, DEF or odometer', () => {
@@ -63,6 +64,33 @@ describe('vehicleLogKinds', () => {
 
   it('offers nothing before the vehicle is known', () => {
     expect(Object.values(vehicleLogKinds(null)).some(Boolean)).toBe(false)
+  })
+
+  it('treats a loaded vehicle whose type the app does not know as motorized', () => {
+    // The API reads a type it doesn't recognise as null. The vehicle is still
+    // there, so it gets the full logging set, not the trailer one or nothing.
+    expect(vehicleLogKinds({ vehicle_type: null, usage_unit: 'distance' })).toEqual({
+      motorized: true,
+      fuel: true,
+      propane: false,
+      def: false,
+      defHistory: false,
+      odometer: true,
+      hours: false,
+    })
+  })
+
+  it('reads the dashboard row of a vehicle with an unknown type as motorized', () => {
+    const kinds = vehicleLogKinds(makeVehicleStatistics({ vehicle_type: null }))
+
+    expect([kinds.motorized, kinds.fuel, kinds.odometer, kinds.propane]).toEqual([true, true, true, false])
+  })
+
+  it('still offers nothing for a vehicle that has not been found (guard)', () => {
+    // Guard, passes at t=0: Quick Entry's .find() hands over undefined before a
+    // vehicle is picked, and that must not read as an unknown-typed vehicle.
+    // Mutant: treat a nullish source like a null type (`vehicle ?? {}`).
+    expect(Object.values(vehicleLogKinds(undefined)).some(Boolean)).toBe(false)
   })
 })
 

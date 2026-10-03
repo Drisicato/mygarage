@@ -25,8 +25,9 @@ import { useMaintenanceRules, useOverwritePack, useSavePack } from '../hooks/use
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { defaultSelection, repeatedTypes, unsavableReason } from '../utils/packSavability'
-import { vehicleTypeOptions } from '../schemas/vehicle'
+import { VEHICLE_TYPES, vehicleTypeOptions } from '../schemas/vehicle'
 import type { MaintenanceRuleResponse, ReminderPackSummary, SavePackBody } from '../types/reminder'
+import type { VehicleType } from '../types/vehicle'
 
 type VehicleTypeValue = NonNullable<SavePackBody['vehicle_types']>[number]
 
@@ -36,7 +37,7 @@ export type ExistingPack = Pick<ReminderPackSummary, 'id' | 'name' | 'descriptio
 interface SavePackDialogProps {
   vin: string
   /** Prefills the vehicle-type picker; the source vehicle's own type. */
-  vehicleType: string | null | undefined
+  vehicleType: VehicleType | null | undefined
   /** Set to overwrite an existing pack instead of creating one. */
   existingPack?: ExistingPack
   onClose: () => void
@@ -62,9 +63,15 @@ export default function SavePackDialog({
   // narrowed an all-types pack ([]) to a single type.
   const [name, setName] = useState(existingPack?.name ?? '')
   const [description, setDescription] = useState(existingPack?.description ?? '')
+  // Only types the checkboxes know get seeded. A restored backup can carry one
+  // this version doesn't, and sending it back 422s the whole edit.
   const [types, setTypes] = useState<VehicleTypeValue[]>(() => {
-    if (existingPack) return (existingPack.vehicle_types ?? []) as VehicleTypeValue[]
-    return vehicleType ? [vehicleType as VehicleTypeValue] : []
+    if (existingPack) {
+      return (existingPack.vehicle_types ?? []).flatMap((stored) =>
+        VEHICLE_TYPES.filter((known) => known === stored),
+      )
+    }
+    return vehicleType ? [vehicleType] : []
   })
   const [checked, setChecked] = useState<Set<number> | null>(null)
   const [error, setError] = useState<string | null>(null)
