@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within } from '../../__tests__/test-utils'
 import type { Supply } from '../../types/supplies'
 
@@ -173,6 +173,80 @@ describe('Supplies page toolbar: search and filters', () => {
 
     expect(screen.getByText('Truck Brake Pads')).toBeInTheDocument()
     expect(screen.queryByText('Oil A')).not.toBeInTheDocument()
+  })
+})
+
+describe('Supplies page toolbar: sort, group, view', () => {
+  const alpha = { ...mockSupply, id: 21, name: 'Alpha Coolant', category: 'Fluids', on_hand: '5.000' } as Supply
+  const zulu = { ...mockSupply, id: 22, name: 'Zulu Grease', category: null, on_hand: '0.000' } as Supply
+
+  beforeEach(() => {
+    localStorage.clear()
+    useSuppliesMock.mockReturnValue({
+      data: { supplies: [alpha, zulu], total: 2 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const cardNames = () =>
+    screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
+
+  it('sorting by lowest stock reorders the cards', () => {
+    render(<Supplies />)
+    expect(cardNames()).toEqual(['Alpha Coolant', 'Zulu Grease'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.sortSupplies' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'supplies.sortByLowestStock' }))
+
+    expect(cardNames()).toEqual(['Zulu Grease', 'Alpha Coolant'])
+  })
+
+  it('grouping by category renders group headings with the no-category bucket last', () => {
+    render(<Supplies />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.groupSupplies' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'supplies.groupByCategory' }))
+
+    const headings = screen.getAllByRole('heading', { level: 2 })
+    expect(headings).toHaveLength(2)
+    expect(headings[0]).toHaveTextContent('Fluids')
+    expect(headings[1]).toHaveTextContent('supplies.noCategory')
+  })
+
+  it('the list view toggle renders a table with the fixture row', () => {
+    render(<Supplies />)
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
+
+    const table = screen.getByRole('table')
+    expect(within(table).getByText('Alpha Coolant')).toBeInTheDocument()
+  })
+
+  it('the view pick persists and a fresh render starts from it', () => {
+    const first = render(<Supplies />)
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
+    expect(JSON.parse(localStorage.getItem('mygarage:supplies:view')!).view).toBe('list')
+    first.unmount()
+
+    render(<Supplies />)
+    expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+
+  it('a throwing Storage still renders the grid default', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+
+    render(<Supplies />)
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByText('Alpha Coolant')).toBeInTheDocument()
   })
 })
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Plus, Edit, Trash2, Save, Package, AlertTriangle, History } from 'lucide-react'
+import { Plus, Edit, Trash2, Save, Package, AlertTriangle, History, ChevronDown, LayoutGrid, List } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   useSupplies,
@@ -16,9 +16,16 @@ import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import { RATE_DIGITS } from '@/utils/formatUtils'
 import { canonicalToDisplay, supplyUnitLabel, unitCostToDisplay } from '@/utils/supplyUnits'
-import { canonicalCategories, filterSupplies, type SupplyFilters } from '@/utils/supplyListView'
+import {
+  canonicalCategories, filterSupplies, groupSupplies, sortSupplies,
+  type SupplyFilters, type SupplyGroup,
+} from '@/utils/supplyListView'
+import { readSuppliesView, rememberSuppliesView, type SuppliesViewPrefs } from '@/utils/suppliesViewStore'
 import { makeSupplySchema, SUPPLY_UNIT_TYPES, type SupplyFormData } from '@/schemas/supplies'
-import { Select, Field, Input, Textarea, Checkbox, Button, SearchField, Chip } from '@/components/ui'
+import {
+  Select, Field, Input, Textarea, Checkbox, Button, SearchField, Chip, Dropdown, DataTable,
+  type DropdownItem, type DataTableColumn,
+} from '@/components/ui'
 import FormModalWrapper from '@/components/FormModalWrapper'
 import SupplyHistoryModal from '@/components/SupplyHistoryModal'
 import BarcodeScanButton from '@/components/BarcodeScanButton'
@@ -37,6 +44,7 @@ export default function Supplies() {
   const [category, setCategory] = useState<string | null>(null)
   const [vehicle, setVehicle] = useState<SupplyFilters['vehicle']>('all')
   const [outOfStockOnly, setOutOfStockOnly] = useState(false)
+  const [prefs, setPrefs] = useState<SuppliesViewPrefs>(() => readSuppliesView())
 
   const { data, isLoading, error } = useSupplies(includeArchived)
   const deleteMutation = useDeleteSupply()
@@ -71,6 +79,40 @@ export default function Supplies() {
     setCategory(null)
     setVehicle('all')
     setOutOfStockOnly(false)
+  }
+
+  const updatePrefs = (patch: Partial<SuppliesViewPrefs>) => {
+    setPrefs((prev) => {
+      const next = { ...prev, ...patch }
+      rememberSuppliesView(next)
+      return next
+    })
+  }
+
+  const sortItems: DropdownItem[] = [
+    { id: 'name', label: t('supplies.sortByName'), checked: prefs.sort === 'name', onSelect: () => updatePrefs({ sort: 'name' }) },
+    { id: 'stock', label: t('supplies.sortByLowestStock'), checked: prefs.sort === 'stock', onSelect: () => updatePrefs({ sort: 'stock' }) },
+    { id: 'category', label: t('supplies.sortByCategory'), checked: prefs.sort === 'category', onSelect: () => updatePrefs({ sort: 'category' }) },
+  ]
+  const groupItems: DropdownItem[] = [
+    { id: 'none', label: t('supplies.groupNone'), checked: prefs.group === 'none', onSelect: () => updatePrefs({ group: 'none' }) },
+    { id: 'category', label: t('supplies.groupByCategory'), checked: prefs.group === 'category', onSelect: () => updatePrefs({ group: 'category' }) },
+    { id: 'vehicle', label: t('supplies.groupByVehicle'), checked: prefs.group === 'vehicle', onSelect: () => updatePrefs({ group: 'vehicle' }) },
+  ]
+  const sortLabel = sortItems.find((i) => i.checked)?.label ?? ''
+  const groupLabel = groupItems.find((i) => i.checked)?.label ?? ''
+
+  const groups: SupplyGroup[] = groupSupplies(
+    sortSupplies(visible, prefs.sort),
+    prefs.group,
+    vehicleLabelFor,
+  )
+
+  const groupHeading = (group: SupplyGroup): string => {
+    if (group.value === null) {
+      return group.kind === 'vehicle' ? t('supplies.sharedVehicle') : t('supplies.noCategory')
+    }
+    return group.kind === 'vehicle' ? vehicleLabelFor(group.value) : group.value
   }
 
   const handleAddClick = () => {
@@ -110,6 +152,72 @@ export default function Supplies() {
     const unit = supplyUnitLabel(supply.unit_type, system)
     return unit ? t('supplies.avgCostPerUnit', { unit }) : t('supplies.avgUnitCost')
   }
+
+  const renderActions = (supply: Supply) => (
+    <>
+      <button
+        onClick={() => setHistorySupply(supply)}
+        className="text-garage-text-muted hover:text-primary transition-colors"
+        aria-label={t('supplies.viewHistory')}
+        title={t('supplies.viewHistory')}
+      >
+        <History className="w-4 h-4" />
+      </button>
+      <button
+        onClick={() => handleEditClick(supply)}
+        className="text-garage-text-muted hover:text-primary transition-colors"
+        aria-label={t('common:edit')}
+        title={t('common:edit')}
+      >
+        <Edit className="w-4 h-4" />
+      </button>
+      <button
+        onClick={() => handleDelete(supply)}
+        disabled={deleteMutation.isPending && deleteMutation.variables === supply.id}
+        className="text-garage-text-muted hover:text-danger transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        aria-label={t('common:delete')}
+        title={t('common:delete')}
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </>
+  )
+
+  const listColumns: DataTableColumn<Supply>[] = [
+    {
+      id: 'name',
+      header: t('supplies.name'),
+      render: (s) => (
+        <div>
+          <div className="font-medium text-garage-text">{s.name}</div>
+          {s.part_number && <div className="text-xs text-garage-text-muted">{s.part_number}</div>}
+        </div>
+      ),
+    },
+    { id: 'category', header: t('supplies.category'), render: (s) => s.category ?? '' },
+    {
+      id: 'vehicle',
+      header: t('supplies.vehicle'),
+      render: (s) => (s.vin ? vehicleLabelFor(s.vin) : t('supplies.sharedVehicle')),
+    },
+    { id: 'on_hand', header: t('supplies.onHand'), align: 'right', mono: true, render: (s) => formatOnHand(s) },
+    {
+      id: 'avg_cost',
+      header: t('supplies.avgUnitCost'),
+      align: 'right',
+      mono: true,
+      render: (s) =>
+        formatCurrency(unitCostToDisplay(s.avg_unit_cost, s.unit_type, system), {
+          fractionDigits: RATE_DIGITS,
+        }),
+    },
+    {
+      id: 'actions',
+      header: '',
+      align: 'right',
+      render: (s) => <div className="flex justify-end gap-2">{renderActions(s)}</div>,
+    },
+  ]
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -151,6 +259,57 @@ export default function Supplies() {
           <Chip selected={outOfStockOnly} onClick={() => setOutOfStockOnly((prev) => !prev)}>
             {t('supplies.outOfStock')}
           </Chip>
+          <div className="flex-1" />
+          <Dropdown
+            label={t('supplies.sortSupplies')}
+            align="right"
+            items={sortItems}
+            trigger={
+              <>
+                {t('supplies.sortTrigger', { label: sortLabel })}
+                <ChevronDown aria-hidden="true" className="h-4 w-4" />
+              </>
+            }
+          />
+          <Dropdown
+            label={t('supplies.groupSupplies')}
+            align="right"
+            items={groupItems}
+            trigger={
+              <>
+                {t('supplies.groupTrigger', { label: groupLabel })}
+                <ChevronDown aria-hidden="true" className="h-4 w-4" />
+              </>
+            }
+          />
+          <div className="flex gap-1">
+            <button
+              type="button"
+              aria-label={t('supplies.gridView')}
+              aria-pressed={prefs.view === 'grid'}
+              onClick={() => updatePrefs({ view: 'grid' })}
+              className={`p-2 border rounded-lg transition-colors ${
+                prefs.view === 'grid'
+                  ? 'bg-primary text-(--accent-on-solid) border-primary'
+                  : 'bg-garage-surface text-garage-text border-garage-border hover:border-primary'
+              }`}
+            >
+              <LayoutGrid aria-hidden="true" className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              aria-label={t('supplies.listView')}
+              aria-pressed={prefs.view === 'list'}
+              onClick={() => updatePrefs({ view: 'list' })}
+              className={`p-2 border rounded-lg transition-colors ${
+                prefs.view === 'list'
+                  ? 'bg-primary text-(--accent-on-solid) border-primary'
+                  : 'bg-garage-surface text-garage-text border-garage-border hover:border-primary'
+              }`}
+            >
+              <List aria-hidden="true" className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {anyFilterActive && (
@@ -216,97 +375,94 @@ export default function Supplies() {
             <p className="text-garage-text-muted">{t('supplies.noMatches')}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {visible.map((supply) => {
-              const archived = supply.is_active === false
-              return (
-                <div
-                  key={supply.id}
-                  className={`bg-garage-surface border rounded-lg p-4 transition-colors ${
-                    archived ? 'border-garage-border opacity-60' : 'border-garage-border hover:border-primary/50'
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-garage-text text-lg">{supply.name}</h3>
-                      {archived && (
-                        <span className="inline-block px-2 py-0.5 bg-garage-bg text-garage-text-muted rounded text-xs mt-1">
-                          {t('supplies.archived')}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setHistorySupply(supply)}
-                        className="text-garage-text-muted hover:text-primary transition-colors"
-                        aria-label={t('supplies.viewHistory')}
-                        title={t('supplies.viewHistory')}
-                      >
-                        <History className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleEditClick(supply)}
-                        className="text-garage-text-muted hover:text-primary transition-colors"
-                        aria-label={t('common:edit')}
-                        title={t('common:edit')}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(supply)}
-                        disabled={deleteMutation.isPending && deleteMutation.variables === supply.id}
-                        className="text-garage-text-muted hover:text-danger transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        aria-label={t('common:delete')}
-                        title={t('common:delete')}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+          <div className="space-y-6">
+            {groups.map((group) => (
+              <div key={group.value ?? '__trailing__'}>
+                {prefs.group !== 'none' && (
+                  <h2 className="text-lg font-semibold text-garage-text mb-3">
+                    {groupHeading(group)}{' '}
+                    <span className="text-sm font-normal text-garage-text-muted">
+                      ({group.supplies.length})
+                    </span>
+                  </h2>
+                )}
+                {prefs.view === 'list' ? (
+                  <DataTable
+                    caption={t('supplies.tableCaption')}
+                    columns={listColumns}
+                    rows={group.supplies}
+                    rowKey={(s) => String(s.id)}
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {group.supplies.map((supply) => {
+                      const archived = supply.is_active === false
+                      return (
+                        <div
+                          key={supply.id}
+                          className={`bg-garage-surface border rounded-lg p-4 transition-colors ${
+                            archived ? 'border-garage-border opacity-60' : 'border-garage-border hover:border-primary/50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-garage-text text-lg">{supply.name}</h3>
+                              {archived && (
+                                <span className="inline-block px-2 py-0.5 bg-garage-bg text-garage-text-muted rounded text-xs mt-1">
+                                  {t('supplies.archived')}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex gap-2">{renderActions(supply)}</div>
+                          </div>
+
+                          <div className="space-y-2 text-sm">
+                            {supply.category && (
+                              <div className="inline-block px-2 py-1 bg-primary/10 text-primary rounded text-xs">
+                                {supply.category}
+                              </div>
+                            )}
+
+                            {supply.part_number && (
+                              <div className="text-garage-text-muted">{supply.part_number}</div>
+                            )}
+
+                            {supply.barcode && (
+                              <div className="text-garage-text-muted font-mono text-xs">
+                                {t('supplies.barcode')}: {supply.barcode}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-garage-text-muted">{t('supplies.onHand')}</span>
+                              <span className="font-medium text-garage-text">{formatOnHand(supply)}</span>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-garage-text-muted">{avgCostLabel(supply)}</span>
+                              <span className="font-medium text-garage-text">{formatCurrency(unitCostToDisplay(supply.avg_unit_cost, supply.unit_type, system), { fractionDigits: RATE_DIGITS })}</span>
+                            </div>
+
+                            {supply.is_negative && (
+                              <div className="flex items-center gap-2 px-2 py-1 bg-warning/10 text-warning rounded text-xs">
+                                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span>{t('supplies.negativeWarning')}</span>
+                              </div>
+                            )}
+
+                            {supply.notes && (
+                              <p className="text-garage-text-muted text-xs mt-2 pt-2 border-t border-garage-border">
+                                {supply.notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-
-                  <div className="space-y-2 text-sm">
-                    {supply.category && (
-                      <div className="inline-block px-2 py-1 bg-primary/10 text-primary rounded text-xs">
-                        {supply.category}
-                      </div>
-                    )}
-
-                    {supply.part_number && (
-                      <div className="text-garage-text-muted">{supply.part_number}</div>
-                    )}
-
-                    {supply.barcode && (
-                      <div className="text-garage-text-muted font-mono text-xs">
-                        {t('supplies.barcode')}: {supply.barcode}
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-garage-text-muted">{t('supplies.onHand')}</span>
-                      <span className="font-medium text-garage-text">{formatOnHand(supply)}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-garage-text-muted">{avgCostLabel(supply)}</span>
-                      <span className="font-medium text-garage-text">{formatCurrency(unitCostToDisplay(supply.avg_unit_cost, supply.unit_type, system), { fractionDigits: RATE_DIGITS })}</span>
-                    </div>
-
-                    {supply.is_negative && (
-                      <div className="flex items-center gap-2 px-2 py-1 bg-warning/10 text-warning rounded text-xs">
-                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>{t('supplies.negativeWarning')}</span>
-                      </div>
-                    )}
-
-                    {supply.notes && (
-                      <p className="text-garage-text-muted text-xs mt-2 pt-2 border-t border-garage-border">
-                        {supply.notes}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
