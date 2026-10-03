@@ -231,12 +231,12 @@ async def update_entry(
     for field, value in changes.items():
         setattr(entry, field, value)
 
-    # The editor's "Gas station" checkbox sends only None/""/"gas_station".
-    # Honor an explicit poi_category (model_fields_set) so unchecking can CLEAR,
-    # while an omitted key preserves the existing value. Server-side guard: a
-    # gas/clear value must never overwrite an existing non-gas POI category
-    # (auto_shop/rv_shop/ev_charging/propane) — protects against a stale client
-    # snapshot (#108). Non-gas values (e.g. from POI import) still apply.
+    # An omitted poi_category keeps the stored one, and an explicit one is
+    # honoured (model_fields_set), so a null clears it. The Address Book page
+    # sends null only when it re-files a gas station under another chip; other
+    # callers can send any value. Guard: a gas or clear value never overwrites a
+    # non-gas POI tag (auto_shop/rv_shop/ev_charging/propane), so a stale client
+    # snapshot can't wipe one (#108). A non-gas value always applies.
     if "poi_category" in update_data.model_fields_set:
         incoming = update_data.poi_category
         _gas_or_clear = {None, "", "gas_station"}

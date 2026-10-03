@@ -1,6 +1,6 @@
-"""The editor's Gas-station checkbox relies on distinguishing an omitted
-poi_category (preserve) from an explicit null (clear). Pydantic's
-model_fields_set is the discriminator update_entry must use (#108)."""
+"""update_entry tells an omitted poi_category (keep it) from an explicit null
+(clear it), which the Address Book page sends when it re-files a gas station
+under another chip. Pydantic's model_fields_set is the discriminator (#108)."""
 
 from app.schemas.address_book import AddressBookEntryUpdate
 

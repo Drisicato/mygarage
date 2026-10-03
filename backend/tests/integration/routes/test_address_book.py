@@ -410,9 +410,7 @@ class TestAddressBookRoutes:
 
     # --- poi_category clear/preserve/guard tests (#108) ---
 
-    async def test_update_clears_gas_station_when_unchecked(
-        self, client: AsyncClient, auth_headers
-    ):
+    async def test_update_null_clears_gas_station(self, client: AsyncClient, auth_headers):
         """PUT poi_category=null clears an existing gas_station tag."""
         created = (
             await client.post(
@@ -468,7 +466,7 @@ class TestAddressBookRoutes:
         assert resp.json()["poi_category"] == "ev_charging"
 
     async def test_update_sets_gas_station(self, client: AsyncClient, auth_headers):
-        """Checking the box on an untagged entry sets gas_station."""
+        """An explicit gas_station on an untagged entry sets it."""
         created = (
             await client.post(
                 "/api/address-book", json={"business_name": "New Fuel"}, headers=auth_headers
