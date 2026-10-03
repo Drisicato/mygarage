@@ -14,8 +14,12 @@ existed. Every other backward-compat assertion (mileage/date/both unaffected)
 lives alongside it in ``TestValidateReminderStateBackwardCompat``.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
@@ -25,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants.units import METRIC_PRESET
 from app.models import HoursRecord, OdometerRecord, Reminder
 from app.models.user import User
+from app.services import reminder_service
 from app.services.reminder_service import (
     DUE_SOON_PROGRESS,
     DueContext,
@@ -33,17 +38,21 @@ from app.services.reminder_service import (
     calculate_hours_driving_rate,
     check_due_reminders,
     classify_pending_reminders,
+    count_pending_reminders,
     create_reminder,
+    created_on,
     enrich_with_estimate,
     expected_due_date,
     get_current_hours,
     leading_progress,
+    load_reminder_starts,
     progress_fractions,
     reminder_due_status,
     reminder_start,
     tally_due_statuses,
     validate_reminder_state,
 )
+from app.utils.household_time import household_today, household_zone, household_zone_var
 from app.utils.render_context import RenderContext
 
 # `_build_reminder_message` renders a reminder's `due_mileage_km` in the
@@ -697,6 +706,174 @@ class TestReminderDueStatus:
 
     def test_nothing_to_measure_is_on_track(self):
         assert reminder_due_status(_pending(), _ctx()) == "on_track"
+
+
+# ---------------------------------------------------------------------------
+# Derived starts and count_pending_reminders (#192 D2, D4)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _household_zone(name: str) -> Iterator[None]:
+    token = household_zone_var.set(ZoneInfo(name))
+    try:
+        yield
+    finally:
+        household_zone_var.reset(token)
+
+
+def _created_on_day(day: date) -> datetime:
+    """A naive-UTC ``created_at`` that falls on ``day`` in the household zone.
+
+    Local noon, so a DST change inside the test's window or a run near local
+    midnight can't move it to a neighbouring day.
+    """
+    return (
+        datetime.combine(day, time(12), tzinfo=household_zone())
+        .astimezone(UTC)
+        .replace(tzinfo=None)
+    )
+
+
+@pytest.mark.unit
+class TestCreatedOn:
+    def test_naive_and_aware_timestamps_read_alike(self):
+        naive = Reminder(created_at=datetime(2026, 9, 1, 20, 0))
+        aware = Reminder(created_at=datetime(2026, 9, 1, 20, 0, tzinfo=UTC))
+        with _household_zone("Pacific/Auckland"):
+            assert created_on(naive) == created_on(aware) == date(2026, 9, 2)
+
+    def test_an_unsaved_reminder_has_no_creation_day(self):
+        assert created_on(Reminder()) is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestLoadReminderStarts:
+    async def _one_off(self, db_session: AsyncSession, vin: str, **kwargs) -> Reminder:
+        base = {
+            "vin": vin,
+            "title": "One-off",
+            "reminder_type": "mileage",
+            "status": "pending",
+            "due_mileage_km": Decimal("5000"),
+            "created_at": datetime(2026, 9, 1, 12, 0),
+        }
+        base.update(kwargs)
+        reminder = Reminder(**base)
+        db_session.add(reminder)
+        await db_session.commit()
+        await db_session.refresh(reminder)
+        return reminder
+
+    async def test_a_one_off_counts_from_creation_and_the_nearest_reading(
+        self, db_session, test_vehicle, clean_odometer_records, clean_reminders
+    ):
+        vin = test_vehicle["vin"]
+        await _add_odometer_record(db_session, vin, date(2026, 8, 31), Decimal("1000"))
+        await _add_odometer_record(db_session, vin, date(2026, 9, 3), Decimal("1300"))
+        reminder = await self._one_off(db_session, vin)
+        with _household_zone("UTC"):
+            starts = await load_reminder_starts(db_session, vin, [reminder])
+        assert starts == {reminder.id: ReminderStart(date(2026, 9, 1), Decimal("1000"), None)}
+
+    async def test_creation_day_is_the_households_not_utcs(
+        self, db_session, test_vehicle, clean_odometer_records, clean_reminders
+    ):
+        vin = test_vehicle["vin"]
+        await _add_odometer_record(db_session, vin, date(2026, 8, 31), Decimal("1000"))
+        await _add_odometer_record(db_session, vin, date(2026, 9, 3), Decimal("1300"))
+        reminder = await self._one_off(db_session, vin, created_at=datetime(2026, 9, 1, 20, 0))
+        with _household_zone("Pacific/Auckland"):
+            starts = await load_reminder_starts(db_session, vin, [reminder])
+        # 20:00 UTC on the 1st is 08:00 on the 2nd in Auckland, so the 3rd's reading is nearer.
+        assert starts[reminder.id] == ReminderStart(date(2026, 9, 2), Decimal("1300"), None)
+
+    async def test_hours_come_from_the_nearest_hours_reading(
+        self, db_session, test_vehicle, clean_hours_records, clean_reminders
+    ):
+        vin = test_vehicle["vin"]
+        await _add_hours_record(db_session, vin, date(2026, 9, 1), Decimal("120.0"))
+        reminder = await self._one_off(
+            db_session, vin, reminder_type="hours", due_mileage_km=None, due_hours=Decimal("200.0")
+        )
+        with _household_zone("UTC"):
+            starts = await load_reminder_starts(db_session, vin, [reminder])
+        assert starts[reminder.id] == ReminderStart(date(2026, 9, 1), None, Decimal("120.0"))
+
+    async def test_a_date_reminder_looks_up_no_reading(
+        self, db_session, test_vehicle, clean_reminders, monkeypatch
+    ):
+        spy = AsyncMock(wraps=reminder_service.nearest_odometer)
+        monkeypatch.setattr(reminder_service, "nearest_odometer", spy)
+        reminder = await self._one_off(
+            db_session,
+            test_vehicle["vin"],
+            reminder_type="date",
+            due_mileage_km=None,
+            due_date=date(2026, 12, 1),
+        )
+        with _household_zone("UTC"):
+            starts = await load_reminder_starts(db_session, test_vehicle["vin"], [reminder])
+        assert starts[reminder.id] == ReminderStart(date(2026, 9, 1), None, None)
+        spy.assert_not_awaited()
+
+    async def test_an_anchored_reminder_gets_no_derived_start(
+        self, db_session, test_vehicle, clean_reminders, monkeypatch
+    ):
+        spy = AsyncMock(wraps=reminder_service.nearest_odometer)
+        monkeypatch.setattr(reminder_service, "nearest_odometer", spy)
+        reminder = await self._one_off(
+            db_session,
+            test_vehicle["vin"],
+            anchor_kind="service",
+            anchor_date=date(2026, 8, 1),
+            anchor_odometer_km=Decimal("900"),
+        )
+        assert await load_reminder_starts(db_session, test_vehicle["vin"], [reminder]) == {}
+        spy.assert_not_awaited()
+
+    async def test_one_lookup_per_creation_day(
+        self, db_session, test_vehicle, clean_odometer_records, clean_reminders, monkeypatch
+    ):
+        vin = test_vehicle["vin"]
+        await _add_odometer_record(db_session, vin, date(2026, 9, 1), Decimal("1000"))
+        spy = AsyncMock(wraps=reminder_service.nearest_odometer)
+        monkeypatch.setattr(reminder_service, "nearest_odometer", spy)
+        first = await self._one_off(db_session, vin, title="First")
+        second = await self._one_off(
+            db_session, vin, title="Second", created_at=datetime(2026, 9, 1, 18, 0)
+        )
+        with _household_zone("UTC"):
+            starts = await load_reminder_starts(db_session, vin, [first, second])
+        assert starts[first.id].km == starts[second.id].km == Decimal("1000")
+        assert spy.await_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestCountPendingRemindersFallback:
+    async def test_an_unprojectable_one_off_is_due_soon_at_ninety_percent(
+        self, db_session, test_vehicle, clean_odometer_records, clean_reminders
+    ):
+        vin = test_vehicle["vin"]
+        today = household_today()
+        # Only one reading falls inside the 90-day window, so there's no rate and no projection.
+        await _add_odometer_record(db_session, vin, today - timedelta(days=100), Decimal("50000"))
+        await _add_odometer_record(db_session, vin, today, Decimal("59500"))
+        db_session.add(
+            Reminder(
+                vin=vin,
+                title="Timing belt",
+                reminder_type="mileage",
+                status="pending",
+                due_mileage_km=Decimal("60000"),
+                created_at=_created_on_day(today - timedelta(days=100)),
+            )
+        )
+        await db_session.commit()
+        counts = await count_pending_reminders(db_session, vin, Decimal("59500"), None, today)
+        assert (counts.overdue, counts.upcoming, counts.due_soon) == (0, 1, 1)
 
 
 # ---------------------------------------------------------------------------

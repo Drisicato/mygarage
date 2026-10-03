@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from typing import cast
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -22,10 +23,11 @@ from app.schemas.reminder import (
     ReminderResponse,
     ReminderUpdate,
 )
-from app.services.hours_service import latest_engine_hours_and_date
+from app.services.hours_service import latest_engine_hours_and_date, nearest_hours
 from app.services.maintenance_recurrence import project_usage_date
+from app.services.odometer_service import nearest_odometer
 from app.utils.hours_formatting import format_hours
-from app.utils.household_time import household_today
+from app.utils.household_time import household_today, household_zone
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.maintenance_types import classify
 from app.utils.render_context import RenderContext, render_context_for_vehicle
@@ -458,6 +460,125 @@ def classify_pending_reminders(
     return tally_due_statuses(pending, ctx)
 
 
+def _household_day(timestamp: datetime) -> date:
+    """The household day of a stored timestamp. A naive one is UTC, which is how
+    every timestamp column here is written.
+
+    One exception: on PostgreSQL a ``server_default=func.now()`` column is
+    written in the session's time zone. That is UTC unless the server's
+    ``timezone`` setting says otherwise (CI's is UTC). On a non-UTC server an
+    evening-created reminder can land on the next day here.
+    """
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(household_zone()).date()
+
+
+def created_on(reminder: Reminder) -> date | None:
+    """The household day the reminder was created.
+
+    ``None`` for a reminder not yet flushed, whose server default hasn't run.
+    """
+    # The column is NOT NULL but an unflushed object's attribute is still None.
+    # A cast, not an annotation: pyright narrows an annotated assignment to the
+    # mapped type and would call the check below always false.
+    created = cast("datetime | None", reminder.created_at)
+    if created is None:
+        return None
+    return _household_day(created)
+
+
+async def load_reminder_starts(
+    db: AsyncSession, vin: str, reminders: Sequence[Reminder]
+) -> dict[int, ReminderStart]:
+    """Derived starts for the unanchored reminders among ``reminders``, by id (#192 D4).
+
+    Such a reminder counts from the household day it was created, with the
+    odometer and hours readings nearest that day. Each reading is looked up
+    only for a target the reminder has, and once per day, so these lookups
+    (two queries each) grow with the number of distinct creation days, not
+    with the rows; the rates and current readings are once per list. Nothing is stored:
+    loose pending reminders are adoption candidates, and a stored anchor would
+    change what rule adoption (``_pick_keeper``) and ``reconcile_rule`` do.
+    """
+    km_on: dict[date, Decimal | None] = {}
+    hours_on: dict[date, Decimal | None] = {}
+    starts: dict[int, ReminderStart] = {}
+    for reminder in reminders:
+        if anchor_start(reminder) is not None:
+            continue
+        day = created_on(reminder)
+        if day is None:
+            continue
+        km: Decimal | None = None
+        if reminder.due_mileage_km is not None:
+            if day not in km_on:
+                record = await nearest_odometer(db, vin, day)
+                km_on[day] = record.odometer_km if record is not None else None
+            km = km_on[day]
+        hours: Decimal | None = None
+        if reminder.due_hours is not None:
+            if day not in hours_on:
+                hours_on[day] = await nearest_hours(db, vin, day)
+            hours = hours_on[day]
+        starts[reminder.id] = ReminderStart(day=day, km=km, hours=hours)
+    return starts
+
+
+async def due_context_for_readings(
+    db: AsyncSession,
+    vin: str,
+    pending: Sequence[Reminder],
+    current_km: Decimal | None,
+    current_hours: Decimal | None,
+    today: date,
+) -> DueContext:
+    """The rates and starts for ``pending``, around readings the caller holds.
+
+    A rate is fetched only when a reminder can use it (a usage target and a
+    reading to project from), the gating ``count_pending_reminders`` always had.
+    """
+    km_per_day = (
+        await calculate_driving_rate(vin, db)
+        if current_km is not None and any(r.due_mileage_km is not None for r in pending)
+        else None
+    )
+    hours_per_day = (
+        await calculate_hours_driving_rate(vin, db)
+        if current_hours is not None and any(r.due_hours is not None for r in pending)
+        else None
+    )
+    return DueContext(
+        today=today,
+        current_km=current_km,
+        current_hours=current_hours,
+        km_per_day=km_per_day,
+        hours_per_day=hours_per_day,
+        starts=await load_reminder_starts(db, vin, pending),
+    )
+
+
+async def load_due_context(
+    db: AsyncSession, vin: str, pending: Sequence[Reminder], today: date
+) -> DueContext:
+    """``due_context_for_readings`` with the current readings fetched here.
+
+    Each reading is fetched only when a reminder has that target. They are the
+    readings the hero shows (``get_current_mileage`` orders like
+    ``latest_odometer_km_and_date``; ``get_current_hours`` delegates to the
+    canonical hours helper), so the list and the badges see the same numbers.
+    """
+    current_km = (
+        await get_current_mileage(vin, db)
+        if any(r.due_mileage_km is not None for r in pending)
+        else None
+    )
+    current_hours = (
+        await get_current_hours(vin, db) if any(r.due_hours is not None for r in pending) else None
+    )
+    return await due_context_for_readings(db, vin, pending, current_km, current_hours, today)
+
+
 async def count_pending_reminders(
     db: AsyncSession,
     vin: str,
@@ -471,7 +592,8 @@ async def count_pending_reminders(
     target and a reading to project from). The dashboard card, the fleet
     strip and the detail hero all count through here, so their badges agree;
     callers pass the readings they display, so a reading and the counts
-    beside it never disagree.
+    beside it never disagree. Unanchored reminders get derived starts, so the
+    D2 fallback counts here exactly as the list row shows it.
     """
     if today is None:
         today = household_today()
@@ -484,19 +606,8 @@ async def count_pending_reminders(
         .scalars()
         .all()
     )
-    km_per_day = (
-        await calculate_driving_rate(vin, db)
-        if current_km is not None and any(r.due_mileage_km is not None for r in pending)
-        else None
-    )
-    hours_per_day = (
-        await calculate_hours_driving_rate(vin, db)
-        if current_hours is not None and any(r.due_hours is not None for r in pending)
-        else None
-    )
-    return classify_pending_reminders(
-        pending, current_km, current_hours, km_per_day, hours_per_day, today
-    )
+    ctx = await due_context_for_readings(db, vin, pending, current_km, current_hours, today)
+    return tally_due_statuses(pending, ctx)
 
 
 def calculate_smart_estimated_date(
