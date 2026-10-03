@@ -29,12 +29,13 @@ built from it, so a stored value it refuses 500s the read too. Each one a
 response runs has to be read-tolerant, held by a CHECK, or on an input model a
 response reuses on purpose. Anything else belongs on the input schemas.
 
-So is a vocabulary. A `Literal` refuses a stored value outside it, and a
-vocabulary column with no CHECK can hold one: a restored backup, a hand edit or
-a downgrade puts it there. So every response field that reaches a `Literal`,
-computed fields included, reads leniently (`app.utils.lenient_vocab`), sits
-behind a read-tolerant validator, a CHECK or a filter that drops what it
-doesn't know, or is computed by the app from its own constants.
+So is a vocabulary. A `Literal` (or an `Enum`) refuses a stored value outside
+it, and a vocabulary column with no CHECK can hold one: a restored backup, a
+hand edit or a downgrade puts it there. So every response field that reaches a
+`Literal` or an `Enum`, computed fields included, reads leniently
+(`app.utils.lenient_vocab`), sits behind a read-tolerant validator, a CHECK or
+a filter that drops what it doesn't know, or is computed by the app from its
+own constants.
 """
 
 import annotationlib
@@ -44,6 +45,7 @@ import re
 import typing
 from collections.abc import Iterable, Iterator
 from decimal import Decimal
+from enum import Enum, StrEnum
 from typing import Annotated, Any, Literal, TypeAliasType
 
 from fastapi.routing import APIRoute, iter_route_contexts
@@ -649,12 +651,17 @@ def _resolve(path: str) -> Any:
 
 
 def _vocabulary(annotation: Any) -> frozenset[object]:
-    """Every Literal value an annotation can hold, at any depth: inside an
-    Optional, a list, an Annotated or a `type` alias. Empty if it holds none."""
+    """Every Literal value or Enum member value an annotation can hold, at any
+    depth: inside an Optional, a list, an Annotated or a `type` alias. Empty if
+    it holds none."""
     if isinstance(annotation, TypeAliasType):
         return _vocabulary(annotation.__value__)
     if typing.get_origin(annotation) is Literal:
         return frozenset(typing.get_args(annotation))
+    # An Enum (StrEnum too) refuses a stored value outside its members just
+    # like a Literal. None is on a response today; this is for the next one.
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return frozenset(member.value for member in annotation)
     return frozenset().union(*(_vocabulary(arg) for arg in typing.get_args(annotation)))
 
 
@@ -1003,6 +1010,18 @@ class _VocabBase(BaseModel):
     inherited: _ModuleVocab = "x"
 
 
+class _ProbeEnum(Enum):
+    """Pydantic refuses a value outside its members the same way a Literal does."""
+
+    A = "a"
+    B = "b"
+
+
+class _ProbeStrEnum(StrEnum):
+    A = "a"
+    B = "b"
+
+
 class _VocabProbe(_VocabBase):
     bare: Literal["a", "b"] = "a"
     aliased: _ModuleVocab = "x"
@@ -1011,6 +1030,8 @@ class _VocabProbe(_VocabBase):
     optional: _ModuleVocab | None = None
     listed: list[Literal["a", "b"]] = []
     nested: list[_VocabNested] = []
+    enumerated: _ProbeEnum = _ProbeEnum.A
+    str_enumerated: _ProbeStrEnum | None = None
     # No vocabulary, so they stay out.
     text: str = ""
     count: int = 0
@@ -1029,13 +1050,16 @@ class _VocabProbe(_VocabBase):
 def test_the_vocabulary_detector_sees_every_form():
     """A guard: bare, through a module alias and a PEP 695 alias, inside an
     Annotated, an Optional and a list, inherited from a base, one model down,
-    a model behind a computed field, and a computed field that is the Literal.
+    a model behind a computed field, a computed field that is the Literal, and
+    an Enum or StrEnum (its vocabulary is its members' values).
 
     Mutants: drop the computed-field loop from `_schema_walk.walk`, drop the
-    `TypeAliasType` unwrap from `_vocabulary`, or skip computed fields in
-    `_annotations` (the walk still follows their models).
+    `TypeAliasType` unwrap from `_vocabulary`, drop the Enum branch from
+    `_vocabulary`, or skip computed fields in `_annotations` (the walk still
+    follows their models).
     """
-    assert set(_vocabulary_fields(walk([_VocabProbe]))) == {
+    fields = _vocabulary_fields(walk([_VocabProbe]))
+    assert set(fields) == {
         ("_VocabProbe", "inherited"),
         ("_VocabProbe", "bare"),
         ("_VocabProbe", "aliased"),
@@ -1043,10 +1067,14 @@ def test_the_vocabulary_detector_sees_every_form():
         ("_VocabProbe", "annotated"),
         ("_VocabProbe", "optional"),
         ("_VocabProbe", "listed"),
+        ("_VocabProbe", "enumerated"),
+        ("_VocabProbe", "str_enumerated"),
         ("_VocabProbe", "derived"),
         ("_VocabNested", "kind"),
         ("_VocabResolved", "unit"),
     }
+    # Values, not members: a CHECK's IN list holds the stored strings.
+    assert fields[("_VocabProbe", "enumerated")][0] == {"a", "b"}
 
 
 def _lenient_probe() -> type[BaseModel]:
