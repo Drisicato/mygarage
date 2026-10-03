@@ -41,6 +41,7 @@ export const SUPPORTED_CURRENCIES: SupportedCurrency[] = [
   { code: 'HUF', name: 'Hungarian Forint' },
   { code: 'BRL', name: 'Brazilian Real' },
   { code: 'INR', name: 'Indian Rupee' },
+  { code: 'MYR', name: 'Malaysian Ringgit' },
 ]
 
 const SUPPORTED_CURRENCY_CODES: ReadonlySet<string> = new Set(SUPPORTED_CURRENCIES.map((c) => c.code))

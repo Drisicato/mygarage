@@ -2111,7 +2111,7 @@
     {
       "path": "src/constants/i18n.ts",
       "disposition": "no unit behaviour",
-      "digest": "1e2780b777338d751305060ba7f423c28afb2f677abd8c44d21a3fb64a4ec423",
+      "digest": "c0d7cfd7907fcf55b896e1d22b8010b97a1481067b00a635ceed3497513b4539",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-10-01 (plan-ab-leftovers E5): adds supportedCurrencyCode, which returns a code only when it is in SUPPORTED_CURRENCIES. No quantity, unit or conversion code."
     },
     {

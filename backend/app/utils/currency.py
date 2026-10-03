@@ -27,6 +27,7 @@ _CURRENCY_SYMBOLS: dict[str, str] = {
     "JPY": "¥",
     "CNY": "¥",
     "INR": "₹",
+    "MYR": "RM",
     "KRW": "₩",
     "RUB": "₽",
     "UAH": "₴",

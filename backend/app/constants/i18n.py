@@ -23,4 +23,5 @@ SUPPORTED_CURRENCIES: set[str] = {
     "HUF",
     "BRL",
     "INR",
+    "MYR",
 }
