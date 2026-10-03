@@ -143,6 +143,9 @@ export default function AddressBookAutocomplete({
     typedRef.current = null
     invalidate()
     onChange(entry.business_name || entry.name || '')
+    // The matches were for the text typed before the pick. Kept, focus would
+    // reopen them under the picked name.
+    setEntries([])
     setShowDropdown(false)
     if (onSelectEntry) {
       onSelectEntry(entry)

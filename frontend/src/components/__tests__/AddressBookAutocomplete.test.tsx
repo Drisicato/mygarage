@@ -173,9 +173,24 @@ describe('AddressBookAutocomplete after a pick (#194)', () => {
     })
     expect(option('Sheetz')).not.toBeInTheDocument()
     expect(option('Shell')).not.toBeInTheDocument()
-    // Focus reopens the list from the entries it holds, which is the only way to see them.
+    // Focus would show the late answer if it had landed in the entries.
     fireEvent.focus(input())
-    expect(option('Shell')).toBeInTheDocument()
+    expect(option('Sheetz')).not.toBeInTheDocument()
+  })
+
+  it('focusing the box again after a pick does not reopen the old matches', async () => {
+    // The pick kept the matches for the text typed before it, and tapping back into
+    // the box showed them under the picked name.
+    get.mockResolvedValue(found(SHELL, SHEETZ))
+    render(<Picker />)
+    type('Sh')
+    await wait(300)
+    pick('Shell')
+    fireEvent.blur(input())
+    fireEvent.focus(input())
+    await wait(1000)
+    expect(input().value).toBe('Shell')
+    expect(option('Shell')).not.toBeInTheDocument()
     expect(option('Sheetz')).not.toBeInTheDocument()
   })
 
