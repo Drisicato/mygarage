@@ -1204,8 +1204,8 @@
     {
       "path": "src/components/livelink/settings/SensorBlock.tsx",
       "disposition": "no unit behaviour",
-      "digest": "f1e93285818400a23338da80b06b6e7e3d11d7cd5b3e2f703b09b8ef949129b6",
-      "reason": "no unit behaviour: one preset sensor's header (name, status word, vehicle link, mappings, delete) (2026-09-22, Plan 3 Task 6). Its readings are rendered by DeviceReadingsList (compact), audited separately; this file renders no value or unit itself. 2026-09-22 (dev review): the vehicle picker says Not linked, like the form. No unit behaviour. 2026-09-22 (alert lines): also renders SensorAlerts, audited separately. No unit behaviour."
+      "digest": "884e0fd5ef67289553f1086f3cfb84a8edd500352471765c131dc0dfb784e302",
+      "reason": "no unit behaviour: one preset sensor's header (name, status word, vehicle link, mappings, delete) (2026-09-22, Plan 3 Task 6). Its readings are rendered by DeviceReadingsList (compact), audited separately; this file renders no value or unit itself. 2026-09-22 (dev review): the vehicle picker says Not linked, like the form. No unit behaviour. 2026-09-22 (alert lines): also renders SensorAlerts, audited separately. No unit behaviour. 2026-10-02 (lenient-vocabulary-reads fix wave): the delete prompt falls back to the device id for a stored blank label too. No unit behaviour."
     },
     {
       "path": "src/components/livelink/settings/SensorForm.tsx",
