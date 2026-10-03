@@ -15,7 +15,7 @@ import { vehicleLabel } from '@/utils/vehicleLabel'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import { RATE_DIGITS } from '@/utils/formatUtils'
-import { canonicalToDisplay, supplyUnitLabel } from '@/utils/supplyUnits'
+import { canonicalToDisplay, supplyUnitLabel, unitCostToDisplay } from '@/utils/supplyUnits'
 import { makeSupplySchema, SUPPLY_UNIT_TYPES, type SupplyFormData } from '@/schemas/supplies'
 import { Select, Field, Input, Textarea, Checkbox, Button } from '@/components/ui'
 import FormModalWrapper from '@/components/FormModalWrapper'
@@ -71,6 +71,11 @@ export default function Supplies() {
     }
     const label = supplyUnitLabel(supply.unit_type, system)
     return `${value.toFixed(2)} ${label}`.trim()
+  }
+
+  const avgCostLabel = (supply: Supply): string => {
+    const unit = supplyUnitLabel(supply.unit_type, system)
+    return unit ? t('supplies.avgCostPerUnit', { unit }) : t('supplies.avgUnitCost')
   }
 
   return (
@@ -203,8 +208,8 @@ export default function Supplies() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-garage-text-muted">{t('supplies.avgUnitCost')}</span>
-                      <span className="font-medium text-garage-text">{formatCurrency(supply.avg_unit_cost, { fractionDigits: RATE_DIGITS })}</span>
+                      <span className="text-garage-text-muted">{avgCostLabel(supply)}</span>
+                      <span className="font-medium text-garage-text">{formatCurrency(unitCostToDisplay(supply.avg_unit_cost, supply.unit_type, system), { fractionDigits: RATE_DIGITS })}</span>
                     </div>
 
                     {supply.is_negative && (

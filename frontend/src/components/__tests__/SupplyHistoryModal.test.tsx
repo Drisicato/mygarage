@@ -22,8 +22,9 @@ vi.mock('../../hooks/queries/useSupplies', () => ({
 
 // Same mock pattern as Supplies.test.tsx — these hooks need AuthProvider
 // otherwise, and it's not under test here.
+const unitMock = vi.hoisted(() => ({ system: 'metric' as 'metric' | 'imperial' }))
 vi.mock('../../hooks/useUnitPreference', () => ({
-  useUnitPreference: () => ({ system: 'metric', showBoth: false }),
+  useUnitPreference: () => ({ system: unitMock.system, showBoth: false }),
 }))
 // The REAL currency hook runs, so a rate option has to survive it. Only the
 // signed-in user is faked, and the rate-digits test flips them to yen.
@@ -91,6 +92,7 @@ const mockEntries = [
 beforeEach(() => {
   vi.clearAllMocks()
   currencyMock.code = 'USD'
+  unitMock.system = 'metric'
   useSupplyHistoryMock.mockReturnValue({
     data: { supply_id: 1, on_hand: '3.500', avg_unit_cost: '5.25', entries: mockEntries },
     isLoading: false,
@@ -165,6 +167,22 @@ describe('SupplyHistoryModal', () => {
     expect(screen.getByText('¥170.50')).toBeInTheDocument()
     expect(screen.queryByText('¥171')).not.toBeInTheDocument()
     expect(screen.getByRole('dialog').textContent ?? '').toContain('¥25')
+  })
+
+  it('prices a quart in the header for an imperial user', () => {
+    // 5 qt for $25 is stored as 4.732 L, so the API's average is $5.2832 per litre.
+    unitMock.system = 'imperial'
+    useSupplyHistoryMock.mockReturnValue({
+      data: { supply_id: 1, on_hand: '4.732', avg_unit_cost: String(25 / 4.732), entries: mockEntries },
+      isLoading: false,
+      error: null,
+    })
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
+
+    expect(screen.getByText('5.00 qt')).toBeInTheDocument()
+    expect(screen.getByText('$5.00')).toBeInTheDocument()
+    expect(screen.queryByText('$5.28')).not.toBeInTheDocument()
+    expect(screen.getByText('supplies.avgCostPerUnit')).toBeInTheDocument()
   })
 
   it('shows the loading state while history is fetching', () => {
