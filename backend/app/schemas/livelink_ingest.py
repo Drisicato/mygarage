@@ -77,6 +77,17 @@ class WiCANStatus(BaseModel):
             return "offline"
         return "unknown"
 
+    @field_validator("fw_version", "hw_version", "git_version", "sta_ip", mode="before")
+    @classmethod
+    def blank_means_unsaid(cls, v: object) -> object:
+        """Turn a blank version or IP into None."""
+        # A blank is the device not saying. Stored as '', a firmware version
+        # sorted below every release and got an update notice for each one.
+        # Same rule as ecu_status: anything that isn't text goes through untouched.
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
 
 class WiCANPayload(BaseModel):
     """Schema for complete WiCAN HTTPS POST payload.

@@ -492,9 +492,9 @@ class LiveLinkService:
         """Update device settings.
 
         ``changes`` holds only the fields the request sent (``exclude_unset``).
-        An omitted field keeps its value. A null ``label`` clears it; separate
-        parameters defaulting to None couldn't tell that from omitted, so a
-        cleared label said saved and stayed.
+        An omitted field keeps its value. A null or blank ``label`` clears it;
+        separate parameters defaulting to None couldn't tell that from omitted,
+        so a cleared label said saved and stayed. A name is stored stripped.
 
         ``vin``: ``""`` unlinks, None leaves the link alone.
 
@@ -513,7 +513,9 @@ class LiveLinkService:
             return None
 
         if "label" in changes:
-            device.label = changes["label"]
+            # An emptied name box is no name. Stored as blanks it beat the
+            # device id fallback, so the sensor showed up nameless.
+            device.label = (changes["label"] or "").strip() or None
         vin = changes.get("vin")
         if vin is not None:
             # "" is the unlink sentinel (schemas.livelink.LiveLinkDeviceUpdate.vin).

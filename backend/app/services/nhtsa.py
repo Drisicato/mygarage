@@ -15,6 +15,10 @@ from app.utils.vin import validate_vin
 
 logger = logging.getLogger(__name__)
 
+# Used when the setting is missing, blank or fails the SSRF check.
+DEFAULT_RECALLS_API_URL = "https://api.nhtsa.gov/recalls"
+DEFAULT_TSB_API_URL = "https://api.nhtsa.gov/products/vehicle/tsbs"
+
 
 class NHTSAService:
     """Service for interacting with NHTSA vPIC API.
@@ -271,7 +275,13 @@ class NHTSAService:
 
         result = await db.execute(select(Setting).where(Setting.key == "nhtsa_recalls_api_url"))
         setting = result.scalar_one_or_none()
-        recalls_api_base = setting.value if setting else "https://api.nhtsa.gov/recalls"
+        # Blank or NULL is nobody having set one, so it's the default and not
+        # an SSRF block worth an ERROR. The value column is nullable.
+        recalls_api_base = (
+            setting.value
+            if setting and setting.value and setting.value.strip()
+            else DEFAULT_RECALLS_API_URL
+        )
 
         # SECURITY: Validate recalls API base URL against SSRF attacks
         try:
@@ -283,7 +293,7 @@ class NHTSAService:
                 sanitize_for_log(e),
             )
             # Use safe default if validation fails
-            recalls_api_base = "https://api.nhtsa.gov/recalls"
+            recalls_api_base = DEFAULT_RECALLS_API_URL
             logger.warning("Using fallback recalls API URL: %s", recalls_api_base)
 
         # Query NHTSA recalls API by make/model/year
@@ -398,7 +408,12 @@ class NHTSAService:
 
         result = await db.execute(select(Setting).where(Setting.key == "nhtsa_tsb_api_url"))
         setting = result.scalar_one_or_none()
-        tsb_api_base = setting.value if setting else "https://api.nhtsa.gov/products/vehicle/tsbs"
+        # Same as recalls: blank or NULL means the default, quietly.
+        tsb_api_base = (
+            setting.value
+            if setting and setting.value and setting.value.strip()
+            else DEFAULT_TSB_API_URL
+        )
 
         # SECURITY: Validate TSB API base URL against SSRF attacks
         try:
@@ -410,7 +425,7 @@ class NHTSAService:
                 sanitize_for_log(e),
             )
             # Use safe default if validation fails
-            tsb_api_base = "https://api.nhtsa.gov/products/vehicle/tsbs"
+            tsb_api_base = DEFAULT_TSB_API_URL
             logger.warning("Using fallback TSB API URL: %s", tsb_api_base)
 
         # Query NHTSA TSB API by make/model/year

@@ -1,6 +1,7 @@
 """Tests for multi-track firmware fetch, cache, and per-device comparison."""
 
 import pytest
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.livelink_device import LiveLinkDevice
@@ -156,6 +157,42 @@ async def test_unknown_hardware_surfaces_no_update(db_session, monkeypatch):
     status = await svc.check_device_firmware("x1")
     assert status["firmware_track"] is None
     assert status["update_available"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_blank_firmware_version_never_needs_an_update(db_session, monkeypatch):
+    """A device stored with fw_version '' never said what it runs. '' sorted
+    below every release, so it "needed" each one."""
+
+    async def fake_get(self, url, **kwargs):
+        return _FakeResp(RELEASES)
+
+    monkeypatch.setattr("httpx.AsyncClient.get", fake_get)
+    svc = FirmwareService(db_session)
+    await svc.check_firmware_updates()
+
+    device_id = "h4blankfw"
+    await _make_device(db_session, device_id, hw="WiCAN-OBD-PRO", fw="4.48")
+    try:
+        # With a real version the same row does need 4.50, so the blank is
+        # the only thing keeping it off the list below.
+        assert device_id in [d["device_id"] for d in await svc.get_devices_needing_update()]
+
+        await db_session.execute(
+            text("UPDATE livelink_devices SET fw_version = '' WHERE device_id = :device_id"),
+            {"device_id": device_id},
+        )
+        await db_session.commit()
+        db_session.expire_all()
+
+        needing = await svc.get_devices_needing_update()
+        assert device_id not in [d["device_id"] for d in needing]
+    finally:
+        await db_session.rollback()
+        await db_session.execute(
+            delete(LiveLinkDevice).where(LiveLinkDevice.device_id == device_id)
+        )
+        await db_session.commit()
 
 
 # ---------------------------------------------------------------------------

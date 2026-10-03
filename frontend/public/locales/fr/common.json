@@ -522,7 +522,7 @@
       "fillLevelTooLarge": "Le niveau de remplissage ne peut pas dépasser 100 %"
     },
     "recall": {
-      "campaignNumberTooLong": "Numéro de campagne trop long (max. 50 caractères)",
+      "campaignNumberTooLong": "Numéro de campagne trop long (max. 20 caractères)",
       "componentRequired": "Le composant est requis",
       "componentTooLong": "Description du composant trop longue (max. 200 caractères)",
       "summaryRequired": "Le résumé est requis",

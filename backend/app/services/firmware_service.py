@@ -173,6 +173,10 @@ class FirmwareService:
         cache_by_track: dict[str, dict | None] = {}
         out: list[dict] = []
         for device in devices:
+            # A blank version is the device not saying what it runs, so there's
+            # nothing to compare. check_device_firmware skips it the same way.
+            if not device.fw_version:
+                continue
             track = self.device_firmware_track(device.hw_version)
             if track is None:
                 continue

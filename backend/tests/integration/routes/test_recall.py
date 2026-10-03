@@ -496,3 +496,64 @@ class TestRecallResolvedTimestamp:
             time.tzset()
 
         assert abs((now_utc - resolved_at).total_seconds()) < 60
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestRecallCampaignNumberWidth:
+    """The column is VARCHAR(20). SQLite ignores the width and PostgreSQL
+    refuses the insert, so the schema has to say no first."""
+
+    @pytest.mark.parametrize(("width", "expected"), [(20, 201), (21, 422)])
+    async def test_create(
+        self, client: AsyncClient, auth_headers, test_vehicle, width: int, expected: int
+    ):
+        """21 characters is a 422 instead of a save that fails on PostgreSQL.
+
+        The 20 case is a guard; mutant: `max_length=19` on RecallBase.
+        """
+        vin = test_vehicle["vin"]
+        response = await client.post(
+            f"/api/vehicles/{vin}/recalls",
+            json={
+                "vin": vin,
+                "component": "Airbag",
+                "summary": "Inflator may rupture",
+                "nhtsa_campaign_number": "2" * width,
+            },
+            headers=auth_headers,
+        )
+        try:
+            assert response.status_code == expected, response.text
+        finally:
+            if response.status_code == 201:
+                await client.delete(
+                    f"/api/vehicles/{vin}/recalls/{response.json()['id']}",
+                    headers=auth_headers,
+                )
+
+    @pytest.mark.parametrize(("width", "expected"), [(20, 200), (21, 422)])
+    async def test_update(
+        self, client: AsyncClient, auth_headers, test_vehicle, width: int, expected: int
+    ):
+        """Same width on an edit.
+
+        The 20 case is a guard; mutant: `max_length=19` on RecallUpdate.
+        """
+        vin = test_vehicle["vin"]
+        created = await client.post(
+            f"/api/vehicles/{vin}/recalls",
+            json={"vin": vin, "component": "Airbag", "summary": "Inflator may rupture"},
+            headers=auth_headers,
+        )
+        assert created.status_code == 201
+        recall_id = created.json()["id"]
+        try:
+            response = await client.put(
+                f"/api/vehicles/{vin}/recalls/{recall_id}",
+                json={"nhtsa_campaign_number": "2" * width},
+                headers=auth_headers,
+            )
+            assert response.status_code == expected, response.text
+        finally:
+            await client.delete(f"/api/vehicles/{vin}/recalls/{recall_id}", headers=auth_headers)

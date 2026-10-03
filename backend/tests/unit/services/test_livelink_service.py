@@ -459,6 +459,36 @@ class TestDeviceManagement:
             # Other fields unchanged by the update call (not reset)
             mock_db.commit.assert_called_once()
 
+    @pytest.mark.parametrize("sent", ["", "  "])
+    async def test_update_device_a_blank_label_clears_it(self, sent):
+        """Emptying the name box is clearing the name. Stored as blanks it beat
+        the device id fallback, so the sensor showed up nameless."""
+        mock_db = AsyncMock()
+        mock_device = MagicMock()
+        mock_device.label = "Front tank"
+
+        with patch.object(LiveLinkService, "get_device_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_device
+
+            service = LiveLinkService(mock_db)
+            await service.update_device("device_123", {"label": sent})
+
+            assert mock_device.label is None
+
+    async def test_update_device_strips_the_label(self):
+        """A name typed with stray spaces is stored without them."""
+        mock_db = AsyncMock()
+        mock_device = MagicMock()
+        mock_device.label = None
+
+        with patch.object(LiveLinkService, "get_device_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_device
+
+            service = LiveLinkService(mock_db)
+            await service.update_device("device_123", {"label": "  Front tank  "})
+
+            assert mock_device.label == "Front tank"
+
     async def test_update_device_not_found(self):
         """Test updating nonexistent device."""
         mock_db = AsyncMock()

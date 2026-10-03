@@ -10,8 +10,9 @@ from app.schemas._nullability import reject_null
 class RecallBase(BaseModel):
     """Base recall schema with common fields."""
 
+    # The column is VARCHAR(20). SQLite never enforced it, PostgreSQL 500s.
     nhtsa_campaign_number: str | None = Field(
-        None, description="NHTSA campaign number", max_length=50
+        None, description="NHTSA campaign number", max_length=20
     )
     component: str = Field(
         ..., description="Component affected by recall", min_length=1, max_length=200
@@ -34,7 +35,7 @@ class RecallUpdate(BaseModel):
     """Schema for updating an existing recall."""
 
     nhtsa_campaign_number: str | None = Field(
-        None, description="NHTSA campaign number", max_length=50
+        None, description="NHTSA campaign number", max_length=20
     )
     component: str | None = Field(
         None, description="Component affected by recall", min_length=1, max_length=200
