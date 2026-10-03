@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
+from app.schemas.vehicle import LenientUsageUnit, LenientVehicleType
 from app.utils.unit_resolution import LenientDistanceUnit
 
 
@@ -25,11 +26,11 @@ class VehicleStatistics(BaseModel):
     year: int | None = None
     make: str | None = None
     model: str | None = None
-    vehicle_type: str | None = None
+    vehicle_type: LenientVehicleType = None
     main_photo_url: str | None = None
 
     # Usage tracking dimension — drives the odometer/hours relabel on the card
-    usage_unit: str = "distance"
+    usage_unit: LenientUsageUnit = "distance"
     # The vehicle's own odometer unit; null follows the viewer (#172).
     distance_unit: LenientDistanceUnit = None
     # Kept for API compat only — NO LONGER the display source (R2-H1). The

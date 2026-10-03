@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.livelink import ECUStatusType
 from app.utils.autopid_normalizer import normalize_autopid_data
 
 
@@ -44,7 +45,7 @@ class WiCANStatus(BaseModel):
     fw_version: str | None = Field(None, description="Firmware version")
     git_version: str | None = Field(None, description="Git version tag")
     hw_version: str | None = Field(None, description="Hardware version")
-    ecu_status: str = Field("unknown", description="ECU status: online/offline")
+    ecu_status: ECUStatusType = Field("unknown", description="ECU status: online/offline")
     sta_ip: str | None = Field(None, description="Device IP on local network")
     battery_voltage: float | None = Field(None, description="Vehicle battery voltage")
     rssi: int | None = Field(None, description="WiFi signal strength")
@@ -61,10 +62,14 @@ class WiCANStatus(BaseModel):
             raise ValueError("device_id must be 6-20 characters")
         return v
 
-    @field_validator("ecu_status")
+    @field_validator("ecu_status", mode="before")
     @classmethod
-    def validate_ecu_status(cls, v: str) -> str:
+    def validate_ecu_status(cls, v: object) -> object:
         """Normalize ECU status to known values."""
+        # Before the Literal, so a device's "ON" still lands. Anything that
+        # isn't text goes through untouched and the Literal 422s it.
+        if not isinstance(v, str):
+            return v
         v = v.strip().lower()
         if v in ("online", "on", "1", "true"):
             return "online"

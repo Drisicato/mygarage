@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.models.vehicle_share import VehicleShare
+from app.schemas.vehicle import LenientUsageUnit, LenientVehicleType
 from app.services.auth import require_auth
 from app.utils.unit_resolution import LenientDistanceUnit
 
@@ -28,12 +29,12 @@ class QuickEntryVehicle(BaseModel):
     year: int | None
     make: str | None
     model: str | None
-    vehicle_type: str
+    vehicle_type: LenientVehicleType
     # Both fuel slots: DEF is offered only where the API accepts it, a diesel
     # in either slot (`app.utils.def_sync`).
     fuel_type: str | None = None
     fuel_type_secondary: str | None = None
-    usage_unit: str = "distance"
+    usage_unit: LenientUsageUnit = "distance"
     secondary_usage_enabled: bool = False
     # The vehicle's own odometer unit, so a Quick Entry form opens in it (#172).
     distance_unit: LenientDistanceUnit = None

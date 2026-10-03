@@ -5,14 +5,20 @@ from __future__ import annotations
 from datetime import date as date_type
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from app.schemas._nullability import reject_null
 from app.utils.household_time import household_today
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
 
 TirePosition = Literal["FL", "FR", "RL", "RR", "SPARE"]
+# For TireResponse: `tires.position` has no CHECK, so a corner we don't know
+# reads as null (like a stored tire) instead of 500ing the tire list.
+LenientTirePosition = Annotated[
+    TirePosition | None, BeforeValidator(lenient_reader(TirePosition)), LenientVocab(None)
+]
 
 
 class TireBase(BaseModel):
@@ -329,8 +335,8 @@ class TireResponse(TireBase):
     storage_location: str | None = None
     id: int
     vin: str
-    # None means in storage, not mounted.
-    position: TirePosition | None = None
+    # None means in storage, not mounted, or a stored corner we don't know.
+    position: LenientTirePosition = None
     set_id: int | None = None
     retired_on: date_type | None = None
     installed_date: date_type | None = None

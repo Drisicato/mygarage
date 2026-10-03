@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.livelink_device import LiveLinkDevice
 from app.models.livelink_topic_map import LiveLinkTopicMap
 from app.models.vehicle_telemetry import VehicleTelemetry
+from app.schemas.livelink import DeviceStatusType, ECUStatusType
 from app.services.livelink_sources.presets.sensors import delete_sensor_readings
 from app.services.settings_service import SettingsService
 from app.utils.datetime_utils import utc_now
@@ -628,8 +629,8 @@ class LiveLinkService:
     async def update_device_status(
         self,
         device_id: str,
-        device_status: str | None = None,
-        ecu_status: str | None = None,
+        device_status: DeviceStatusType | None = None,
+        ecu_status: ECUStatusType | None = None,
         rssi: int | None = None,
         battery_voltage: float | None = None,
         sta_ip: str | None = None,

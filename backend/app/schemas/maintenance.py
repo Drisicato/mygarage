@@ -10,13 +10,28 @@ from __future__ import annotations
 from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
 from app.utils.maintenance_types import is_valid_code
+
+AnchorKind = Literal["service", "completion", "baseline"]
+# `vehicle_reminders.anchor_kind` has no CHECK, so a kind we don't know reads as
+# null on the way out instead of 500ing the reminder list or the pack preview.
+LenientAnchorKind = Annotated[
+    AnchorKind | None, BeforeValidator(lenient_reader(AnchorKind)), LenientVocab(None)
+]
 
 
 def validate_maintenance_type(value: str | None) -> str | None:
@@ -178,7 +193,7 @@ class AnchorCandidate(BaseModel):
 class AnchorProposal(BaseModel):
     """What a reminder would count from, and why."""
 
-    kind: Literal["service", "completion", "baseline"]
+    kind: LenientAnchorKind
     date: date_type
     odometer_km: Decimal | None
     hours: Decimal | None

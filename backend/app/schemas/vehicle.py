@@ -2,14 +2,15 @@
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 from app.constants.fuel import FUEL_TYPE_VALUES, normalize_fuel_type
 from app.constants.units import DistanceUnit
 from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
 from app.utils.unit_resolution import LenientDistanceUnit
 
 
@@ -63,6 +64,17 @@ VehicleType = Literal[
 # Trailer-like types: no engine, no odometer, towed by something else.
 NON_MOTORIZED_VEHICLE_TYPES: frozenset[str] = frozenset({"Trailer", "FifthWheel", "TravelTrailer"})
 
+UsageUnit = Literal["distance", "hours"]
+
+# For responses only. Neither column has a CHECK, so a restored backup can hold
+# a type or unit we don't know, and a strict read 500s every vehicle list.
+LenientVehicleType = Annotated[
+    VehicleType | None, BeforeValidator(lenient_reader(VehicleType)), LenientVocab(None)
+]
+LenientUsageUnit = Annotated[
+    UsageUnit | None, BeforeValidator(lenient_reader(UsageUnit)), LenientVocab(None)
+]
+
 
 class VehicleBase(BaseModel):
     """Base vehicle schema with common fields."""
@@ -71,7 +83,7 @@ class VehicleBase(BaseModel):
         ..., description="User-friendly display name", min_length=1, max_length=100
     )
     vehicle_type: VehicleType = Field(..., description="Type of vehicle")
-    usage_unit: Literal["distance", "hours"] = Field(
+    usage_unit: UsageUnit = Field(
         "distance",
         description="Usage tracking dimension: 'distance' (odometer) or 'hours' (hour meter)",
     )
@@ -213,7 +225,7 @@ class VehicleUpdate(VehicleBase):
     # the generated OpenAPI otherwise marks REQUIRED — forcing every partial
     # update (equipment/pricing sidecars) to resend them. exclude_unset makes an
     # omitted field a no-op, so callers editing unrelated fields can drop them.
-    usage_unit: Literal["distance", "hours"] | None = Field(
+    usage_unit: UsageUnit | None = Field(
         None, description="Usage tracking dimension (omit to leave unchanged)"
     )
     secondary_usage_enabled: bool | None = Field(
@@ -281,6 +293,13 @@ class VehicleUpdate(VehicleBase):
 class VehicleResponse(VehicleBase):
     """Schema for vehicle response."""
 
+    # Read what's stored: a type or unit outside today's list comes back null
+    # (and logs once) instead of 500ing every page with this vehicle on it.
+    vehicle_type: LenientVehicleType = Field(..., description="Type of vehicle")
+    usage_unit: LenientUsageUnit = Field(
+        "distance",
+        description="Usage tracking dimension: 'distance' (odometer) or 'hours' (hour meter)",
+    )
     # Numbers without the input bounds, so a stored value past today's rules
     # (a legacy negative price, say) still reads (test_response_contract).
     current_hours: Decimal | None = Field(
@@ -574,7 +593,7 @@ class VehicleDetailStats(BaseModel):
     # The subset of upcoming expected within DUE_SOON_WINDOW: the hero badge
     # (reminder_service.classify_pending_reminders, as on the dashboard).
     due_soon_count: int
-    usage_unit: str  # 'distance' | 'hours' — drives the odometer/hours relabel
+    usage_unit: LenientUsageUnit  # drives the odometer/hours relabel
     # Kept for API compat only — NO LONGER the display source (R2-H1). The
     # canonical reading is `latest_hours` below, via `latest_engine_hours_and_date`.
     current_hours: Decimal | None  # required-but-nullable — legacy column value

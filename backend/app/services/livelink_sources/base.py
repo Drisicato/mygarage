@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.livelink import DeviceStatusType, ECUStatusType
+
 if TYPE_CHECKING:
     from app.models.livelink_device import LiveLinkDevice
 
@@ -96,7 +98,7 @@ class StatusTransition:
     session outright, so a brief WiFi drop does not split one drive in two.
     """
 
-    ecu_status: str  # 'online' | 'offline' | 'unknown'
+    ecu_status: ECUStatusType
 
 
 @dataclass(frozen=True)
@@ -146,8 +148,8 @@ class IngestBatch:
     #: (`livelink_service.py:575`). Defaulting a telemetry batch to "online"
     #: would let a RETAINED message replayed after a gateway's LWT offline mark
     #: the dead gateway alive again. Only an explicit status signal sets this.
-    device_status: str | None = None
-    ecu_status: str | None = None  # 'online' | 'offline' | 'unknown' | None
+    device_status: DeviceStatusType | None = None
+    ecu_status: ECUStatusType | None = None
     session: SessionSignal | None = None
     dtcs: list[str] = field(default_factory=list)
     location: GeoPoint | None = None

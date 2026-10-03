@@ -46,7 +46,6 @@ from collections.abc import Iterable, Iterator
 from decimal import Decimal
 from typing import Annotated, Any, Literal, TypeAliasType
 
-import pytest
 from fastapi.routing import APIRoute, iter_route_contexts
 from pydantic import (
     BaseModel,
@@ -258,7 +257,10 @@ def test_no_response_constrains_text():
 #: Twins that differ from the field they shadow on purpose: (model, field) -> why.
 DELIBERATE_TWINS: dict[tuple[str, str], str] = {
     ("AddressBookEntryResponse", "email"): "a plain str: EmailStr refuses a local-domain address",
+    ("TopicMapResponse", "role"): "lenient read; the input stays strict",
     ("UserResponse", "email"): "a plain str: EmailStr refuses an SSO email at a local domain",
+    ("VehicleResponse", "usage_unit"): "lenient read; the input stays strict",
+    ("VehicleResponse", "vehicle_type"): "lenient read; the input stays strict",
 }
 
 
@@ -742,8 +744,6 @@ def _namesakes(models: Iterable[type[BaseModel]]) -> dict[tuple[str, str], bool]
     }
 
 
-# Red until the eight strict stored fields read leniently; that change drops the mark.
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="H2")
 def test_every_vocabulary_field_is_accounted_for():
     assert _unaccounted_vocabulary(RESPONSE_MODELS) == [], (
         "a stored value outside these vocabularies 500s the read: make the field "
@@ -752,8 +752,6 @@ def test_every_vocabulary_field_is_accounted_for():
     )
 
 
-# Red until the ten plain-text copies get the lenient types; that change drops the mark.
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="H2")
 def test_vocabulary_namesakes_reach_a_literal():
     free_text = sorted(
         f"{model}.{field}"

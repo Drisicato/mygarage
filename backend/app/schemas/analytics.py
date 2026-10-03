@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.tire import TireResponse
+from app.schemas.vehicle import LenientVehicleType
 
 
 class MonthlyCostSummary(BaseModel):
@@ -257,7 +258,7 @@ class VehicleAnalytics(BaseModel):
 
     vin: str
     vehicle_name: str  # e.g., "2021 Honda Accord"
-    vehicle_type: str  # e.g., "Car", "Motorcycle", "Trailer", "Fifth Wheel"
+    vehicle_type: LenientVehicleType
 
     # Cost Analysis
     cost_analysis: CostAnalysis

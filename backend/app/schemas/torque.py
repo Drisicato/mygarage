@@ -11,6 +11,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.livelink import LenientDeviceStatus
+
 # =============================================================================
 # Trip (drive-session-with-GPS) Schemas
 # =============================================================================
@@ -119,7 +121,7 @@ class TorqueSourceResponse(BaseModel):
 
     device_id: str = Field(..., description="Torque device id")
     label: str | None = Field(None, description="Friendly name for this source")
-    device_status: str = Field(..., description="online / offline / unknown")
+    device_status: LenientDeviceStatus = Field(..., description="online / offline / unknown")
     last_seen: datetime | None = Field(None, description="Last time this source uploaded data")
     created_at: datetime = Field(..., description="When this source was registered")
 

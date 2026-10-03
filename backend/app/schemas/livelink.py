@@ -1,15 +1,29 @@
 """Pydantic schemas for LiveLink device and settings operations."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 from app.schemas._nullability import reject_null
+from app.utils.lenient_vocab import LenientVocab, lenient_reader
 
 # Shared status literals for OpenAPI schema generation
 DeviceStatusType = Literal["online", "offline", "unknown"]
 ECUStatusType = Literal["online", "offline", "unknown"]
+
+# For responses: a stored status we don't know is just "unknown", which the
+# vocabulary already has, so these stay non-null.
+LenientDeviceStatus = Annotated[
+    DeviceStatusType,
+    BeforeValidator(lenient_reader(DeviceStatusType, fallback="unknown")),
+    LenientVocab("unknown"),
+]
+LenientECUStatus = Annotated[
+    ECUStatusType,
+    BeforeValidator(lenient_reader(ECUStatusType, fallback="unknown")),
+    LenientVocab("unknown"),
+]
 
 # =============================================================================
 # Device Schemas
@@ -132,8 +146,10 @@ class LiveLinkDeviceResponse(LiveLinkDeviceBase):
     sta_ip: str | None = Field(None, description="Device IP on local network")
     rssi: int | None = Field(None, description="WiFi signal strength (dBm)")
     battery_voltage: float | None = Field(None, description="Vehicle battery voltage (V)")
-    ecu_status: ECUStatusType = Field("unknown", description="ECU status: online/offline/unknown")
-    device_status: DeviceStatusType = Field(
+    ecu_status: LenientECUStatus = Field(
+        "unknown", description="ECU status: online/offline/unknown"
+    )
+    device_status: LenientDeviceStatus = Field(
         "unknown", description="Device status: online/offline/unknown"
     )
     has_device_token: bool = Field(False, description="Whether device has per-device token")

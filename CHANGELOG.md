@@ -97,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicking a reminder in the calendar's month grid opens it, as in the upcoming list
 - Calendar bulk selection works from the keyboard
 - On the window sticker test page, Remove clears the chosen file instead of opening the file picker
+- A vehicle, tire, service line, LiveLink device, topic map or reminder anchor holding a value the app doesn't recognise (for example from a restored backup) loads, showing it as unknown, instead of failing the page
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically
