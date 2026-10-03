@@ -39,7 +39,10 @@ export default function Supplies() {
   const [includeArchived, setIncludeArchived] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingSupply, setEditingSupply] = useState<Supply | null>(null)
-  const [historySupply, setHistorySupply] = useState<Supply | null>(null)
+  const [historyTarget, setHistoryTarget] = useState<{
+    supply: Supply
+    initialForm?: 'purchase' | 'adjustment'
+  } | null>(null)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [vehicle, setVehicle] = useState<SupplyFilters['vehicle']>('all')
@@ -153,10 +156,29 @@ export default function Supplies() {
     return unit ? t('supplies.avgCostPerUnit', { unit }) : t('supplies.avgUnitCost')
   }
 
+  const quickActions = (supply: Supply) => (
+    <>
+      <button
+        type="button"
+        onClick={() => setHistoryTarget({ supply, initialForm: 'purchase' })}
+        className="text-xs text-primary hover:underline"
+      >
+        {t('supplies.history.logPurchase')}
+      </button>
+      <button
+        type="button"
+        onClick={() => setHistoryTarget({ supply, initialForm: 'adjustment' })}
+        className="text-xs text-primary hover:underline"
+      >
+        {t('supplies.history.logAdjustment')}
+      </button>
+    </>
+  )
+
   const renderActions = (supply: Supply) => (
     <>
       <button
-        onClick={() => setHistorySupply(supply)}
+        onClick={() => setHistoryTarget({ supply })}
         className="text-garage-text-muted hover:text-primary transition-colors"
         aria-label={t('supplies.viewHistory')}
         title={t('supplies.viewHistory')}
@@ -228,7 +250,12 @@ export default function Supplies() {
       id: 'actions',
       header: '',
       align: 'right',
-      render: (s) => <div className="flex justify-end gap-2">{renderActions(s)}</div>,
+      render: (s) => (
+        <div className="flex items-center justify-end gap-3">
+          {quickActions(s)}
+          <div className="flex gap-2">{renderActions(s)}</div>
+        </div>
+      ),
     },
   ]
 
@@ -486,6 +513,10 @@ export default function Supplies() {
                               </p>
                             )}
                           </div>
+
+                          <div className="flex gap-4 mt-3 pt-3 border-t border-garage-border">
+                            {quickActions(supply)}
+                          </div>
                         </div>
                       )
                     })}
@@ -503,8 +534,12 @@ export default function Supplies() {
       )}
 
       {/* History Modal */}
-      {historySupply && (
-        <SupplyHistoryModal supply={historySupply} onClose={() => setHistorySupply(null)} />
+      {historyTarget && (
+        <SupplyHistoryModal
+          supply={historyTarget.supply}
+          initialForm={historyTarget.initialForm}
+          onClose={() => setHistoryTarget(null)}
+        />
       )}
     </div>
   )

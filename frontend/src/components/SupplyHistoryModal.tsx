@@ -38,6 +38,8 @@ type SupplyLedgerEntry = components['schemas']['SupplyLedgerEntry']
 interface SupplyHistoryModalProps {
   supply: Supply
   onClose: () => void
+  /** Opens the modal with that log form already expanded (card quick actions). */
+  initialForm?: 'purchase' | 'adjustment'
 }
 
 const RECEIPT_ACCEPT = '.jpg,.jpeg,.png,.gif,.pdf'
@@ -70,7 +72,7 @@ function formatEntryDate(at: string): string {
   return formatDateForDisplay(at.includes('T') ? at.split('T')[0] : at)
 }
 
-export default function SupplyHistoryModal({ supply, onClose }: SupplyHistoryModalProps) {
+export default function SupplyHistoryModal({ supply, onClose, initialForm }: SupplyHistoryModalProps) {
   const { t } = useTranslation('common')
   const { system } = useUnitPreference()
   const { formatCurrency } = useCurrencyPreference()
@@ -78,7 +80,7 @@ export default function SupplyHistoryModal({ supply, onClose }: SupplyHistoryMod
 
   // Which inline "log" form is expanded — a single field instead of two
   // independent booleans so only one can be open at a time.
-  const [activeForm, setActiveForm] = useState<'purchase' | 'adjustment' | null>(null)
+  const [activeForm, setActiveForm] = useState<'purchase' | 'adjustment' | null>(initialForm ?? null)
 
   const entries = data?.entries ?? []
   const onHand = data?.on_hand ?? supply.on_hand

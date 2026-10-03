@@ -8,11 +8,30 @@ import type { Supply } from '../../types/supplies'
 const useSuppliesMock = vi.fn()
 const useDeleteSupplyMock = vi.fn()
 
+const mutationStub = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, variables: undefined })
+
 vi.mock('../../hooks/queries/useSupplies', () => ({
   useSupplies: () => useSuppliesMock(),
   useCreateSupply: () => ({ mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }),
   useUpdateSupply: () => ({ mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }),
   useDeleteSupply: () => useDeleteSupplyMock(),
+  // The quick-action tests mount the real SupplyHistoryModal, so its hooks
+  // need inert stands-ins here too.
+  useSupplyHistory: () => ({
+    data: { entries: [], on_hand: '0.000', avg_unit_cost: null },
+    isLoading: false,
+    error: null,
+  }),
+  useAddPurchase: () => mutationStub(),
+  useDeletePurchase: () => mutationStub(),
+  useAddAdjustment: () => mutationStub(),
+  useDeleteAdjustment: () => mutationStub(),
+  useUploadReceipt: () => mutationStub(),
+  useDeleteReceipt: () => mutationStub(),
+}))
+
+vi.mock('../../hooks/queries/useAddressBook', () => ({
+  useAddressBookEntries: () => ({ data: [] }),
 }))
 
 vi.mock('../../hooks/queries/useQuickEntryVehicles', () => ({
@@ -52,6 +71,8 @@ const mockSupply: Supply = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The view pick persists on purpose, so tests must not inherit each other's.
+  localStorage.clear()
   currencyMock.code = 'USD'
   unitMock.system = 'metric'
   useSuppliesMock.mockReturnValue({
@@ -289,6 +310,33 @@ describe('Supplies page: out of stock highlight and the vehicle line', () => {
     expect(within(sharedCard as HTMLElement).getByText('supplies.sharedVehicle')).toBeInTheDocument()
     const pinnedCard = screen.getByText('Pinned Oil').closest('div[class*="bg-garage-surface"]')
     expect(within(pinnedCard as HTMLElement).getByText('VINUNKNOWN123')).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page quick actions', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('the card offers log purchase and adjustment, and purchase opens that form', () => {
+    render(<Supplies />)
+
+    expect(screen.getByRole('button', { name: 'supplies.history.logAdjustment' })).toBeInTheDocument()
+    expect(document.getElementById('purchase-date')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.history.logPurchase' }))
+
+    expect(document.getElementById('purchase-date')).toBeInTheDocument()
+  })
+
+  it('list rows carry the same quick actions', () => {
+    render(<Supplies />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
+
+    const table = screen.getByRole('table')
+    expect(within(table).getByRole('button', { name: 'supplies.history.logPurchase' })).toBeInTheDocument()
+    expect(within(table).getByRole('button', { name: 'supplies.history.logAdjustment' })).toBeInTheDocument()
   })
 })
 
