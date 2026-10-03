@@ -16,8 +16,9 @@ import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import { RATE_DIGITS } from '@/utils/formatUtils'
 import { canonicalToDisplay, supplyUnitLabel, unitCostToDisplay } from '@/utils/supplyUnits'
+import { canonicalCategories, filterSupplies, type SupplyFilters } from '@/utils/supplyListView'
 import { makeSupplySchema, SUPPLY_UNIT_TYPES, type SupplyFormData } from '@/schemas/supplies'
-import { Select, Field, Input, Textarea, Checkbox, Button } from '@/components/ui'
+import { Select, Field, Input, Textarea, Checkbox, Button, SearchField, Chip } from '@/components/ui'
 import FormModalWrapper from '@/components/FormModalWrapper'
 import SupplyHistoryModal from '@/components/SupplyHistoryModal'
 import BarcodeScanButton from '@/components/BarcodeScanButton'
@@ -32,13 +33,45 @@ export default function Supplies() {
   const [showForm, setShowForm] = useState(false)
   const [editingSupply, setEditingSupply] = useState<Supply | null>(null)
   const [historySupply, setHistorySupply] = useState<Supply | null>(null)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<string | null>(null)
+  const [vehicle, setVehicle] = useState<SupplyFilters['vehicle']>('all')
+  const [outOfStockOnly, setOutOfStockOnly] = useState(false)
 
   const { data, isLoading, error } = useSupplies(includeArchived)
   const deleteMutation = useDeleteSupply()
   const { system } = useUnitPreference()
   const { formatCurrency } = useCurrencyPreference()
+  const { data: quickVehicles = [] } = useQuickEntryVehicles()
 
   const supplies = useMemo(() => data?.supplies ?? [], [data?.supplies])
+
+  const vehicleLabelFor = (vin: string): string => {
+    const known = quickVehicles.find((v) => v.vin === vin)
+    return known ? vehicleLabel(known) : vin
+  }
+
+  const categories = useMemo(() => canonicalCategories(supplies), [supplies])
+  const vins = useMemo(
+    () => [...new Set(supplies.map((s) => s.vin).filter((vin): vin is string => vin != null))],
+    [supplies],
+  )
+
+  const filters: SupplyFilters = { query, category, vehicle, outOfStock: outOfStockOnly }
+  const visible = useMemo(
+    () => filterSupplies(supplies, filters),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [supplies, query, category, vehicle, outOfStockOnly],
+  )
+  const anyFilterActive =
+    query.trim() !== '' || category !== null || vehicle !== 'all' || outOfStockOnly
+
+  const clearFilters = () => {
+    setQuery('')
+    setCategory(null)
+    setVehicle('all')
+    setOutOfStockOnly(false)
+  }
 
   const handleAddClick = () => {
     setEditingSupply(null)
@@ -88,6 +121,47 @@ export default function Supplies() {
 
       {/* Controls */}
       <div className="mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            label={t('supplies.searchSupplies')}
+            placeholder={t('supplies.searchSupplies')}
+            className="w-full sm:w-56"
+          />
+          <Select
+            aria-label={t('supplies.filterByCategory')}
+            value={category ?? ''}
+            onChange={(e) => setCategory(e.target.value || null)}
+            placeholder={t('supplies.allCategories')}
+            options={categories.map((c) => ({ value: c, label: c }))}
+            className="sm:w-48"
+          />
+          <Select
+            aria-label={t('supplies.filterByVehicle')}
+            value={vehicle}
+            onChange={(e) => setVehicle(e.target.value)}
+            options={[
+              { value: 'all', label: t('supplies.allVehicles') },
+              { value: 'shared', label: t('supplies.sharedVehicle') },
+              ...vins.map((vin) => ({ value: vin, label: vehicleLabelFor(vin) })),
+            ]}
+            className="sm:w-48"
+          />
+          <Chip selected={outOfStockOnly} onClick={() => setOutOfStockOnly((prev) => !prev)}>
+            {t('supplies.outOfStock')}
+          </Chip>
+        </div>
+
+        {anyFilterActive && (
+          <div className="flex items-center gap-3 mb-4 text-sm text-garage-text-muted">
+            <span>{t('supplies.showingResults', { shown: visible.length, total: supplies.length })}</span>
+            <button type="button" onClick={clearFilters} className="text-primary hover:underline">
+              {t('supplies.clearFilters')}
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <button
             type="button"
@@ -136,9 +210,14 @@ export default function Supplies() {
               {t('supplies.addFirstSupply')}
             </button>
           </div>
+        ) : visible.length === 0 ? (
+          <div className="text-center py-12">
+            <Package className="w-16 h-16 text-garage-text-muted mx-auto mb-4" />
+            <p className="text-garage-text-muted">{t('supplies.noMatches')}</p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {supplies.map((supply) => {
+            {visible.map((supply) => {
               const archived = supply.is_active === false
               return (
                 <div

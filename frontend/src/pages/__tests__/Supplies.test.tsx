@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '../../__tests__/test-utils'
+import { render, screen, fireEvent, within } from '../../__tests__/test-utils'
 import type { Supply } from '../../types/supplies'
 
 // Mock the supplies query hooks so this stays a unit test — no real network
@@ -71,7 +71,8 @@ describe('Supplies page', () => {
     render(<Supplies />)
 
     expect(screen.getByText('Motor Oil 5W-30')).toBeInTheDocument()
-    expect(screen.getByText('Fluids')).toBeInTheDocument()
+    // The category filter's <option> shares the text, so scope to the chip.
+    expect(screen.getAllByText('Fluids').length).toBeGreaterThan(1)
     expect(screen.getByText('MO-530')).toBeInTheDocument()
   })
 
@@ -106,6 +107,72 @@ describe('Supplies page', () => {
     expect(document.getElementById('unit_type')).toBeDisabled()
     // is_active toggle only appears on edit
     expect(document.getElementById('is_active')).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page toolbar: search and filters', () => {
+  const fluidsA = { ...mockSupply, id: 11, name: 'Oil A', category: 'fluids' } as Supply
+  const fluidsB = { ...mockSupply, id: 12, name: 'Oil B', category: 'Fluids' } as Supply
+  const fluidsC = { ...mockSupply, id: 13, name: 'Oil C', category: 'Fluids' } as Supply
+  const pinnedOut = {
+    ...mockSupply, id: 14, name: 'Truck Brake Pads', category: null,
+    vin: '1HGCM82633A004352', on_hand: '0.000',
+  } as Supply
+
+  beforeEach(() => {
+    useSuppliesMock.mockReturnValue({
+      data: { supplies: [fluidsA, fluidsB, fluidsC, pinnedOut], total: 4 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  it('a search with no hits hides the cards and offers clear filters', () => {
+    render(<Supplies />)
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'nomatch' } })
+
+    expect(screen.queryByText('Oil A')).not.toBeInTheDocument()
+    expect(screen.getByText('supplies.showingResults')).toBeInTheDocument()
+    expect(screen.getByText('supplies.noMatches')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'supplies.clearFilters' })).toBeInTheDocument()
+  })
+
+  it('clear filters restores the cards and drops the showing line', () => {
+    render(<Supplies />)
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'nomatch' } })
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.clearFilters' }))
+
+    expect(screen.getByText('Oil A')).toBeInTheDocument()
+    expect(screen.queryByText('supplies.showingResults')).not.toBeInTheDocument()
+  })
+
+  it('the category select lists each category once, most common spelling', () => {
+    render(<Supplies />)
+
+    const select = screen.getByRole('combobox', { name: 'supplies.filterByCategory' })
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'supplies.allCategories', 'Fluids',
+    ])
+  })
+
+  it('the vehicle select offers all, shared, and the raw VIN when quick entry does not know it', () => {
+    render(<Supplies />)
+
+    const select = screen.getByRole('combobox', { name: 'supplies.filterByVehicle' })
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'supplies.allVehicles', 'supplies.sharedVehicle', '1HGCM82633A004352',
+    ])
+  })
+
+  it('the out of stock chip keeps only zero and negative rows', () => {
+    render(<Supplies />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.outOfStock' }))
+
+    expect(screen.getByText('Truck Brake Pads')).toBeInTheDocument()
+    expect(screen.queryByText('Oil A')).not.toBeInTheDocument()
   })
 })
 
