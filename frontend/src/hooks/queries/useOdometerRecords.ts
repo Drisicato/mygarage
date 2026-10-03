@@ -29,7 +29,6 @@ export function useCreateOdometerRecord(vin: string) {
       return data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
       invalidateReadingViews(queryClient, vin)
     },
   })
@@ -43,7 +42,6 @@ export function useUpdateOdometerRecord(vin: string) {
       return data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
       invalidateReadingViews(queryClient, vin)
     },
   })
@@ -56,7 +54,6 @@ export function useDeleteOdometerRecord(vin: string) {
       await api.delete(`/vehicles/${vin}/odometer/${recordId}`)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
       invalidateReadingViews(queryClient, vin)
     },
   })
@@ -85,7 +82,6 @@ export function useImportOdometerCSV(vin: string) {
       return data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['odometerRecords', vin] })
       invalidateReadingViews(queryClient, vin)
     },
   })

@@ -49,13 +49,6 @@ import api from '../services/api'
 
 interface ReminderListProps {
   vin: string
-  /**
-   * Fired after any write that moves the vehicle's overdue/upcoming counts
-   * (complete, dismiss, delete, snooze, unsnooze, pack apply, reconcile).
-   * VehicleDetail holds those stats in local state, not react-query, so the
-   * mutation invalidation above cannot refresh them.
-   */
-  onStatsChanged?: () => void
 }
 
 const STATUS_TABS: { id: ReminderStatus | 'all'; labelKey: string }[] = [
@@ -92,7 +85,7 @@ const ROW_STRIPE: Partial<Record<DueStatus, string>> = {
   due_soon: 'border-l-4 border-l-warning',
 }
 
-export default function ReminderList({ vin, onStatsChanged }: ReminderListProps) {
+export default function ReminderList({ vin }: ReminderListProps) {
   const { t } = useTranslation('vehicles')
   const { t: tForms } = useTranslation('forms')
   const dateLocale = useDateLocale()
@@ -152,7 +145,6 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
     try {
       await dismissMutation.mutateAsync(id)
       toast.success(t('reminderList.dismissed'))
-      onStatsChanged?.()
     } catch {
       toast.error(t('reminderList.dismissError'))
     }
@@ -162,7 +154,6 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
     try {
       await deleteMutation.mutateAsync(id)
       toast.success(t('reminderList.deleted'))
-      onStatsChanged?.()
     } catch {
       toast.error(t('reminderList.deleteError'))
     }
@@ -510,7 +501,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
           currentMileage={currentMileage}
           currentHours={currentHours}
           onClose={handleFormClose}
-          onSuccess={() => { handleFormClose(); onStatsChanged?.() }}
+          onSuccess={handleFormClose}
         />
       )}
 
@@ -523,7 +514,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
           tracksDistance={tracksDistance}
           tracksHours={tracksHours}
           onClose={() => setCompleting(undefined)}
-          onSuccess={() => { setCompleting(undefined); onStatsChanged?.() }}
+          onSuccess={() => setCompleting(undefined)}
         />
       )}
 
@@ -532,7 +523,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
           vin={vin}
           reminder={snoozing}
           onClose={() => setSnoozing(undefined)}
-          onSuccess={() => { setSnoozing(undefined); onStatsChanged?.() }}
+          onSuccess={() => setSnoozing(undefined)}
         />
       )}
 
@@ -561,7 +552,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
           packId={previewingPack.id}
           packName={previewingPack.name}
           onClose={() => setPreviewingPack(undefined)}
-          onApplied={() => { setPreviewingPack(undefined); setSelectedPack(''); onStatsChanged?.() }}
+          onApplied={() => { setPreviewingPack(undefined); setSelectedPack('') }}
         />
       )}
 
@@ -570,7 +561,7 @@ export default function ReminderList({ vin, onStatsChanged }: ReminderListProps)
           vin={vin}
           group={reviewingGroup}
           onClose={() => setReviewingGroup(undefined)}
-          onDone={() => { setReviewingGroup(undefined); onStatsChanged?.() }}
+          onDone={() => setReviewingGroup(undefined)}
         />
       )}
     </div>

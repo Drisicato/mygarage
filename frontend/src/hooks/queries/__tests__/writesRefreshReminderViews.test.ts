@@ -24,7 +24,19 @@ import {
 import { useCreateDEFRecord, useUpdateDEFRecord, useDeleteDEFRecord } from '../useDEFRecords'
 import { useCreateServiceVisit } from '../useServiceVisits'
 import { useCreateTire } from '../useTires'
-import { invalidateMaintenanceQueries } from '../../useReminders'
+import {
+  invalidateMaintenanceQueries,
+  useApplyPack,
+  useCompleteReminder,
+  useCreateReminder,
+  useDeleteReminder,
+  useMarkReminderDismissed,
+  useMarkReminderDone,
+  useReconcileDuplicates,
+  useSnoozeReminder,
+  useUnsnoozeReminder,
+  useUpdateReminder,
+} from '../../useReminders'
 import api from '../../../services/api'
 
 vi.mock('../../../services/api', () => ({
@@ -64,7 +76,22 @@ const CASES: [string, AnyMutationHook, unknown][] = [
   ['tire create', useCreateTire, { brand: 'Test' }],
 ]
 
-describe.each(CASES)('%s', (_name, useHook, arg) => {
+// Reminder writes: the hero's counts move with the list, by key, with no
+// callback from the list up to the page.
+const REMINDER_CASES: [string, AnyMutationHook, unknown][] = [
+  ['reminder create', useCreateReminder, { title: 'Oil', reminder_type: 'date' }],
+  ['reminder update', useUpdateReminder, { id: 1, title: 'Oil' }],
+  ['reminder delete', useDeleteReminder, 1],
+  ['reminder done', useMarkReminderDone, 1],
+  ['reminder dismiss', useMarkReminderDismissed, 1],
+  ['reminder snooze', useSnoozeReminder, { id: 1, until: '2026-11-01' }],
+  ['reminder unsnooze', useUnsnoozeReminder, 1],
+  ['reminder complete', useCompleteReminder, { id: 1, completed_date: '2026-10-01' }],
+  ['pack apply', useApplyPack, { packId: 'basic' }],
+  ['duplicates reconcile', useReconcileDuplicates, { keepId: 1, supersedeIds: [2] }],
+]
+
+describe.each([...CASES, ...REMINDER_CASES])('%s', (_name, useHook, arg) => {
   it('refreshes the reminders list and the hero', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
     const spy = vi.spyOn(qc, 'invalidateQueries')
@@ -76,6 +103,34 @@ describe.each(CASES)('%s', (_name, useHook, arg) => {
     expect(spy).toHaveBeenCalledWith(HERO)
   })
 })
+
+// Fuel and DEF writes sync odometer (and fuel, hours) rows on the server, so
+// every reading write refreshes the same set of reading views.
+const READING_VIEWS = [
+  'reminders',
+  'vehicleDetailStats',
+  'odometerRecords',
+  'latestMileage',
+  'hoursRecords',
+  'latestHours',
+]
+
+describe.each(CASES.filter(([name]) => !name.startsWith('service visit')))(
+  '%s',
+  (_name, useHook, arg) => {
+    it('refreshes every view a reading moves', async () => {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+      const spy = vi.spyOn(qc, 'invalidateQueries')
+      const Wrap = ({ children }: { children: React.ReactNode }): React.ReactElement =>
+        React.createElement(QueryClientProvider, { client: qc }, children)
+      const { result } = renderHook(() => useHook(VIN), { wrapper: Wrap })
+      await result.current.mutateAsync(arg)
+      for (const key of READING_VIEWS) {
+        expect(spy).toHaveBeenCalledWith({ queryKey: [key, VIN] })
+      }
+    })
+  },
+)
 
 describe('invalidateMaintenanceQueries, which every reminder mutation calls', () => {
   it('refreshes the hero along with the list', () => {

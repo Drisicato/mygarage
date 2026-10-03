@@ -42,6 +42,7 @@ from app.services.reminder_service import (
     count_pending_reminders,
     create_reminder,
     created_on,
+    enrich_reminders,
     enrich_with_estimate,
     expected_due_date,
     get_current_hours,
@@ -51,7 +52,6 @@ from app.services.reminder_service import (
     order_reminders,
     progress_fractions,
     reminder_due_status,
-    reminder_start,
     tally_due_statuses,
     validate_reminder_state,
 )
@@ -486,10 +486,8 @@ class TestClassifyPendingReminders:
     def test_derived_starts_reach_the_fallback(self):
         one_off = _pending(id=9, reminder_type="mileage", due_mileage_km=Decimal("60000"))
         starts = {9: ReminderStart(TODAY - timedelta(days=100), Decimal("50000"), None)}
-        without = classify_pending_reminders([one_off], Decimal("59500"), None, None, None, TODAY)
-        with_start = classify_pending_reminders(
-            [one_off], Decimal("59500"), None, None, None, TODAY, starts
-        )
+        without = tally_due_statuses([one_off], _ctx(km="59500"))
+        with_start = tally_due_statuses([one_off], _ctx(km="59500", starts=starts))
         assert (without.due_soon, with_start.due_soon) == (0, 1)
 
 
@@ -522,15 +520,11 @@ def _anchored(**kwargs) -> Reminder:
     return _pending(**base)
 
 
-def _fractions(reminder: Reminder, ctx: DueContext) -> dict:
-    return progress_fractions(reminder, reminder_start(reminder, ctx), ctx)
-
-
 @pytest.mark.unit
 class TestProgressFractions:
     def test_anchored_date(self):
         reminder = _anchored(due_date=TODAY + timedelta(days=100))
-        assert _fractions(reminder, _ctx()) == pytest.approx({"date": 0.5})
+        assert progress_fractions(reminder, _ctx()) == pytest.approx({"date": 0.5})
 
     def test_anchored_distance(self):
         reminder = _anchored(
@@ -538,13 +532,13 @@ class TestProgressFractions:
             anchor_odometer_km=Decimal("50000"),
             due_mileage_km=Decimal("60000"),
         )
-        assert _fractions(reminder, _ctx(km="59000")) == pytest.approx({"distance": 0.9})
+        assert progress_fractions(reminder, _ctx(km="59000")) == pytest.approx({"distance": 0.9})
 
     def test_anchored_hours(self):
         reminder = _anchored(
             reminder_type="hours", anchor_hours=Decimal("100.0"), due_hours=Decimal("200.0")
         )
-        assert _fractions(reminder, _ctx(hours="150.0")) == pytest.approx({"hours": 0.5})
+        assert progress_fractions(reminder, _ctx(hours="150.0")) == pytest.approx({"hours": 0.5})
 
     def test_past_due_is_unclamped(self):
         reminder = _anchored(
@@ -552,7 +546,7 @@ class TestProgressFractions:
             anchor_odometer_km=Decimal("50000"),
             due_mileage_km=Decimal("60000"),
         )
-        assert _fractions(reminder, _ctx(km="62500")) == pytest.approx({"distance": 1.25})
+        assert progress_fractions(reminder, _ctx(km="62500")) == pytest.approx({"distance": 1.25})
 
     def test_a_reading_below_the_start_is_negative_not_dropped(self):
         reminder = _anchored(
@@ -560,17 +554,17 @@ class TestProgressFractions:
             anchor_odometer_km=Decimal("50000"),
             due_mileage_km=Decimal("60000"),
         )
-        assert _fractions(reminder, _ctx(km="49000")) == pytest.approx({"distance": -0.1})
+        assert progress_fractions(reminder, _ctx(km="49000")) == pytest.approx({"distance": -0.1})
 
     def test_a_span_of_zero_or_less_is_skipped(self):
         same_day = _anchored(due_date=TODAY - timedelta(days=100))
-        assert _fractions(same_day, _ctx()) == {}
+        assert progress_fractions(same_day, _ctx()) == {}
         no_distance = _anchored(
             reminder_type="mileage",
             anchor_odometer_km=Decimal("60000"),
             due_mileage_km=Decimal("60000"),
         )
-        assert _fractions(no_distance, _ctx(km="61000")) == {}
+        assert progress_fractions(no_distance, _ctx(km="61000")) == {}
 
     def test_a_missing_reading_skips_its_dimension(self):
         reminder = _anchored(
@@ -579,12 +573,12 @@ class TestProgressFractions:
             anchor_odometer_km=Decimal("50000"),
             due_mileage_km=Decimal("60000"),
         )
-        assert _fractions(reminder, _ctx()) == pytest.approx({"date": 0.5})
+        assert progress_fractions(reminder, _ctx()) == pytest.approx({"date": 0.5})
 
     def test_no_start_no_fractions(self):
         # Unanchored, and the context holds no derived start for it.
         reminder = _pending(id=7, due_date=TODAY + timedelta(days=10))
-        assert _fractions(reminder, _ctx()) == {}
+        assert progress_fractions(reminder, _ctx()) == {}
 
     def test_an_unanchored_reminder_reads_its_derived_start(self):
         reminder = _pending(
@@ -597,7 +591,7 @@ class TestProgressFractions:
             km="45000",
             starts={7: ReminderStart(TODAY - timedelta(days=10), Decimal("40000"), None)},
         )
-        assert _fractions(reminder, ctx) == pytest.approx({"date": 0.5, "distance": 0.5})
+        assert progress_fractions(reminder, ctx) == pytest.approx({"date": 0.5, "distance": 0.5})
 
     def test_a_kind_without_a_date_is_unanchored(self):
         # maintenance_service treats this row as unanchored (no anchor_date), so it
@@ -611,7 +605,7 @@ class TestProgressFractions:
             due_mileage_km=Decimal("50000"),
         )
         ctx = _ctx(km="45000", starts={7: ReminderStart(TODAY, Decimal("40000"), None)})
-        assert _fractions(reminder, ctx) == pytest.approx({"distance": 0.5})
+        assert progress_fractions(reminder, ctx) == pytest.approx({"distance": 0.5})
 
 
 @pytest.mark.unit
@@ -1092,6 +1086,44 @@ class TestListRemindersFetchesOnce:
         responses = await list_reminders(vin, db_session, "pending")
 
         assert [r.title for r in responses] == ["At 12000", "At 13000", "At 14000"]
+        assert rate.await_count == 1
+        assert reading.await_count == 1
+
+    async def test_enrich_reminders_shares_one_context_across_rows(
+        self, db_session, test_vehicle, clean_odometer_records, clean_reminders, monkeypatch
+    ):
+        # Applying a pack and reconciling duplicates return several rows at once.
+        vin = test_vehicle["vin"]
+        await _add_odometer_record(
+            db_session, vin, date.today() - timedelta(days=20), Decimal("10000")
+        )
+        await _add_odometer_record(db_session, vin, date.today(), Decimal("11000"))
+        reminders = [
+            Reminder(
+                vin=vin,
+                title=f"At {km}",
+                reminder_type="mileage",
+                status="pending",
+                due_mileage_km=Decimal(km),
+            )
+            for km in ("12000", "13000", "14000")
+        ]
+        db_session.add_all(reminders)
+        await db_session.commit()
+        for reminder in reminders:
+            await db_session.refresh(reminder)
+        rate = AsyncMock(wraps=reminder_service.calculate_driving_rate)
+        reading = AsyncMock(wraps=reminder_service.get_current_mileage)
+        monkeypatch.setattr(reminder_service, "calculate_driving_rate", rate)
+        monkeypatch.setattr(reminder_service, "get_current_mileage", reading)
+
+        responses = await enrich_reminders(reminders, db_session)
+
+        assert [r.km_until_due for r in responses] == [
+            Decimal("1000"),
+            Decimal("2000"),
+            Decimal("3000"),
+        ]
         assert rate.await_count == 1
         assert reading.await_count == 1
 

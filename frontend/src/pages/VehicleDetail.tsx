@@ -241,19 +241,16 @@ export default function VehicleDetail() {
   // on it (the hero renders without the reading/badge, and the key-facts strip
   // is omitted until it resolves; no layout is reserved).
   //
-  // On the query cache, keyed by vin, so a write anywhere refreshes it by key
-  // (#192). The cache also covers the races the old generation counter did: a
+  // On the query cache, keyed by vin, so any write refreshes it by key (#192):
+  // the reminder, service-visit and tire invalidation helpers and every reading
+  // write. The cache also covers the races the old generation counter did: a
   // late A response lands in A's entry and never shows on B (B3); a refresh
   // cancels the one in flight, so an older response can't overwrite a newer
-  // one (codex R1-M2); and a callback for A that fires after navigating to B
+  // one (codex R1-M2); and a write for A that finishes after navigating to B
   // only marks A stale, since A has no observer left to refetch for (codex
   // R2-M1). A failed refresh keeps the last good stats.
   const queryClient = useQueryClient()
   const { data: detailStats = null } = useVehicleDetailStats(vin ?? '')
-  // ReminderList's writes reach the stats through this callback.
-  const refreshDetailStats = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['vehicleDetailStats', vin] })
-  }, [queryClient, vin])
 
   // Handle URL tab parameter from calendar navigation
   useEffect(() => {
@@ -388,8 +385,10 @@ export default function VehicleDetail() {
       // Reload the vehicle data
       await loadVehicle()
       // An import can write every record type, reminders and readings
-      // included, so every query for this vehicle is stale (#192).
-      void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === vin })
+      // included, and vehicle-scoped query keys don't share one shape (the
+      // insurance key puts the VIN third), so mark everything stale. Only
+      // what's on screen refetches (#192).
+      void queryClient.invalidateQueries()
     } catch (err) {
       toast.error(t('detail.importError'), {
         description: getActionErrorMessage(err, t('detail.importAction'))
@@ -732,7 +731,7 @@ export default function VehicleDetail() {
 
         {/* Tracking Sub-tabs */}
         {activePrimaryTab === 'tracking' && activeSubTab === 'notes' && vin && <NotesTab vin={vin} />}
-        {activePrimaryTab === 'tracking' && activeSubTab === 'reminders' && vin && <ReminderList vin={vin} onStatsChanged={refreshDetailStats} />}
+        {activePrimaryTab === 'tracking' && activeSubTab === 'reminders' && vin && <ReminderList vin={vin} />}
         {activePrimaryTab === 'tracking' && activeSubTab === 'reports' && vin && <ReportsTab vin={vin} />}
 
         {/* Financial Sub-tabs */}

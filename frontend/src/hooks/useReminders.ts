@@ -22,29 +22,27 @@ import type {
 
 /** Every query a maintenance write can move. */
 export function invalidateMaintenanceQueries(queryClient: QueryClient, vin: string): void {
-  for (const key of [
-    'reminders',
-    'reminderDuplicates',
-    'maintenanceRules',
-    'packPreview',
-    'serviceVisits',
-    'latestMileage',
-    'latestHours',
-    'odometerRecords',
-    'hoursRecords',
-    'vehicleDetailStats', // the hero counts these reminders (#192)
-  ]) {
+  invalidateReadingViews(queryClient, vin)
+  for (const key of ['reminderDuplicates', 'maintenanceRules', 'packPreview', 'serviceVisits']) {
     void queryClient.invalidateQueries({ queryKey: [key, vin] })
   }
 }
 
 /**
- * What a new or changed reading moves: each pending reminder's progress, chip
- * and order, and the hero's counts and latest reading (#192). For the reading
- * hooks (odometer, hours, fuel, DEF), whose writes touch no reminder row.
+ * Everything a new or changed reading moves (#192): the reading lists and the
+ * latest readings, each pending reminder's progress, chip and order, and the
+ * hero's counts and latest reading. One set for every reading write, since the
+ * server syncs odometer and hours rows from fuel, DEF, service and tire writes.
  */
 export function invalidateReadingViews(queryClient: QueryClient, vin: string): void {
-  for (const key of ['reminders', 'vehicleDetailStats']) {
+  for (const key of [
+    'odometerRecords',
+    'hoursRecords',
+    'latestMileage',
+    'latestHours',
+    'reminders',
+    'vehicleDetailStats',
+  ]) {
     void queryClient.invalidateQueries({ queryKey: [key, vin] })
   }
 }
