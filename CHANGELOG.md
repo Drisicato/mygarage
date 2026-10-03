@@ -103,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A LiveLink device that reports a blank firmware version no longer gets an update notice for every release
 - Clearing a LiveLink sensor's name falls back to its device id everywhere, including the delete prompt
 - A recall campaign number longer than 20 characters is refused instead of failing to save on PostgreSQL
+- A LiveLink sensor name longer than 100 characters is refused instead of failing to save on PostgreSQL
 
 ### Security
 - An SSO sign-in whose email matches an existing account asks for that account's password instead of linking it automatically

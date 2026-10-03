@@ -104,6 +104,50 @@ class TestDeviceLabel:
         assert (device.odometer_unit, device.odometer_param_key) == ("mi", "ODO")
 
 
+class TestDeviceLabelThroughTheRoute:
+    """The label rules where they bite: the route, not the service with a mock."""
+
+    @pytest.mark.parametrize("blank", ["", "   "], ids=["empty", "spaces"])
+    async def test_a_blank_label_is_stored_as_none(
+        self, client: AsyncClient, auth_headers, db_session, blank
+    ):
+        """A guard: H4 made the service store None, this pins the route seam.
+
+        Mutant: store `changes["label"]` as sent in `LiveLinkService.update_device`.
+        """
+        r = await client.put(
+            f"/api/livelink/devices/{DEVICE}", json={"label": blank}, headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+        assert (await _device(db_session)).label is None
+
+    async def test_a_name_longer_than_the_column_is_refused(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """The column is String(100): SQLite kept the extra, PostgreSQL 500'd."""
+        r = await client.put(
+            f"/api/livelink/devices/{DEVICE}", json={"label": "x" * 101}, headers=auth_headers
+        )
+        assert r.status_code == 422, r.text
+        assert (await _device(db_session)).label == "Garage WiCAN"
+
+    async def test_a_padded_100_character_name_fits(
+        self, client: AsyncClient, auth_headers, db_session
+    ):
+        """A guard: the length counts the name it stores, so padding doesn't push
+        a 100-character name over.
+
+        Mutant: drop the before-strip from `LiveLinkDeviceUpdate` (max_length stays).
+        """
+        r = await client.put(
+            f"/api/livelink/devices/{DEVICE}",
+            json={"label": f"  {'x' * 100}  "},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert (await _device(db_session)).label == "x" * 100
+
+
 class TestParameterDisplay:
     @pytest.mark.parametrize("field", ["display_name", "category", "icon"])
     async def test_null_clears(self, client: AsyncClient, auth_headers, db_session, field):

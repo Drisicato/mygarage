@@ -87,7 +87,14 @@ class LiveLinkDeviceManualCreate(BaseModel):
 class LiveLinkDeviceUpdate(BaseModel):
     """Schema for updating a device."""
 
-    label: str | None = Field(None, description="User-friendly device name")
+    label: str | None = Field(
+        None,
+        max_length=100,
+        description=(
+            "User-friendly device name, stored stripped. Null or blank clears it; "
+            "longer than the column's 100 characters is a 422."
+        ),
+    )
     vin: str | None = Field(
         None,
         max_length=17,
@@ -133,6 +140,13 @@ class LiveLinkDeviceUpdate(BaseModel):
         if normalised and len(normalised) != 17:
             raise ValueError("vin must be 17 characters, or empty to unlink")
         return normalised
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _label_is_stripped(cls, value: object) -> object:
+        """Strip before max_length counts it. The name is stored stripped, so
+        padding shouldn't push a 100-character name over the column."""
+        return value.strip() if isinstance(value, str) else value
 
 
 class LiveLinkDeviceResponse(LiveLinkDeviceBase):
