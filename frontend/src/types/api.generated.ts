@@ -12032,7 +12032,7 @@ export interface components {
             enabled?: boolean | null;
             /**
              * Label
-             * @description User-friendly device name
+             * @description User-friendly device name, stored stripped. Null or blank clears it; longer than the column's 100 characters is a 422.
              */
             label?: string | null;
             /**
