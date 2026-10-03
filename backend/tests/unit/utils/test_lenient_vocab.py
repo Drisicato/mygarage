@@ -24,7 +24,8 @@ _LOGGER = "app.utils.lenient_vocab"
 @pytest.fixture(autouse=True)
 def _nothing_warned_yet(monkeypatch: pytest.MonkeyPatch) -> None:
     # The warn-once set lives for the process, so each test starts it empty.
-    monkeypatch.setattr(lenient_vocab, "_warned", set(), raising=False)
+    # Raises if `_warned` is renamed, rather than leaking state between tests.
+    monkeypatch.setattr(lenient_vocab, "_warned", set())
 
 
 def _vessel() -> type[BaseModel]:
@@ -100,6 +101,21 @@ def test_a_second_read_of_the_same_bad_value_logs_nothing_new(
     assert len(messages) == 2
     assert "Hovercraft" in messages[0]
     assert "Zeppelin" in messages[1]
+
+
+def test_a_long_bad_value_is_remembered_by_what_the_log_shows(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The warn-once set keys on the first 80 characters of the repr, the same
+    # cut the log line shows, so a run of huge bad values can't grow it without
+    # bound. Two values that only differ past that cut log once.
+    vessel = _vessel()
+    stem = "Hovercraft" * 20
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        assert vessel.model_validate({"id": 1, "craft": stem + "A"}).craft is None
+        assert vessel.model_validate({"id": 2, "craft": stem + "B"}).craft is None
+    assert len(caplog.records) == 1
+    assert [len(value) for _model, _field, value in lenient_vocab._warned] == [80]
 
 
 def test_with_a_fallback_a_bad_value_reads_as_unknown(caplog: pytest.LogCaptureFixture) -> None:

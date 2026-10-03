@@ -160,6 +160,21 @@ def test_the_walk_found_the_responses():
     assert numbers >= 600
 
 
+def _duplicate_names(models: Iterable[type[BaseModel]]) -> list[str]:
+    """Class names more than one of the models goes by."""
+    names = [model.__name__ for model in models]
+    return sorted({name for name in names if names.count(name) > 1})
+
+
+def test_response_model_names_are_unique():
+    """A guard: the registries below key on the class name, so two response
+    models sharing one would shadow each other and a field could go unchecked.
+
+    Mutant: add a probe class named `VehicleResponse` to RESPONSE_MODELS.
+    """
+    assert _duplicate_names(RESPONSE_MODELS) == []
+
+
 def test_no_response_bounds_a_number():
     assert _bounded(RESPONSE_MODELS) == {}, (
         "a response inherits an input bound on a number: redeclare the field on "
@@ -486,58 +501,98 @@ CHECK_BACKED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
     ("SupplyUsageResponse", "unit_type"): ("supplies", "check_supply_unit_type"),
     ("TaxRecordResponse", "tax_type"): ("tax_records", "check_tax_type"),
 }
-#: Vocabulary fields the app works out rather than reads: (model, field) -> what
-#: produces it, and why every branch lands in the vocabulary.
-COMPUTED_VOCAB: dict[tuple[str, str], str] = {
-    ("AnchorProposal", "origin"): "maintenance_service._plan_item: every branch sets a constant",
+#: Vocabulary fields the app works out rather than reads: (model, field) ->
+#: (the producer's dotted path, why every branch lands in the vocabulary).
+COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
+    ("AnchorProposal", "origin"): (
+        "app.services.maintenance_service._plan_item",
+        "every branch sets a constant",
+    ),
     ("AnomalyAlert", "severity"): (
-        "analytics.build_anomalies_from_monthly_df: a ternary of two constants"
+        "app.routes.analytics.build_anomalies_from_monthly_df",
+        "a ternary of two constants",
     ),
     ("AssistantCitation", "source"): (
-        "garage_assistant_service._coerce_citations drops a source outside `allowed`, "
-        "which is the Literal's values"
+        "app.services.garage_assistant_service._coerce_citations",
+        "drops a source outside `allowed`, which is the Literal's values",
     ),
-    ("CalendarEvent", "type"): "calendar.get_calendar_events: a constant per kind of event",
+    ("CalendarEvent", "type"): (
+        "app.routes.calendar.get_calendar_events",
+        "a constant per kind of event",
+    ),
     ("CalendarEvent", "urgency"): (
-        "calendar.get_calendar_events and calculate_urgency: constants on every branch"
+        "app.routes.calendar.get_calendar_events",
+        "constants on every branch, its own and calculate_urgency's",
     ),
-    ("CalendarEvent", "category"): "calendar.get_calendar_events: a constant per kind of event",
+    ("CalendarEvent", "category"): (
+        "app.routes.calendar.get_calendar_events",
+        "a constant per kind of event",
+    ),
     ("DeviceReading", "format"): (
-        "livelink_admin.get_device_readings: the code preset's typed format, else 'value'"
+        "app.routes.livelink_admin.get_device_readings",
+        "the code preset's typed format, else 'value'",
     ),
     ("DeviceReading", "alert_lines"): (
-        "livelink_admin.get_device_readings: the code preset's typed alert lines, else none"
+        "app.routes.livelink_admin.get_device_readings",
+        "the code preset's typed alert lines, else none",
     ),
-    ("FuelEfficiencyAlert", "code"): "analytics.build_fuel_alerts: a constant per alert",
-    ("FuelEfficiencyAlert", "severity"): "analytics.build_fuel_alerts: constants on every branch",
-    ("InboxItem", "kind"): "notifications.notification_inbox: a ternary of two constants",
-    ("InboxItem", "severity"): "notifications.notification_inbox: a ternary of two constants",
+    ("FuelEfficiencyAlert", "code"): (
+        "app.routes.analytics.build_fuel_alerts",
+        "a constant per alert",
+    ),
+    ("FuelEfficiencyAlert", "severity"): (
+        "app.routes.analytics.build_fuel_alerts",
+        "constants on every branch",
+    ),
+    ("InboxItem", "kind"): (
+        "app.routes.notifications.notification_inbox",
+        "a ternary of two constants",
+    ),
+    ("InboxItem", "severity"): (
+        "app.routes.notifications.notification_inbox",
+        "a ternary of two constants",
+    ),
     ("InsurancePolicyResponse", "status"): (
-        "insurance_service.policy_status: every branch returns a constant"
+        "app.services.insurance_service.policy_status",
+        "every branch returns a constant",
     ),
     ("LiveSensorReading", "format"): (
-        "presets.sensors._live_reading: the code preset's typed format, else the default"
+        "app.services.livelink_sources.presets.sensors._live_reading",
+        "the code preset's typed format, else the default",
     ),
-    ("PackItemPlan", "rule_action"): "maintenance_service._plan_item: every branch sets a constant",
+    ("PackItemPlan", "rule_action"): (
+        "app.services.maintenance_service._plan_item",
+        "every branch sets a constant",
+    ),
     ("PolicyHistoryEntry", "status"): (
-        "insurance_service.history copies the computed InsurancePolicyResponse.status"
+        "app.services.insurance_service.InsuranceService.history",
+        "copies the computed InsurancePolicyResponse.status",
     ),
-    ("SearchHit", "type"): "search.global_search: a constant per kind of hit",
+    ("SearchHit", "type"): (
+        "app.routes.search.global_search",
+        "a constant per kind of hit",
+    ),
     ("SupplyLedgerEntry", "entry_type"): (
-        "supply_service.get_supply_history: a constant per kind of entry"
+        "app.services.supply_service.SupplyService.get_supply_history",
+        "a constant per kind of entry",
     ),
     ("TelegramFuelStatus", "state"): (
-        "telegram_poller.status: in-memory state that only _set_state and _fail write, "
-        "from constants"
+        "app.services.telegram_poller.TelegramPoller._set_state",
+        "in-memory state that only _set_state and _fail write, from constants",
     ),
-    ("TelegramFuelStatus", "error_code"): "telegram_poller._fail: every caller passes a constant",
+    ("TelegramFuelStatus", "error_code"): (
+        "app.services.telegram_poller.TelegramPoller._fail",
+        "every caller passes a constant",
+    ),
     ("TelemetryLatestValue", "alert_band"): (
-        "livelink_alerts.alert_band: every branch returns a constant"
+        "app.services.livelink_alerts.alert_band",
+        "every branch returns a constant",
     ),
     **{
         ("UnitSet", quantity): (
-            "UserResponse.resolved_units via resolve_units: a preset's value, or an "
-            "override it checked against the vocabulary first"
+            "app.utils.unit_resolution.resolve_units",
+            "UserResponse.resolved_units: a preset's value, or an override it "
+            "checked against the vocabulary first",
         )
         for quantity in (
             "distance",
@@ -575,6 +630,20 @@ FREE_TEXT_NAMESAKES: dict[tuple[str, str], str] = {
 
 #: Sits outside every vocabulary, for reading a lenient field back.
 _OUT_OF_VOCABULARY = "<not in any vocabulary>"
+
+
+def _resolve(path: str) -> Any:
+    """What a dotted path names, a module's function or a class's method, or None."""
+    parts = path.split(".")
+    for split in range(len(parts) - 1, 0, -1):
+        try:
+            target: Any = importlib.import_module(".".join(parts[:split]))
+        except ModuleNotFoundError:
+            continue
+        for name in parts[split:]:
+            target = getattr(target, name, None)
+        return target
+    return None
 
 
 def _vocabulary(annotation: Any) -> frozenset[object]:
@@ -727,13 +796,25 @@ def test_a_filtered_vocabulary_names_a_real_filter():
     Mutant: rename `_coverage_responses` in `services/insurance_service.py`.
     """
     for (model_name, field), (path, _why) in FILTERED_VOCAB.items():
-        module_name, _, function_name = path.rpartition(".")
-        function = getattr(importlib.import_module(module_name), function_name, None)
+        function = _resolve(path)
         assert callable(function), f"{path} doesn't exist"
         source = inspect.getsource(function)
         assert model_name in source and field in source, (
             f"{path} doesn't build {model_name} from {field}"
         )
+
+
+def test_a_computed_vocabulary_names_a_real_producer():
+    """A guard: each COMPUTED_VOCAB entry names a function or method that exists.
+
+    Mutant: point the SearchHit entry at `app.routes.search.find_hits`.
+    """
+    missing = sorted(
+        f"{model}.{field}: {path}"
+        for (model, field), (path, _why) in COMPUTED_VOCAB.items()
+        if not callable(_resolve(path))
+    )
+    assert missing == [], "these producers are gone: point the entries at what computes them now"
 
 
 def test_no_stale_vocabulary_entries():

@@ -31,11 +31,13 @@ logger = logging.getLogger(__name__)
 
 # (model, field, value) triples already warned about. A bad row is read on
 # every list it's in, so without this one value would log on every page load.
+# The value is the cut repr the log shows, so a huge one can't bloat the set.
 _warned: set[tuple[str, str, str]] = set()
 
 # The keys that name a row, in the order a log line gives them.
 _ROW_KEYS = ("id", "vin", "vehicle_vin")
-# Plenty to recognise a bad value by, without a whole text column in the log.
+# Plenty to recognise a bad value by, without a whole text column in the log
+# (or in `_warned`).
 _MAX_LOGGED_VALUE = 80
 
 
@@ -94,7 +96,8 @@ def lenient_reader(
         if _known(value, vocabulary):
             return value
         model = info.config.get("title") if info.config is not None else None
-        key = (model or "<no model>", info.field_name or "<no field>", repr(value))
+        shown = repr(value)[:_MAX_LOGGED_VALUE]
+        key = (model or "<no model>", info.field_name or "<no field>", shown)
         if key not in _warned:
             _warned.add(key)
             # Outside a model (a bare TypeAdapter) pydantic hands over no data at all.
@@ -103,7 +106,7 @@ def lenient_reader(
                 "Out-of-vocabulary %s.%s %s read as %s (%s)",
                 key[0],
                 key[1],
-                sanitize_for_log(key[2][:_MAX_LOGGED_VALUE]),
+                sanitize_for_log(shown),
                 fallback,
                 _row(data),
             )
