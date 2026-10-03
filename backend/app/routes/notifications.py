@@ -482,8 +482,6 @@ async def notification_inbox(
     today = household_today()
     soon = today + timedelta(days=14)
     items: list[InboxItem] = []
-    # Caller's units (instance default on auth_mode=none), with each vehicle's
-    # own odometer unit laid on top per item (#172).
     # Caller's units with the vehicle's odometer unit laid on top (#172).
     # Resolved lazily on the first mileage bit: on auth_mode=none the base
     # context costs a Setting query, and most polls emit nothing.

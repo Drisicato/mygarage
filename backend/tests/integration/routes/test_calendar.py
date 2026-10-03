@@ -324,7 +324,7 @@ class TestCalendarRoutes:
         due_mileage_km) with no hours history has no usage projection, so it
         must surface via its due_date directly, never dropped. (With history
         it sits at the EARLIER of date and projection; see
-        test_calendar_smart_reminder_uses_earlier_projection_date.)"""
+        test_calendar_usage_reminder_sits_on_its_projection.)"""
         vin, headers = await _isolated_vehicle(db_session)
         due_date = date.today() + timedelta(days=10)
         db_session.add(
@@ -422,32 +422,82 @@ class TestCalendarRoutes:
         assert events[0]["urgency"] == "overdue"
         assert events[0]["status"] == "overdue"
 
-    async def test_calendar_snoozed_overdue_reminder_surfaces_on_its_return_day(
-        self, client: AsyncClient, db_session: AsyncSession
+    @pytest.mark.parametrize("shape", ["date-overdue", "mileage-reached", "mileage-no-reading"])
+    async def test_calendar_snoozed_due_reminder_surfaces_on_its_return_day(
+        self, client: AsyncClient, db_session: AsyncSession, shape: str
     ):
-        """A snooze silences the nag, not the plan: the reminder sits on the
-        day it comes back (the list's "Snoozed until X" chip), with the normal
-        ladder. Left on its long-past due date it falls out of the fetch
-        window and vanishes, which is #195 again for snoozed rows."""
+        """A snooze silences the nag, not the plan: a reminder already due
+        (by date or by a reached usage target), or one with no determinable
+        date at all, sits on the day it comes back (the list's "Snoozed
+        until X" chip), exact, under the normal ladder. Left on a long-past
+        date it falls out of the fetch window and vanishes (#195 again for
+        snoozed rows); left on today it nags daily straight through the
+        snooze."""
         vin, headers = await _isolated_vehicle(db_session)
         comeback = date.today() + timedelta(days=5)
+        kwargs: dict = {"reminder_type": "date", "due_date": date.today() - timedelta(days=200)}
+        if shape != "date-overdue":
+            kwargs = {"reminder_type": "mileage", "due_mileage_km": Decimal("50000")}
+        if shape == "mileage-reached":
+            db_session.add_all(
+                [
+                    OdometerRecord(
+                        vin=vin,
+                        date=date.today() - timedelta(days=10),
+                        odometer_km=Decimal("50200"),
+                    ),
+                    OdometerRecord(vin=vin, date=date.today(), odometer_km=Decimal("51200")),
+                ]
+            )
         db_session.add(
             Reminder(
                 vin=vin,
-                title="Snoozed Ancient Service",
-                reminder_type="date",
-                due_date=date.today() - timedelta(days=200),
+                title="Snoozed Due Service",
                 snoozed_until=comeback,
+                status="pending",
+                **kwargs,
+            )
+        )
+        await db_session.commit()
+
+        events = await _reminder_events(client, headers, "Snoozed Due Service")
+        assert len(events) == 1
+        assert events[0]["date"] == comeback.isoformat()
+        assert events[0]["urgency"] == "high"
+        assert events[0]["status"] == "due_soon"
+        # The return day is a fact, not a projection.
+        assert events[0]["is_estimated"] is False
+
+    async def test_calendar_summary_counts_overdue_apart_from_upcoming(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """An overdue reminder pinned to today must not double into the
+        Next 7/30 Days KPIs; overdue has its own box."""
+        vin, headers = await _isolated_vehicle(db_session)
+        db_session.add(
+            Reminder(
+                vin=vin,
+                title="Summary Overdue",
+                reminder_type="date",
+                due_date=date.today() - timedelta(days=60),
                 status="pending",
             )
         )
         await db_session.commit()
 
-        events = await _reminder_events(client, headers, "Snoozed Ancient Service")
-        assert len(events) == 1
-        assert events[0]["date"] == comeback.isoformat()
-        assert events[0]["urgency"] == "high"
-        assert events[0]["status"] == "due_soon"
+        response = await client.get(
+            "/api/calendar",
+            params={
+                "start_date": (date.today() - timedelta(days=30)).isoformat(),
+                "end_date": (date.today() + timedelta(days=365)).isoformat(),
+            },
+            headers=headers,
+        )
+        assert response.status_code == 200
+        summary = response.json()["summary"]
+        assert summary["overdue"] == 1
+        assert summary["upcoming_7_days"] == 0
+        assert summary["upcoming_30_days"] == 0
 
     async def test_calendar_mileage_overdue_with_future_due_date_is_overdue_today(
         self, client: AsyncClient, db_session: AsyncSession

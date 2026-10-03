@@ -173,21 +173,27 @@ async def get_calendar_events(
                     if is_reminder_snoozed(reminder, today) and reminder.snoozed_until is not None:
                         # A snooze silences the nag, not the plan: a reminder
                         # still ahead keeps its expected date (decision 4 of
-                        # the snooze plan: the calendar keeps showing it). One
-                        # already due moves to the day the snooze ends (the
-                        # list's "Snoozed until X" chip) instead of sitting on
-                        # a long-past date outside the fetch window (#195).
-                        event_date = (
-                            expected
-                            if expected is not None and expected >= today
-                            else reminder.snoozed_until
-                        )
+                        # the snooze plan: the calendar keeps showing it).
+                        # One already due (expected today or past, which is
+                        # also what a reached usage target projects to), or
+                        # with no determinable date at all, moves to the day
+                        # the snooze ends (the list's "Snoozed until X" chip)
+                        # instead of sitting on a long-past date outside the
+                        # fetch window (#195) or nagging on today straight
+                        # through the snooze. The return day is a fact, not
+                        # an estimate.
+                        if expected is not None and expected > today:
+                            event_date = expected
+                            is_estimated = event_date != reminder.due_date
+                        else:
+                            event_date = reminder.snoozed_until
+                            is_estimated = False
                     elif expected is None:
                         # Skip if no date can be determined
                         continue
                     else:
                         event_date = expected
-                    is_estimated = event_date != reminder.due_date
+                        is_estimated = event_date != reminder.due_date
                     urgency = calculate_urgency(event_date, False, today)
                 status = _REMINDER_STATUS[urgency]
 
@@ -393,15 +399,24 @@ async def get_calendar_events(
 
     # Calculate summary statistics
     overdue_count = sum(1 for e in events if e.urgency == "overdue")
+    # Overdue reminders are pinned to today's cell, so the upcoming sums must
+    # exclude them by urgency or every overdue row would double into the
+    # Next 7/30 Days KPIs beside the Overdue one.
     upcoming_7_count = sum(
         1
         for e in events
-        if not e.is_completed and e.date >= today and e.date <= today + timedelta(days=7)
+        if not e.is_completed
+        and e.urgency != "overdue"
+        and e.date >= today
+        and e.date <= today + timedelta(days=7)
     )
     upcoming_30_count = sum(
         1
         for e in events
-        if not e.is_completed and e.date >= today and e.date <= today + timedelta(days=30)
+        if not e.is_completed
+        and e.urgency != "overdue"
+        and e.date >= today
+        and e.date <= today + timedelta(days=30)
     )
 
     summary = CalendarSummary(
