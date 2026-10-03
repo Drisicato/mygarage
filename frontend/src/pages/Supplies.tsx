@@ -17,7 +17,7 @@ import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import { RATE_DIGITS } from '@/utils/formatUtils'
 import { canonicalToDisplay, supplyUnitLabel, unitCostToDisplay } from '@/utils/supplyUnits'
 import {
-  canonicalCategories, filterSupplies, groupSupplies, sortSupplies,
+  canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies,
   type SupplyFilters, type SupplyGroup,
 } from '@/utils/supplyListView'
 import { readSuppliesView, rememberSuppliesView, type SuppliesViewPrefs } from '@/utils/suppliesViewStore'
@@ -200,7 +200,20 @@ export default function Supplies() {
       header: t('supplies.vehicle'),
       render: (s) => (s.vin ? vehicleLabelFor(s.vin) : t('supplies.sharedVehicle')),
     },
-    { id: 'on_hand', header: t('supplies.onHand'), align: 'right', mono: true, render: (s) => formatOnHand(s) },
+    {
+      id: 'on_hand',
+      header: t('supplies.onHand'),
+      align: 'right',
+      mono: true,
+      render: (s) => (
+        <span className="inline-flex items-center gap-2">
+          {isOutOfStock(s) && (
+            <Chip tone={s.is_negative ? 'danger' : 'warning'}>{t('supplies.outOfStock')}</Chip>
+          )}
+          {formatOnHand(s)}
+        </span>
+      ),
+    },
     {
       id: 'avg_cost',
       header: t('supplies.avgUnitCost'),
@@ -397,11 +410,16 @@ export default function Supplies() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {group.supplies.map((supply) => {
                       const archived = supply.is_active === false
+                      const stockBorder = supply.is_negative
+                        ? 'border-danger/50'
+                        : isOutOfStock(supply)
+                          ? 'border-warning/50'
+                          : 'border-garage-border'
                       return (
                         <div
                           key={supply.id}
                           className={`bg-garage-surface border rounded-lg p-4 transition-colors ${
-                            archived ? 'border-garage-border opacity-60' : 'border-garage-border hover:border-primary/50'
+                            archived ? 'border-garage-border opacity-60' : `${stockBorder} hover:border-primary/50`
                           }`}
                         >
                           <div className="flex items-start justify-between mb-3">
@@ -427,6 +445,18 @@ export default function Supplies() {
                               <div className="text-garage-text-muted">{supply.part_number}</div>
                             )}
 
+                            <div className="text-garage-text-muted text-xs">
+                              {supply.vin ? vehicleLabelFor(supply.vin) : t('supplies.sharedVehicle')}
+                            </div>
+
+                            {isOutOfStock(supply) && (
+                              <div>
+                                <Chip tone={supply.is_negative ? 'danger' : 'warning'}>
+                                  {t('supplies.outOfStock')}
+                                </Chip>
+                              </div>
+                            )}
+
                             {supply.barcode && (
                               <div className="text-garage-text-muted font-mono text-xs">
                                 {t('supplies.barcode')}: {supply.barcode}
@@ -444,7 +474,7 @@ export default function Supplies() {
                             </div>
 
                             {supply.is_negative && (
-                              <div className="flex items-center gap-2 px-2 py-1 bg-warning/10 text-warning rounded text-xs">
+                              <div className="flex items-center gap-2 px-2 py-1 bg-danger/10 text-danger rounded text-xs">
                                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
                                 <span>{t('supplies.negativeWarning')}</span>
                               </div>

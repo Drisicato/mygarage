@@ -250,6 +250,48 @@ describe('Supplies page toolbar: sort, group, view', () => {
   })
 })
 
+describe('Supplies page: out of stock highlight and the vehicle line', () => {
+  const zero = { ...mockSupply, id: 31, name: 'Zero Oil', on_hand: '0.000' } as Supply
+  const neg = { ...mockSupply, id: 32, name: 'Neg Oil', on_hand: '-1.000', is_negative: true } as Supply
+  const shared = { ...mockSupply, id: 33, name: 'Shared Oil', vin: null } as Supply
+  const pinned = { ...mockSupply, id: 34, name: 'Pinned Oil', vin: 'VINUNKNOWN123' } as Supply
+
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('a zero-stock supply shows the chip in grid view and in list view', () => {
+    useSuppliesMock.mockReturnValue({ data: { supplies: [zero], total: 1 }, isLoading: false, error: null })
+    render(<Supplies />)
+
+    // One occurrence is the toolbar filter chip; the second is the card's.
+    expect(screen.getAllByText('supplies.outOfStock')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
+    expect(within(screen.getByRole('table')).getByText('supplies.outOfStock')).toBeInTheDocument()
+  })
+
+  it('a negative supply keeps the warning line, goes danger, and the chip shows once', () => {
+    useSuppliesMock.mockReturnValue({ data: { supplies: [neg], total: 1 }, isLoading: false, error: null })
+    render(<Supplies />)
+
+    expect(screen.getByText('supplies.negativeWarning')).toBeInTheDocument()
+    const card = screen.getByText('Neg Oil').closest('div[class*="border-danger"]')
+    expect(card).not.toBeNull()
+    expect(screen.getAllByText('supplies.outOfStock')).toHaveLength(2)
+  })
+
+  it('cards carry a vehicle line: shared label or the raw VIN fallback', () => {
+    useSuppliesMock.mockReturnValue({ data: { supplies: [shared, pinned], total: 2 }, isLoading: false, error: null })
+    render(<Supplies />)
+
+    const sharedCard = screen.getByText('Shared Oil').closest('div[class*="bg-garage-surface"]')
+    expect(within(sharedCard as HTMLElement).getByText('supplies.sharedVehicle')).toBeInTheDocument()
+    const pinnedCard = screen.getByText('Pinned Oil').closest('div[class*="bg-garage-surface"]')
+    expect(within(pinnedCard as HTMLElement).getByText('VINUNKNOWN123')).toBeInTheDocument()
+  })
+})
+
 describe('Supplies page — the average unit cost is a rate', () => {
   it('shows a yen unit cost with its decimals', () => {
     currencyMock.code = 'JPY'
