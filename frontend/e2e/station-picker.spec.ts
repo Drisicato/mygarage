@@ -53,6 +53,12 @@ test.afterAll(async () => {
   }
 })
 
+/** The fields of a listed fill-up this spec reads back. */
+interface FuelRow {
+  station_address_book_id: number | null
+  station_name: string | null
+}
+
 /** The autocomplete's own wrapper: the input, its spinner and its list. */
 function pickerAround(input: Locator): Locator {
   return input.locator('xpath=..')
@@ -106,9 +112,17 @@ test.describe('Station picker (#194)', () => {
     await expect(page.getByText('Add Fuel Record')).not.toBeVisible({ timeout: 10000 })
 
     // The contract, from the API: the fill-up points at that entry, not at a
-    // freetext name or a fresh duplicate.
-    const listed = await ledger.get(`/vehicles/${rigVin}/fuel`)
-    const records = listed.records as { station_address_book_id: number | null; station_name: string | null }[]
+    // freetext name or a fresh duplicate. Polled, so the read can't beat the
+    // create whatever the wait above saw.
+    const listFuel = async (): Promise<FuelRow[]> =>
+      (await ledger.get(`/vehicles/${rigVin}/fuel`)).records as FuelRow[]
+    await expect
+      .poll(async () => (await listFuel()).length, {
+        message: 'the fill-up never reached the API',
+        timeout: 10000,
+      })
+      .toBe(1)
+    const records = await listFuel()
     expect(records).toHaveLength(1)
     expect(records[0].station_address_book_id).toBe(stationId)
     expect(records[0].station_name).toBe(STATION.business_name)
