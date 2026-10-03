@@ -97,7 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicking a reminder in the calendar's month grid opens it, as in the upcoming list
 - Calendar bulk selection works from the keyboard
 - On the window sticker test page, Remove clears the chosen file instead of opening the file picker
-- A vehicle, tire, service line, LiveLink device, topic map or reminder anchor holding a value the app doesn't recognise (for example from a restored backup) loads, showing it as unknown, instead of failing the page
+- A vehicle, tire, service line, LiveLink device, topic map or reminder anchor holding a value the app doesn't recognise (for example from a restored backup) loads (the value shows as unknown or unset) instead of failing the page
 - Saving over a reminder pack that names a vehicle type the app doesn't recognise drops that type and saves, instead of failing
 - A LiveLink device that reports a blank firmware version no longer gets an update notice for every release
 - Clearing a LiveLink sensor's name falls back to its device id everywhere, including the delete prompt
