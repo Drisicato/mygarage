@@ -126,6 +126,23 @@ export function displayToCanonical(
 }
 
 /**
+ * Average unit cost in the unit the stock is shown in.
+ *
+ * The API prices a canonical unit (a litre), so an imperial user needs the cost
+ * of one quart, which is the litre price times the litres in a quart. Count
+ * costs pass through.
+ */
+// units-exempt(binary-conversion): R3 read leg, at the DECLARATION. It scales a per-litre price by `displayToCanonical(1, ...)`, so it follows the same collapsed `system` as the on-hand figure it sits beside and the two can't disagree. Owner: deferred, pending the D8 amendment. Expires with the three legs above, never alone.
+export function unitCostToDisplay(
+  costPerCanonical: string | number | null | undefined,
+  unitType: SupplyUnitType,
+  system: UnitSystem,
+): number | null {
+  if (costPerCanonical == null) return null
+  return Number(costPerCanonical) * displayToCanonical(1, unitType, system)
+}
+
+/**
  * Unit label for display.
  *
  * R3 ruling, LABEL leg: EXEMPT for the header's reason, with one defect

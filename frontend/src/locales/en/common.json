@@ -146,6 +146,7 @@
     "sharedAcrossVehicles": "Shared across all vehicles",
     "onHand": "On Hand",
     "avgUnitCost": "Avg. Unit Cost",
+    "avgCostPerUnit": "Avg. Cost/{{unit}}",
     "negativeWarning": "Logged usage exceeds recorded purchases",
     "activeToggle": "Active (uncheck to archive)",
     "viewHistory": "View history",

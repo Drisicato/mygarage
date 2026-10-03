@@ -484,14 +484,16 @@ describe('what the units gate is silent about (plan 3b task 8, fix round 1)', ()
    */
   it('★ suppresses exactly these binary declarations, and one line silences many files', () => {
     // A `// units-exempt(binary-conversion):` on a DECLARATION removes it from
-    // the vocabulary, and with it every reference to it in every module: 29
-    // sites for the twelve below, which `--suppressions` prints as
+    // the vocabulary, and with it every reference to it in every module: 34
+    // sites for the thirteen below, which `--suppressions` prints as
     // HIDDEN_BY_DECLARATION. That is the right shape for one deferred ruling
     // (R3, pending the D8 amendment that would give supplies a resolved token)
     // and the wrong shape to let grow unnoticed.
     //
-    // A thirteenth entry is a thirteenth binary API somebody exempted. Read the
-    // pragma's reason before widening this list.
+    // A fourteenth entry is a fourteenth binary API somebody exempted. Read the
+    // pragma's reason before widening this list. The thirteenth,
+    // unitCostToDisplay (#191), is a read leg built on displayToCanonical, so
+    // the unit cost can't follow a different `system` from the stock beside it.
     expect(gateSuppressions('EXEMPT_BINARY_DECLARATIONS')).toEqual([
       'src/components/ServiceVisitForm.tsx::convertSupplyUsages',
       'src/components/SuppliesUsedTab.tsx::formatQuantity',
@@ -505,6 +507,7 @@ describe('what the units gate is silent about (plan 3b task 8, fix round 1)', ()
       'src/utils/supplyUnits.ts::canonicalToDisplay',
       'src/utils/supplyUnits.ts::displayToCanonical',
       'src/utils/supplyUnits.ts::supplyUnitLabel',
+      'src/utils/supplyUnits.ts::unitCostToDisplay',
     ])
   })
 

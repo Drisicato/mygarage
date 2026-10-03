@@ -21,8 +21,9 @@ vi.mock('../../hooks/queries/useQuickEntryVehicles', () => ({
 
 // Same mock pattern as DEFRecordList.test.tsx — these hooks need AuthProvider
 // otherwise, and it's not under test here.
+const unitMock = vi.hoisted(() => ({ system: 'metric' as 'metric' | 'imperial' }))
 vi.mock('../../hooks/useUnitPreference', () => ({
-  useUnitPreference: () => ({ system: 'metric', showBoth: false }),
+  useUnitPreference: () => ({ system: unitMock.system, showBoth: false }),
 }))
 // The REAL currency hook runs, so a rate option has to survive it. Only the
 // signed-in user is faked, and the rate-digits test flips them to yen.
@@ -52,6 +53,7 @@ const mockSupply: Supply = {
 beforeEach(() => {
   vi.clearAllMocks()
   currencyMock.code = 'USD'
+  unitMock.system = 'metric'
   useSuppliesMock.mockReturnValue({
     data: { supplies: [mockSupply], total: 1 },
     isLoading: false,
@@ -124,5 +126,41 @@ describe('Supplies page — the average unit cost is a rate', () => {
   it('leaves the dollar unit cost where it was', () => {
     render(<Supplies />)
     expect(screen.getByText('$5.25')).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page: the unit cost is per the unit the stock is shown in', () => {
+  // 5 qt for $25 is stored as 4.732 L, so the API's average is $5.2832 per litre.
+  const perLitre = { ...mockSupply, avg_unit_cost: String(25 / 4.732) }
+
+  it('prices a quart for an imperial user', () => {
+    unitMock.system = 'imperial'
+    useSuppliesMock.mockReturnValue({ data: { supplies: [perLitre], total: 1 }, isLoading: false, error: null })
+    render(<Supplies />)
+
+    expect(screen.getByText('$5.00')).toBeInTheDocument()
+    expect(screen.queryByText('$5.28')).not.toBeInTheDocument()
+    expect(screen.getByText('supplies.avgCostPerUnit')).toBeInTheDocument()
+  })
+
+  it('prices a litre for a metric user', () => {
+    useSuppliesMock.mockReturnValue({ data: { supplies: [perLitre], total: 1 }, isLoading: false, error: null })
+    render(<Supplies />)
+
+    expect(screen.getByText('$5.28')).toBeInTheDocument()
+    expect(screen.getByText('supplies.avgCostPerUnit')).toBeInTheDocument()
+  })
+
+  it('keeps the plain label for a counted supply', () => {
+    unitMock.system = 'imperial'
+    useSuppliesMock.mockReturnValue({
+      data: { supplies: [{ ...perLitre, unit_type: 'count', on_hand: '4' }], total: 1 },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    expect(screen.getByText('$5.28')).toBeInTheDocument()
+    expect(screen.getByText('supplies.avgUnitCost')).toBeInTheDocument()
   })
 })

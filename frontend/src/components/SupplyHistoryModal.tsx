@@ -17,7 +17,7 @@ import {
 import { useAddressBookEntries } from '@/hooks/queries/useAddressBook'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
-import { canonicalToDisplay, displayToCanonical, supplyUnitLabel } from '@/utils/supplyUnits'
+import { canonicalToDisplay, displayToCanonical, supplyUnitLabel, unitCostToDisplay } from '@/utils/supplyUnits'
 import { formatDateForDisplay, formatDateForInput } from '@/utils/dateUtils'
 import { FormError } from '@/components/FormError'
 import FormModalWrapper from '@/components/FormModalWrapper'
@@ -82,7 +82,8 @@ export default function SupplyHistoryModal({ supply, onClose }: SupplyHistoryMod
 
   const entries = data?.entries ?? []
   const onHand = data?.on_hand ?? supply.on_hand
-  const avgUnitCost = data?.avg_unit_cost ?? supply.avg_unit_cost
+  const avgUnitCost = unitCostToDisplay(data?.avg_unit_cost ?? supply.avg_unit_cost, supply.unit_type, system)
+  const costUnit = supplyUnitLabel(supply.unit_type, system)
 
   return (
     <FormModalWrapper
@@ -98,7 +99,9 @@ export default function SupplyHistoryModal({ supply, onClose }: SupplyHistoryMod
             <div className="text-lg font-semibold text-garage-text">{formatQuantity(onHand, supply, system)}</div>
           </div>
           <div className="bg-garage-bg border border-garage-border rounded-lg p-3">
-            <div className="text-xs text-garage-text-muted">{t('supplies.avgUnitCost')}</div>
+            <div className="text-xs text-garage-text-muted">
+              {costUnit ? t('supplies.avgCostPerUnit', { unit: costUnit }) : t('supplies.avgUnitCost')}
+            </div>
             <div className="text-lg font-semibold text-garage-text">{formatCurrency(avgUnitCost, { fractionDigits: RATE_DIGITS })}</div>
           </div>
         </div>
