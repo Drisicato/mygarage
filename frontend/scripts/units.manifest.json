@@ -1910,6 +1910,12 @@
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity."
     },
     {
+      "path": "src/components/ui/ProgressMeter.tsx",
+      "disposition": "no unit behaviour",
+      "digest": "486c97e1746d43ab6da8118e9db0f48c7ceb8c987fdf815314cda2cf2a298155",
+      "reason": "no unit behaviour: a bare bar that takes an already-computed percent and already-translated label and value text. It makes no unit decision and formats no quantity. Added 2026-10-03 for #192."
+    },
+    {
       "path": "src/components/ui/SearchField.tsx",
       "disposition": "no unit behaviour",
       "digest": "f2760676414f9e5ec9b6bb67ef146e509ffa2dc6270934825cf69eb7e0994398",
@@ -1966,8 +1972,8 @@
     {
       "path": "src/components/ui/gallery/Gallery.tsx",
       "disposition": "domain exemption",
-      "digest": "cd0222dedf10700f206ffb762446a14b1a8e19954a11b798752ec440c1ef65f2",
-      "reason": "the dev-only component gallery. Its '89,230 mi' and 'Litres' are static sample copy with no canonical value behind them, and Rollup strips the route from production. A unit decision needs a quantity to convert; this has none."
+      "digest": "52fffd7bde3f207fc81cbad4fa9bece4131ab287f1e52833d3065091d410ead4",
+      "reason": "the dev-only component gallery. Its '89,230 mi' and 'Litres' are static sample copy with no canonical value behind them, and Rollup strips the route from production. A unit decision needs a quantity to convert; this has none. The #192 ProgressMeter section adds '1,240 mi left' and '300 mi over', static sample copy of the same kind."
     },
     {
       "path": "src/components/ui/gallery/Section.tsx",
@@ -1978,7 +1984,7 @@
     {
       "path": "src/components/ui/index.ts",
       "disposition": "no unit behaviour",
-      "digest": "dea5bf2c94fc20ccdad5bf0b17724eef133e9ae4943b4756868f0ee47e374404",
+      "digest": "872abe769d05bf0c633f60319ddbb70f372eb0073b6535bb9e2f62d1cc420b6e",
       "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-24: exports useAffixWidth and affixStyle. No unit behaviour."
     },
     {
