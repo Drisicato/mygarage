@@ -167,6 +167,52 @@ async def test_a_stored_url_with_outer_spaces_is_used_stripped(
     assert _errors(caplog) == []
 
 
+@pytest.mark.parametrize(
+    ("stored", "base"),
+    [
+        pytest.param(
+            "https://api.nhtsa.gov/recalls/recallsByVehicle",
+            "https://api.nhtsa.gov/recalls",
+            id="endpoint",
+        ),
+        pytest.param(
+            "https://api.nhtsa.gov/recalls/recallsByVehicle/",
+            "https://api.nhtsa.gov/recalls",
+            id="trailing-slash",
+        ),
+        pytest.param(
+            "  https://api.nhtsa.gov/recalls/recallsByVehicle  ",
+            "https://api.nhtsa.gov/recalls",
+            id="padded",
+        ),
+        pytest.param(
+            "https://api.nhtsa.gov/mirror/recallsByVehicle",
+            "https://api.nhtsa.gov/mirror",
+            id="mirror",
+        ),
+    ],
+)
+async def test_a_stored_recalls_endpoint_reads_as_its_base(
+    db_session: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+    requested: list[str],
+    stored: str,
+    base: str,
+) -> None:
+    """The Integrations tab used to save the full endpoint, and the fetch adds
+    /recallsByVehicle itself, so it asked for the path twice. Rows saved that
+    way keep working without a migration. The mirror shows the suffix is
+    trimmed, not the value swapped for the default."""
+    caplog.set_level(logging.WARNING, logger=LOGGER)
+    async with _stored(db_session, "nhtsa_recalls_api_url", stored):
+        await NHTSAService().get_vehicle_recalls("1HGCM82633A123456", db_session)
+
+    assert len(requested) == 1
+    assert requested[0].startswith(f"{base}/recallsByVehicle?"), requested[0]
+    assert requested[0].count("recallsByVehicle") == 1, requested[0]
+    assert _errors(caplog) == []
+
+
 @pytest.mark.parametrize(("method", "key", "default_request"), FETCHES)
 async def test_a_stored_url_is_still_used(
     db_session: AsyncSession,

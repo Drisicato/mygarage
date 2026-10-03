@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Used when the setting is missing, blank or fails the SSRF check.
 DEFAULT_RECALLS_API_URL = "https://api.nhtsa.gov/recalls"
 DEFAULT_TSB_API_URL = "https://api.nhtsa.gov/products/vehicle/tsbs"
+# The recalls setting is a base; the fetch adds this. The TSB setting is the
+# whole endpoint, so it has no suffix to double.
+RECALLS_BY_VEHICLE_PATH = "/recallsByVehicle"
 
 
 class NHTSAService:
@@ -279,6 +282,9 @@ class NHTSAService:
         # an SSRF block worth an ERROR. The value column is nullable. Spaces
         # round a pasted URL aren't part of it, and httpx can't fetch it with them.
         stored_url = setting.value.strip() if setting and setting.value else ""
+        # The Integrations tab used to save the full endpoint, which the fetch
+        # below then doubled. Those rows still hold it, so read it as the base.
+        stored_url = stored_url.rstrip("/").removesuffix(RECALLS_BY_VEHICLE_PATH)
         recalls_api_base = stored_url or DEFAULT_RECALLS_API_URL
 
         # SECURITY: Validate recalls API base URL against SSRF attacks
@@ -299,7 +305,7 @@ class NHTSAService:
         from urllib.parse import urlencode
 
         params = {"make": make, "model": model, "modelYear": year}
-        recalls_url = f"{recalls_api_base}/recallsByVehicle?{urlencode(params)}"
+        recalls_url = f"{recalls_api_base}{RECALLS_BY_VEHICLE_PATH}?{urlencode(params)}"
 
         logger.info(
             "Fetching recalls for %s %s %s (VIN: %s)",
