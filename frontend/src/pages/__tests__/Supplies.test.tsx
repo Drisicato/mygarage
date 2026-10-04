@@ -51,6 +51,19 @@ const currencyMock = vi.hoisted(() => ({ code: 'USD' }))
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { currency_code: currencyMock.code } }),
 }))
+// Local i18n mock: a `{ unit }` call shows its unit so the avg-cost label can
+// tell qt from fl oz. Everything else is the bare key, and t stays one stable
+// function for the same reason setup.ts hoists its own.
+vi.mock('react-i18next', () => {
+  const t = (key: string, options?: { unit?: string }): string =>
+    options?.unit !== undefined ? `${key} (${options.unit})` : key
+  const i18n = { language: 'en', changeLanguage: () => Promise.resolve() }
+  return {
+    useTranslation: () => ({ t, i18n }),
+    Trans: ({ children }: { children: React.ReactNode }) => children,
+    initReactI18next: { type: '3rdParty', init: () => {} },
+  }
+})
 
 import Supplies from '../Supplies'
 
@@ -444,7 +457,7 @@ describe('Supplies page: the unit cost is per the unit the stock is shown in', (
 
     expect(screen.getByText('$5.00')).toBeInTheDocument()
     expect(screen.queryByText('$5.28')).not.toBeInTheDocument()
-    expect(screen.getByText('supplies.avgCostPerUnit')).toBeInTheDocument()
+    expect(screen.getByText('supplies.avgCostPerUnit (qt)')).toBeInTheDocument()
   })
 
   it('prices a litre for a metric user', () => {
@@ -452,7 +465,7 @@ describe('Supplies page: the unit cost is per the unit the stock is shown in', (
     render(<Supplies />)
 
     expect(screen.getByText('$5.28')).toBeInTheDocument()
-    expect(screen.getByText('supplies.avgCostPerUnit')).toBeInTheDocument()
+    expect(screen.getByText('supplies.avgCostPerUnit (L)')).toBeInTheDocument()
   })
 
   it('keeps the plain label for a counted supply', () => {
@@ -466,5 +479,52 @@ describe('Supplies page: the unit cost is per the unit the stock is shown in', (
 
     expect(screen.getByText('$5.28')).toBeInTheDocument()
     expect(screen.getByText('supplies.avgUnitCost')).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page: each supply shows its own unit', () => {
+  // US fl oz is a gallon over 128, so this is $0.50 per fl oz and $16.91 per litre.
+  const perFlOz = String(0.5 / (3.785411784 / 128))
+
+  it('a fl oz supply shows stock and price in fl oz, even for a metric user', () => {
+    useSuppliesMock.mockReturnValue({
+      data: {
+        supplies: [{ ...mockSupply, volume_unit: 'fl_oz_us', on_hand: '0.355', avg_unit_cost: perFlOz }],
+        total: 1,
+      },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    expect(screen.getByText('12.00 fl oz')).toBeInTheDocument()
+    expect(screen.getByText('supplies.avgCostPerUnit (fl oz)')).toBeInTheDocument()
+    expect(screen.getByText('$0.50')).toBeInTheDocument()
+    expect(screen.queryByText('$16.91')).not.toBeInTheDocument()
+  })
+
+  it('a mL supply shows whole millilitres', () => {
+    useSuppliesMock.mockReturnValue({
+      data: { supplies: [{ ...mockSupply, volume_unit: 'mL', on_hand: '0.250' }], total: 1 },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    expect(screen.getByText('250 mL')).toBeInTheDocument()
+  })
+
+  it('a legacy supply with no unit still follows the imperial pick to qt', () => {
+    unitMock.system = 'imperial'
+    useSuppliesMock.mockReturnValue({
+      data: { supplies: [{ ...mockSupply, volume_unit: null }], total: 1 },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    // 10.5 L is 11.095 US qt.
+    expect(screen.getByText('11.10 qt')).toBeInTheDocument()
+    expect(screen.getByText('supplies.avgCostPerUnit (qt)')).toBeInTheDocument()
   })
 })

@@ -15,7 +15,9 @@ import { vehicleLabel } from '@/utils/vehicleLabel'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import { RATE_DIGITS } from '@/utils/formatUtils'
-import { canonicalToDisplay, supplyUnitLabel, unitCostToDisplay } from '@/utils/supplyUnits'
+import {
+  displayDecimals, supplyDisplayUnit, toDisplay, unitCostToDisplay, unitLabel, type SupplyUnit,
+} from '@/utils/supplyUnits'
 import {
   canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies,
   type SupplyFilters, type SupplyGroup,
@@ -142,19 +144,24 @@ export default function Supplies() {
     })
   }
 
-  const formatOnHand = (supply: Supply): string => {
-    const value = canonicalToDisplay(Number(supply.on_hand), supply.unit_type, system)
-    if (supply.unit_type === 'count') {
+  // The stored token wins; only a supply without one falls back to qt or L by preference.
+  const unitFor = (supply: Supply): SupplyUnit => supplyDisplayUnit(supply, system)
+
+  const formatOnHand = (supply: Supply, unit: SupplyUnit): string => {
+    const value = toDisplay(Number(supply.on_hand), unit)
+    if (unit === 'count') {
       return Math.round(value).toLocaleString(getActiveLocale())
     }
-    const label = supplyUnitLabel(supply.unit_type, system)
-    return `${value.toFixed(2)} ${label}`.trim()
+    return `${value.toFixed(displayDecimals(unit))} ${unitLabel(unit)}`
   }
 
-  const avgCostLabel = (supply: Supply): string => {
-    const unit = supplyUnitLabel(supply.unit_type, system)
-    return unit ? t('supplies.avgCostPerUnit', { unit }) : t('supplies.avgUnitCost')
+  const avgCostLabel = (unit: SupplyUnit): string => {
+    const label = unitLabel(unit)
+    return label ? t('supplies.avgCostPerUnit', { unit: label }) : t('supplies.avgUnitCost')
   }
+
+  const avgCostValue = (supply: Supply, unit: SupplyUnit): string =>
+    formatCurrency(unitCostToDisplay(supply.avg_unit_cost, unit), { fractionDigits: RATE_DIGITS })
 
   const quickActions = (supply: Supply) => (
     <>
@@ -232,7 +239,7 @@ export default function Supplies() {
           {isOutOfStock(s) && (
             <Chip tone={s.is_negative ? 'danger' : 'warning'}>{t('supplies.outOfStock')}</Chip>
           )}
-          {formatOnHand(s)}
+          {formatOnHand(s, unitFor(s))}
         </span>
       ),
     },
@@ -241,10 +248,7 @@ export default function Supplies() {
       header: t('supplies.avgUnitCost'),
       align: 'right',
       mono: true,
-      render: (s) =>
-        formatCurrency(unitCostToDisplay(s.avg_unit_cost, s.unit_type, system), {
-          fractionDigits: RATE_DIGITS,
-        }),
+      render: (s) => avgCostValue(s, unitFor(s)),
     },
     {
       id: 'actions',
@@ -436,6 +440,7 @@ export default function Supplies() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {group.supplies.map((supply) => {
+                      const unit = unitFor(supply)
                       const archived = supply.is_active === false
                       const stockBorder = supply.is_negative
                         ? 'border-danger/50'
@@ -492,12 +497,12 @@ export default function Supplies() {
 
                             <div className="flex items-center justify-between">
                               <span className="text-garage-text-muted">{t('supplies.onHand')}</span>
-                              <span className="font-medium text-garage-text">{formatOnHand(supply)}</span>
+                              <span className="font-medium text-garage-text">{formatOnHand(supply, unit)}</span>
                             </div>
 
                             <div className="flex items-center justify-between">
-                              <span className="text-garage-text-muted">{avgCostLabel(supply)}</span>
-                              <span className="font-medium text-garage-text">{formatCurrency(unitCostToDisplay(supply.avg_unit_cost, supply.unit_type, system), { fractionDigits: RATE_DIGITS })}</span>
+                              <span className="text-garage-text-muted">{avgCostLabel(unit)}</span>
+                              <span className="font-medium text-garage-text">{avgCostValue(supply, unit)}</span>
                             </div>
 
                             {supply.is_negative && (
