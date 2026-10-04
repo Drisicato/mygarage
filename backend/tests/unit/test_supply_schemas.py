@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -11,8 +11,10 @@ from app.schemas.supply import (
     SupplyAdjustmentCreate,
     SupplyCreate,
     SupplyPurchaseCreate,
+    SupplyResponse,
     SupplyUpdate,
     SupplyUsageInput,
+    SupplyUsageResponse,
 )
 
 
@@ -79,3 +81,51 @@ def test_a_quantity_takes_what_its_column_holds(
     with pytest.raises(ValidationError) as refused:
         build(top + Decimal("0.001"))
     assert [e["type"] for e in refused.value.errors()] == ["less_than_equal"]
+
+
+def test_supply_create_accepts_a_volume_unit():
+    s = SupplyCreate(name="Brake fluid", unit_type="volume", volume_unit="fl_oz_us")
+    assert s.volume_unit == "fl_oz_us"
+
+
+def test_supply_create_rejects_an_unknown_token():
+    with pytest.raises(ValidationError):
+        SupplyCreate(name="x", unit_type="volume", volume_unit="pt_us")
+
+
+def test_count_supply_with_a_volume_unit_is_a_422():
+    with pytest.raises(ValidationError):
+        SupplyCreate(name="Filters", unit_type="count", volume_unit="qt_us")
+
+
+def test_supply_update_distinguishes_clear_from_omit():
+    assert "volume_unit" not in SupplyUpdate().model_dump(exclude_unset=True)
+    cleared = SupplyUpdate(volume_unit=None).model_dump(exclude_unset=True)
+    assert cleared["volume_unit"] is None
+
+
+def test_supply_response_reads_an_unknown_stored_token_as_null():
+    r = SupplyResponse(
+        id=1,
+        name="Oil",
+        unit_type="volume",
+        is_active=True,
+        on_hand=Decimal("1.000"),
+        is_negative=False,
+        created_at=datetime(2026, 1, 1),
+        volume_unit="pt_us",
+    )
+    assert r.volume_unit is None
+
+
+def test_supply_usage_response_reads_leniently_too():
+    r = SupplyUsageResponse(
+        id=1,
+        supply_id=1,
+        supply_name="Oil",
+        unit_type="volume",
+        quantity=Decimal("0.250"),
+        created_at=datetime(2026, 1, 1),
+        volume_unit="bogus",
+    )
+    assert r.volume_unit is None
