@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-10-04
+
 ### Added
 - Fifth wheel and travel trailer cards show the tow vehicle and average propane use per month, in the slots where motorized cards show the odometer and fuel economy
 - Financing tracking for lease and loan payments and upfront fees, with a Financing tab and cost analytics
