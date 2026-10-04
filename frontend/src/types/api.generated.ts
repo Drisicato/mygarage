@@ -15547,6 +15547,11 @@ export interface components {
              * @description Pin to a vehicle; null = shared across all
              */
             vin?: string | null;
+            /**
+             * Volume Unit
+             * @description Per-supply display unit for a volume supply; null = legacy binary pick
+             */
+            volume_unit?: ("mL" | "L" | "fl_oz_us" | "fl_oz_uk" | "qt_us" | "qt_uk" | "gal_us" | "gal_uk") | null;
         };
         /** SupplyHistoryResponse */
         SupplyHistoryResponse: {
@@ -15718,6 +15723,11 @@ export interface components {
              * @description Pin to a vehicle; null = shared across all
              */
             vin?: string | null;
+            /**
+             * Volume Unit
+             * @description Per-supply display unit; null means the legacy binary pick
+             */
+            volume_unit?: ("mL" | "L" | "fl_oz_us" | "fl_oz_uk" | "qt_us" | "qt_uk" | "gal_us" | "gal_uk") | null;
         };
         /**
          * SupplyUpdate
@@ -15741,6 +15751,11 @@ export interface components {
             part_number?: string | null;
             /** Vin */
             vin?: string | null;
+            /**
+             * Volume Unit
+             * @description Omitted keeps the stored unit; null clears back to the legacy pick
+             */
+            volume_unit?: ("mL" | "L" | "fl_oz_us" | "fl_oz_uk" | "qt_us" | "qt_uk" | "gal_us" | "gal_uk") | null;
         };
         /**
          * SupplyUsageInput
@@ -15792,6 +15807,11 @@ export interface components {
              * @enum {string}
              */
             unit_type: "volume" | "count";
+            /**
+             * Volume Unit
+             * @description Per-supply display unit; null means the legacy binary pick
+             */
+            volume_unit?: ("mL" | "L" | "fl_oz_us" | "fl_oz_uk" | "qt_us" | "qt_uk" | "gal_us" | "gal_uk") | null;
         };
         /**
          * SystemInfoResponse
