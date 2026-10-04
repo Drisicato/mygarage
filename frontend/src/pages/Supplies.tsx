@@ -14,8 +14,11 @@ import { useQuickEntryVehicles } from '@/hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '@/utils/vehicleLabel'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
-import { RATE_DIGITS } from '@/utils/formatUtils'
-import { canonicalToDisplay, supplyUnitLabel, unitCostToDisplay } from '@/utils/supplyUnits'
+import {
+  costDecimals, displayDecimals, supplyDisplayUnit, toDisplay, unitCostToDisplay, unitLabel,
+  type SupplyUnit, type SupplyVolumeUnit,
+} from '@/utils/supplyUnits'
+import { UNIT_OPTION_LABELS, type VolumeUnit } from '@/types/units'
 import {
   canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies,
   type SupplyFilters, type SupplyGroup,
@@ -142,19 +145,24 @@ export default function Supplies() {
     })
   }
 
-  const formatOnHand = (supply: Supply): string => {
-    const value = canonicalToDisplay(Number(supply.on_hand), supply.unit_type, system)
-    if (supply.unit_type === 'count') {
+  // The stored token wins; only a supply without one falls back to qt or L by preference.
+  const unitFor = (supply: Supply): SupplyUnit => supplyDisplayUnit(supply, system)
+
+  const formatOnHand = (supply: Supply, unit: SupplyUnit): string => {
+    const value = toDisplay(Number(supply.on_hand), unit)
+    if (unit === 'count') {
       return Math.round(value).toLocaleString(getActiveLocale())
     }
-    const label = supplyUnitLabel(supply.unit_type, system)
-    return `${value.toFixed(2)} ${label}`.trim()
+    return `${value.toFixed(displayDecimals(unit))} ${unitLabel(unit)}`
   }
 
-  const avgCostLabel = (supply: Supply): string => {
-    const unit = supplyUnitLabel(supply.unit_type, system)
-    return unit ? t('supplies.avgCostPerUnit', { unit }) : t('supplies.avgUnitCost')
+  const avgCostLabel = (unit: SupplyUnit): string => {
+    const label = unitLabel(unit)
+    return label ? t('supplies.avgCostPerUnit', { unit: label }) : t('supplies.avgUnitCost')
   }
+
+  const avgCostValue = (supply: Supply, unit: SupplyUnit): string =>
+    formatCurrency(unitCostToDisplay(supply.avg_unit_cost, unit), { fractionDigits: costDecimals(unit) })
 
   const quickActions = (supply: Supply) => (
     <>
@@ -232,7 +240,7 @@ export default function Supplies() {
           {isOutOfStock(s) && (
             <Chip tone={s.is_negative ? 'danger' : 'warning'}>{t('supplies.outOfStock')}</Chip>
           )}
-          {formatOnHand(s)}
+          {formatOnHand(s, unitFor(s))}
         </span>
       ),
     },
@@ -241,10 +249,7 @@ export default function Supplies() {
       header: t('supplies.avgUnitCost'),
       align: 'right',
       mono: true,
-      render: (s) =>
-        formatCurrency(unitCostToDisplay(s.avg_unit_cost, s.unit_type, system), {
-          fractionDigits: RATE_DIGITS,
-        }),
+      render: (s) => avgCostValue(s, unitFor(s)),
     },
     {
       id: 'actions',
@@ -436,6 +441,7 @@ export default function Supplies() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {group.supplies.map((supply) => {
+                      const unit = unitFor(supply)
                       const archived = supply.is_active === false
                       const stockBorder = supply.is_negative
                         ? 'border-danger/50'
@@ -492,12 +498,12 @@ export default function Supplies() {
 
                             <div className="flex items-center justify-between">
                               <span className="text-garage-text-muted">{t('supplies.onHand')}</span>
-                              <span className="font-medium text-garage-text">{formatOnHand(supply)}</span>
+                              <span className="font-medium text-garage-text">{formatOnHand(supply, unit)}</span>
                             </div>
 
                             <div className="flex items-center justify-between">
-                              <span className="text-garage-text-muted">{avgCostLabel(supply)}</span>
-                              <span className="font-medium text-garage-text">{formatCurrency(unitCostToDisplay(supply.avg_unit_cost, supply.unit_type, system), { fractionDigits: RATE_DIGITS })}</span>
+                              <span className="text-garage-text-muted">{avgCostLabel(unit)}</span>
+                              <span className="font-medium text-garage-text">{avgCostValue(supply, unit)}</span>
                             </div>
 
                             {supply.is_negative && (
@@ -551,6 +557,27 @@ export default function Supplies() {
 }
 
 // Form Component
+
+// Litres and gallons reuse the Settings labels as-is; the sizes in between are supply-only keys.
+const VOLUME_UNIT_LABELS: Readonly<Record<SupplyVolumeUnit, { readonly labelKey: string }>> = {
+  mL: { labelKey: 'common:supplies.volumeUnits.mL' },
+  L: UNIT_OPTION_LABELS.volume.options.L,
+  fl_oz_us: { labelKey: 'common:supplies.volumeUnits.fl_oz_us' },
+  fl_oz_uk: { labelKey: 'common:supplies.volumeUnits.fl_oz_uk' },
+  qt_us: { labelKey: 'common:supplies.volumeUnits.qt_us' },
+  qt_uk: { labelKey: 'common:supplies.volumeUnits.qt_uk' },
+  gal_us: UNIT_OPTION_LABELS.volume.options.gal_us,
+  gal_uk: UNIT_OPTION_LABELS.volume.options.gal_uk,
+}
+
+// New supplies start in litres for a litre account, quarts of its own gallon otherwise.
+// Keyed on the account's volume token so a new one won't compile until it picks a default.
+const NEW_SUPPLY_UNIT: Readonly<Record<VolumeUnit, SupplyVolumeUnit>> = {
+  L: 'L',
+  gal_us: 'qt_us',
+  gal_uk: 'qt_uk',
+}
+
 interface SupplyFormProps {
   supply?: Supply | null
   onClose: () => void
@@ -567,6 +594,17 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
   const createMutation = useCreateSupply()
   const updateMutation = useUpdateSupply()
   const { data: vehicles = [] } = useQuickEntryVehicles()
+  const { system, units, gallonStandard: flavour } = useUnitPreference()
+
+  // Editing keeps the stored token, or the qt/L a legacy row already shows,
+  // so saving untouched pins what the user was looking at.
+  const editUnit = supply ? supplyDisplayUnit(supply, system) : null
+  const initialUnit: SupplyVolumeUnit | undefined =
+    editUnit === null ? NEW_SUPPLY_UNIT[units.volume] : editUnit === 'count' ? undefined : editUnit
+  // The account's flavour, plus the starting unit when it's the other one so it stays selectable.
+  const flavourUnits: SupplyVolumeUnit[] = ['mL', 'L', `fl_oz_${flavour}`, `qt_${flavour}`, `gal_${flavour}`]
+  const unitOptions =
+    initialUnit && !flavourUnits.includes(initialUnit) ? [...flavourUnits, initialUnit] : flavourUnits
 
   // Zod bakes its messages in at construction, so the schema is rebuilt when
   // the language changes. Only the resolver depends on it — no fetch, no
@@ -577,6 +615,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
     register,
     handleSubmit,
     setValue,
+    watch,
     formState: { errors, isSubmitting },
     setError: setFieldError,
   } = useForm<SupplyFormData>({
@@ -584,6 +623,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
     defaultValues: {
       name: supply?.name || '',
       unit_type: supply?.unit_type || 'volume',
+      volume_unit: initialUnit,
       part_number: supply?.part_number || '',
       barcode: supply?.barcode || '',
       category: supply?.category || '',
@@ -591,11 +631,14 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
       vin: supply?.vin || '',
     },
   })
+  const unitType = watch('unit_type')
 
   const onSubmit = async (data: SupplyFormData) => {
     setError(null)
 
     try {
+      // A count supply never carries a unit (the backend 422s it), and the hidden
+      // field still holds one after a switch to count, so the key gets left out.
       if (isEdit && supply) {
         const payload: SupplyUpdate = {
           name: data.name,
@@ -605,12 +648,14 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           notes: data.notes || null,
           vin: data.vin || null,
           is_active: isActive,
+          ...(supply.unit_type === 'volume' ? { volume_unit: data.volume_unit } : {}),
         }
         await updateMutation.mutateAsync({ id: supply.id, ...payload })
       } else {
         const payload: SupplyCreate = {
           name: data.name,
           unit_type: data.unit_type,
+          ...(data.unit_type === 'volume' ? { volume_unit: data.volume_unit } : {}),
           part_number: data.part_number || undefined,
           barcode: data.barcode || undefined,
           category: data.category || undefined,
@@ -629,6 +674,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
       const { attached, unhandled } = applyServerErrors<SupplyFormData>(setFieldError, err, [
         'name',
         'unit_type',
+        'volume_unit',
         'part_number',
         'category',
         'notes',
@@ -701,6 +747,23 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
             />
           </Field>
         </div>
+
+        {unitType === 'volume' && (
+          <Field
+            id="volume_unit"
+            label={t('supplies.volumeUnit')}
+            error={errors.volume_unit}
+            hint={t('supplies.volumeUnitHint')}
+          >
+            <Select
+              id="volume_unit"
+              {...register('volume_unit')}
+              disabled={isSubmitting}
+              invalid={!!errors.volume_unit}
+              options={unitOptions.map((unit) => ({ value: unit, label: t(VOLUME_UNIT_LABELS[unit].labelKey) }))}
+            />
+          </Field>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field id="part_number" label={t('supplies.partNumber')} error={errors.part_number}>

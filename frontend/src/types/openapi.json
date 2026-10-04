@@ -19350,6 +19350,28 @@
             ],
             "description": "Pin to a vehicle; null = shared across all",
             "title": "Vin"
+          },
+          "volume_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mL",
+                  "L",
+                  "fl_oz_us",
+                  "fl_oz_uk",
+                  "qt_us",
+                  "qt_uk",
+                  "gal_us",
+                  "gal_uk"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-supply display unit for a volume supply; null = legacy binary pick",
+            "title": "Volume Unit"
           }
         },
         "required": [
@@ -19849,6 +19871,28 @@
             ],
             "description": "Pin to a vehicle; null = shared across all",
             "title": "Vin"
+          },
+          "volume_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mL",
+                  "L",
+                  "fl_oz_us",
+                  "fl_oz_uk",
+                  "qt_us",
+                  "qt_uk",
+                  "gal_us",
+                  "gal_uk"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-supply display unit; null means the legacy binary pick",
+            "title": "Volume Unit"
           }
         },
         "required": [
@@ -19950,6 +19994,28 @@
               }
             ],
             "title": "Vin"
+          },
+          "volume_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mL",
+                  "L",
+                  "fl_oz_us",
+                  "fl_oz_uk",
+                  "qt_us",
+                  "qt_uk",
+                  "gal_us",
+                  "gal_uk"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted keeps the stored unit; null clears back to the legacy pick",
+            "title": "Volume Unit"
           }
         },
         "title": "SupplyUpdate",
@@ -20077,6 +20143,28 @@
             ],
             "title": "Unit Type",
             "type": "string"
+          },
+          "volume_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mL",
+                  "L",
+                  "fl_oz_us",
+                  "fl_oz_uk",
+                  "qt_us",
+                  "qt_uk",
+                  "gal_us",
+                  "gal_uk"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-supply display unit; null means the legacy binary pick",
+            "title": "Volume Unit"
           }
         },
         "required": [
