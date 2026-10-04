@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 
 from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
@@ -114,6 +114,16 @@ class SupplyReceiptSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def _storable_quantity(value: Decimal) -> Decimal:
+    """Numeric(12,3) rounds on write on PG but not on SQLite, so quantize here:
+    both dialects then store the same number, and a sub-0.0005 quantity that
+    would round to a stored zero is refused instead."""
+    quantized = value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    if quantized == 0:
+        raise ValueError("quantity is below the smallest storable amount (0.001)")
+    return quantized
+
+
 class SupplyPurchaseCreate(BaseModel):
     date: date_type
     quantity: Decimal = Field(
@@ -123,6 +133,8 @@ class SupplyPurchaseCreate(BaseModel):
     supplier_id: int | None = None
     part_number: str | None = Field(None, max_length=60)
     notes: str | None = Field(None, max_length=5000)
+
+    _quantity_grain = field_validator("quantity")(_storable_quantity)
 
 
 class SupplyPurchaseResponse(BaseModel):
@@ -145,6 +157,8 @@ class SupplyAdjustmentCreate(BaseModel):
 
     quantity: Decimal = Field(..., gt=0, le=SUPPLY_QUANTITY_MAX, description="Canonical units")
 
+    _quantity_grain = field_validator("quantity")(_storable_quantity)
+
 
 class SupplyUsageInput(BaseModel):
     """Consume-picker input carried on a service line item."""
@@ -153,6 +167,8 @@ class SupplyUsageInput(BaseModel):
     quantity: Decimal = Field(
         ..., gt=0, le=SUPPLY_QUANTITY_MAX, description="Canonical units (L or count)"
     )
+
+    _quantity_grain = field_validator("quantity")(_storable_quantity)
 
 
 class SupplyUsageResponse(BaseModel):

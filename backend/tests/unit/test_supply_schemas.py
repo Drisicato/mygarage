@@ -129,3 +129,33 @@ def test_supply_usage_response_reads_leniently_too():
         volume_unit="bogus",
     )
     assert r.volume_unit is None
+
+
+_QUANTITY_SCHEMAS = [
+    pytest.param(lambda q: SupplyUsageInput(supply_id=1, quantity=q), id="usage-on-a-line-item"),
+    pytest.param(lambda q: SupplyAdjustmentCreate(quantity=q), id="adjustment"),
+    pytest.param(lambda q: SupplyPurchaseCreate(date=date(2026, 1, 1), quantity=q), id="purchase"),
+]
+
+
+@pytest.mark.parametrize("build", _QUANTITY_SCHEMAS)
+def test_a_quantity_below_the_storable_grain_is_refused(build: Callable[[Decimal], BaseModel]):
+    with pytest.raises(ValidationError):
+        build(Decimal("0.0004"))
+
+
+@pytest.mark.parametrize("build", _QUANTITY_SCHEMAS)
+@pytest.mark.parametrize(
+    ("given", "stored"),
+    [
+        (Decimal("0.0005"), Decimal("0.001")),
+        (Decimal("0.35488235475"), Decimal("0.355")),
+        (Decimal("1"), Decimal("1")),
+    ],
+)
+def test_a_quantity_normalizes_to_three_decimals(
+    build: Callable[[Decimal], BaseModel], given: Decimal, stored: Decimal
+):
+    got = build(given).model_dump()["quantity"]
+    assert got == stored
+    assert got.as_tuple().exponent == -3
