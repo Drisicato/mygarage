@@ -347,6 +347,14 @@ describe('SupplyHistoryModal: the supply keeps its own unit', () => {
     expect(dialogText).not.toContain('+5.00 L')
   })
 
+  it('the header prices per mL to four places', () => {
+    // History says $5.25/L, which is $0.00525/mL.
+    render(<SupplyHistoryModal supply={mlSupply} onClose={vi.fn()} />)
+
+    expect(screen.getByText('$0.0053')).toBeInTheDocument()
+    expect(screen.queryByText('$0.01')).not.toBeInTheDocument()
+  })
+
   it('a purchase under 1 mL is refused as too small to store', async () => {
     const user = userEvent.setup()
     render(<SupplyHistoryModal supply={mlSupply} onClose={vi.fn()} initialForm="purchase" />)

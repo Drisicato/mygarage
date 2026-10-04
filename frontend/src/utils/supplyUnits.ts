@@ -1,5 +1,6 @@
 import type { Supply } from '@/types/supplies'
 
+import { RATE_DIGITS } from './formatUtils'
 import { UnitConverter, type UnitSystem } from './units'
 
 export type SupplyUnitType = 'volume' | 'count'
@@ -96,4 +97,9 @@ export function unitCostToDisplay(
 /** Decimals worth showing: whole mL and counts, two for everything else. */
 export function displayDecimals(unit: SupplyUnit): number {
   return unit === 'mL' || unit === 'count' ? 0 : 2
+}
+
+/** Fraction digits for a unit cost. A mL costs fractions of a cent, so it gets four. */
+export function costDecimals(unit: SupplyUnit): number {
+  return unit === 'mL' ? 4 : RATE_DIGITS
 }

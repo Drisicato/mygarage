@@ -18,6 +18,7 @@ import { useAddressBookEntries } from '@/hooks/queries/useAddressBook'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import {
+  costDecimals,
   displayDecimals,
   supplyDisplayUnit,
   toCanonical,
@@ -38,7 +39,6 @@ import { getActiveLocale } from '@/constants/i18n'
 import { applyServerErrors } from '@/hooks/useApiFormErrors'
 import { getActionErrorMessage } from '@/utils/httpErrorHandler'
 import { moneyError } from '@/schemas/shared'
-import { RATE_DIGITS } from '@/utils/formatUtils'
 
 type SupplyLedgerEntry = components['schemas']['SupplyLedgerEntry']
 
@@ -110,7 +110,7 @@ export default function SupplyHistoryModal({ supply, onClose, initialForm }: Sup
             <div className="text-xs text-garage-text-muted">
               {costUnit ? t('supplies.avgCostPerUnit', { unit: costUnit }) : t('supplies.avgUnitCost')}
             </div>
-            <div className="text-lg font-semibold text-garage-text">{formatCurrency(avgUnitCost, { fractionDigits: RATE_DIGITS })}</div>
+            <div className="text-lg font-semibold text-garage-text">{formatCurrency(avgUnitCost, { fractionDigits: costDecimals(unit) })}</div>
           </div>
         </div>
 

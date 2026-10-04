@@ -14,9 +14,8 @@ import { useQuickEntryVehicles } from '@/hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '@/utils/vehicleLabel'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
-import { RATE_DIGITS } from '@/utils/formatUtils'
 import {
-  displayDecimals, supplyDisplayUnit, toDisplay, unitCostToDisplay, unitLabel, type SupplyUnit,
+  costDecimals, displayDecimals, supplyDisplayUnit, toDisplay, unitCostToDisplay, unitLabel, type SupplyUnit,
 } from '@/utils/supplyUnits'
 import {
   canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies,
@@ -161,7 +160,7 @@ export default function Supplies() {
   }
 
   const avgCostValue = (supply: Supply, unit: SupplyUnit): string =>
-    formatCurrency(unitCostToDisplay(supply.avg_unit_cost, unit), { fractionDigits: RATE_DIGITS })
+    formatCurrency(unitCostToDisplay(supply.avg_unit_cost, unit), { fractionDigits: costDecimals(unit) })
 
   const quickActions = (supply: Supply) => (
     <>

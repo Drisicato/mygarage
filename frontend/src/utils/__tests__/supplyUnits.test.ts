@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  costDecimals,
   displayDecimals,
   supplyDisplayUnit,
   toCanonical,
@@ -51,4 +52,11 @@ it.each([
   ['L', 2], ['fl_oz_us', 2], ['fl_oz_uk', 2], ['qt_us', 2], ['qt_uk', 2], ['gal_us', 2], ['gal_uk', 2],
 ] as [SupplyUnit, number][])('displayDecimals(%s) is %i', (unit, digits) => {
   expect(displayDecimals(unit)).toBe(digits)
+})
+
+it.each([
+  ['mL', 4],
+  ['L', 2], ['count', 2], ['fl_oz_us', 2], ['fl_oz_uk', 2], ['qt_us', 2], ['qt_uk', 2], ['gal_us', 2], ['gal_uk', 2],
+] as [SupplyUnit, number][])('costDecimals(%s) is %i', (unit, digits) => {
+  expect(costDecimals(unit)).toBe(digits)
 })

@@ -514,6 +514,22 @@ describe('Supplies page: each supply shows its own unit', () => {
     expect(screen.getByText('250 mL')).toBeInTheDocument()
   })
 
+  it('a mL supply prices per mL to four places, card and list', () => {
+    // $5.25/L is $0.00525/mL; two places would round it to $0.01.
+    useSuppliesMock.mockReturnValue({
+      data: { supplies: [{ ...mockSupply, volume_unit: 'mL', avg_unit_cost: '5.25' }], total: 1 },
+      isLoading: false,
+      error: null,
+    })
+    render(<Supplies />)
+
+    expect(screen.getByText('$0.0053')).toBeInTheDocument()
+    expect(screen.queryByText('$0.01')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
+    expect(within(screen.getByRole('table')).getByText('$0.0053')).toBeInTheDocument()
+  })
+
   it('a legacy supply with no unit still follows the imperial pick to qt', () => {
     unitMock.system = 'imperial'
     useSuppliesMock.mockReturnValue({
