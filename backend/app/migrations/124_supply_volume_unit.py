@@ -1,7 +1,7 @@
 """Add supplies.volume_unit, the per-supply display unit token (#191).
 
 A nullable VARCHAR(8) holding the unit a volume supply is shown in (a token like
-'qt' or 'ml'). NULL means the legacy binary pick, so every existing supply
+'qt_us' or 'mL'). NULL means the legacy binary pick, so every existing supply
 behaves exactly as before. No backfill and no CHECK: reads are lenient, so an
 unknown token comes out as NULL, and a CHECK would need a SQLite rebuild for
 nothing.
