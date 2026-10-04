@@ -28,9 +28,7 @@
  * instances 20.1% out. It now derives its quarts the same way, and the legacy
  * branch of `supplyDisplayUnit` keeps the US quart for rows with no stored
  * token. Here the quart is `LITERS_PER_VOLUME_UNIT[gal_x] / 4`, so the UK
- * reader is right on day one. Supplies is deliberately NOT changed here: its factor re-interprets quantities already
- * stored, and no column records which quart a row was written in, which is a
- * data decision that belongs with the amendment.
+ * reader is right on day one. Supplies stores a per-row `volume_unit` token now, so the amendment landed there.
  */
 
 import { UnitConverter } from '@/utils/units'

@@ -33,7 +33,7 @@ describe('oilCapacityFormat', () => {
     expect(f.toDisplay(4.7)).toBeCloseTo(4.967, 2)
   })
 
-  it('uses the IMPERIAL quart for a UK reader, which supplies gets wrong', () => {
+  it('uses the IMPERIAL quart for a UK reader, unlike the legacy no-token supplies branch', () => {
     // The defect supplies' legacy branch (supplyDisplayUnit) still has: one UK
     // quart is 1.1365225 L, not the US 0.946352946. Reading a UK entry with the US constant is 20.1% out.
     const f = oilCapacityFormat(UK)

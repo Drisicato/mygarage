@@ -35,7 +35,7 @@ describe('supplyDisplayUnit', () => {
     expect(supplyDisplayUnit({ unit_type: 'volume', volume_unit: null }, 'metric')).toBe('L')
   })
   it('an unknown token reads as legacy, matching the backend lenient read', () => {
-    const stale = { unit_type: 'volume', volume_unit: 'pt_us' as SupplyVolumeUnit }
+    const stale = { unit_type: 'volume' as const, volume_unit: 'pt_us' as SupplyVolumeUnit }
     expect(supplyDisplayUnit(stale, 'metric')).toBe('L')
   })
 })
