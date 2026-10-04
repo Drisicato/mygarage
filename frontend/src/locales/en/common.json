@@ -159,6 +159,15 @@
     "unitTypeVolume": "Volume",
     "unitTypeCount": "Count",
     "unitTypeImmutable": "Unit type can't be changed after a supply is created.",
+    "volumeUnit": "Unit",
+    "volumeUnitHint": "Changing the unit doesn't change the amount on hand.",
+    "volumeUnits": {
+      "mL": "Milliliters (mL)",
+      "fl_oz_us": "US fluid ounces (fl oz)",
+      "fl_oz_uk": "UK fluid ounces (fl oz)",
+      "qt_us": "US quarts (qt)",
+      "qt_uk": "UK quarts (qt)"
+    },
     "partNumber": "Part Number",
     "barcode": "Barcode",
     "scanBarcode": "Scan",

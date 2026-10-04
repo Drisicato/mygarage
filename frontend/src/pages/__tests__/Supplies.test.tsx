@@ -1,20 +1,24 @@
 import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, within } from '../../__tests__/test-utils'
+import { render, screen, fireEvent, within, waitFor } from '../../__tests__/test-utils'
 import type { Supply } from '../../types/supplies'
+import { presetUnitsFor, type UnitSet } from '../../types/units'
 
 // Mock the supplies query hooks so this stays a unit test — no real network
 // calls needed. The api layer itself is already mocked globally (setup.ts
 // mocks axios), so any hook we don't mock here still resolves harmlessly.
 const useSuppliesMock = vi.fn()
 const useDeleteSupplyMock = vi.fn()
+// Stable across renders so the form tests can read back what got saved.
+const createSupplyMock = vi.fn()
+const updateSupplyMock = vi.fn()
 
 const mutationStub = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, variables: undefined })
 
 vi.mock('../../hooks/queries/useSupplies', () => ({
   useSupplies: () => useSuppliesMock(),
-  useCreateSupply: () => ({ mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }),
-  useUpdateSupply: () => ({ mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }),
+  useCreateSupply: () => ({ mutateAsync: createSupplyMock, mutate: vi.fn(), isPending: false }),
+  useUpdateSupply: () => ({ mutateAsync: updateSupplyMock, mutate: vi.fn(), isPending: false }),
   useDeleteSupply: () => useDeleteSupplyMock(),
   // The quick-action tests mount the real SupplyHistoryModal, so its hooks
   // need inert stands-ins here too.
@@ -41,10 +45,25 @@ vi.mock('../../hooks/queries/useQuickEntryVehicles', () => ({
 
 // Same mock pattern as DEFRecordList.test.tsx — these hooks need AuthProvider
 // otherwise, and it's not under test here.
-const unitMock = vi.hoisted(() => ({ system: 'metric' as 'metric' | 'imperial' }))
-vi.mock('../../hooks/useUnitPreference', () => ({
-  useUnitPreference: () => ({ system: unitMock.system, showBoth: false }),
+const unitMock = vi.hoisted(() => ({
+  system: 'metric' as 'metric' | 'imperial',
+  units: null as UnitSet | null,
+  gallonStandard: 'us' as 'us' | 'uk',
 }))
+vi.mock('../../hooks/useUnitPreference', () => ({
+  useUnitPreference: () => ({
+    system: unitMock.system,
+    units: unitMock.units,
+    gallonStandard: unitMock.gallonStandard,
+    showBoth: false,
+  }),
+}))
+// Sets the whole account in one go so system, set and gallon flavour can't disagree.
+const setAccount = (system: 'metric' | 'imperial', flavour: 'us' | 'uk' = 'us'): void => {
+  unitMock.system = system
+  unitMock.units = presetUnitsFor(system, flavour)
+  unitMock.gallonStandard = flavour
+}
 // The REAL currency hook runs, so a rate option has to survive it. Only the
 // signed-in user is faked, and the rate-digits test flips them to yen.
 const currencyMock = vi.hoisted(() => ({ code: 'USD' }))
@@ -88,7 +107,9 @@ beforeEach(() => {
   // The view pick persists on purpose, so tests must not inherit each other's.
   localStorage.clear()
   currencyMock.code = 'USD'
-  unitMock.system = 'metric'
+  setAccount('metric')
+  createSupplyMock.mockResolvedValue({})
+  updateSupplyMock.mockResolvedValue({})
   useSuppliesMock.mockReturnValue({
     data: { supplies: [mockSupply], total: 1 },
     isLoading: false,
@@ -451,7 +472,7 @@ describe('Supplies page: the unit cost is per the unit the stock is shown in', (
   const perLitre = { ...mockSupply, avg_unit_cost: String(25 / 4.732) }
 
   it('prices a quart for an imperial user', () => {
-    unitMock.system = 'imperial'
+    setAccount('imperial')
     useSuppliesMock.mockReturnValue({ data: { supplies: [perLitre], total: 1 }, isLoading: false, error: null })
     render(<Supplies />)
 
@@ -469,7 +490,7 @@ describe('Supplies page: the unit cost is per the unit the stock is shown in', (
   })
 
   it('keeps the plain label for a counted supply', () => {
-    unitMock.system = 'imperial'
+    setAccount('imperial')
     useSuppliesMock.mockReturnValue({
       data: { supplies: [{ ...perLitre, unit_type: 'count', on_hand: '4' }], total: 1 },
       isLoading: false,
@@ -531,7 +552,7 @@ describe('Supplies page: each supply shows its own unit', () => {
   })
 
   it('a legacy supply with no unit still follows the imperial pick to qt', () => {
-    unitMock.system = 'imperial'
+    setAccount('imperial')
     useSuppliesMock.mockReturnValue({
       data: { supplies: [{ ...mockSupply, volume_unit: null }], total: 1 },
       isLoading: false,
@@ -542,5 +563,136 @@ describe('Supplies page: each supply shows its own unit', () => {
     // 10.5 L is 11.095 US qt.
     expect(screen.getByText('11.10 qt')).toBeInTheDocument()
     expect(screen.getByText('supplies.avgCostPerUnit (qt)')).toBeInTheDocument()
+  })
+})
+
+describe('SupplyForm: the volume unit picker', () => {
+  const US = ['mL', 'L', 'fl_oz_us', 'qt_us', 'gal_us']
+  const UK = ['mL', 'L', 'fl_oz_uk', 'qt_uk', 'gal_uk']
+
+  // The modal portals, so these read the document, not the render container.
+  const unitSelect = () => document.getElementById('volume_unit') as HTMLSelectElement | null
+  const offered = () => [...unitSelect()!.options].map((o) => o.value)
+  const submit = () => fireEvent.submit(document.getElementById('supply-form') as HTMLFormElement)
+  const lastPayload = (spy: typeof createSupplyMock) => spy.mock.calls.at(-1)?.[0] as Record<string, unknown>
+
+  const openAdd = () => {
+    render(<Supplies />)
+    fireEvent.click(screen.getByText('supplies.addSupply'))
+  }
+  const openEdit = (supply: Supply) => {
+    useSuppliesMock.mockReturnValue({ data: { supplies: [supply], total: 1 }, isLoading: false, error: null })
+    render(<Supplies />)
+    fireEvent.click(screen.getByLabelText('common:edit'))
+  }
+
+  it('a US account starts a new supply in US quarts and offers only US flavours', () => {
+    setAccount('imperial', 'us')
+    openAdd()
+
+    expect(unitSelect()?.value).toBe('qt_us')
+    expect(offered()).toEqual(US)
+    // Litres and gallons reuse the Settings labels; the rest are supply keys.
+    expect([...unitSelect()!.options].map((o) => o.textContent)).toEqual([
+      'common:supplies.volumeUnits.mL',
+      'settings:units.options.volume.L',
+      'common:supplies.volumeUnits.fl_oz_us',
+      'common:supplies.volumeUnits.qt_us',
+      'settings:units.options.volume.gal_us',
+    ])
+    expect(screen.getByText('supplies.volumeUnit')).toBeInTheDocument()
+    expect(document.getElementById('volume_unit-hint')).toHaveTextContent('supplies.volumeUnitHint')
+  })
+
+  it('a UK account starts in UK quarts and the create payload saves them', async () => {
+    setAccount('imperial', 'uk')
+    openAdd()
+
+    expect(unitSelect()?.value).toBe('qt_uk')
+    expect(offered()).toEqual(UK)
+
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Gear Oil' } })
+    submit()
+
+    await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
+    expect(lastPayload(createSupplyMock)).toMatchObject({ unit_type: 'volume', volume_unit: 'qt_uk' })
+  })
+
+  it('a metric account starts in litres', () => {
+    openAdd()
+
+    expect(unitSelect()?.value).toBe('L')
+    expect(offered()).toEqual(US)
+  })
+
+  it('the create payload carries the unit picked', async () => {
+    setAccount('imperial', 'us')
+    openAdd()
+
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Brake Fluid' } })
+    fireEvent.change(unitSelect()!, { target: { value: 'mL' } })
+    submit()
+
+    await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
+    expect(lastPayload(createSupplyMock).volume_unit).toBe('mL')
+  })
+
+  it('switching a new supply to count drops the picker and the payload leaves volume_unit out', async () => {
+    setAccount('imperial', 'us')
+    openAdd()
+    expect(unitSelect()).not.toBeNull()
+
+    fireEvent.change(document.getElementById('unit_type')!, { target: { value: 'count' } })
+    expect(unitSelect()).toBeNull()
+
+    // The form still holds qt_us for the hidden field, so the payload has to drop it.
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Oil Filter' } })
+    submit()
+
+    await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
+    const payload = lastPayload(createSupplyMock)
+    expect(payload.unit_type).toBe('count')
+    expect('volume_unit' in payload).toBe(false)
+  })
+
+  it('editing a legacy supply on an imperial account preselects US quarts and an untouched save writes them', async () => {
+    setAccount('imperial', 'us')
+    openEdit({ ...mockSupply, volume_unit: null })
+
+    expect(unitSelect()?.value).toBe('qt_us')
+
+    submit()
+
+    await waitFor(() => expect(updateSupplyMock).toHaveBeenCalled())
+    expect(lastPayload(updateSupplyMock)).toMatchObject({ id: 1, volume_unit: 'qt_us' })
+  })
+
+  it('a legacy supply on a UK account keeps the US quart it is shown in', () => {
+    setAccount('imperial', 'uk')
+    openEdit({ ...mockSupply, volume_unit: null })
+
+    expect(unitSelect()?.value).toBe('qt_us')
+    expect(offered()).toEqual([...UK, 'qt_us'])
+  })
+
+  it('editing a UK-quart supply on a US account keeps qt_uk on offer', () => {
+    setAccount('imperial', 'us')
+    openEdit({ ...mockSupply, volume_unit: 'qt_uk' })
+
+    expect(unitSelect()?.value).toBe('qt_uk')
+    expect(offered()).toEqual([...US, 'qt_uk'])
+  })
+
+  it('guard: editing a count supply shows no picker and the PATCH leaves volume_unit out (mutant: update always sends it)', async () => {
+    setAccount('imperial', 'us')
+    openEdit({ ...mockSupply, unit_type: 'count', on_hand: '4.000', volume_unit: null })
+
+    expect(document.getElementById('name')).toBeInTheDocument()
+    expect(unitSelect()).toBeNull()
+
+    submit()
+
+    await waitFor(() => expect(updateSupplyMock).toHaveBeenCalled())
+    expect('volume_unit' in lastPayload(updateSupplyMock)).toBe(false)
   })
 })

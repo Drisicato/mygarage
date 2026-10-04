@@ -15,8 +15,10 @@ import { vehicleLabel } from '@/utils/vehicleLabel'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import {
-  costDecimals, displayDecimals, supplyDisplayUnit, toDisplay, unitCostToDisplay, unitLabel, type SupplyUnit,
+  costDecimals, displayDecimals, supplyDisplayUnit, toDisplay, unitCostToDisplay, unitLabel,
+  type SupplyUnit, type SupplyVolumeUnit,
 } from '@/utils/supplyUnits'
+import { UNIT_OPTION_LABELS, type VolumeUnit } from '@/types/units'
 import {
   canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies,
   type SupplyFilters, type SupplyGroup,
@@ -555,6 +557,27 @@ export default function Supplies() {
 }
 
 // Form Component
+
+// Litres and gallons reuse the Settings labels as-is; the sizes in between are supply-only keys.
+const VOLUME_UNIT_LABELS: Readonly<Record<SupplyVolumeUnit, { readonly labelKey: string }>> = {
+  mL: { labelKey: 'common:supplies.volumeUnits.mL' },
+  L: UNIT_OPTION_LABELS.volume.options.L,
+  fl_oz_us: { labelKey: 'common:supplies.volumeUnits.fl_oz_us' },
+  fl_oz_uk: { labelKey: 'common:supplies.volumeUnits.fl_oz_uk' },
+  qt_us: { labelKey: 'common:supplies.volumeUnits.qt_us' },
+  qt_uk: { labelKey: 'common:supplies.volumeUnits.qt_uk' },
+  gal_us: UNIT_OPTION_LABELS.volume.options.gal_us,
+  gal_uk: UNIT_OPTION_LABELS.volume.options.gal_uk,
+}
+
+// New supplies start in litres for a litre account, quarts of its own gallon otherwise.
+// Keyed on the account's volume token so a new one won't compile until it picks a default.
+const NEW_SUPPLY_UNIT: Readonly<Record<VolumeUnit, SupplyVolumeUnit>> = {
+  L: 'L',
+  gal_us: 'qt_us',
+  gal_uk: 'qt_uk',
+}
+
 interface SupplyFormProps {
   supply?: Supply | null
   onClose: () => void
@@ -571,6 +594,17 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
   const createMutation = useCreateSupply()
   const updateMutation = useUpdateSupply()
   const { data: vehicles = [] } = useQuickEntryVehicles()
+  const { system, units, gallonStandard: flavour } = useUnitPreference()
+
+  // Editing keeps the stored token, or the qt/L a legacy row already shows,
+  // so saving untouched pins what the user was looking at.
+  const editUnit = supply ? supplyDisplayUnit(supply, system) : null
+  const initialUnit: SupplyVolumeUnit | undefined =
+    editUnit === null ? NEW_SUPPLY_UNIT[units.volume] : editUnit === 'count' ? undefined : editUnit
+  // The account's flavour, plus the starting unit when it's the other one so it stays selectable.
+  const flavourUnits: SupplyVolumeUnit[] = ['mL', 'L', `fl_oz_${flavour}`, `qt_${flavour}`, `gal_${flavour}`]
+  const unitOptions =
+    initialUnit && !flavourUnits.includes(initialUnit) ? [...flavourUnits, initialUnit] : flavourUnits
 
   // Zod bakes its messages in at construction, so the schema is rebuilt when
   // the language changes. Only the resolver depends on it — no fetch, no
@@ -581,6 +615,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
     register,
     handleSubmit,
     setValue,
+    watch,
     formState: { errors, isSubmitting },
     setError: setFieldError,
   } = useForm<SupplyFormData>({
@@ -588,6 +623,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
     defaultValues: {
       name: supply?.name || '',
       unit_type: supply?.unit_type || 'volume',
+      volume_unit: initialUnit,
       part_number: supply?.part_number || '',
       barcode: supply?.barcode || '',
       category: supply?.category || '',
@@ -595,11 +631,14 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
       vin: supply?.vin || '',
     },
   })
+  const unitType = watch('unit_type')
 
   const onSubmit = async (data: SupplyFormData) => {
     setError(null)
 
     try {
+      // A count supply never carries a unit (the backend 422s it), and the hidden
+      // field still holds one after a switch to count, so the key gets left out.
       if (isEdit && supply) {
         const payload: SupplyUpdate = {
           name: data.name,
@@ -609,12 +648,14 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           notes: data.notes || null,
           vin: data.vin || null,
           is_active: isActive,
+          ...(supply.unit_type === 'volume' ? { volume_unit: data.volume_unit } : {}),
         }
         await updateMutation.mutateAsync({ id: supply.id, ...payload })
       } else {
         const payload: SupplyCreate = {
           name: data.name,
           unit_type: data.unit_type,
+          ...(data.unit_type === 'volume' ? { volume_unit: data.volume_unit } : {}),
           part_number: data.part_number || undefined,
           barcode: data.barcode || undefined,
           category: data.category || undefined,
@@ -633,6 +674,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
       const { attached, unhandled } = applyServerErrors<SupplyFormData>(setFieldError, err, [
         'name',
         'unit_type',
+        'volume_unit',
         'part_number',
         'category',
         'notes',
@@ -705,6 +747,23 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
             />
           </Field>
         </div>
+
+        {unitType === 'volume' && (
+          <Field
+            id="volume_unit"
+            label={t('supplies.volumeUnit')}
+            error={errors.volume_unit}
+            hint={t('supplies.volumeUnitHint')}
+          >
+            <Select
+              id="volume_unit"
+              {...register('volume_unit')}
+              disabled={isSubmitting}
+              invalid={!!errors.volume_unit}
+              options={unitOptions.map((unit) => ({ value: unit, label: t(VOLUME_UNIT_LABELS[unit].labelKey) }))}
+            />
+          </Field>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field id="part_number" label={t('supplies.partNumber')} error={errors.part_number}>
