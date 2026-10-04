@@ -879,8 +879,8 @@
     {
       "path": "src/components/SupplyHistoryModal.tsx",
       "disposition": "audited",
-      "digest": "e063ed849fdab5f3ee03ee73e8390fb814298ff06fb0b8e8b0fa7cbdefc7ce9a",
-      "reason": "supply quantities through supplyUnits; inherits the D8 quarts decision recorded on utils/supplyUnits.ts 2026-09-24 (money fields): the currency prefix is now CurrencyInput or Input's prefix, padded to the symbol's drawn width; no quantity, unit or conversion code changed. 2026-09-30 (money-fits B6): the purchase total gets the API money cap; no quantity, unit or conversion code changed. 2026-09-30 (money-fits B7 fix 1): the average unit cost header passes fractionDigits: RATE_DIGITS so it keeps two decimals in every currency; money precision only, no quantity, unit or conversion code changed. 2026-09-30 (money-fits final wave F-6): the purchase total is checked by moneyError, so text that isn't a number gets the invalid message; money messages only, no quantity, unit or conversion code changed. 2026-10-03 (#191 unit cost): the header's average unit cost goes through unitCostToDisplay with a unit-naming label, same fix as Supplies.tsx; ledger totals unchanged.",
+      "digest": "72b0d83f8fd96b4fbb5de1d10d48a133e372036316bbc7c47fc06e9072a57b27",
+      "reason": "supply quantities through supplyUnits; inherits the D8 quarts decision recorded on utils/supplyUnits.ts 2026-09-24 (money fields): the currency prefix is now CurrencyInput or Input's prefix, padded to the symbol's drawn width; no quantity, unit or conversion code changed. 2026-09-30 (money-fits B6): the purchase total gets the API money cap; no quantity, unit or conversion code changed. 2026-09-30 (money-fits B7 fix 1): the average unit cost header passes fractionDigits: RATE_DIGITS so it keeps two decimals in every currency; money precision only, no quantity, unit or conversion code changed. 2026-09-30 (money-fits final wave F-6): the purchase total is checked by moneyError, so text that isn't a number gets the invalid message; money messages only, no quantity, unit or conversion code changed. 2026-10-03 (#191 unit cost): the header's average unit cost goes through unitCostToDisplay with a unit-naming label, same fix as Supplies.tsx; ledger totals unchanged. 2026-10-03 (#191 page tools): gained an optional initialForm prop that preseeds which log form opens; no quantity, unit or conversion code changed.",
       "tests": [
         "components/__tests__/SupplyHistoryModal.test.tsx",
         "utils/__tests__/supplyUnits.test.ts"
@@ -2483,8 +2483,8 @@
     {
       "path": "src/locales/en/common.json",
       "disposition": "no unit behaviour",
-      "digest": "4563b8536c6c668f3aea7e8e725e7e3297fbb3f79a62e4e33e2c306245b24bc1",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 10 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. Re-reviewed for octane validation (#164, 2026-09-18): three validation.fuel keys (octaneTooSmall/TooLarge/Invalid) naming the 50-150 band of a dimensionless rating, merged into the existing block after a first paste created a duplicate 'fuel' sibling that json parsing silently dropped; no unit named. 2026-09-22 (tank cards): ofMax ('{{value}} of {{max}}'). No unit strings. Re-read 2026-09-29: adds validation.tankPair.bothOrNeither, a message with no unit in it. 2026-09-29 (clear-means-clear): two validation messages (tire set name, document title); no unit label changed. 2026-09-30 (money-fits B6): removes the nine validation.spotRental rate and utility keys, whose text named a dollar cap; no unit label changed. 2026-09-30 (oidc-email-linking O6): adds familyCard.allowSsoRelink, cancelSsoRelink and relinkOpenUntil ('{{time}}' is a clock time). No unit label. 2026-09-30 (Plan C): adds login.ssoError, nine sentences the login page shows when an SSO sign-in is refused or fails. No unit label. 2026-10-01 (Plan D, D4): adds login.ssoError.rate_limited. Its 'a minute' is how long to wait before trying again, not a quantity shown in a unit. No unit label. 2026-10-02 (lenient-vocabulary-reads H3): adds the top-level unknown key ('Unknown') for a stored vehicle type the app doesn't recognise. No unit label. 2026-10-02 (lenient-vocabulary-reads H4): validation.recall.campaignNumberTooLong says max 20 characters instead of 50, a text length and not a quantity shown in a unit. No unit label."
+      "digest": "b85c6b117bbe97119eb321c21b63b1af257cef4d58f64f762fc21c514e0c0992",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 10 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. Re-reviewed for octane validation (#164, 2026-09-18): three validation.fuel keys (octaneTooSmall/TooLarge/Invalid) naming the 50-150 band of a dimensionless rating, merged into the existing block after a first paste created a duplicate 'fuel' sibling that json parsing silently dropped; no unit named. 2026-09-22 (tank cards): ofMax ('{{value}} of {{max}}'). No unit strings. Re-read 2026-09-29: adds validation.tankPair.bothOrNeither, a message with no unit in it. 2026-09-29 (clear-means-clear): two validation messages (tire set name, document title); no unit label changed. 2026-09-30 (money-fits B6): removes the nine validation.spotRental rate and utility keys, whose text named a dollar cap; no unit label changed. 2026-09-30 (oidc-email-linking O6): adds familyCard.allowSsoRelink, cancelSsoRelink and relinkOpenUntil ('{{time}}' is a clock time). No unit label. 2026-09-30 (Plan C): adds login.ssoError, nine sentences the login page shows when an SSO sign-in is refused or fails. No unit label. 2026-10-01 (Plan D, D4): adds login.ssoError.rate_limited. Its 'a minute' is how long to wait before trying again, not a quantity shown in a unit. No unit label. 2026-10-02 (lenient-vocabulary-reads H3): adds the top-level unknown key ('Unknown') for a stored vehicle type the app doesn't recognise. No unit label. 2026-10-02 (lenient-vocabulary-reads H4): validation.recall.campaignNumberTooLong says max 20 characters instead of 50, a text length and not a quantity shown in a unit. No unit label. 2026-10-03 (#191 page tools): new supplies toolbar, view and quick-action labels only; none carries a unit decision."
     },
     {
       "path": "src/locales/en/forms.json",
@@ -2652,8 +2652,8 @@
     {
       "path": "src/pages/Supplies.tsx",
       "disposition": "audited",
-      "digest": "097670cc22d7100f63fcfa05cc60c9c987ad909963b4b2d2e56bc8529636d1a8",
-      "reason": "as SupplyHistoryModal 2026-09-30 (money-fits B7 fix 1): the average unit cost passes fractionDigits: RATE_DIGITS so it keeps two decimals in every currency; money precision only, no quantity, unit or conversion code changed. 2026-10-03 (#191 unit cost): the average unit cost now goes through unitCostToDisplay and its label names the unit (Avg. Cost/qt), so an imperial user sees the price of a quart instead of a litre's price next to quarts.",
+      "digest": "e26dfa707128f9898a2a0a7e105226f563bb6c47dabc706a461083dff6572ae4",
+      "reason": "as SupplyHistoryModal 2026-09-30 (money-fits B7 fix 1): the average unit cost passes fractionDigits: RATE_DIGITS so it keeps two decimals in every currency; money precision only, no quantity, unit or conversion code changed (review fix pass same day: pure prefs updater and group React keys; still none). 2026-10-03 (#191 unit cost): the average unit cost now goes through unitCostToDisplay and its label names the unit (Avg. Cost/qt), so an imperial user sees the price of a quart instead of a litre's price next to quarts. 2026-10-03 (#191 page tools): search, filters, sort, grouping, list view and quick actions; display composition only, every quantity still goes through formatOnHand and unitCostToDisplay; no quantity, unit or conversion code changed.",
       "tests": [
         "pages/__tests__/Supplies.test.tsx",
         "utils/__tests__/supplyUnits.test.ts"
@@ -3255,6 +3255,21 @@
       "reason": "shared by the Live tab's tank card and the settings drawer's compact list (2026-09-22, tank cards). formatSensorReading sends a `value` reading through convertTelemetryValue unchanged; `boolean`, `count` and `of_max` readings are dimensionless and get no unit. sensorReadingName and tankContent touch names and visibility only. 2026-09-22 (alert lines): tankLevelTone and readingTone compare a reading with its own lines in the same stored unit; nothing converted. 2026-09-22 (simplify): the tones now map the server's alert_band (which line a reading is past) instead of re-deriving it from the lines; no unit behaviour. 2026-09-24 (accent fill): tankLevelTone past no line is the accent, not success; a colour choice only. No unit behaviour changed.",
       "tests": [
         "utils/__tests__/sensorReadings.test.ts"
+      ]
+    },
+    {
+      "path": "src/utils/suppliesViewStore.ts",
+      "disposition": "no unit behaviour",
+      "digest": "4f0e0e8eb69a882fd3e58a14ef7da5e2f3c3cad311a3909e968fa2d1d8f99efd",
+      "reason": "no unit behaviour: the supplies page's sort/group/view pick in localStorage; no quantity. First reviewed 2026-10-03."
+    },
+    {
+      "path": "src/utils/supplyListView.ts",
+      "disposition": "audited",
+      "digest": "9bf8fa7124d8ff696a6031a28a9c64d18c34064568c8aed1040f5cc490b66ee9",
+      "reason": "pure list helpers for the supplies page, first reviewed 2026-10-03 (#191 page tools): isOutOfStock and the stock sort compare Number(on_hand) in canonical units only, and the rank buckets keep counts and litres from ever comparing against each other; nothing here converts, labels or formats a quantity.",
+      "tests": [
+        "utils/__tests__/supplyListView.test.ts"
       ]
     },
     {

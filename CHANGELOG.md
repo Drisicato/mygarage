@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MYGARAGE_TRUSTED_PROXIES` and `MYGARAGE_CLIENT_IP_HEADER`: behind a reverse proxy, rate limits and audit logs see the real client instead of the proxy
 - The Backup tab shows a full restore waiting for the restart, and can cancel it
 - Pending reminders are listed by how soon they're due, and each shows whether it's overdue or due soon, with a progress bar and what's left (#192)
+- Supplies: search, filters, sort, grouping, a list view, out of stock highlights, and log purchase and adjustment from the card (#191)
+- Supplies: category suggestions in the supply form (#191)
 
 ### Changed
 - Vehicle cards and the vehicle hero flag reminders due within 30 days, by date or by projected mileage and hours, instead of every pending reminder; the fleet strip's count is the sum of those badges

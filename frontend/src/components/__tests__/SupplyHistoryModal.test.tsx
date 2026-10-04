@@ -104,6 +104,26 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('SupplyHistoryModal initialForm', () => {
+  // The Drawer under FormModalWrapper portals the dialog out of `container`,
+  // so these go through document, like the page tests do.
+  it('initialForm="purchase" shows the purchase form immediately', () => {
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} initialForm="purchase" />)
+    expect(document.getElementById('purchase-date')).not.toBeNull()
+  })
+
+  it('initialForm="adjustment" shows the adjustment form immediately', () => {
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} initialForm="adjustment" />)
+    expect(document.getElementById('adjustment-quantity')).not.toBeNull()
+  })
+
+  it('omitted keeps both forms closed', () => {
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
+    expect(document.getElementById('purchase-date')).toBeNull()
+    expect(document.getElementById('adjustment-quantity')).toBeNull()
+  })
+})
+
 describe('SupplyHistoryModal', () => {
   it('renders the ledger entries from useSupplyHistory with dates and running balances', () => {
     render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
