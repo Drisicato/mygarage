@@ -123,12 +123,37 @@
       ]
     },
     {
+      "path": "public/locales/it/analytics.json",
+      "disposition": "audited",
+      "digest": "e99ce52e49470fd73c8469ac1b9f86e586a54e0c9eb208a78317b87dfc8ac1cc",
+      "reason": "Italian locale (#201, marcomatrella). Reviewed 2026-10-04 against the Italian itself; the row had been submitted with the de row's reason copied verbatim, which describes German history (stale copies removed, keys falling back) that never happened here. A scan of every value for unit words and symbols (km, mi, L, gal, MPG, kPa, PSI, kg, lb, Nm and their Italian names) finds none that the English for the same key does not name. vehicleHelp.tires.body said 'i chilometri percorsi' where en says 'distance'; the maintainers changed it to 'la distanza percorsa'. Volume and cost-per-distance labels interpolate {{unit}} exactly as en does, so the bundle names no unit of its own.",
+      "tests": [
+        "__tests__/volumeTotalLabelLocales.test.ts"
+      ]
+    },
+    {
       "path": "public/locales/ms/analytics.json",
       "disposition": "audited",
       "digest": "1b8513590409506e24de9f11d4dd5ee4ea8def64765ddfb83a51acd542a192e0",
       "reason": "Malay analytics locale reviewed for unit-sensitive copy. Existing {{unit}} and {{currency}} placeholders are preserved and unit-bearing labels remain parameterized rather than hardcoding a display-unit choice. No new unit conversion or unit-selection behaviour is introduced.",
       "tests": [
         "__tests__/volumeTotalLabelLocales.test.ts"
+      ]
+    },
+    {
+      "path": "public/locales/it/common.json",
+      "disposition": "no unit behaviour",
+      "digest": "0cf467074e482cdb6c8fe0f1f77c6e05cf92a54adb055349beb65ffd4e9ec81f",
+      "reason": "Italian locale (#201, marcomatrella). Reviewed 2026-10-04 against the Italian itself; the row had been submitted with the de row's reason copied verbatim, which describes German history (stale copies removed, keys falling back) that never happened here. A scan of every value for unit words and symbols (km, mi, L, gal, MPG, kPa, PSI, kg, lb, Nm and their Italian names) finds none that the English for the same key does not name. Shared UI, auth, validation and error copy only."
+    },
+    {
+      "path": "public/locales/it/forms.json",
+      "disposition": "audited",
+      "digest": "a01e13c5bd46805038f8c854ed560a86fde4db1335769cf5a138ec58157f5ca1",
+      "reason": "Italian locale (#201, marcomatrella). Reviewed 2026-10-04 against the Italian itself; the row had been submitted with the de row's reason copied verbatim, which describes German history (stale copies removed, keys falling back) that never happened here. A scan of every value for unit words and symbols (km, mi, L, gal, MPG, kPa, PSI, kg, lb, Nm and their Italian names) finds none that the English for the same key does not name, except fuel.receiptTextPlaceholder, a plausible Italian EXAMPLE receipt (45 L, EUR per litre; ruling R5's exempt class, no canonical value behind it). reminder.distanceUntilDue / distanceRequired name no unit; ReminderForm.distanceCopy.test.tsx resolves this bundle and unitCopy.resolvedProse.test.tsx reads its FIXED keys.",
+      "tests": [
+        "components/__tests__/ReminderForm.distanceCopy.test.tsx",
+        "__tests__/unitCopy.resolvedProse.test.tsx"
       ]
     },
     {
@@ -148,6 +173,23 @@
       ]
     },
     {
+      "path": "public/locales/it/nav.json",
+      "disposition": "no unit behaviour",
+      "digest": "de44b170c8b91473bab8752f8c37f008ace3cb443f511b387444709e164b2ae5",
+      "reason": "Italian locale (#201, marcomatrella). Reviewed 2026-10-04 against the Italian itself; the row had been submitted with the de row's reason copied verbatim, which describes German history (stale copies removed, keys falling back) that never happened here. A scan of every value for unit words and symbols (km, mi, L, gal, MPG, kPa, PSI, kg, lb, Nm and their Italian names) finds none that the English for the same key does not name. Navigation labels only."
+    },
+    {
+      "path": "public/locales/it/settings.json",
+      "disposition": "audited",
+      "digest": "eb073aa22062cbe7ce3037d05d5f8b64368b2cbacaa0f27ef9b0e1a3529fb003",
+      "reason": "Italian locale (#201, marcomatrella). Reviewed 2026-10-04 against the Italian itself; the row had been submitted with the de row's reason copied verbatim, which describes German history (stale copies removed, keys falling back) that never happened here. A scan of every value for unit words and symbols (km, mi, L, gal, MPG, kPa, PSI, kg, lb, Nm and their Italian names) finds none that the English for the same key does not name. The units.* option labels name units the way an option in a unit PICKER does: every parenthesised unit SYMBOL is copied verbatim from en (D10, checked over all of them); only the decimal mark in the two gallon volumes moves (3,785 L / 4,546 L), as in the other comma-decimal bundles. unitDescriptionLocales, UnitPreferencesCard.resolved and unitCopy.resolvedProse read this bundle.",
+      "tests": [
+        "__tests__/unitDescriptionLocales.test.ts",
+        "components/settings/__tests__/UnitPreferencesCard.resolved.test.tsx",
+        "__tests__/unitCopy.resolvedProse.test.tsx"
+      ]
+    },
+    {
       "path": "public/locales/ms/nav.json",
       "disposition": "no unit behaviour",
       "digest": "65696051e457b4780aa35144fb27a71bb8e163d875b204dfbfe92cc7bafd4fb8",
@@ -162,6 +204,15 @@
         "__tests__/unitDescriptionLocales.test.ts",
         "components/settings/__tests__/UnitPreferencesCard.resolved.test.tsx",
         "__tests__/unitCopy.resolvedProse.test.tsx"
+      ]
+    },
+    {
+      "path": "public/locales/it/vehicles.json",
+      "disposition": "audited",
+      "digest": "dd1f38db39bd1f335aada478fd4843bdb06a520379b2be39b6c3f09ceecbfbc5",
+      "reason": "Italian locale (#201, marcomatrella). Reviewed 2026-10-04 against the Italian itself; the row had been submitted with the de row's reason copied verbatim, which describes German history (stale copies removed, keys falling back) that never happened here. A scan of every value for unit words and symbols (km, mi, L, gal, MPG, kPa, PSI, kg, lb, Nm and their Italian names) finds none that the English for the same key does not name, except windowSticker.misc.warrantyBasicPlaceholder / warrantyPowertrainPlaceholder, which are localized EXAMPLES in km (no canonical value behind them). List headers interpolate the volume unit as en does; volumeTotalLabelLocales.test.ts reads this bundle.",
+      "tests": [
+        "__tests__/volumeTotalLabelLocales.test.ts"
       ]
     },
     {
@@ -2160,8 +2211,8 @@
     {
       "path": "src/constants/i18n.ts",
       "disposition": "no unit behaviour",
-      "digest": "1fa8e13523f6bb040a0eabf0d2c07f4b6813e62eceef836c8462c49cb094d4a9",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-10-01 (plan-ab-leftovers E5): adds supportedCurrencyCode, which returns a code only when it is in SUPPORTED_CURRENCIES. No quantity, unit or conversion code."
+      "digest": "b1a51bd31efd3478984db8507d5bbf156abc3bc16fd44bad9834ec918f6d3297",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-10-01 (plan-ab-leftovers E5): adds supportedCurrencyCode, which returns a code only when it is in SUPPORTED_CURRENCIES. No quantity, unit or conversion code. 2026-10-04 (merging main into #201): lists it next to ms in the supported languages. Language codes only, still no unit behaviour."
     },
     {
       "path": "src/constants/insuranceCoverages.ts",
@@ -2493,8 +2544,8 @@
     {
       "path": "src/i18n.ts",
       "disposition": "no unit behaviour",
-      "digest": "ffb279423169a4664abec8cb037448f9ae850342b40b2bcaaad885b58d21fc88",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity."
+      "digest": "b6d86b136a5586c70ab01c9e9e30ab8319f676cac84fe3e4818a697b0b1efa44",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched 1 of them; every hit was read in context and none is a unit decision or a unit-bearing quantity. 2026-10-04 (merging main into #201): lists it next to ms in the supported languages. Language codes only, still no unit behaviour."
     },
     {
       "path": "src/index.css",
@@ -3182,8 +3233,8 @@
     {
       "path": "src/utils/dateUtils.ts",
       "disposition": "no unit behaviour",
-      "digest": "65c58416a3ff2cf31dbb4eb6f7f75102f6c1d63aca02cd8e6df63d31c53b0ec9",
-      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-09-18: re-reviewed for the snooze frontend: addDaysToIsoDate and addMonthsToIsoDate do calendar arithmetic on ISO date strings; dates, not unit-bearing quantities, and no conversion or label touched. 2026-10-04 (date-fns locales): adds fr and ms to the date-fns locale table. Locale objects only; no unit word, quantity or conversion."
+      "digest": "82705e35a05e0833b174b7a5d4c04be8381e48c802d1898dc3034e66c47fc381",
+      "reason": "no unit behaviour: dispositioned under the CORRECTED scan: every unit stem, token, quantity name and canonical field suffix this codebase uses, matched case-insensitively with NO word boundary. The earlier word-boundary version was a floor (it called AnalyticsHelpModal.tsx clean while it renders \"Average MPG:\" to every user) and it was superseded before any disposition in this file was written. This file matched NONE of them. 2026-09-18: re-reviewed for the household-timezone change: date defaults, the zone store and copy only; no unit-bearing value, conversion or label touched. 2026-09-18: re-reviewed for the snooze frontend: addDaysToIsoDate and addMonthsToIsoDate do calendar arithmetic on ISO date strings; dates, not unit-bearing quantities, and no conversion or label touched. 2026-10-04 (date-fns locales): adds fr and ms to the date-fns locale table. Locale objects only; no unit word, quantity or conversion. 2026-10-04 (Italian, #201): adds it to the same table; a locale object only, no unit word, quantity or conversion."
     },
     {
       "path": "src/utils/decimalInput.ts",

@@ -3,7 +3,7 @@ import { todayInHousehold } from '@/constants/i18n'
  * Date utility functions to handle date formatting without timezone issues
  */
 
-import { enUS, de, fr, ms, pl, ru, uk, ptBR } from 'date-fns/locale'
+import { enUS, de, fr, it, ms, pl, ru, uk, ptBR } from 'date-fns/locale'
 import type { Locale } from 'date-fns'
 import { getActiveLocale } from '@/constants/i18n'
 
@@ -23,6 +23,7 @@ const DATE_FNS_LOCALES: Record<string, Locale> = {
   'ru-RU': ru,
   'uk-UA': uk,
   'pt-BR': ptBR,
+  'it-IT': it,
 }
 
 export function getDateFnsLocale(): Locale {
