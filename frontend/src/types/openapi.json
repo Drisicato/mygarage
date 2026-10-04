@@ -13954,6 +13954,700 @@
         "title": "PlaceResult",
         "type": "object"
       },
+      "PlannedRepairCreate": {
+        "description": "Schema for creating a planned repair. New repairs start in planning.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Details",
+            "title": "Description"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Estimated total cost",
+            "title": "Estimated Cost"
+          },
+          "parts": {
+            "description": "Parts and jobs; each becomes a line item",
+            "items": {
+              "$ref": "#/components/schemas/PlannedRepairPartInput"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "priority": {
+            "default": "medium",
+            "description": "How urgent the repair is",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "service_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Maintenance",
+                  "Inspection",
+                  "Collision",
+                  "Upgrades",
+                  "Detailing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Category the service visit gets when completed",
+            "title": "Service Category"
+          },
+          "target_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the repair is planned for",
+            "title": "Target Date"
+          },
+          "target_odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Odometer reading the repair is planned for",
+            "title": "Target Odometer Km"
+          },
+          "title": {
+            "description": "What the repair is",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop doing the repair",
+            "title": "Vendor Id"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "PlannedRepairCreate",
+        "type": "object"
+      },
+      "PlannedRepairListResponse": {
+        "description": "Schema for planned repair list response.",
+        "properties": {
+          "repairs": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedRepairResponse"
+            },
+            "title": "Repairs",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "repairs",
+          "total"
+        ],
+        "title": "PlannedRepairListResponse",
+        "type": "object"
+      },
+      "PlannedRepairMove": {
+        "description": "Move a repair to a stage, at a position within that stage.",
+        "properties": {
+          "position": {
+            "default": 0,
+            "description": "Zero-based index within the stage",
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Target stage",
+            "enum": [
+              "planning",
+              "in_progress",
+              "done"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "PlannedRepairMove",
+        "type": "object"
+      },
+      "PlannedRepairPartInput": {
+        "description": "A part or job on a planned repair, optionally taken from supplies on hand.",
+        "properties": {
+          "cost": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Estimated cost of this part or job",
+            "title": "Cost"
+          },
+          "description": {
+            "description": "Part or job",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "supply_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supply to consume when the repair is completed",
+            "title": "Supply Id"
+          },
+          "supply_quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 999999999.999,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much of the supply, in canonical units (L or count)",
+            "title": "Supply Quantity"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "title": "PlannedRepairPartInput",
+        "type": "object"
+      },
+      "PlannedRepairPartResponse": {
+        "description": "A stored part or job on a planned repair.",
+        "properties": {
+          "cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Estimated cost of this part or job",
+            "title": "Cost"
+          },
+          "description": {
+            "description": "Part or job",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "supply_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Supply to consume when the repair is completed",
+            "title": "Supply Id"
+          },
+          "supply_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The supply's name",
+            "title": "Supply Name"
+          },
+          "supply_quantity": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much of the supply, in canonical units (L or count)",
+            "title": "Supply Quantity"
+          },
+          "unit_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "volume",
+                  "count"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The supply's unit type, for converting the quantity to display units",
+            "title": "Unit Type"
+          },
+          "volume_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mL",
+                  "L",
+                  "fl_oz_us",
+                  "fl_oz_uk",
+                  "qt_us",
+                  "qt_uk",
+                  "gal_us",
+                  "gal_uk"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-supply display unit; null means the legacy binary pick",
+            "title": "Volume Unit"
+          }
+        },
+        "required": [
+          "id",
+          "description"
+        ],
+        "title": "PlannedRepairPartResponse",
+        "type": "object"
+      },
+      "PlannedRepairResponse": {
+        "description": "Schema for planned repair response.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Details",
+            "title": "Description"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Estimated total cost",
+            "title": "Estimated Cost"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedRepairPartResponse"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "How urgent the repair is",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "service_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Maintenance",
+                  "Inspection",
+                  "Collision",
+                  "Upgrades",
+                  "Detailing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Category the service visit gets when completed",
+            "title": "Service Category"
+          },
+          "service_visit_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The service visit logged when this repair was completed",
+            "title": "Service Visit Id"
+          },
+          "status": {
+            "description": "Current stage",
+            "enum": [
+              "planning",
+              "in_progress",
+              "done"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the repair is planned for",
+            "title": "Target Date"
+          },
+          "target_odometer_km": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Odometer reading the repair is planned for",
+            "title": "Target Odometer Km"
+          },
+          "title": {
+            "description": "What the repair is",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop details, if set"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop doing the repair",
+            "title": "Vendor Id"
+          },
+          "vin": {
+            "title": "Vin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "vin",
+          "title",
+          "status",
+          "priority",
+          "position",
+          "created_at"
+        ],
+        "title": "PlannedRepairResponse",
+        "type": "object"
+      },
+      "PlannedRepairUpdate": {
+        "description": "Schema for updating a planned repair. Stage changes go through /move.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Details",
+            "title": "Description"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Estimated total cost",
+            "title": "Estimated Cost"
+          },
+          "parts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PlannedRepairPartInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces every part when given",
+            "title": "Parts"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "urgent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How urgent the repair is",
+            "title": "Priority"
+          },
+          "service_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Maintenance",
+                  "Inspection",
+                  "Collision",
+                  "Upgrades",
+                  "Detailing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Category the service visit gets when completed",
+            "title": "Service Category"
+          },
+          "target_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the repair is planned for",
+            "title": "Target Date"
+          },
+          "target_odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Odometer reading the repair is planned for",
+            "title": "Target Odometer Km"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the repair is",
+            "title": "Title"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop doing the repair",
+            "title": "Vendor Id"
+          }
+        },
+        "title": "PlannedRepairUpdate",
+        "type": "object"
+      },
       "PolicyHistoryEntry": {
         "description": "One term in a policy's chain, for review.",
         "properties": {
@@ -46490,6 +47184,414 @@
         "summary": "Update Vehicle Photo Metadata",
         "tags": [
           "Photos"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/planned-repairs": {
+      "get": {
+        "description": "List a vehicle's planned repairs, by stage then position.",
+        "operationId": "list_planned_repairs_api_vehicles__vin__planned_repairs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRepairListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Planned Repairs",
+        "tags": [
+          "Planned Repairs"
+        ]
+      },
+      "post": {
+        "description": "Create a planned repair in the planning stage.",
+        "operationId": "create_planned_repair_api_vehicles__vin__planned_repairs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannedRepairCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRepairResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Planned Repair",
+        "tags": [
+          "Planned Repairs"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}": {
+      "delete": {
+        "description": "Delete a planned repair. A service visit it logged stays in history.",
+        "operationId": "delete_planned_repair_api_vehicles__vin__planned_repairs__repair_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Planned Repair",
+        "tags": [
+          "Planned Repairs"
+        ]
+      },
+      "get": {
+        "description": "Get a planned repair.",
+        "operationId": "get_planned_repair_api_vehicles__vin__planned_repairs__repair_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRepairResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Planned Repair",
+        "tags": [
+          "Planned Repairs"
+        ]
+      },
+      "put": {
+        "description": "Update a planned repair's details. Stage changes go through /move.",
+        "operationId": "update_planned_repair_api_vehicles__vin__planned_repairs__repair_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannedRepairUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRepairResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Planned Repair",
+        "tags": [
+          "Planned Repairs"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/complete": {
+      "post": {
+        "description": "Mark a repair done and log the service visit for it.\n\nA repair that already logged a visit keeps it and the body is ignored, so\nservice history never gets a duplicate.",
+        "operationId": "complete_planned_repair_api_vehicles__vin__planned_repairs__repair_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceVisitCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRepairResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Complete Planned Repair",
+        "tags": [
+          "Planned Repairs"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/move": {
+      "post": {
+        "description": "Move a repair to a stage and position.\n\nMoving into done answers 409 unless the repair already logged a service\nvisit; use /complete to log one.",
+        "operationId": "move_planned_repair_api_vehicles__vin__planned_repairs__repair_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannedRepairMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRepairResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Planned Repair",
+        "tags": [
+          "Planned Repairs"
         ]
       }
     },

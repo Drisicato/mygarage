@@ -488,6 +488,20 @@ CHECK_BACKED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
         "financing_records",
         "check_financing_records_category",
     ),
+    # The part's own row has no unit type: it reads the joined supply's.
+    ("PlannedRepairPartResponse", "unit_type"): ("supplies", "check_supply_unit_type"),
+    ("PlannedRepairResponse", "priority"): (
+        "planned_repairs",
+        "check_planned_repairs_priority",
+    ),
+    ("PlannedRepairResponse", "service_category"): (
+        "planned_repairs",
+        "check_planned_repairs_category",
+    ),
+    ("PlannedRepairResponse", "status"): (
+        "planned_repairs",
+        "check_planned_repairs_status",
+    ),
     ("ServiceLineItemResponse", "inspection_result"): (
         "service_line_items",
         "check_inspection_result",

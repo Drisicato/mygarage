@@ -38,6 +38,7 @@ NOT_MONEY_COLUMNS = frozenset(
         "address_book.rating",  # a star rating
         "def_records.fill_level",  # a tank fraction, 0 to 1
         "location_points.speed",  # a GPS fix's speed
+        "planned_repair_parts.supply_quantity",  # a planned supply amount, Numeric(12,3)
         "supply_purchases.quantity",  # a supply amount, Numeric(12,3)
         "supply_usages.quantity",  # same
         "vehicles.window_sticker_confidence_score",  # the OCR parser's score

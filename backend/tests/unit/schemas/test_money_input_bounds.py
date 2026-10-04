@@ -47,6 +47,11 @@ from app.schemas.insurance import (
     PolicyVehicleUpsert,
 )
 from app.schemas.maintenance import ReminderCompleteRequest
+from app.schemas.planned_repair import (
+    PlannedRepairCreate,
+    PlannedRepairPartInput,
+    PlannedRepairUpdate,
+)
 from app.schemas.service_visit import (
     ServiceLineItemCreate,
     ServiceLineItemUpdate,
@@ -165,6 +170,9 @@ CASES = [
         ("amount",),
     ),
     Case(FinancingRecordUpdate, {}, ("amount",)),
+    Case(PlannedRepairCreate, {"title": "Brakes"}, ("estimated_cost",)),
+    Case(PlannedRepairUpdate, {}, ("estimated_cost",)),
+    Case(PlannedRepairPartInput, {"description": "Pads"}, ("cost",)),
     Case(SpotRentalCreate, {"check_in_date": DAY}, _RENTAL),
     Case(SpotRentalUpdate, {}, _RENTAL),
     Case(SpotRentalBillingCreate, {"billing_date": DAY}, _BILLING),

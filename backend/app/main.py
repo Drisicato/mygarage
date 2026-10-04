@@ -372,6 +372,7 @@ from app.routes import (
     notifications_router,
     odometer_router,
     photos_router,
+    planned_repairs_router,
     recalls_router,
     reminder_packs_router,
     reminders_router,
@@ -451,6 +452,7 @@ app.include_router(poi_router)  # New POI router
 app.include_router(shop_discovery_router)  # Backward compatibility (deprecated)
 app.include_router(vendors_router)
 app.include_router(service_visits_router)
+app.include_router(planned_repairs_router)
 app.include_router(reminders_router)
 app.include_router(reminder_packs_router)
 app.include_router(maintenance_types_router)

@@ -5967,6 +5967,104 @@ export interface paths {
         patch: operations["update_vehicle_photo_metadata_api_vehicles__vin__photos__photo_id__patch"];
         trace?: never;
     };
+    "/api/vehicles/{vin}/planned-repairs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Planned Repairs
+         * @description List a vehicle's planned repairs, by stage then position.
+         */
+        get: operations["list_planned_repairs_api_vehicles__vin__planned_repairs_get"];
+        put?: never;
+        /**
+         * Create Planned Repair
+         * @description Create a planned repair in the planning stage.
+         */
+        post: operations["create_planned_repair_api_vehicles__vin__planned_repairs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Planned Repair
+         * @description Get a planned repair.
+         */
+        get: operations["get_planned_repair_api_vehicles__vin__planned_repairs__repair_id__get"];
+        /**
+         * Update Planned Repair
+         * @description Update a planned repair's details. Stage changes go through /move.
+         */
+        put: operations["update_planned_repair_api_vehicles__vin__planned_repairs__repair_id__put"];
+        post?: never;
+        /**
+         * Delete Planned Repair
+         * @description Delete a planned repair. A service visit it logged stays in history.
+         */
+        delete: operations["delete_planned_repair_api_vehicles__vin__planned_repairs__repair_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Planned Repair
+         * @description Mark a repair done and log the service visit for it.
+         *
+         *     A repair that already logged a visit keeps it and the body is ignored, so
+         *     service history never gets a duplicate.
+         */
+        post: operations["complete_planned_repair_api_vehicles__vin__planned_repairs__repair_id__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Planned Repair
+         * @description Move a repair to a stage and position.
+         *
+         *     Moving into done answers 409 unless the repair already logged a service
+         *     visit; use /complete to log one.
+         */
+        post: operations["move_planned_repair_api_vehicles__vin__planned_repairs__repair_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vehicles/{vin}/recalls": {
         parameters: {
             query?: never;
@@ -13605,6 +13703,284 @@ export interface components {
             website?: string | null;
             /** Zip Code */
             zip_code?: string | null;
+        };
+        /**
+         * PlannedRepairCreate
+         * @description Schema for creating a planned repair. New repairs start in planning.
+         */
+        PlannedRepairCreate: {
+            /**
+             * Description
+             * @description Details
+             */
+            description?: string | null;
+            /**
+             * Estimated Cost
+             * @description Estimated total cost
+             */
+            estimated_cost?: number | string | null;
+            /**
+             * Parts
+             * @description Parts and jobs; each becomes a line item
+             */
+            parts?: components["schemas"]["PlannedRepairPartInput"][];
+            /**
+             * Priority
+             * @description How urgent the repair is
+             * @default medium
+             * @enum {string}
+             */
+            priority: "low" | "medium" | "high" | "urgent";
+            /**
+             * Service Category
+             * @description Category the service visit gets when completed
+             */
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            /**
+             * Target Date
+             * @description When the repair is planned for
+             */
+            target_date?: string | null;
+            /**
+             * Target Odometer Km
+             * @description Odometer reading the repair is planned for
+             */
+            target_odometer_km?: number | string | null;
+            /**
+             * Title
+             * @description What the repair is
+             */
+            title: string;
+            /**
+             * Vendor Id
+             * @description Shop doing the repair
+             */
+            vendor_id?: number | null;
+        };
+        /**
+         * PlannedRepairListResponse
+         * @description Schema for planned repair list response.
+         */
+        PlannedRepairListResponse: {
+            /** Repairs */
+            repairs: components["schemas"]["PlannedRepairResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * PlannedRepairMove
+         * @description Move a repair to a stage, at a position within that stage.
+         */
+        PlannedRepairMove: {
+            /**
+             * Position
+             * @description Zero-based index within the stage
+             * @default 0
+             */
+            position: number;
+            /**
+             * Status
+             * @description Target stage
+             * @enum {string}
+             */
+            status: "planning" | "in_progress" | "done";
+        };
+        /**
+         * PlannedRepairPartInput
+         * @description A part or job on a planned repair, optionally taken from supplies on hand.
+         */
+        PlannedRepairPartInput: {
+            /**
+             * Cost
+             * @description Estimated cost of this part or job
+             */
+            cost?: number | string | null;
+            /**
+             * Description
+             * @description Part or job
+             */
+            description: string;
+            /**
+             * Supply Id
+             * @description Supply to consume when the repair is completed
+             */
+            supply_id?: number | null;
+            /**
+             * Supply Quantity
+             * @description How much of the supply, in canonical units (L or count)
+             */
+            supply_quantity?: number | string | null;
+        };
+        /**
+         * PlannedRepairPartResponse
+         * @description A stored part or job on a planned repair.
+         */
+        PlannedRepairPartResponse: {
+            /**
+             * Cost
+             * @description Estimated cost of this part or job
+             */
+            cost?: string | null;
+            /**
+             * Description
+             * @description Part or job
+             */
+            description: string;
+            /** Id */
+            id: number;
+            /**
+             * Supply Id
+             * @description Supply to consume when the repair is completed
+             */
+            supply_id?: number | null;
+            /**
+             * Supply Name
+             * @description The supply's name
+             */
+            supply_name?: string | null;
+            /**
+             * Supply Quantity
+             * @description How much of the supply, in canonical units (L or count)
+             */
+            supply_quantity?: string | null;
+            /**
+             * Unit Type
+             * @description The supply's unit type, for converting the quantity to display units
+             */
+            unit_type?: ("volume" | "count") | null;
+            /**
+             * Volume Unit
+             * @description Per-supply display unit; null means the legacy binary pick
+             */
+            volume_unit?: ("mL" | "L" | "fl_oz_us" | "fl_oz_uk" | "qt_us" | "qt_uk" | "gal_us" | "gal_uk") | null;
+        };
+        /**
+         * PlannedRepairResponse
+         * @description Schema for planned repair response.
+         */
+        PlannedRepairResponse: {
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Description
+             * @description Details
+             */
+            description?: string | null;
+            /**
+             * Estimated Cost
+             * @description Estimated total cost
+             */
+            estimated_cost?: string | null;
+            /** Id */
+            id: number;
+            /** Parts */
+            parts?: components["schemas"]["PlannedRepairPartResponse"][];
+            /** Position */
+            position: number;
+            /**
+             * Priority
+             * @description How urgent the repair is
+             * @enum {string}
+             */
+            priority: "low" | "medium" | "high" | "urgent";
+            /**
+             * Service Category
+             * @description Category the service visit gets when completed
+             */
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            /**
+             * Service Visit Id
+             * @description The service visit logged when this repair was completed
+             */
+            service_visit_id?: number | null;
+            /**
+             * Status
+             * @description Current stage
+             * @enum {string}
+             */
+            status: "planning" | "in_progress" | "done";
+            /**
+             * Target Date
+             * @description When the repair is planned for
+             */
+            target_date?: string | null;
+            /**
+             * Target Odometer Km
+             * @description Odometer reading the repair is planned for
+             */
+            target_odometer_km?: string | null;
+            /**
+             * Title
+             * @description What the repair is
+             */
+            title: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** @description Shop details, if set */
+            vendor?: components["schemas"]["VendorSummary"] | null;
+            /**
+             * Vendor Id
+             * @description Shop doing the repair
+             */
+            vendor_id?: number | null;
+            /** Vin */
+            vin: string;
+        };
+        /**
+         * PlannedRepairUpdate
+         * @description Schema for updating a planned repair. Stage changes go through /move.
+         */
+        PlannedRepairUpdate: {
+            /**
+             * Description
+             * @description Details
+             */
+            description?: string | null;
+            /**
+             * Estimated Cost
+             * @description Estimated total cost
+             */
+            estimated_cost?: number | string | null;
+            /**
+             * Parts
+             * @description Replaces every part when given
+             */
+            parts?: components["schemas"]["PlannedRepairPartInput"][] | null;
+            /**
+             * Priority
+             * @description How urgent the repair is
+             */
+            priority?: ("low" | "medium" | "high" | "urgent") | null;
+            /**
+             * Service Category
+             * @description Category the service visit gets when completed
+             */
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            /**
+             * Target Date
+             * @description When the repair is planned for
+             */
+            target_date?: string | null;
+            /**
+             * Target Odometer Km
+             * @description Odometer reading the repair is planned for
+             */
+            target_odometer_km?: number | string | null;
+            /**
+             * Title
+             * @description What the repair is
+             */
+            title?: string | null;
+            /**
+             * Vendor Id
+             * @description Shop doing the repair
+             */
+            vendor_id?: number | null;
         };
         /**
          * PolicyHistoryEntry
@@ -29337,6 +29713,242 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_planned_repairs_api_vehicles__vin__planned_repairs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_planned_repair_api_vehicles__vin__planned_repairs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlannedRepairCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_planned_repair_api_vehicles__vin__planned_repairs__repair_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_planned_repair_api_vehicles__vin__planned_repairs__repair_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlannedRepairUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_planned_repair_api_vehicles__vin__planned_repairs__repair_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_planned_repair_api_vehicles__vin__planned_repairs__repair_id__complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceVisitCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_planned_repair_api_vehicles__vin__planned_repairs__repair_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlannedRepairMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairResponse"];
                 };
             };
             /** @description Validation Error */

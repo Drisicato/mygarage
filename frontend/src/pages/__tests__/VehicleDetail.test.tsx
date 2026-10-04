@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock all tab components to avoid deep dependency trees
 vi.mock('../../components/tabs/ServiceTab', () => ({ default: () => <div>ServiceTab</div> }))
+vi.mock('../../components/tabs/PlannedRepairsTab', () => ({ default: () => <div>PlannedRepairsTab</div> }))
 vi.mock('../../components/tabs/FuelTab', () => ({ default: () => <div>FuelTab</div> }))
 vi.mock('../../components/tabs/OdometerTab', () => ({ default: () => <div>OdometerTab</div> }))
 vi.mock('../../components/tabs/HoursTab', () => ({ default: () => <div>HoursTab</div> }))

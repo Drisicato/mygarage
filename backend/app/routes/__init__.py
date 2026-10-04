@@ -23,6 +23,7 @@ from app.routes.notes import router as notes_router
 from app.routes.notifications import router as notifications_router
 from app.routes.odometer import router as odometer_router
 from app.routes.photos import router as photos_router
+from app.routes.planned_repairs import router as planned_repairs_router
 from app.routes.recall import recalls_router
 from app.routes.reminders import packs_router as reminder_packs_router
 from app.routes.reminders import router as reminders_router
@@ -85,6 +86,7 @@ __all__ = [
     "maintenance_types_router",
     "reminder_packs_router",
     "service_visits_router",
+    "planned_repairs_router",
     "supplies_router",
     "vehicle_supplies_router",
 ]

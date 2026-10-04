@@ -30,6 +30,7 @@ import {
   Droplets,
   Package,
   CircleDot,
+  ClipboardList,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import vehicleService from '../services/vehicleService'
@@ -39,6 +40,7 @@ import { withBase } from '../utils/basePath'
 import type { Vehicle } from '../types/vehicle'
 import type { LastLocation } from '../types/trips'
 import ServiceTab from '../components/tabs/ServiceTab'
+import PlannedRepairsTab from '../components/tabs/PlannedRepairsTab'
 import FuelTab from '../components/tabs/FuelTab'
 import OdometerTab from '../components/tabs/OdometerTab'
 import HoursTab from '../components/tabs/HoursTab'
@@ -97,7 +99,7 @@ type ImportSectionResult = {
 
 export type ModalType = 'remove' | 'transfer' | 'sharing' | 'windowSticker' | 'torqueSource' | null
 export type PrimaryTabType = 'overview' | 'media' | 'maintenance' | 'fuel' | 'tracking' | 'financial' | 'livelink'
-export type SubTabType = 'photos' | 'documents' | 'service' | 'fuel' | 'def' | 'propane' | 'odometer' | 'hours' | 'notes' | 'warranties' | 'insurance' | 'tax' | 'tolls' | 'financing' | 'spotrentals' | 'suppliesused' | 'recalls' | 'reports' | 'reminders' | 'live' | 'dtcs' | 'sessions' | 'charts' | 'trips' | 'tires'
+export type SubTabType = 'photos' | 'documents' | 'service' | 'repairs' | 'fuel' | 'def' | 'propane' | 'odometer' | 'hours' | 'notes' | 'warranties' | 'insurance' | 'tax' | 'tolls' | 'financing' | 'spotrentals' | 'suppliesused' | 'recalls' | 'reports' | 'reminders' | 'live' | 'dtcs' | 'sessions' | 'charts' | 'trips' | 'tires'
 
 export default function VehicleDetail() {
   const { t } = useTranslation('vehicles')
@@ -264,6 +266,7 @@ export default function VehicleDetail() {
       'def': { primary: 'fuel', sub: 'def' },
       'warranties': { primary: 'financial', sub: 'warranties' },
       'service': { primary: 'maintenance', sub: 'service' },
+      'repairs': { primary: 'maintenance', sub: 'repairs' },
       'notes': { primary: 'tracking', sub: 'notes' },
       'fuel': { primary: 'fuel', sub: 'fuel' },
       'odometer': { primary: 'maintenance', sub: 'odometer' },
@@ -571,6 +574,7 @@ export default function VehicleDetail() {
     ],
     maintenance: [
       { id: 'service' as const, label: t('vehicleStats.service'), icon: Wrench },
+      { id: 'repairs' as const, label: t('plannedRepairs.title'), icon: ClipboardList },
       { id: 'odometer' as const, label: t('detail.misc.odometer'), icon: Gauge, visible: logKinds.odometer },
       { id: 'hours' as const, label: t('common:engineHours'), icon: Clock, visible: logKinds.hours },
       { id: 'tires' as const, label: t('detail.misc.tires'), icon: CircleDot, visible: isMotorized },
@@ -721,6 +725,7 @@ export default function VehicleDetail() {
 
         {/* Maintenance & Fuel Sub-tabs */}
         {activePrimaryTab === 'maintenance' && activeSubTab === 'service' && vin && <ServiceTab vin={vin} />}
+        {activePrimaryTab === 'maintenance' && activeSubTab === 'repairs' && vin && <PlannedRepairsTab vin={vin} />}
         {activePrimaryTab === 'fuel' && activeSubTab === 'fuel' && vin && <FuelTab vin={vin} />}
         {activePrimaryTab === 'fuel' && activeSubTab === 'def' && vin && <DEFTab vin={vin} isDiesel={isDiesel} />}
         {activePrimaryTab === 'fuel' && activeSubTab === 'propane' && vin && <PropaneTab vin={vin} />}

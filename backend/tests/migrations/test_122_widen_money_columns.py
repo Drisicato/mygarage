@@ -156,10 +156,13 @@ def test_the_list_is_every_registered_column_that_was_narrower():
         for column, target in columns.items()
     }
     assert listed == {qualified: MONEY_COLUMNS[qualified] for qualified in PRE_122_TYPES}
-    # The rest of the registry was already at its type before 122.
+    # The rest of the registry was already at its type before 122, or came
+    # after it (125's planned repairs) at the policy type from the start.
     assert sorted(MONEY_COLUMNS.keys() - listed.keys()) == [
         "insurance_coverages.limit_primary",
         "insurance_coverages.limit_secondary",
+        "planned_repair_parts.cost",
+        "planned_repairs.estimated_cost",
     ]
     # Every old type is a narrower one at the same scale, so widening never rounds.
     assert {

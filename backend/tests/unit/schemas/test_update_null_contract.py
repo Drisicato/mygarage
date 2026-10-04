@@ -35,6 +35,7 @@ from app.models.maintenance_rule import MaintenanceRule
 from app.models.note import Note
 from app.models.odometer import OdometerRecord
 from app.models.photo import VehiclePhoto
+from app.models.planned_repair import PlannedRepair
 from app.models.recall import Recall
 from app.models.reminder import Reminder
 from app.models.reminder_pack import ReminderPack
@@ -76,6 +77,7 @@ from app.schemas.maintenance import MaintenanceRuleUpdate
 from app.schemas.note import NoteUpdate
 from app.schemas.odometer import OdometerRecordUpdate
 from app.schemas.photo import PhotoUpdate
+from app.schemas.planned_repair import PlannedRepairUpdate
 from app.schemas.recall import RecallUpdate
 from app.schemas.reminder import ReminderUpdate
 from app.schemas.reminder_pack import RenameReminderPackRequest, SaveReminderPackRequest
@@ -154,6 +156,9 @@ REGISTRY: dict[type[BaseModel], Entry] = {
     NoteUpdate: Entry(Note),
     OdometerRecordUpdate: Entry(OdometerRecord),
     PhotoUpdate: Entry(VehiclePhoto),
+    PlannedRepairUpdate: Entry(
+        PlannedRepair, unmapped={"parts": "PlannedRepairPart child rows, replaced whole"}
+    ),
     PolicyVehicleUpdate: Entry(
         InsurancePolicyVehicle,
         unmapped={"coverages": "InsuranceCoverage child rows", "fields": "policy field rows"},
@@ -247,6 +252,7 @@ EXPECTED_NOT_NULL: dict[str, set[str]] = {
     "NoteUpdate": {"content", "date"},
     "OdometerRecordUpdate": {"date", "odometer_km"},
     "PhotoUpdate": {"is_main"},
+    "PlannedRepairUpdate": {"priority", "title"},
     "PolicyVehicleUpdate": {"policy_type"},
     "RecallUpdate": {"is_resolved"},
     "ReminderUpdate": {"reminder_type", "title"},

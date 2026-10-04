@@ -134,3 +134,5 @@ migrations must swallow their own operational errors.
 | `122_widen_money_columns` | **FATAL** — Widen every money column to its policy type on PostgreSQL. |
 | `123_add_user_oidc_relink_until` | **FATAL** — Add users.oidc_relink_until: when an admin-approved SSO relink closes. |
 | `124_supply_volume_unit` | **FATAL** — Add supplies.volume_unit, the per-supply display unit token (#191). |
+| `125_add_planned_repairs` | Create planned_repairs and planned_repair_parts for the per-vehicle repair board. |
+| `126_add_planned_repair_part_supplies` | Add planned_repair_parts.supply_id and supply_quantity: plan a repair with supplies on hand. |

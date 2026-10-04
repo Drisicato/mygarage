@@ -100,6 +100,8 @@ MONEY_COLUMNS: dict[str, tuple[int, int]] = {
     "insurance_policies.premium_amount": MONEY_TYPE,
     "insurance_policy_vehicles.deductible": MONEY_TYPE,
     "insurance_policy_vehicles.premium_share": MONEY_TYPE,
+    "planned_repair_parts.cost": MONEY_TYPE,
+    "planned_repairs.estimated_cost": MONEY_TYPE,
     "service_line_items.cost": MONEY_TYPE,
     "service_visits.misc_fees": MONEY_TYPE,
     "service_visits.shop_supplies": MONEY_TYPE,
