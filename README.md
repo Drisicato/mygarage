@@ -50,7 +50,7 @@ MyGarage starts without authentication so you can look around. Turn on local acc
 - **Documentation**: [GitHub Wiki](https://github.com/homelabforge/mygarage/wiki)
 - **Website**: [homelabforge.io/builds/mygarage](https://homelabforge.io/builds/mygarage/)
 - **Bug reports**: [GitHub Issues](https://github.com/homelabforge/mygarage/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/homelabforge/mygarage/discussions) or [Discord](https://discord.gg/6XttnVgG)
+- **Discussions**: [GitHub Discussions](https://github.com/homelabforge/mygarage/discussions) or [Discord](https://discord.gg/YG2vV32NBg)
 
 ---
 
