@@ -597,6 +597,18 @@ DEFAULT_SETTINGS = {
         "description": "Show Family & Friends reference vehicles on the garage (shared vehicles always appear)",
         "encrypted": False,
     },
+    "nav_address_book_enabled": {
+        "value": "true",
+        "category": "general",
+        "description": "Show the Address Book tab in the top navigation (the data and pickers stay)",
+        "encrypted": False,
+    },
+    "nav_poi_finder_enabled": {
+        "value": "true",
+        "category": "general",
+        "description": "Show the Find POI tab in the top navigation",
+        "encrypted": False,
+    },
     "auto_archive_inactive_days": {
         "value": "0",
         "category": "general",

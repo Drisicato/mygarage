@@ -1,5 +1,6 @@
 import { BarChart3, BookUser, Calendar, Home, MapPin, Package, Settings, Shield } from 'lucide-react'
 import type { IconType } from '../ui/types'
+import type { NavToggleKey } from '../../utils/navToggles'
 
 export interface NavItem {
   to: string
@@ -10,16 +11,19 @@ export interface NavItem {
   /** Namespace-qualified so validate-i18n-usage resolves it from this
    *  binding-less module (G5). Read back as t(item.labelKey). */
   labelKey: string
+  /** The household switch that can hide this tab (Settings > System > Garage
+   *  sections). Always shown without one. Filtered by `useVisibleNavItems`. */
+  toggleKey?: NavToggleKey
 }
 
 /** Desktop / inline / hamburger nav — DESKTOP keys. Order per digest §A1. */
 export const DESKTOP_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: Home, labelKey: 'nav:dashboard' },
   { to: '/analytics', icon: BarChart3, labelKey: 'nav:analytics' },
-  { to: '/address-book', icon: BookUser, labelKey: 'nav:addressBook' },
+  { to: '/address-book', icon: BookUser, labelKey: 'nav:addressBook', toggleKey: 'nav_address_book_enabled' },
   { to: '/supplies', icon: Package, labelKey: 'nav:supplies' },
   { to: '/insurance', icon: Shield, labelKey: 'nav:insurance' },
-  { to: '/poi-finder', icon: MapPin, labelKey: 'nav:findPOI' },
+  { to: '/poi-finder', icon: MapPin, labelKey: 'nav:findPOI', toggleKey: 'nav_poi_finder_enabled' },
   { to: '/calendar', icon: Calendar, labelKey: 'nav:calendar' },
 ]
 
@@ -28,10 +32,10 @@ export const DESKTOP_NAV_ITEMS: NavItem[] = [
  *  harmonize with the desktop keys (G6). */
 export const MOBILE_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: Home, labelKey: 'nav:home' },
-  { to: '/address-book', icon: BookUser, labelKey: 'nav:contacts' },
+  { to: '/address-book', icon: BookUser, labelKey: 'nav:contacts', toggleKey: 'nav_address_book_enabled' },
   { to: '/supplies', icon: Package, labelKey: 'nav:supplies' },
   { to: '/insurance', icon: Shield, labelKey: 'nav:insurance' },
-  { to: '/poi-finder', icon: MapPin, labelKey: 'nav:poi' },
+  { to: '/poi-finder', icon: MapPin, labelKey: 'nav:poi', toggleKey: 'nav_poi_finder_enabled' },
   { to: '/calendar', icon: Calendar, labelKey: 'nav:calendar' },
   { to: '/analytics', icon: BarChart3, labelKey: 'nav:analytics' },
   { to: '/settings', icon: Settings, labelKey: 'nav:settings' },

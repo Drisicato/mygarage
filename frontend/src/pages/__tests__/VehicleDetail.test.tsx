@@ -565,6 +565,7 @@ describe('VehicleDetail', () => {
       logout: vi.fn(),
       refreshUser: vi.fn(), refreshPublicSettings: vi.fn(),
     householdTimeZone: null,
+      navToggles: { nav_address_book_enabled: true, nav_poi_finder_enabled: true },
       setAuthToken: vi.fn(),
     })
 

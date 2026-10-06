@@ -3,6 +3,7 @@ import api, { setCSRFToken, getCSRFToken, clearCSRFToken, setApiAuthMode } from 
 import type { components } from '../types/api.generated'
 import type { UnitSet } from '../types/units'
 import { readPublicUnitDefaults, type PublicSetting } from '../utils/publicUnitDefaults'
+import { ALL_NAV_SHOWN, readNavToggles, type NavToggles } from '../utils/navToggles'
 import { setHouseholdTimeZone } from '../constants/i18n'
 
 /**
@@ -66,6 +67,8 @@ interface AuthContextType {
    * it.
    */
   householdTimeZone: string | null
+  /** Which switchable top-level nav tabs are shown, from `/settings/public`. */
+  navToggles: NavToggles
   setAuthToken: (token: string) => void
 }
 
@@ -78,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
   const [authMode, setAuthMode] = useState<string>('none')
   const [defaultUnitPrefs, setDefaultUnitPrefs] = useState<UnitSet | null>(null)
   const [publicSettingsLoaded, setPublicSettingsLoaded] = useState(false)
+  const [navToggles, setNavToggles] = useState<NavToggles>(ALL_NAV_SHOWN)
 
   // Logout function - calls backend to clear cookie and CSRF token
   const logout = useCallback(async () => {
@@ -115,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
       // is the mode that needs the instance default most, and returning early
       // first is exactly why four phases shipped with this payload discarded.
       setDefaultUnitPrefs(readPublicUnitDefaults(publicSettings))
+      setNavToggles(readNavToggles(publicSettings))
       {
         const zone = publicSettings.find((s) => s.key === 'effective_timezone')?.value ?? null
         setHouseholdTimeZone(zone)
@@ -165,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
       const settingsResponse = await api.get('/settings/public')
       const publicSettings: PublicSetting[] = settingsResponse.data?.settings ?? []
       setDefaultUnitPrefs(readPublicUnitDefaults(publicSettings))
+      setNavToggles(readNavToggles(publicSettings))
       {
         const zone = publicSettings.find((s) => s.key === 'effective_timezone')?.value ?? null
         setHouseholdTimeZone(zone)
@@ -269,6 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
     refreshUser,
     refreshPublicSettings,
     householdTimeZone,
+    navToggles,
     setAuthToken,
   }
 

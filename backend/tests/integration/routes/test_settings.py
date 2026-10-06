@@ -56,6 +56,8 @@ class TestSettingsRoutes:
                 "app_name",
                 "theme",
                 "family_friends_enabled",
+                "nav_address_book_enabled",
+                "nav_poi_finder_enabled",
                 "imperial_gallon_standard",
                 "llm_receipt_parse_enabled",
                 "llm_garage_assistant_enabled",
@@ -103,6 +105,30 @@ class TestSettingsRoutes:
                 "llm_receipt_parse_enabled",
                 "llm_garage_assistant_enabled",
             ):
+                row = (
+                    await db_session.execute(select(Setting).where(Setting.key == key))
+                ).scalar_one_or_none()
+                if row is not None:
+                    await db_session.delete(row)
+            await db_session.commit()
+
+    async def test_public_settings_serve_the_nav_tab_switches(
+        self, client: AsyncClient, db_session
+    ):
+        """Every client hides the switched-off tabs, so the switches are public:
+        an auth_mode=none client has no user and can't read GET /api/settings."""
+        keys = ("nav_address_book_enabled", "nav_poi_finder_enabled")
+        await _set_setting(db_session, "nav_address_book_enabled", "false")
+        await _set_setting(db_session, "nav_poi_finder_enabled", "true")
+        try:
+            response = await client.get("/api/settings/public")
+
+            assert response.status_code == 200
+            values = {s["key"]: s["value"] for s in response.json()["settings"]}
+            assert values.get("nav_address_book_enabled") == "false"
+            assert values.get("nav_poi_finder_enabled") == "true"
+        finally:
+            for key in keys:
                 row = (
                     await db_session.execute(select(Setting).where(Setting.key == key))
                 ).scalar_one_or_none()

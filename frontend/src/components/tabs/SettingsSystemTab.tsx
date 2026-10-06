@@ -12,6 +12,7 @@ import FamilyManagementModal from '@/components/modals/FamilyManagementModal'
 import ArchivedVehiclesList from '@/components/ArchivedVehiclesList'
 import InstanceUnitDefaultsCard from '@/components/settings/InstanceUnitDefaultsCard'
 import { Select, Toggle } from '../ui'
+import { NAV_TOGGLE_KEYS } from '@/utils/navToggles'
 
 type RawSetting = {
   key: string
@@ -37,6 +38,8 @@ export default function SettingsSystemTab() {
   const [formData, setFormData] = useState({
     timezone: 'UTC',
     family_friends_enabled: 'false',
+    nav_address_book_enabled: 'true',
+    nav_poi_finder_enabled: 'true',
     auth_mode: 'none', // local, none, oidc
     oidc_enabled: 'false',
     oidc_provider_name: '',
@@ -152,6 +155,9 @@ export default function SettingsSystemTab() {
         // the next save and froze the env/container fallback into the setting.
         timezone: settingsMap.timezone || '',
         family_friends_enabled: settingsMap.family_friends_enabled || 'false',
+        // Shown unless explicitly off, like the nav itself (utils/navToggles).
+        nav_address_book_enabled: settingsMap.nav_address_book_enabled === 'false' ? 'false' : 'true',
+        nav_poi_finder_enabled: settingsMap.nav_poi_finder_enabled === 'false' ? 'false' : 'true',
         auth_mode: settingsMap.auth_mode || 'none',
         oidc_enabled: oidcAdmin ? (oidcAdmin.enabled ? 'true' : 'false') : settingsMap.oidc_enabled || 'false',
         oidc_provider_name: oidcAdmin?.provider_name ?? (settingsMap.oidc_provider_name || ''),
@@ -279,9 +285,10 @@ export default function SettingsSystemTab() {
     // What's saved is the new baseline for the next diff.
     setLoadedFormData(formData)
 
-    if ('timezone' in nonOidcSettings) {
-      // The saved zone changes what "today" means for every open form;
-      // update the browser store before leaving the saving state.
+    if ('timezone' in nonOidcSettings || NAV_TOGGLE_KEYS.some((key) => key in nonOidcSettings)) {
+      // The saved zone changes what "today" means for every open form, and a
+      // nav switch which tabs the bar shows; update the stores before leaving
+      // the saving state.
       await refreshPublicSettings()
     }
   }, [formData, loadedFormData, refreshPublicSettings])
@@ -451,6 +458,32 @@ export default function SettingsSystemTab() {
               />
               <p className="mt-1 text-sm text-garage-text-muted">
                 {t('garageSections.familyFriendsDesc')}
+              </p>
+            </div>
+            <div>
+              <Toggle
+                id="nav_address_book_enabled"
+                label={t('garageSections.addressBookTab')}
+                checked={formData.nav_address_book_enabled === 'true'}
+                onChange={(next) =>
+                  setFormData({ ...formData, nav_address_book_enabled: next ? 'true' : 'false' })
+                }
+              />
+              <p className="mt-1 text-sm text-garage-text-muted">
+                {t('garageSections.addressBookTabDesc')}
+              </p>
+            </div>
+            <div>
+              <Toggle
+                id="nav_poi_finder_enabled"
+                label={t('garageSections.poiFinderTab')}
+                checked={formData.nav_poi_finder_enabled === 'true'}
+                onChange={(next) =>
+                  setFormData({ ...formData, nav_poi_finder_enabled: next ? 'true' : 'false' })
+                }
+              />
+              <p className="mt-1 text-sm text-garage-text-muted">
+                {t('garageSections.poiFinderTabDesc')}
               </p>
             </div>
           </div>

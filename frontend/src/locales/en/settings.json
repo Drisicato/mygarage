@@ -21,9 +21,13 @@
   },
   "garageSections": {
     "title": "Garage sections",
-    "description": "Opt in to lightweight family/friend reference vehicles. Off by default. Shared vehicles always appear in their own section.",
+    "description": "Choose which sections and top tabs this garage shows. Applies to everyone on this instance.",
     "familyFriends": "Show Family & Friends",
-    "familyFriendsDesc": "Lightweight family/friend reference vehicles. Shared household vehicles always appear on the garage, even when this is off."
+    "familyFriendsDesc": "Lightweight family/friend reference vehicles. Shared household vehicles always appear on the garage, even when this is off.",
+    "addressBookTab": "Show Address Book tab",
+    "addressBookTabDesc": "The Address Book tab in the top bar. Hiding it keeps your contacts, and shop pickers in forms still use them.",
+    "poiFinderTab": "Show Find POI tab",
+    "poiFinderTabDesc": "The Find POI tab in the top bar. Hiding it only removes the tab; nothing is deleted."
   },
   "units": {
     "label": "Unit System",

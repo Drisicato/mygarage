@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { DESKTOP_NAV_ITEMS } from './navItems'
+import { useVisibleNavItems } from '../../hooks/useVisibleNavItems'
 import NavSearch from './NavSearch'
 import TopNavLink from './TopNavLink'
 
@@ -22,11 +23,12 @@ interface HamburgerPanelProps {
  */
 export default function HamburgerPanel({ onNavigate }: HamburgerPanelProps) {
   const { t } = useTranslation('nav')
+  const navItems = useVisibleNavItems(DESKTOP_NAV_ITEMS)
   return (
     <div className="hidden border-t border-hair bg-(--color-nav) px-[clamp(16px,3vw,30px)] pb-3.5 pt-2 md:max-nav:block">
       <div className="mx-auto flex max-w-[1320px] flex-col gap-0.5">
         <NavSearch placeholder={t('searchPlaceholder')} className="my-1.5 w-full" />
-        {DESKTOP_NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <TopNavLink
             key={item.to}
             to={item.to}

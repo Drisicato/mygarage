@@ -7,6 +7,7 @@ import TopNavLink from './TopNavLink'
 import RightCluster from './RightCluster'
 import HamburgerPanel from './HamburgerPanel'
 import { DESKTOP_NAV_ITEMS } from './navItems'
+import { useVisibleNavItems } from '../../hooks/useVisibleNavItems'
 
 /**
  * The 62px sticky top bar (prototype dc.html:38-39). One nav affordance per
@@ -20,13 +21,14 @@ import { DESKTOP_NAV_ITEMS } from './navItems'
 export default function TopNav() {
   const { t } = useTranslation('nav')
   const [menuOpen, setMenuOpen] = useState(false)
+  const navItems = useVisibleNavItems(DESKTOP_NAV_ITEMS)
 
   return (
     <header className="sticky top-0 z-nav border-b border-hair bg-(--color-nav) backdrop-blur-[12px]">
       <div className="mx-auto flex h-[62px] max-w-[1320px] items-center gap-6 px-[clamp(16px,3vw,30px)]">
         <Logo />
         <nav className="hidden items-center gap-0.5 nav:flex">
-          {DESKTOP_NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <TopNavLink key={item.to} to={item.to} label={t(item.labelKey)} variant="inline" />
           ))}
         </nav>

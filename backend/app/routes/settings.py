@@ -155,6 +155,7 @@ async def get_public_settings(db: AsyncSession = Depends(get_db)):
     - app_name: Application name
     - theme: UI theme preference
     - family_friends_enabled: garage section feature flag
+    - nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility
 
     Security: This endpoint is intentionally public to allow frontend
     initialization before login. All sensitive settings are excluded.
@@ -165,6 +166,10 @@ async def get_public_settings(db: AsyncSession = Depends(get_db)):
         "app_name",
         "theme",
         "family_friends_enabled",
+        # Which top-nav tabs every client shows, read at boot like the flag
+        # above. Non-sensitive: tab visibility, not data access.
+        "nav_address_book_enabled",
+        "nav_poi_finder_enabled",
         # Read during frontend init by every user, not just admins. GET /settings
         # is admin-only, so serving these from there left non-admins on US gallons
         # while the admin had configured UK (every volume ~20% wrong) and hid the

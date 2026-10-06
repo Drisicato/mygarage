@@ -3747,6 +3747,7 @@ export interface paths {
          *     - app_name: Application name
          *     - theme: UI theme preference
          *     - family_friends_enabled: garage section feature flag
+         *     - nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility
          *
          *     Security: This endpoint is intentionally public to allow frontend
          *     initialization before login. All sensitive settings are excluded.

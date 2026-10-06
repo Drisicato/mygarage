@@ -40952,7 +40952,7 @@
     },
     "/api/settings/public": {
       "get": {
-        "description": "Get public settings (no authentication required).\n\nReturns only non-sensitive settings required for frontend initialization:\n- auth_mode: Authentication mode (local/oidc)\n- app_name: Application name\n- theme: UI theme preference\n- family_friends_enabled: garage section feature flag\n\nSecurity: This endpoint is intentionally public to allow frontend\ninitialization before login. All sensitive settings are excluded.",
+        "description": "Get public settings (no authentication required).\n\nReturns only non-sensitive settings required for frontend initialization:\n- auth_mode: Authentication mode (local/oidc)\n- app_name: Application name\n- theme: UI theme preference\n- family_friends_enabled: garage section feature flag\n- nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility\n\nSecurity: This endpoint is intentionally public to allow frontend\ninitialization before login. All sensitive settings are excluded.",
         "operationId": "get_public_settings_api_settings_public_get",
         "responses": {
           "200": {
