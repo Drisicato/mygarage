@@ -1,7 +1,10 @@
 import type { ReactElement } from 'react'
 import type { Tone } from './types'
 
-export type ProgressMeterTone = Extract<Tone, 'accent' | 'warning' | 'danger' | 'muted'>
+export type ProgressMeterTone =
+  | Extract<Tone, 'accent' | 'success' | 'warning' | 'danger' | 'muted'>
+  /** Yellow, between success and warning, for a fill scale that steps through both. */
+  | 'caution'
 
 interface ProgressMeterProps {
   /** Already translated by the caller. Names the bar for assistive tech. */
@@ -19,6 +22,8 @@ interface ProgressMeterProps {
 
 const FILL: Record<ProgressMeterTone, string> = {
   accent: 'bg-(--accent-solid)',
+  success: 'bg-success',
+  caution: 'bg-caution',
   warning: 'bg-warning',
   danger: 'bg-danger',
   muted: 'bg-text-mute',

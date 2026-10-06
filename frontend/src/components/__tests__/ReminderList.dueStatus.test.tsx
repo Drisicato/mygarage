@@ -53,7 +53,7 @@ const row = (over: Partial<Reminder>): Reminder =>
     estimated_due_date: null, projected_usage_date: null, snoozed_until: null,
     notes: null, line_item_id: null, last_notified_at: null,
     created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
-    due_status: null, progress: null, progress_basis: null,
+    due_status: null, progress: null, progress_basis: null, distance_progress: null,
     days_until_due: null, km_until_due: null, hours_until_due: null,
     ...over,
   }) as unknown as Reminder
@@ -104,12 +104,48 @@ describe('ReminderList: where each reminder stands (#192)', () => {
     expect(screen.getByText('reminderList.distanceLeft|1,240 mi')).toBeInTheDocument()
   })
 
-  it('an on-track row gets an accent bar and no chip or stripe', () => {
+  it('an on-track row early in its interval gets a green bar and no chip or stripe', () => {
     show(onTrack)
     expect(screen.queryByText(/^reminderList\.status(Overdue|DueSoon)$/)).not.toBeInTheDocument()
     expect(card('Coolant').className).not.toMatch(/border-l-(danger|warning)/)
-    expect(meter('Coolant').firstElementChild).toHaveClass('bg-(--accent-solid)')
+    expect(meter('Coolant').firstElementChild).toHaveClass('bg-success')
     expect(screen.getByText('reminderList.daysLeft|12')).toBeInTheDocument()
+  })
+
+  it('the bar warms as it fills: green, yellow from 60%, orange from 80%, red from 95%', () => {
+    const at = (id: number, title: string, progress: number): Reminder =>
+      row({ id, title, due_status: 'on_track', progress, progress_basis: 'distance', distance_progress: progress, km_until_due: '100' })
+    show(at(11, 'Green', 0.59), at(12, 'Yellow', 0.6), at(13, 'Still yellow', 0.79), at(14, 'Orange', 0.8), at(15, 'Red', 0.95))
+    expect(meter('Green').firstElementChild).toHaveClass('bg-success')
+    expect(meter('Yellow').firstElementChild).toHaveClass('bg-caution')
+    expect(meter('Still yellow').firstElementChild).toHaveClass('bg-caution')
+    expect(meter('Orange').firstElementChild).toHaveClass('bg-warning')
+    expect(meter('Red').firstElementChild).toHaveClass('bg-danger')
+  })
+
+  it('a date-and-mileage reminder measures its bar by mileage even when the date is nearer', () => {
+    show(
+      row({
+        id: 16, title: 'Oil change', reminder_type: 'both', due_status: 'due_soon',
+        progress: 0.9, progress_basis: 'date', days_until_due: 10,
+        distance_progress: 0.25, km_until_due: '1995.59',
+      }),
+    )
+    expect(meter('Oil change')).toHaveAttribute('aria-valuenow', '25')
+    expect(meter('Oil change').firstElementChild).toHaveClass('bg-success')
+    expect(screen.getByText('reminderList.distanceLeft|1,240 mi')).toBeInTheDocument()
+    expect(screen.queryByText('reminderList.daysLeft|10')).not.toBeInTheDocument()
+  })
+
+  it('an overdue row stays red even when its mileage bar is early', () => {
+    show(
+      row({
+        id: 17, title: 'Inspection', reminder_type: 'both', due_status: 'overdue',
+        progress: 1.05, progress_basis: 'date', days_until_due: -2,
+        distance_progress: 0.3, km_until_due: '1995.59',
+      }),
+    )
+    expect(meter('Inspection').firstElementChild).toHaveClass('bg-danger')
   })
 
   it('a snoozed row keeps its snooze chip and gets a muted bar, no status chip or stripe', () => {

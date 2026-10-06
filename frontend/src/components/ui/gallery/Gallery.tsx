@@ -451,6 +451,8 @@ export default function Gallery() {
       <Section title="ProgressMeter" note="A bare bar in a status tone. The words go beside it and reach assistive tech through valueText. Clamps past 100 and below 0.">
         <div className="w-full max-w-md space-y-3">
           <ProgressMeter label="On track" percent={40} valueText="12 days left" />
+          <ProgressMeter label="Fresh" percent={30} tone="success" valueText="7,000 mi left" />
+          <ProgressMeter label="Nearing" percent={70} tone="caution" valueText="3,000 mi left" />
           <ProgressMeter label="Due soon" percent={92} tone="warning" valueText="1,240 mi left" />
           <ProgressMeter label="Overdue" percent={125} tone="danger" valueText="300 mi over" />
           <ProgressMeter label="Snoozed" percent={60} tone="muted" />

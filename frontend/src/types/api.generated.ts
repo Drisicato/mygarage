@@ -14627,6 +14627,8 @@ export interface components {
             created_at: string;
             /** Days Until Due */
             days_until_due?: number | null;
+            /** Distance Progress */
+            distance_progress?: number | null;
             /** Due Date */
             due_date: string | null;
             /** Due Hours */

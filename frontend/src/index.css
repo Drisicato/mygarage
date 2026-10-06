@@ -75,6 +75,10 @@
    * 29 files — silent no-ops on main. Task 2 restored it; keep it. */
   --color-warning:     #f0a53a;
 
+  /* Yellow, between success and the amber warning: the reminder bar's
+     green -> yellow -> orange (warning) -> red (danger) fill scale. */
+  --color-caution:     #facc15;
+
   --color-danger-500:  #f0503a;
   --color-danger-600:  #d63d29;
   --color-danger-700:  #b32f1e;

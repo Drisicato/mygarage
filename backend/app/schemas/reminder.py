@@ -153,6 +153,10 @@ class ReminderResponse(BaseModel):
     #: the dimension closest to due. Unclamped: 1.25 is a quarter past due.
     progress: float | None = None
     progress_basis: ProgressBasis | None = None
+    #: The mileage share alone, from the same start, whatever ``progress_basis``
+    #: leads: a date-and-mileage reminder's bar can follow the odometer even
+    #: when its date is closer. Unclamped like ``progress``.
+    distance_progress: float | None = None
     #: due_date minus household today; negative once past.
     days_until_due: int | None = None
     #: due_mileage_km minus the current odometer, canonical km; negative once over.

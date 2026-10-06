@@ -68,12 +68,15 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
 type DueStatus = NonNullable<Reminder['due_status']>
 
 /** The bar's fill per status, the same colour as the row's stripe and chip. */
-const METER_TONE: Record<DueStatus, ProgressMeterTone> = {
-  overdue: 'danger',
-  due_soon: 'warning',
-  on_track: 'accent',
-  snoozed: 'muted',
-}
+/** The bar's colour by how full it is: green, then yellow from 60%, orange
+ *  from 80% and red from 95%, so it warms as the due point nears. */
+const fillTone = (share: number): ProgressMeterTone =>
+  share >= 0.95 ? 'danger' : share >= 0.8 ? 'warning' : share >= 0.6 ? 'caution' : 'success'
+
+/** A snoozed row stays quiet and an overdue one red, whatever the fill says,
+ *  so the bar never contradicts the chip beside it. */
+const meterTone = (status: DueStatus, share: number): ProgressMeterTone =>
+  status === 'snoozed' ? 'muted' : status === 'overdue' ? 'danger' : fillTone(share)
 
 /**
  * A left stripe rather than a recoloured border: Card's base sets
@@ -205,8 +208,8 @@ export default function ReminderList({ vin }: ReminderListProps) {
   }
 
   /** What is left along the dimension the bar measures, in the vehicle's units. */
-  const remainingText = (reminder: Reminder): string | null => {
-    switch (reminder.progress_basis) {
+  const remainingText = (reminder: Reminder, basis: Reminder['progress_basis']): string | null => {
+    switch (basis) {
       case 'distance': {
         if (reminder.km_until_due == null) return null
         const km = Number(reminder.km_until_due)
@@ -384,7 +387,11 @@ export default function ReminderList({ vin }: ReminderListProps) {
             const anchor = anchorText(reminder)
             // Only a pending row says where it stands; a closed one keeps its history look.
             const status = reminder.status === 'pending' ? reminder.due_status ?? null : null
-            const remaining = status ? remainingText(reminder) : null
+            // The bar follows the odometer whenever there's a due mileage, even
+            // if the date is nearer; otherwise the dimension closest to due.
+            const barShare = reminder.distance_progress ?? reminder.progress
+            const barBasis = reminder.distance_progress != null ? 'distance' : reminder.progress_basis
+            const remaining = status ? remainingText(reminder, barBasis) : null
             const supersededBy = reminder.superseded_by_id != null ? rulesById.get(reminder.superseded_by_id) : undefined
             return (
               <Card key={reminder.id} padding="sm" className={status ? ROW_STRIPE[status] ?? '' : ''}>
@@ -435,13 +442,13 @@ export default function ReminderList({ vin }: ReminderListProps) {
                           </span>
                         )}
                       </div>
-                      {status && reminder.progress != null && (
+                      {status && barShare != null && (
                         <div className="mt-2 flex items-center gap-2">
                           <ProgressMeter
                             className="max-w-48 flex-1"
                             label={t('reminderList.progressLabel', { title: reminder.title })}
-                            percent={reminder.progress * 100}
-                            tone={METER_TONE[status]}
+                            percent={barShare * 100}
+                            tone={meterTone(status, barShare)}
                             valueText={remaining ?? undefined}
                           />
                           {remaining && (

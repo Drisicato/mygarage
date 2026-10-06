@@ -114,6 +114,7 @@ async def test_rows_come_in_due_order_with_their_status(
         "due_status",
         "progress",
         "progress_basis",
+        "distance_progress",
         "days_until_due",
         "km_until_due",
         "hours_until_due",
@@ -205,4 +206,89 @@ async def test_the_list_and_the_hero_count_the_same_reminders(
     assert belt["due_status"] == "due_soon"
     assert belt["progress_basis"] == "distance"
     assert belt["progress"] == pytest.approx(0.95)
+    assert belt["distance_progress"] == pytest.approx(0.95)
     assert Decimal(belt["km_until_due"]) == Decimal("500")
+
+
+async def test_a_one_off_counts_from_the_reading_it_was_created_at(
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    """The start is frozen when the reminder is made. Before, it was the reading
+    nearest the creation day, looked up on every read, so correcting that day's
+    reading moved the start with it: the bar sat at 0% and vanished once over."""
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH192004")
+    today = household_today().isoformat()
+    base = f"/api/vehicles/{vin}"
+    reading = await client.post(
+        f"{base}/odometer",
+        json={"vin": vin, "date": today, "odometer_km": "115388.00"},
+        headers=non_admin_headers,
+    )
+    assert reading.status_code == 201, reading.text
+    created = await client.post(
+        f"{base}/reminders",
+        json={"title": "Oil", "reminder_type": "mileage", "due_mileage_km": "115390.00"},
+        headers=non_admin_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    async def correct_reading_to(km: str) -> dict:
+        r = await client.put(
+            f"{base}/odometer/{reading.json()['id']}",
+            json={"odometer_km": km},
+            headers=non_admin_headers,
+        )
+        assert r.status_code == 200, r.text
+        (row,) = await _list(client, non_admin_headers, vin)
+        return row
+
+    halfway = await correct_reading_to("115389.00")
+    assert halfway["distance_progress"] == pytest.approx(0.5)
+
+    over = await correct_reading_to("115391.00")
+    assert over["due_status"] == "overdue"
+    assert over["distance_progress"] == pytest.approx(1.5)
+    assert Decimal(over["km_until_due"]) == Decimal("-1")
+
+
+async def test_distance_progress_follows_the_odometer_when_the_date_leads(
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    """A date-and-mileage reminder whose date is nearer still reports its mileage share,
+    which is what the list's bar shows for any reminder with a due mileage."""
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH192003")
+    today = household_today()
+    db_session.add_all(
+        [
+            OdometerRecord(vin=vin, date=today, odometer_km=Decimal("12500")),
+            # Counted from 10,000 km and 90 days ago: 25% of the way by mileage
+            # (2,500 of 10,000 km), 90% by date (90 of 100 days).
+            Reminder(
+                vin=vin,
+                title="Oil change",
+                reminder_type="both",
+                status="pending",
+                due_date=today + timedelta(days=10),
+                due_mileage_km=Decimal("20000"),
+                anchor_kind="baseline",
+                anchor_date=today - timedelta(days=90),
+                anchor_odometer_km=Decimal("10000"),
+            ),
+            # Date only: no mileage share at all.
+            Reminder(
+                vin=vin,
+                title="Registration",
+                reminder_type="date",
+                status="pending",
+                due_date=today + timedelta(days=30),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    rows = {row["title"]: row for row in await _list(client, non_admin_headers, vin)}
+    oil = rows["Oil change"]
+    assert oil["progress_basis"] == "date"
+    assert oil["progress"] == pytest.approx(0.9)
+    assert oil["distance_progress"] == pytest.approx(0.25)
+    assert rows["Registration"]["distance_progress"] is None

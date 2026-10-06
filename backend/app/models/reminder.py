@@ -96,6 +96,13 @@ class Reminder(Base):
     anchor_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     anchor_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     anchor_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    # What an unanchored one-off counts its progress from: the current readings
+    # when it was created (migration 127), so a reading added or edited later
+    # can't move its start. Not an anchor: rule adoption and reconciliation
+    # never read these. NULL on older rows, which fall back to the readings
+    # nearest their creation day.
+    start_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    start_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
     # How and when it was closed. `completed_line_item_id` is the work that
     # closed it, which the successor then counts from.
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

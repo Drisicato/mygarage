@@ -16529,6 +16529,17 @@
             ],
             "title": "Days Until Due"
           },
+          "distance_progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Progress"
+          },
           "due_date": {
             "anyOf": [
               {

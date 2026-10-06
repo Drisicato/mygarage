@@ -491,7 +491,8 @@ async def load_reminder_starts(
     """Derived starts for the unanchored reminders among ``reminders``, by id (#192 D4).
 
     Such a reminder counts from the household day it was created, with the
-    odometer and hours readings nearest that day. Each reading is looked up
+    readings it stored then (``start_odometer_km``/``start_hours``), else, for
+    a row from before those, the odometer and hours readings nearest that day. Each reading is looked up
     only for a target the reminder has, and once per day, so these lookups
     (two queries each) grow with the number of distinct creation days, not
     with the rows; the rates and current readings are once per list. Nothing is stored:
@@ -509,15 +510,21 @@ async def load_reminder_starts(
             continue
         km: Decimal | None = None
         if reminder.due_mileage_km is not None:
-            if day not in km_on:
-                record = await nearest_odometer(db, vin, day)
-                km_on[day] = record.odometer_km if record is not None else None
-            km = km_on[day]
+            if reminder.start_odometer_km is not None:
+                km = reminder.start_odometer_km
+            else:
+                if day not in km_on:
+                    record = await nearest_odometer(db, vin, day)
+                    km_on[day] = record.odometer_km if record is not None else None
+                km = km_on[day]
         hours: Decimal | None = None
         if reminder.due_hours is not None:
-            if day not in hours_on:
-                hours_on[day] = await nearest_hours(db, vin, day)
-            hours = hours_on[day]
+            if reminder.start_hours is not None:
+                hours = reminder.start_hours
+            else:
+                if day not in hours_on:
+                    hours_on[day] = await nearest_hours(db, vin, day)
+                hours = hours_on[day]
         starts[reminder.id] = ReminderStart(day=day, km=km, hours=hours)
     return starts
 
@@ -683,6 +690,13 @@ async def create_reminder(
         due_hours=data.due_hours,
         notes=data.notes,
         maintenance_type=data.maintenance_type or classify(data.title),
+        # Its progress counts from today's readings, frozen here: looked up
+        # later, a reading entered or corrected the same day would move the
+        # start along with the odometer and hold the bar at zero.
+        start_odometer_km=(
+            await get_current_mileage(vin, db) if data.due_mileage_km is not None else None
+        ),
+        start_hours=await get_current_hours(vin, db) if data.due_hours is not None else None,
     )
     db.add(reminder)
     return reminder
@@ -776,9 +790,11 @@ async def enrich_with_estimate(
         response.projected_usage_date = projected
         response.estimated_due_date = _expected(reminder, ctx)
     response.due_status = reminder_due_status(reminder, ctx)
-    leading = leading_progress(progress_fractions(reminder, ctx))
+    fractions = progress_fractions(reminder, ctx)
+    leading = leading_progress(fractions)
     if leading is not None:
         response.progress_basis, response.progress = leading
+    response.distance_progress = fractions.get("distance")
     if reminder.due_date is not None:
         response.days_until_due = (reminder.due_date - ctx.today).days
     if reminder.due_mileage_km is not None and ctx.current_km is not None:

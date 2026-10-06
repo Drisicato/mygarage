@@ -41,6 +41,8 @@ describe('ProgressMeter', () => {
         <ProgressMeter label="Late" percent={50} tone="danger" />
         <ProgressMeter label="Soon" percent={50} tone="warning" />
         <ProgressMeter label="Quiet" percent={50} tone="muted" />
+        <ProgressMeter label="Fresh" percent={50} tone="success" />
+        <ProgressMeter label="Nearing" percent={50} tone="caution" />
       </>,
     )
     const fill = (name: string): Element | null =>
@@ -49,5 +51,7 @@ describe('ProgressMeter', () => {
     expect(fill('Late')).toHaveClass('bg-danger')
     expect(fill('Soon')).toHaveClass('bg-warning')
     expect(fill('Quiet')).toHaveClass('bg-text-mute')
+    expect(fill('Fresh')).toHaveClass('bg-success')
+    expect(fill('Nearing')).toHaveClass('bg-caution')
   })
 })
