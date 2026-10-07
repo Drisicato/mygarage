@@ -14,7 +14,7 @@ export default function MobileTabBar() {
   const { t } = useTranslation('nav')
   const navItems = useVisibleNavItems(MOBILE_NAV_ITEMS)
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-nav border-t border-hair bg-(--color-nav) backdrop-blur-[12px] md:hidden">
+    <nav data-tab-bar className="fixed bottom-0 left-0 right-0 z-nav border-t border-hair bg-(--color-nav) backdrop-blur-[12px] md:hidden">
       <div className="flex h-16 items-center justify-around px-2">
         {navItems.map((item) => {
           const Icon = item.icon
