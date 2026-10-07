@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import {
   Wrench, Fuel, Bell, List, Plus, Edit, Upload, Download, BarChart3, Share2,
-  ArrowRightLeft, Trash2, MoreVertical,
+  ArrowRightLeft, Trash2, MoreVertical, FileUp,
 } from 'lucide-react'
 import { Button } from '../ui'
 
@@ -20,6 +20,8 @@ interface VehicleActionsToolbarProps {
   onEdit: () => void
   onAnalytics: () => void
   onImport: () => void
+  /** Opens the LubeLogger import; the button shows only when given. */
+  onImportLubeLogger?: () => void
   onExport: () => void
   onOpenModal: (modal: 'remove' | 'transfer' | 'sharing') => void
   onOpenMobileMenu: () => void
@@ -38,7 +40,7 @@ export default function VehicleActionsToolbar({
   isAdmin, importing, exporting, isOnline, showFuelAction,
   hasStandardEquipment, hasOptionalEquipment,
   onLogService, onAddFuel, onReminder, onEditEquipment, onEdit, onAnalytics,
-  onImport, onExport, onOpenModal, onOpenMobileMenu,
+  onImport, onImportLubeLogger, onExport, onOpenModal, onOpenMobileMenu,
 }: VehicleActionsToolbarProps) {
   const { t } = useTranslation('vehicles')
   return (
@@ -96,6 +98,11 @@ export default function VehicleActionsToolbar({
         <Button variant="secondary" size="sm" icon={Upload} disabled={importing || !isOnline} onClick={onImport} title={t('detail.misc.importTooltip')}>
           {importing ? t('detail.importing') : t('detail.import')}
         </Button>
+        {onImportLubeLogger && (
+          <Button variant="secondary" size="sm" icon={FileUp} disabled={!isOnline} onClick={onImportLubeLogger} title={t('lubelogger.tooltip')}>
+            {t('lubelogger.button')}
+          </Button>
+        )}
         <Button variant="secondary" size="sm" icon={Download} disabled={exporting || !isOnline} onClick={onExport} title={t('detail.exportTooltip')}>
           {exporting ? t('detail.exporting') : t('detail.export')}
         </Button>

@@ -168,6 +168,13 @@ def _every_import(vin: str) -> list[ImportCall]:
             "Date,Odometer,Liters,Price,Total cost\n2027-08-11,1600,40,1.50,60.00\n",
             form={"format": "fuelio"},
         ),
+        ImportCall(
+            f"{base}/lubelogger",
+            "lubelogger.csv",
+            "Date,Odometer,FuelConsumed,Cost,FuelEconomy,IsFillToFull,MissedFuelUp,Notes,Tags\n"
+            "8/12/2027,1000,10,40.00,0,True,False,,\n",
+            form={"distance_unit": "km", "fuel_unit": "l"},
+        ),
     ]
 
 

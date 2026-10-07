@@ -1741,6 +1741,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/import/vehicles/{vin}/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Vehicle Import Backups
+         * @description The backups imports took of this vehicle before writing, newest first.
+         */
+        get: operations["list_vehicle_import_backups_api_import_vehicles__vin__backups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/vehicles/{vin}/backups/{filename}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Vehicle Import Backup
+         * @description Download one of this vehicle's pre-import backups.
+         */
+        get: operations["download_vehicle_import_backup_api_import_vehicles__vin__backups__filename__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/import/vehicles/{vin}/def/csv": {
         parameters: {
             query?: never;
@@ -1935,6 +1975,39 @@ export interface paths {
          * @description Import complete vehicle data from JSON file.
          */
         post: operations["import_vehicle_json_api_import_vehicles__vin__json_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/vehicles/{vin}/lubelogger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Lubelogger Csv
+         * @description Import LubeLogger CSV exports: Fuel, and Service / Repair / Upgrade.
+         *
+         *     One or more files (LubeLogger exports one per record type). ``record_type``,
+         *     one per file in the same order, says which of service, repair or upgrade a
+         *     service-like file is (they share one header); ``auto`` or leaving it out
+         *     reads fuel as fuel and the rest as service. The export carries no units and
+         *     follows its server's locale, so the four options declare how to read it.
+         *
+         *     ``dry_run`` reads every file and reports what it found, writing nothing.
+         *     Otherwise every file is read first (a file that isn't a supported export
+         *     fails the request before anything is written), then the vehicle is locked,
+         *     its JSON export is saved as a backup, and only then are the rows written,
+         *     all files in one transaction. If the backup can't be saved nothing is
+         *     imported.
+         */
+        post: operations["import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8507,6 +8580,43 @@ export interface components {
         Body_import_insurance_csv_api_import_vehicles__vin__insurance_csv_post: {
             /** File */
             file: string;
+            /**
+             * Skip Duplicates
+             * @default true
+             */
+            skip_duplicates: boolean;
+        };
+        /** Body_import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post */
+        Body_import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post: {
+            /**
+             * Date Order
+             * @default mdy
+             */
+            date_order: string;
+            /**
+             * Decimal Separator
+             * @default dot
+             */
+            decimal_separator: string;
+            /**
+             * Distance Unit
+             * @default mi
+             */
+            distance_unit: string;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+            /** File */
+            file: string[];
+            /**
+             * Fuel Unit
+             * @default gal_us
+             */
+            fuel_unit: string;
+            /** Record Type */
+            record_type?: string[] | null;
             /**
              * Skip Duplicates
              * @default true
@@ -23024,6 +23134,69 @@ export interface operations {
             };
         };
     };
+    list_vehicle_import_backups_api_import_vehicles__vin__backups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_vehicle_import_backup_api_import_vehicles__vin__backups__filename__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     import_def_csv_api_import_vehicles__vin__def_csv_post: {
         parameters: {
             query?: never;
@@ -23316,6 +23489,41 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_import_vehicle_json_api_import_vehicles__vin__json_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post"];
             };
         };
         responses: {

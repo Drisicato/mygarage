@@ -243,14 +243,15 @@ class TestTheEnumeratorsFindWhatTheyClaimTo:
         assert ("export_warranties_csv", "WarrantyRecord", "policy_number") in reads
 
     def test_the_export_walker_sees_comprehensions_too(self):
-        """`export_vehicle_json` has no `for` STATEMENT.
+        """`build_vehicle_export` (the body of `export_vehicle_json`, shared with
+        the backup an import takes first) has no `for` STATEMENT.
 
         It selects six models and reads them all inside list comprehensions, so
         a walker handling only `ast.For` would skip the biggest handler in the
         file while reporting a clean run.
         """
         names = {fn for fn, _c, _a in export_attribute_reads()}
-        assert "export_vehicle_json" in names
+        assert "build_vehicle_export" in names
 
     def test_the_export_walker_resolves_a_nested_relationship(self):
         """`for item in visit.line_items` is a ServiceLineItem, not a ServiceVisit.

@@ -1775,6 +1775,67 @@
         "title": "Body_import_insurance_csv_api_import_vehicles__vin__insurance_csv_post",
         "type": "object"
       },
+      "Body_import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post": {
+        "properties": {
+          "date_order": {
+            "default": "mdy",
+            "title": "Date Order",
+            "type": "string"
+          },
+          "decimal_separator": {
+            "default": "dot",
+            "title": "Decimal Separator",
+            "type": "string"
+          },
+          "distance_unit": {
+            "default": "mi",
+            "title": "Distance Unit",
+            "type": "string"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "file": {
+            "items": {
+              "contentMediaType": "application/octet-stream",
+              "type": "string"
+            },
+            "title": "File",
+            "type": "array"
+          },
+          "fuel_unit": {
+            "default": "gal_us",
+            "title": "Fuel Unit",
+            "type": "string"
+          },
+          "record_type": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Type"
+          },
+          "skip_duplicates": {
+            "default": true,
+            "title": "Skip Duplicates",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post",
+        "type": "object"
+      },
       "Body_import_notes_csv_api_import_vehicles__vin__notes_csv_post": {
         "properties": {
           "file": {
@@ -36273,6 +36334,107 @@
         "summary": "Api Health Check"
       }
     },
+    "/api/import/vehicles/{vin}/backups": {
+      "get": {
+        "description": "The backups imports took of this vehicle before writing, newest first.",
+        "operationId": "list_vehicle_import_backups_api_import_vehicles__vin__backups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Vehicle Import Backups",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/api/import/vehicles/{vin}/backups/{filename}": {
+      "get": {
+        "description": "Download one of this vehicle's pre-import backups.",
+        "operationId": "download_vehicle_import_backup_api_import_vehicles__vin__backups__filename__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "title": "Filename",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Vehicle Import Backup",
+        "tags": [
+          "import"
+        ]
+      }
+    },
     "/api/import/vehicles/{vin}/def/csv": {
       "post": {
         "description": "Import DEF records from CSV file.",
@@ -36772,6 +36934,62 @@
           }
         ],
         "summary": "Import Vehicle Json",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/api/import/vehicles/{vin}/lubelogger": {
+      "post": {
+        "description": "Import LubeLogger CSV exports: Fuel, and Service / Repair / Upgrade.\n\nOne or more files (LubeLogger exports one per record type). ``record_type``,\none per file in the same order, says which of service, repair or upgrade a\nservice-like file is (they share one header); ``auto`` or leaving it out\nreads fuel as fuel and the rest as service. The export carries no units and\nfollows its server's locale, so the four options declare how to read it.\n\n``dry_run`` reads every file and reports what it found, writing nothing.\nOtherwise every file is read first (a file that isn't a supported export\nfails the request before anything is written), then the vehicle is locked,\nits JSON export is saved as a backup, and only then are the rows written,\nall files in one transaction. If the backup can't be saved nothing is\nimported.",
+        "operationId": "import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Lubelogger Csv",
         "tags": [
           "import"
         ]

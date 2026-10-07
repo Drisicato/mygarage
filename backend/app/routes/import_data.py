@@ -2369,7 +2369,25 @@ async def _persist_parsed_fuel(
     skip_duplicates: bool,
     db: AsyncSession,
 ):
-    import_result = ImportResult()
+    """Write an adapter's fuel rows and commit them as one import."""
+    import_result = await _write_parsed_fuel(vin, parsed, skip_duplicates, db)
+    await db.commit()
+    await invalidate_cache_for_vehicle(vin)
+    return import_result.to_dict()
+
+
+async def _write_parsed_fuel(
+    vin: str,
+    parsed: list[dict],
+    skip_duplicates: bool,
+    db: AsyncSession,
+    import_result: ImportResult | None = None,
+) -> ImportResult:
+    """Write an adapter's fuel rows, without committing: the caller ends the
+    transaction, so a LubeLogger import can write fuel and service files in
+    one. A row carrying ``_row`` (its line in the source file) is reported by
+    it; otherwise by its position."""
+    import_result = import_result or ImportResult()
     # date -> (odometer_km, record). Odometer sync matches on (vin, date) and
     # overwrites, so syncing every row would let CSV order decide the stored
     # value and reassign the cascade FK. Sync once per date with the highest
@@ -2377,7 +2395,8 @@ async def _persist_parsed_fuel(
     best_per_date: dict[date_type, tuple[Decimal, FuelRecord]] = {}
     # Callers take the vehicle write lock first; see `_converted_value_matches`.
     last_id = await _last_id_before_import(db, FuelRecord)
-    for row_num, row in enumerate(parsed, start=2):
+    for position, row in enumerate(parsed, start=2):
+        row_num = row.get("_row", position)
         try:
             date = row.get("date")
             if not date:
@@ -2422,6 +2441,7 @@ async def _persist_parsed_fuel(
                 price_per_unit=row.get("price_per_unit"),
                 price_basis=price_basis,
                 is_full_tank=bool(row.get("is_full_tank", True)),
+                missed_fillup=bool(row.get("missed_fillup", False)),
                 notes=row.get("notes"),
                 # v4-and-older backups carry the retired free-text "fuel_type"
                 # instead, so fall back to it through the normalizer rather
@@ -2460,6 +2480,289 @@ async def _persist_parsed_fuel(
             # transaction and would discard the entire import.
             logger.warning("Odometer sync failed for imported fuel record %s: %s", record.id, e)
 
+    return import_result
+
+
+# ---------------------------------------------------------------------------
+# LubeLogger
+# ---------------------------------------------------------------------------
+
+#: Files one LubeLogger import takes at once (it exports one CSV per record type).
+_LUBELOGGER_MAX_FILES = 10
+_LUBELOGGER_KINDS = ("auto", "fuel", "service", "repair", "upgrade")
+_LUBELOGGER_BACKUP_REASON = "before-lubelogger-import"
+
+
+def _lubelogger_options(
+    distance_unit: str, fuel_unit: str, date_order: str, decimal_separator: str
+):
+    """LubeLoggerOptions from form input, rejecting anything off-vocabulary."""
+    from app.services.import_adapters.lubelogger import LubeLoggerOptions
+
+    allowed = {
+        "distance_unit": (distance_unit, ("mi", "km")),
+        "fuel_unit": (fuel_unit, ("gal_us", "gal_uk", "l")),
+        "date_order": (date_order, ("mdy", "dmy", "ymd")),
+        "decimal_separator": (decimal_separator, ("dot", "comma")),
+    }
+    for name, (value, choices) in allowed.items():
+        if value not in choices:
+            raise HTTPException(
+                status_code=400, detail=f"{name} must be one of {', '.join(choices)}"
+            )
+    return LubeLoggerOptions(
+        distance_unit=cast(Any, distance_unit),
+        fuel_unit=cast(Any, fuel_unit),
+        date_order=cast(Any, date_order),
+        decimal_separator=cast(Any, decimal_separator),
+    )
+
+
+def _preview_value(value: Any) -> Any:
+    if isinstance(value, date_type):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
+async def _write_lubelogger_service(
+    vin: str,
+    rows: list[dict[str, Any]],
+    skip_duplicates: bool,
+    db: AsyncSession,
+    import_result: ImportResult,
+    *,
+    odometer_converted: bool,
+    last_id: int,
+) -> int:
+    """Write one service visit with one line item per LubeLogger row, without
+    committing. Returns how many visits it wrote.
+
+    A duplicate is the same date, the same odometer and the same description:
+    LubeLogger keeps each job a separate record, so two jobs on one day at one
+    reading are two rows, not one repeated.
+    """
+    written = 0
+    for row in rows:
+        row_num = row["_row"]
+        try:
+            odometer_km = row["odometer_km"]
+            cost = row["cost"]
+            _within_api_bounds(ServiceVisitCreate, odometer_km=odometer_km)
+            _within_api_bounds(ServiceLineItemCreate, cost=cost)
+            if skip_duplicates:
+                existing = await db.execute(
+                    select(ServiceVisit.id)
+                    .join(ServiceLineItem, ServiceLineItem.visit_id == ServiceVisit.id)
+                    .where(
+                        ServiceVisit.vin == vin,
+                        ServiceVisit.date == row["date"],
+                        _odometer_matches(
+                            ServiceVisit,
+                            odometer_km,
+                            converted=odometer_converted,
+                            last_id_before_import=last_id,
+                        ),
+                        ServiceLineItem.description == row["description"],
+                    )
+                    .limit(1)
+                )
+                if existing.scalars().first():
+                    import_result.add_skip()
+                    continue
+            async with db.begin_nested():
+                visit = ServiceVisit(
+                    vin=vin,
+                    date=row["date"],
+                    odometer_km=odometer_km,
+                    service_category=row["category"],
+                    notes=row["notes"],
+                    total_cost=cost or Decimal("0"),
+                )
+                db.add(visit)
+                await db.flush()
+                db.add(
+                    ServiceLineItem(
+                        visit_id=visit.id,
+                        description=row["description"],
+                        category=row["category"],
+                        maintenance_type=classify(row["description"]),
+                        cost=cost or Decimal("0"),
+                    )
+                )
+                await db.flush()
+            import_result.add_success()
+            written += 1
+        except _RowError as e:
+            import_result.add_error(row_num, e.reason)
+        except Exception as e:
+            logger.error("LubeLogger service import row %d failed: %s", row_num, e)
+            import_result.add_error(row_num, "Invalid service record data")
+    return written
+
+
+@router.post("/vehicles/{vin}/lubelogger")
+@limiter.limit(settings.rate_limit_uploads)
+async def import_lubelogger_csv(
+    request: Request,
+    vin: str,
+    file: list[UploadFile] = File(...),
+    record_type: list[str] | None = Form(None),
+    distance_unit: str = Form("mi"),
+    fuel_unit: str = Form("gal_us"),
+    date_order: str = Form("mdy"),
+    decimal_separator: str = Form("dot"),
+    skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """Import LubeLogger CSV exports: Fuel, and Service / Repair / Upgrade.
+
+    One or more files (LubeLogger exports one per record type). ``record_type``,
+    one per file in the same order, says which of service, repair or upgrade a
+    service-like file is (they share one header); ``auto`` or leaving it out
+    reads fuel as fuel and the rest as service. The export carries no units and
+    follows its server's locale, so the four options declare how to read it.
+
+    ``dry_run`` reads every file and reports what it found, writing nothing.
+    Otherwise every file is read first (a file that isn't a supported export
+    fails the request before anything is written), then the vehicle is locked,
+    its JSON export is saved as a backup, and only then are the rows written,
+    all files in one transaction. If the backup can't be saved nothing is
+    imported.
+    """
+    from app.services.import_adapters.lubelogger import LubeLoggerFileError, parse_lubelogger
+    from app.services.vehicle_backup import write_vehicle_backup
+
+    vin = vin.upper().strip()
+    vehicle = await get_vehicle_or_403(vin, current_user, db, require_write=True)
+    opts = _lubelogger_options(distance_unit, fuel_unit, date_order, decimal_separator)
+    if len(file) > _LUBELOGGER_MAX_FILES:
+        raise HTTPException(
+            status_code=400, detail=f"At most {_LUBELOGGER_MAX_FILES} files per import"
+        )
+    kinds = list(record_type or [])
+    if kinds and len(kinds) != len(file):
+        raise HTTPException(status_code=400, detail="Give one record_type per file, or none")
+    if any(k not in _LUBELOGGER_KINDS for k in kinds):
+        raise HTTPException(
+            status_code=400, detail=f"record_type must be one of {', '.join(_LUBELOGGER_KINDS)}"
+        )
+
+    parsed_files = []
+    for index, upload in enumerate(file):
+        name = upload.filename or f"file {index + 1}"
+        csv_data = await validate_csv_upload(upload)
+        kind = kinds[index] if kinds else "auto"
+        try:
+            parsed = parse_lubelogger(csv_data, opts, None if kind == "auto" else cast(Any, kind))
+        except LubeLoggerFileError as e:
+            raise HTTPException(status_code=400, detail=f"{name}: {e.reason}") from e
+        parsed_files.append((name, parsed))
+
+    if dry_run:
+        files = []
+        for name, parsed in parsed_files:
+            date_range = parsed.date_range
+            files.append(
+                {
+                    "filename": name,
+                    "record_type": parsed.kind,
+                    "electric": parsed.electric,
+                    "row_count": len(parsed.rows),
+                    "error_count": len(parsed.errors),
+                    "ignored_count": parsed.ignored,
+                    "errors": [f"Row {n}: {reason}" for n, reason in parsed.errors],
+                    "date_from": date_range[0].isoformat() if date_range else None,
+                    "date_to": date_range[1].isoformat() if date_range else None,
+                    "sample": [
+                        {k: _preview_value(v) for k, v in row.items() if not k.startswith("_")}
+                        for row in parsed.rows[:3]
+                    ],
+                }
+            )
+        return {"dry_run": True, "files": files}
+
+    # The vehicle write lock before the backup's reads and every write: the
+    # backup is then exactly what the rows below are written on top of.
+    await lock_vehicle_for_write(db, vin)
+    try:
+        backup = await write_vehicle_backup(db, vehicle, _LUBELOGGER_BACKUP_REASON)
+    except Exception as e:
+        logger.error("Pre-import backup failed for %s: %s", sanitize_for_log(vin), e)
+        raise HTTPException(
+            status_code=500,
+            detail="Couldn't save a backup of this vehicle, so nothing was imported",
+        ) from e
+
+    odometer_converted = opts.distance_unit == "mi"
+    service_last_id = await _last_id_before_import(db, ServiceVisit)
+    results = []
+    wrote_services = False
+    for name, parsed in parsed_files:
+        result = ImportResult()
+        for row_num, reason in parsed.errors:
+            result.add_error(row_num, reason)
+        if parsed.kind == "fuel":
+            await _write_parsed_fuel(vin, parsed.rows, skip_duplicates, db, result)
+        else:
+            written = await _write_lubelogger_service(
+                vin,
+                parsed.rows,
+                skip_duplicates,
+                db,
+                result,
+                odometer_converted=odometer_converted,
+                last_id=service_last_id,
+            )
+            wrote_services = wrote_services or written > 0
+        results.append({"filename": name, "record_type": parsed.kind, **result.to_dict()})
+
     await db.commit()
+    if wrote_services:
+        # Imported services may be the newest of a rule's type: reconcile once
+        # per upload (own lock, own commit), never per row.
+        await maintenance_service.reconcile_vehicle(db, vin)
     await invalidate_cache_for_vehicle(vin)
-    return import_result.to_dict()
+
+    totals = {
+        key: sum(int(r[key]) for r in results)
+        for key in ("success_count", "error_count", "skipped_count", "total_processed")
+    }
+    return {**totals, "files": results, "backup_filename": backup}
+
+
+@router.get("/vehicles/{vin}/backups")
+async def list_vehicle_import_backups(
+    vin: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """The backups imports took of this vehicle before writing, newest first."""
+    from app.services.vehicle_backup import list_vehicle_backups
+
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db)
+    return {"backups": list_vehicle_backups(vin)}
+
+
+@router.get("/vehicles/{vin}/backups/{filename}")
+async def download_vehicle_import_backup(
+    vin: str,
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """Download one of this vehicle's pre-import backups."""
+    from fastapi.responses import FileResponse
+
+    from app.services.vehicle_backup import vehicle_backup_path
+
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db)
+    path = vehicle_backup_path(vin, filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    return FileResponse(path, media_type="application/json", filename=path.name)

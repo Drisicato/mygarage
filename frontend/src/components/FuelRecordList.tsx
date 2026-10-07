@@ -23,8 +23,11 @@ import { useFuelRecords, useDeleteFuelRecord, useImportFuelCSV } from '../hooks/
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { Button, IconButton, Card, Mono, DataTable, Badge, SearchField, EmptyState, Checkbox, Select } from './ui'
 import type { DataTableColumn } from './ui'
+import LubeLoggerImportModal from './modals/LubeLoggerImportModal'
 
-type ImportFormat = 'csv' | 'fuelio' | 'drivvo' | 'tesla' | 'external'
+// 'lubelogger' isn't a plain upload: its files carry no units, so it opens
+// the LubeLogger import (units, preview, backup) instead of the file picker.
+type ImportFormat = 'csv' | 'fuelio' | 'drivvo' | 'tesla' | 'external' | 'lubelogger'
 
 interface FuelRecordListProps {
   vin: string
@@ -46,6 +49,7 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
   const [vehicleSecondaryUsageEnabled, setVehicleSecondaryUsageEnabled] = useState<boolean>(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importFormat, setImportFormat] = useState<ImportFormat>('csv')
+  const [showLubeLogger, setShowLubeLogger] = useState(false)
   // ★ No `system` here any more. The last two consumers were
   // `UnitFormatter.getCostPerDistanceLabel(system)` and its formatter, which
   // decided a DISTANCE on a binary collapsed from VOLUME; both now read
@@ -165,12 +169,17 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
   }
 
   const handleImportClick = () => {
+    if (importFormat === 'lubelogger') {
+      setShowLubeLogger(true)
+      return
+    }
     fileInputRef.current?.click()
   }
 
   const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (!file) return
+    // LubeLogger never reaches the file picker (handleImportClick opens its own import).
+    if (!file || importFormat === 'lubelogger') return
 
     const formData = new FormData()
     formData.append('file', file)
@@ -339,6 +348,7 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
               { value: 'drivvo', label: t('fuelList.importFormatDrivvo') },
               { value: 'tesla', label: t('fuelList.importFormatTesla') },
               { value: 'external', label: t('fuelList.importFormatAuto') },
+              { value: 'lubelogger', label: t('fuelList.importFormatLubeLogger') },
             ]}
             className="w-40"
           />
@@ -495,6 +505,10 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
             ))}
           </div>
         </div>
+      )}
+
+      {showLubeLogger && (
+        <LubeLoggerImportModal vin={vin} onClose={() => setShowLubeLogger(false)} />
       )}
     </div>
   )

@@ -817,18 +817,13 @@ async def export_notes_csv(
     )
 
 
-@router.get("/vehicles/{vin}/json")
-@limiter.limit(settings.rate_limit_exports)
-async def export_vehicle_json(
-    request: Request,
-    vin: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(require_auth),
-):
-    """Export complete vehicle data as JSON"""
-    # Verify vehicle exists and user has access
-    vehicle = await get_vehicle_or_403(vin, current_user, db)
+async def build_vehicle_export(db: AsyncSession, vehicle: Vehicle) -> dict[str, Any]:
+    """The vehicle and its records as the JSON export holds them.
 
+    Shared by the download route and the backup an import takes before it
+    writes, so the two can never drift apart. Access is the caller's to check.
+    """
+    vin = vehicle.vin
     # Get all related records. service_visit_cost_load_options: this route
     # only reads calculated_total_cost (needs cost_snapshot), never a usage's
     # Supply row.
@@ -1000,6 +995,22 @@ async def export_vehicle_json(
             for link in insurance_links
         ],
     }
+    return export_data
+
+
+@router.get("/vehicles/{vin}/json")
+@limiter.limit(settings.rate_limit_exports)
+async def export_vehicle_json(
+    request: Request,
+    vin: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """Export complete vehicle data as JSON"""
+    # Verify vehicle exists and user has access
+    vehicle = await get_vehicle_or_403(vin, current_user, db)
+
+    export_data = await build_vehicle_export(db, vehicle)
 
     # Generate filename
     filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_complete_data_{datetime.now().strftime('%Y%m%d')}.json"

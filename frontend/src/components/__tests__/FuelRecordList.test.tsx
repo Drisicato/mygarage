@@ -75,6 +75,9 @@ vi.mock('../../hooks/useCurrencyPreference', () => ({
   useCurrencyPreference: () => ({ currencyCode: currencyMock.code, locale: 'en-US' }),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('../modals/LubeLoggerImportModal', () => ({
+  default: ({ vin }: { vin: string }) => <div>LubeLoggerImportModal {vin}</div>,
+}))
 
 import { IMPERIAL_UNITS, METRIC_UNITS, UK_IMPERIAL_UNITS } from '../../__tests__/factories'
 import { binarySystemFor } from '../../types/units'
@@ -121,6 +124,23 @@ beforeEach(() => {
   useDeleteFuelRecordMock.mockReturnValue({ mutate: deleteMutate, isPending: false, variables: undefined })
   useImportFuelCSVMock.mockReturnValue({ mutate: vi.fn(), isPending: false })
   apiGetMock.mockResolvedValue({ data: { fuel_type: 'gasoline' } })
+})
+
+describe('FuelRecordList — importing from LubeLogger', () => {
+  it('LubeLogger in the import dropdown opens the LubeLogger import instead of the file picker', async () => {
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement
+    const pickerClick = vi.spyOn(picker, 'click')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'fuelList.importFormat' }), {
+      target: { value: 'lubelogger' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /fuelList\.importCSV/ }))
+
+    expect(screen.getByText(`LubeLoggerImportModal ${DEFAULT_PROPS.vin}`)).toBeInTheDocument()
+    expect(pickerClick).not.toHaveBeenCalled()
+  })
 })
 
 describe('FuelRecordList — row cells scoped to the named table', () => {

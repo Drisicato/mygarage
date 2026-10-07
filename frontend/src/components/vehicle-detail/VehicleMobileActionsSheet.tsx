@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { X, Upload, Download, BarChart3, Share2, Edit, ArrowRightLeft, Trash2 } from 'lucide-react'
+import { X, Upload, Download, BarChart3, Share2, Edit, ArrowRightLeft, Trash2, FileUp } from 'lucide-react'
 
 interface VehicleMobileActionsSheetProps {
   vin: string
@@ -9,6 +9,8 @@ interface VehicleMobileActionsSheetProps {
   exporting: boolean
   isOnline: boolean
   onImportClick: () => void
+  /** Opens the LubeLogger import; the item shows only when given. */
+  onImportLubeLogger?: () => void
   onExport: () => void
   onOpenModal: (modal: 'remove' | 'transfer' | 'sharing') => void
   onClose: () => void
@@ -22,7 +24,7 @@ interface VehicleMobileActionsSheetProps {
  */
 export default function VehicleMobileActionsSheet({
   vin, isAdmin, importing, exporting, isOnline,
-  onImportClick, onExport, onOpenModal, onClose, onEdit,
+  onImportClick, onImportLubeLogger, onExport, onOpenModal, onClose, onEdit,
 }: VehicleMobileActionsSheetProps) {
   const { t } = useTranslation('vehicles')
   const navigate = useNavigate()
@@ -47,6 +49,16 @@ export default function VehicleMobileActionsSheet({
             <Upload className="w-5 h-5" />
             <span>{importing ? t('detail.importing') : t('detail.importData')}</span>
           </button>
+          {onImportLubeLogger && (
+            <button
+              onClick={() => { onClose(); onImportLubeLogger() }}
+              disabled={!isOnline}
+              className="w-full flex items-center space-x-3 px-4 py-3 text-left text-text hover:bg-surface-2 rounded-lg ui-motion cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FileUp className="w-5 h-5" />
+              <span>{t('lubelogger.button')}</span>
+            </button>
+          )}
           <button
             onClick={() => { onExport(); onClose() }}
             disabled={exporting || !isOnline}
