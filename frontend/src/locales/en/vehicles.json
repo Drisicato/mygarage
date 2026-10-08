@@ -1999,8 +1999,6 @@
     "overwrite": "Save over"
   },
   "lubelogger": {
-    "button": "From LubeLogger",
-    "tooltip": "Import fuel and service records exported from LubeLogger",
     "title": "Import from LubeLogger",
     "intro": "Choose the CSV files you exported from LubeLogger (Fuel, and Service, Repair or Upgrade records). LubeLogger's files don't say what units or date format they use, so set those to match your LubeLogger settings, then preview before importing.",
     "files": "LubeLogger CSV files",

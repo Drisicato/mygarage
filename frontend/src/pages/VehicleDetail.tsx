@@ -82,7 +82,6 @@ import PricingDrawer from '../components/vehicle-detail/PricingDrawer'
 import VehicleFieldsDrawer, { type VehicleCardKey } from '../components/vehicle-detail/VehicleFieldsDrawer'
 import VehicleEditDrawer from '../components/vehicle-detail/VehicleEditDrawer'
 import TorqueSourceModal from '../components/modals/TorqueSourceModal'
-import LubeLoggerImportModal from '../components/modals/LubeLoggerImportModal'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { useAuth } from '../contexts/AuthContext'
 import { fillUpKind, vehicleLogKinds } from '../utils/vehicleLogKinds'
@@ -98,7 +97,7 @@ type ImportSectionResult = {
   error_count: number
 }
 
-export type ModalType = 'remove' | 'transfer' | 'sharing' | 'windowSticker' | 'torqueSource' | 'lubelogger' | null
+export type ModalType = 'remove' | 'transfer' | 'sharing' | 'windowSticker' | 'torqueSource' | null
 export type PrimaryTabType = 'overview' | 'media' | 'maintenance' | 'fuel' | 'tracking' | 'financial' | 'livelink'
 export type SubTabType = 'photos' | 'documents' | 'service' | 'repairs' | 'fuel' | 'def' | 'propane' | 'odometer' | 'hours' | 'notes' | 'warranties' | 'insurance' | 'tax' | 'tolls' | 'financing' | 'spotrentals' | 'suppliesused' | 'recalls' | 'reports' | 'reminders' | 'live' | 'dtcs' | 'sessions' | 'charts' | 'trips' | 'tires'
 
@@ -677,7 +676,6 @@ export default function VehicleDetail() {
           onEdit={() => setEditDrawerOpen(true)}
           onAnalytics={() => navigate(`/vehicles/${vin}/analytics`)}
           onImport={handleImportClick}
-          onImportLubeLogger={() => setOpenModal('lubelogger')}
           onExport={handleExportJSON}
           onOpenModal={setOpenModal}
           onOpenMobileMenu={() => setShowMobileMenu(true)}
@@ -863,7 +861,6 @@ export default function VehicleDetail() {
           exporting={exporting}
           isOnline={isOnline}
           onImportClick={handleImportClick}
-          onImportLubeLogger={() => setOpenModal('lubelogger')}
           onExport={handleExportJSON}
           onOpenModal={setOpenModal}
           onClose={() => setShowMobileMenu(false)}
@@ -882,10 +879,6 @@ export default function VehicleDetail() {
           }}
           onClose={() => setOpenModal(null)}
         />
-      )}
-
-      {openModal === 'lubelogger' && vin && (
-        <LubeLoggerImportModal vin={vin} onClose={() => setOpenModal(null)} />
       )}
     </div>
   )
