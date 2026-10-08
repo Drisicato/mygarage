@@ -350,7 +350,9 @@ def _fuel_row(
         "kwh": kwh,
         "cost": cost,
         "price_per_unit": price_per_unit,
-        "price_basis": None,
+        "price_basis": (
+            None if price_per_unit is None else ("per_kwh" if electric else "per_volume")
+        ),
         "is_full_tank": full,
         "missed_fillup": _truthy(_first(row, _MISSED)),
         "notes": _notes(row),
