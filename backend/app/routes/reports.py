@@ -243,14 +243,14 @@ async def download_cost_summary_pdf(
         cost_data["fuel_count"] = 0
         cost_data["fuel_total"] = 0
 
-    # Collision visits (service_category='Collision')
+    # Collision and Repair visits (reported together as "Collisions & Repairs")
     collision_result = await db.execute(
         select(
             func.count(ServiceVisit.id).label("count"),
             func.sum(ServiceVisit.total_cost).label("total"),
         )
         .where(ServiceVisit.vin == vin)
-        .where(ServiceVisit.service_category == "Collision")
+        .where(ServiceVisit.service_category.in_(("Collision", "Repair")))
         .where(extract("year", ServiceVisit.date) == year)
     )
     collision_stats = collision_result.first()
@@ -502,8 +502,8 @@ async def download_all_records_csv(
 
         # Determine type label from category
         type_label = "Service"
-        if category == "Collision":
-            type_label = "Collision"
+        if category in ("Collision", "Repair"):
+            type_label = category
         elif category == "Upgrades":
             type_label = "Upgrade"
 

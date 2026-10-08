@@ -78,7 +78,7 @@ class TestPreview:
         assert (fuel["date_from"], fuel["date_to"]) == ("2026-10-06", "2026-10-20")
         assert fuel["sample"][0]["liters"] == pytest.approx(39.747)
         assert (repairs["record_type"], repairs["row_count"]) == ("repair", 2)
-        assert repairs["sample"][0]["category"] == "Collision"
+        assert repairs["sample"][0]["category"] == "Repair"
         assert len((await db_session.execute(select(FuelRecord.id))).all()) == before
 
     async def test_an_unsupported_export_is_refused_by_name(
@@ -145,7 +145,7 @@ class TestImport:
                 .where(ServiceVisit.vin == vin, ServiceVisit.notes.is_not(None))
             )
         ).all()
-        assert ("Front bumper", "Collision") in items
+        assert ("Front bumper", "Repair") in items
 
     async def test_two_jobs_the_same_day_are_kept_and_a_reimport_skips_them(
         self, client: AsyncClient, auth_headers, test_vehicle

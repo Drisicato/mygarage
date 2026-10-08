@@ -82,8 +82,8 @@ class PlannedRepair(Base):
             name="check_planned_repairs_priority",
         ),
         CheckConstraint(
-            "service_category IN ('Maintenance', 'Inspection', 'Collision', 'Upgrades', "
-            "'Detailing')",
+            "service_category IN ('Maintenance', 'Inspection', 'Collision', 'Repair', "
+            "'Upgrades', 'Detailing')",
             name="check_planned_repairs_category",
         ),
         Index("idx_planned_repairs_vin", "vin"),

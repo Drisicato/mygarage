@@ -267,7 +267,14 @@ _JSON_IMPORT_SECTIONS = (
 )
 
 # Valid service categories matching the ServiceVisit check constraint
-VALID_SERVICE_CATEGORIES = {"Maintenance", "Inspection", "Collision", "Upgrades", "Detailing"}
+VALID_SERVICE_CATEGORIES = {
+    "Maintenance",
+    "Inspection",
+    "Collision",
+    "Repair",
+    "Upgrades",
+    "Detailing",
+}
 limiter = Limiter(key_func=get_remote_address)
 
 

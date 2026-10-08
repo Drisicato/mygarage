@@ -17,7 +17,9 @@ from app.schemas.supply import SupplyUsageInput, SupplyUsageResponse
 from app.utils.lenient_vocab import LenientVocab, lenient_reader
 
 # Service category type (same as existing)
-ServiceCategory = Literal["Maintenance", "Inspection", "Collision", "Upgrades", "Detailing"]
+ServiceCategory = Literal[
+    "Maintenance", "Inspection", "Collision", "Repair", "Upgrades", "Detailing"
+]
 # A line item's category has no CHECK (the visit's does), so its response reads
 # an unknown one as null instead of 500ing the visit.
 LenientServiceCategory = Annotated[
@@ -244,6 +246,7 @@ class ServiceVisitBase(BaseModel):
             "Maintenance",
             "Inspection",
             "Collision",
+            "Repair",
             "Upgrades",
             "Detailing",
         ]

@@ -66,7 +66,7 @@ class ServiceVisit(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "service_category IN ('Maintenance', 'Inspection', 'Collision', 'Upgrades', 'Detailing')",
+            "service_category IN ('Maintenance', 'Inspection', 'Collision', 'Repair', 'Upgrades', 'Detailing')",
             name="check_service_visit_category",
         ),
         Index("idx_service_visits_vin", "vin"),

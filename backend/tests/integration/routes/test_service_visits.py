@@ -458,7 +458,7 @@ class TestServiceVisitRoutes:
 
     async def test_service_category_options(self, client: AsyncClient, auth_headers, test_vehicle):
         """Test creating service visits with all valid categories."""
-        categories = ["Maintenance", "Inspection", "Collision", "Upgrades", "Detailing"]
+        categories = ["Maintenance", "Inspection", "Collision", "Repair", "Upgrades", "Detailing"]
 
         for i, category in enumerate(categories):
             response = await client.post(

@@ -60,6 +60,7 @@ const INSPECTION_RESULT_FALLBACK_KEY = 'inspectionResult.resultUnknown'
 const SERVICE_CATEGORY_TONE: Record<string, Tone> = {
   Inspection: 'info',
   Collision: 'danger',
+  Repair: 'danger',
   Detailing: 'success',
   Maintenance: 'default',
   Upgrades: 'muted',

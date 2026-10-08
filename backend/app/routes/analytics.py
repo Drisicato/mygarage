@@ -1175,7 +1175,7 @@ async def get_garage_analytics(
                     vehicle_upgrades += cost
                 elif category == "Inspection":
                     vehicle_inspection += cost
-                elif category == "Collision":
+                elif category in ("Collision", "Repair"):
                     vehicle_collision += cost
                 elif category == "Detailing":
                     vehicle_detailing += cost

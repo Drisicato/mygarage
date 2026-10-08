@@ -13846,7 +13846,7 @@ export interface components {
              * Service Category
              * @description Category the service visit gets when completed
              */
-            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Target Date
              * @description When the repair is planned for
@@ -14003,7 +14003,7 @@ export interface components {
              * Service Category
              * @description Category the service visit gets when completed
              */
-            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Service Visit Id
              * @description The service visit logged when this repair was completed
@@ -14071,7 +14071,7 @@ export interface components {
              * Service Category
              * @description Category the service visit gets when completed
              */
-            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Target Date
              * @description When the repair is planned for
@@ -15037,7 +15037,7 @@ export interface components {
              * Category
              * @description Service category
              */
-            category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Cost
              * @description Cost for this line item
@@ -15113,7 +15113,7 @@ export interface components {
              * Category
              * @description Service category
              */
-            category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Cost
              * @description Cost for this line item
@@ -15188,7 +15188,7 @@ export interface components {
          */
         ServiceLineItemUpdate: {
             /** Category */
-            category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /** Cost */
             cost?: number | string | null;
             /** Description */
@@ -15306,7 +15306,7 @@ export interface components {
              * Service Category
              * @description Primary service category
              */
-            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Shop Supplies
              * @description Shop supplies/environmental fee
@@ -15446,7 +15446,7 @@ export interface components {
              * Service Category
              * @description Primary service category
              */
-            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Shop Supplies
              * @description Shop supplies/environmental fee
@@ -15523,7 +15523,7 @@ export interface components {
              * Service Category
              * @description Primary service category
              */
-            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Upgrades" | "Detailing") | null;
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
              * Shop Supplies
              * @description Shop supplies/environmental fee

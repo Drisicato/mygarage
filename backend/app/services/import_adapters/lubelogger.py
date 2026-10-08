@@ -47,7 +47,7 @@ RecordKind = Literal["fuel", "service", "repair", "upgrade"]
 #: The MyGarage service category each service-like kind becomes.
 SERVICE_CATEGORY: dict[str, str] = {
     "service": "Maintenance",
-    "repair": "Collision",
+    "repair": "Repair",
     "upgrade": "Upgrades",
 }
 

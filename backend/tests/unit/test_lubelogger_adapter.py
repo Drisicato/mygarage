@@ -163,7 +163,7 @@ class TestFuel:
 class TestService:
     @pytest.mark.parametrize(
         ("kind", "category"),
-        [("service", "Maintenance"), ("repair", "Collision"), ("upgrade", "Upgrades")],
+        [("service", "Maintenance"), ("repair", "Repair"), ("upgrade", "Upgrades")],
     )
     def test_kind_sets_the_category(self, kind, category):
         parsed = parse_lubelogger(SERVICE_US, US, kind)
