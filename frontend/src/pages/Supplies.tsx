@@ -9,6 +9,8 @@ import {
   useCreateSupply,
   useUpdateSupply,
   useDeleteSupply,
+  useUploadSupplyImage,
+  useDeleteSupplyImage,
 } from '@/hooks/queries/useSupplies'
 import { useQuickEntryVehicles } from '@/hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '@/utils/vehicleLabel'
@@ -32,6 +34,8 @@ import {
 import FormModalWrapper from '@/components/FormModalWrapper'
 import SupplyHistoryModal from '@/components/SupplyHistoryModal'
 import BarcodeScanButton from '@/components/BarcodeScanButton'
+import SupplyImageField from '@/components/SupplyImageField'
+import { firstImageFile, supplyImageUrl } from '@/utils/supplyImage'
 import type { Supply, SupplyCreate, SupplyUpdate } from '@/types/supplies'
 import { getActiveLocale } from '@/constants/i18n'
 import { applyServerErrors } from '@/hooks/useApiFormErrors'
@@ -213,9 +217,19 @@ export default function Supplies() {
       id: 'name',
       header: t('supplies.name'),
       render: (s) => (
-        <div>
-          <div className="font-medium text-garage-text">{s.name}</div>
-          {s.part_number && <div className="text-xs text-garage-text-muted">{s.part_number}</div>}
+        <div className="flex items-center gap-3">
+          {s.has_image && (
+            <img
+              src={supplyImageUrl(s.id, s.updated_at)}
+              alt={t('supplies.imageAlt', { name: s.name })}
+              loading="lazy"
+              className="h-10 w-10 flex-shrink-0 rounded border border-garage-border bg-garage-bg object-contain"
+            />
+          )}
+          <div>
+            <div className="font-medium text-garage-text">{s.name}</div>
+            {s.part_number && <div className="text-xs text-garage-text-muted">{s.part_number}</div>}
+          </div>
         </div>
       ),
     },
@@ -450,6 +464,14 @@ export default function Supplies() {
                             archived ? 'border-garage-border opacity-60' : `${stockBorder} hover:border-primary/50`
                           }`}
                         >
+                          {supply.has_image && (
+                            <img
+                              src={supplyImageUrl(supply.id, supply.updated_at)}
+                              alt={t('supplies.imageAlt', { name: supply.name })}
+                              loading="lazy"
+                              className="mb-3 h-32 w-full rounded border border-garage-border bg-garage-bg object-contain"
+                            />
+                          )}
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex-1">
                               <h3 className="font-semibold text-garage-text text-lg">{supply.name}</h3>
@@ -586,6 +608,10 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
   const isEdit = !!supply
   const [error, setError] = useState<string | null>(null)
   const [isActive, setIsActive] = useState(supply?.is_active ?? true)
+  const [pendingImage, setPendingImage] = useState<File | null>(null)
+  const [removeStoredImage, setRemoveStoredImage] = useState(false)
+  const uploadImageMutation = useUploadSupplyImage()
+  const deleteImageMutation = useDeleteSupplyImage()
   const createMutation = useCreateSupply()
   const updateMutation = useUpdateSupply()
   const { data: vehicles = [] } = useQuickEntryVehicles()
@@ -627,6 +653,36 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
     },
   })
   const unitType = watch('unit_type')
+  const watchedName = watch('name')
+  const watchedPartNumber = watch('part_number')
+
+  const pickImage = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error(t('supplies.imageNotAnImage'))
+      return
+    }
+    setPendingImage(file)
+    setRemoveStoredImage(false)
+  }
+
+  const clearImage = () => {
+    setPendingImage(null)
+    setRemoveStoredImage(true)
+  }
+
+  // Saves the picked image (or the removal) once the supply exists. The supply
+  // is already stored by then, so a failure here warns instead of blocking the form.
+  const syncImage = async (saved: Supply) => {
+    try {
+      if (pendingImage) {
+        await uploadImageMutation.mutateAsync({ supplyId: saved.id, file: pendingImage })
+      } else if (removeStoredImage && saved.has_image) {
+        await deleteImageMutation.mutateAsync(saved.id)
+      }
+    } catch (err) {
+      toast.error(getActionErrorMessage(err, t('supplies.imageUploadFailed')))
+    }
+  }
 
   const onSubmit = async (data: SupplyFormData) => {
     setError(null)
@@ -645,7 +701,8 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           is_active: isActive,
           ...(supply.unit_type === 'volume' ? { volume_unit: data.volume_unit } : {}),
         }
-        await updateMutation.mutateAsync({ id: supply.id, ...payload })
+        const saved = await updateMutation.mutateAsync({ id: supply.id, ...payload })
+        await syncImage(saved)
       } else {
         const payload: SupplyCreate = {
           name: data.name,
@@ -657,7 +714,8 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           notes: data.notes || undefined,
           vin: data.vin || undefined,
         }
-        await createMutation.mutateAsync(payload)
+        const saved = await createMutation.mutateAsync(payload)
+        await syncImage(saved)
       }
 
       onSuccess()
@@ -704,7 +762,20 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
         </>
       }
     >
-      <form id="supply-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4 p-6">
+      <form
+        id="supply-form"
+        onSubmit={handleSubmit(onSubmit)}
+        onPaste={(event) => {
+          // An image on the clipboard (copied from Google, say) becomes the product image;
+          // pasted text keeps going into whichever field has focus.
+          const file = firstImageFile(event.clipboardData.files)
+          if (file) {
+            event.preventDefault()
+            pickImage(file)
+          }
+        }}
+        className="space-y-4 p-6"
+      >
         {error && (
           <div className="rounded-lg border border-danger bg-danger/10 p-3">
             <p className="text-sm text-danger">{error}</p>
@@ -788,6 +859,17 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
             </datalist>
           </Field>
         </div>
+
+        <SupplyImageField
+          supply={supply ?? null}
+          name={watchedName}
+          partNumber={watchedPartNumber ?? ''}
+          pendingFile={pendingImage}
+          onPickFile={pickImage}
+          removeStored={removeStoredImage}
+          onClear={clearImage}
+          disabled={isSubmitting}
+        />
 
         <Field id="barcode" label={t('supplies.barcode')} error={errors.barcode}>
           <div className="flex gap-2 items-start">

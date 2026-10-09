@@ -68,6 +68,7 @@ const OIL_FILTER: Supply = {
   on_hand: '20',
   is_active: true,
   is_negative: false,
+  has_image: false,
   created_at: '2026-01-01T00:00:00',
   category: null,
   notes: null,

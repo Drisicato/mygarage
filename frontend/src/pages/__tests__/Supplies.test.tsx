@@ -13,6 +13,7 @@ const useDeleteSupplyMock = vi.fn()
 // Stable across renders so the form tests can read back what got saved.
 const createSupplyMock = vi.fn()
 const updateSupplyMock = vi.fn()
+const uploadImageMock = vi.fn()
 
 const mutationStub = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, variables: undefined })
 
@@ -34,6 +35,8 @@ vi.mock('../../hooks/queries/useSupplies', () => ({
   useDeleteAdjustment: () => mutationStub(),
   useUploadReceipt: () => mutationStub(),
   useDeleteReceipt: () => mutationStub(),
+  useUploadSupplyImage: () => ({ mutateAsync: uploadImageMock, mutate: vi.fn(), isPending: false }),
+  useDeleteSupplyImage: () => mutationStub(),
 }))
 
 vi.mock('../../hooks/queries/useAddressBook', () => ({
@@ -720,5 +723,82 @@ describe('SupplyForm: the volume unit picker', () => {
 
     await waitFor(() => expect(updateSupplyMock).toHaveBeenCalled())
     expect('volume_unit' in lastPayload(updateSupplyMock)).toBe(false)
+  })
+})
+
+describe('SupplyForm: product image', () => {
+  const submit = () => fireEvent.submit(document.getElementById('supply-form') as HTMLFormElement)
+  const openAdd = () => {
+    render(<Supplies />)
+    fireEvent.click(screen.getByText('supplies.addSupply'))
+  }
+  const searchButton = () => screen.getByRole('button', { name: 'supplies.imageSearchGoogle' })
+
+  beforeEach(() => {
+    uploadImageMock.mockReset()
+    uploadImageMock.mockResolvedValue({})
+    createSupplyMock.mockResolvedValue({ id: 42, has_image: false })
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('the Google search needs a name or part number, then opens Google Images in a new tab', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    openAdd()
+
+    expect(searchButton()).toBeDisabled()
+
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Oil Filter' } })
+    fireEvent.change(document.getElementById('part_number')!, { target: { value: 'PH3593A' } })
+    expect(searchButton()).toBeEnabled()
+    fireEvent.click(searchButton())
+
+    expect(open).toHaveBeenCalledWith(
+      'https://www.google.com/search?tbm=isch&q=Oil%20Filter%20PH3593A',
+      '_blank',
+      'noopener,noreferrer',
+    )
+  })
+
+  it('a picked image uploads against the new supply once it is saved', async () => {
+    openAdd()
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Oil Filter' } })
+    const file = new File(['x'], 'filter.png', { type: 'image/png' })
+    fireEvent.change(screen.getByTestId('supply-image-input'), { target: { files: [file] } })
+    submit()
+
+    await waitFor(() => expect(uploadImageMock).toHaveBeenCalledWith({ supplyId: 42, file }))
+  })
+
+  it('an image pasted into the form becomes the product image', async () => {
+    openAdd()
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Oil Filter' } })
+    const file = new File(['x'], 'clip.png', { type: 'image/png' })
+
+    fireEvent.paste(document.getElementById('supply-form')!, { clipboardData: { files: [file] } })
+    submit()
+
+    await waitFor(() => expect(uploadImageMock).toHaveBeenCalledWith({ supplyId: 42, file }))
+  })
+
+  it('pasting text, or a non-image file, does not pick an image', async () => {
+    openAdd()
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Oil Filter' } })
+    const form = document.getElementById('supply-form')!
+
+    fireEvent.paste(form, { clipboardData: { files: [] } })
+    fireEvent.paste(form, { clipboardData: { files: [new File(['x'], 'a.pdf', { type: 'application/pdf' })] } })
+    submit()
+
+    await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
+    expect(uploadImageMock).not.toHaveBeenCalled()
+  })
+
+  it('saving without an image never calls the upload', async () => {
+    openAdd()
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Oil Filter' } })
+    submit()
+
+    await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
+    expect(uploadImageMock).not.toHaveBeenCalled()
   })
 })

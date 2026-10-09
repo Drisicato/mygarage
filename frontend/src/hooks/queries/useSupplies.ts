@@ -167,6 +167,31 @@ export function useDeleteReceipt(supplyId: number) {
   })
 }
 
+export function useUploadSupplyImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ supplyId, file }: { supplyId: number; file: File }) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const { data } = await api.post<Supply>(`/supplies/${supplyId}/image`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return data
+    },
+    onSuccess: () => invalidateSupplies(queryClient),
+  })
+}
+
+export function useDeleteSupplyImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (supplyId: number) => {
+      await api.delete(`/supplies/${supplyId}/image`)
+    },
+    onSuccess: () => invalidateSupplies(queryClient),
+  })
+}
+
 export function useVehicleSupplyUsages(vin: string | undefined) {
   return useQuery({
     queryKey: ['vehicle-supply-usages', vin],

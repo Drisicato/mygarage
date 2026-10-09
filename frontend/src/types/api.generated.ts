@@ -4127,6 +4127,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/supplies/{supply_id}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Supply Image
+         * @description The supply's product image.
+         */
+        get: operations["get_supply_image_api_supplies__supply_id__image_get"];
+        put?: never;
+        /**
+         * Upload Supply Image
+         * @description Set (or REPLACE) the supply's product image. Re-encoded to a bounded JPEG.
+         */
+        post: operations["upload_supply_image_api_supplies__supply_id__image_post"];
+        /**
+         * Delete Supply Image
+         * @description Remove the supply's product image.
+         */
+        delete: operations["delete_supply_image_api_supplies__supply_id__image_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/supplies/{supply_id}/purchases": {
         parameters: {
             query?: never;
@@ -8748,6 +8776,11 @@ export interface components {
         };
         /** Body_upload_service_visit_attachment_api_service_visits__visit_id__attachments_post */
         Body_upload_service_visit_attachment_api_service_visits__visit_id__attachments_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_supply_image_api_supplies__supply_id__image_post */
+        Body_upload_supply_image_api_supplies__supply_id__image_post: {
             /** File */
             file: string;
         };
@@ -16199,6 +16232,12 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Has Image
+             * @description True when a product image is stored (GET /supplies/{id}/image)
+             * @default false
+             */
+            has_image: boolean;
             /** Id */
             id: number;
             /** Is Active */
@@ -26779,6 +26818,101 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SupplyHistoryResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_supply_image_api_supplies__supply_id__image_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supply_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_supply_image_api_supplies__supply_id__image_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supply_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_supply_image_api_supplies__supply_id__image_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_supply_image_api_supplies__supply_id__image_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supply_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

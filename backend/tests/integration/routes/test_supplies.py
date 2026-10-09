@@ -583,3 +583,112 @@ async def test_delete_purchase_removes_receipt_row_and_file(
         .all()
     )
     assert remaining == []
+
+
+# ---- product image ---------------------------------------------------------
+
+
+def _png_bytes(mode: str = "RGB", size: tuple[int, int] = (1600, 1200)) -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new(mode, size, (200, 30, 30) if mode == "RGB" else (200, 30, 30, 0)).save(
+        buf, format="PNG"
+    )
+    return buf.getvalue()
+
+
+async def _new_supply(client: AsyncClient, auth_headers) -> int:
+    r = await client.post(
+        "/api/supplies", json={"name": "Oil Filter", "unit_type": "count"}, headers=auth_headers
+    )
+    return r.json()["id"]
+
+
+async def test_supply_image_upload_get_replace_delete(client: AsyncClient, auth_headers):
+    from PIL import Image
+
+    from app.config import settings
+
+    sid = await _new_supply(client, auth_headers)
+    assert (await client.get(f"/api/supplies/{sid}", headers=auth_headers)).json()[
+        "has_image"
+    ] is False
+    assert (await client.get(f"/api/supplies/{sid}/image", headers=auth_headers)).status_code == 404
+
+    up = await client.post(
+        f"/api/supplies/{sid}/image",
+        files={"file": ("part.png", _png_bytes(), "image/png")},
+        headers=auth_headers,
+    )
+    assert up.status_code == 200, up.text
+    assert up.json()["has_image"] is True
+
+    got = await client.get(f"/api/supplies/{sid}/image", headers=auth_headers)
+    assert got.status_code == 200
+    assert got.headers["content-type"] == "image/jpeg"
+    assert max(Image.open(io.BytesIO(got.content)).size) <= 800  # downscaled from 1600x1200
+
+    # Replacing swaps the stored file rather than piling up copies.
+    before = sorted(p.name for p in (settings.photos_dir / "supplies").glob(f"{sid}-*"))
+    assert len(before) == 1
+    again = await client.post(
+        f"/api/supplies/{sid}/image",
+        files={"file": ("part2.png", _png_bytes("RGBA", (100, 100)), "image/png")},
+        headers=auth_headers,
+    )
+    assert again.status_code == 200
+    after = sorted(p.name for p in (settings.photos_dir / "supplies").glob(f"{sid}-*"))
+    assert len(after) == 1 and after != before
+
+    assert (
+        await client.delete(f"/api/supplies/{sid}/image", headers=auth_headers)
+    ).status_code == 204
+    assert not list((settings.photos_dir / "supplies").glob(f"{sid}-*"))
+    assert (await client.get(f"/api/supplies/{sid}", headers=auth_headers)).json()[
+        "has_image"
+    ] is False
+    assert (
+        await client.delete(f"/api/supplies/{sid}/image", headers=auth_headers)
+    ).status_code == 404
+
+
+async def test_supply_image_rejects_non_image(client: AsyncClient, auth_headers):
+    sid = await _new_supply(client, auth_headers)
+    r = await client.post(
+        f"/api/supplies/{sid}/image",
+        files={"file": ("part.png", b"definitely not a png", "image/png")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    r = await client.post(
+        f"/api/supplies/{sid}/image",
+        files={"file": ("part.txt", b"hello", "text/plain")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    assert (await client.get(f"/api/supplies/{sid}", headers=auth_headers)).json()[
+        "has_image"
+    ] is False
+
+
+async def test_supply_image_unknown_supply_and_auth(client: AsyncClient, auth_headers):
+    files = {"file": ("part.png", _png_bytes(size=(10, 10)), "image/png")}
+    assert (
+        await client.post("/api/supplies/999999/image", files=files, headers=auth_headers)
+    ).status_code == 404
+    assert (await client.get("/api/supplies/1/image")).status_code == 401
+
+
+async def test_deleting_unused_supply_removes_its_image(client: AsyncClient, auth_headers):
+    from app.config import settings
+
+    sid = await _new_supply(client, auth_headers)
+    await client.post(
+        f"/api/supplies/{sid}/image",
+        files={"file": ("part.png", _png_bytes(size=(10, 10)), "image/png")},
+        headers=auth_headers,
+    )
+    assert list((settings.photos_dir / "supplies").glob(f"{sid}-*"))
+    assert (await client.delete(f"/api/supplies/{sid}", headers=auth_headers)).status_code == 204
+    assert not list((settings.photos_dir / "supplies").glob(f"{sid}-*"))

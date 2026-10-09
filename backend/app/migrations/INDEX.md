@@ -138,3 +138,4 @@ migrations must swallow their own operational errors.
 | `126_add_planned_repair_part_supplies` | Add planned_repair_parts.supply_id and supply_quantity: plan a repair with supplies on hand. |
 | `127_add_reminder_start_readings` | Add vehicle_reminders.start_odometer_km and start_hours: freeze a one-off's progress start. |
 | `128_add_repair_service_category` | Add 'Repair' to the service_category CHECK on service_visits and planned_repairs. |
+| `129_add_supply_image` | **FATAL** — Add supplies.image_path, the relative path of a supply's product image. |

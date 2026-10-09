@@ -49,6 +49,8 @@ class Supply(Base):
     # runner on a fresh boot, so the deployed schema must carry the default itself. true()
     # is dialect-safe — renders DEFAULT 1 on SQLite, DEFAULT true on PostgreSQL (R1-F3).
     notes: Mapped[str | None] = mapped_column(Text)
+    # Relative to settings.photos_dir; NULL = no product image.
+    image_path: Mapped[str | None] = mapped_column(String(255))
     created_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL")
     )  # provenance only, not an access wall

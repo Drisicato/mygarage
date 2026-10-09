@@ -67,6 +67,8 @@ def test_076_create_all_matches_migration(engine_for_migration):
     _load("076_supply_inventory_tables").upgrade(mig_engine)
     # 124 adds supplies.volume_unit on top of 076, and the model carries it.
     _load("124_supply_volume_unit").upgrade(mig_engine)
+    # 129 adds supplies.image_path.
+    _load("129_add_supply_image").upgrade(mig_engine)
     mig = inspect(mig_engine)
 
     model_engine = create_engine("sqlite://")

@@ -5,13 +5,18 @@ so editing or deleting a purchase / job self-heals the balance.
 """
 
 import logging
+import uuid
 from decimal import ROUND_HALF_UP, Decimal
+from io import BytesIO
+from pathlib import Path
 
 from fastapi import HTTPException
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.supply import Supply, SupplyPurchase, SupplyUsage
 from app.models.user import User
 from app.schemas._money import UNIT_COST_MAX
@@ -26,10 +31,14 @@ from app.schemas.supply import (
 )
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.money_fits import ensure_fits
+from app.utils.path_validation import validate_path_within_base
 
 logger = logging.getLogger(__name__)
 
 _ZERO = Decimal("0")
+
+#: Longest edge of a stored product image; plenty for a list thumbnail or a form preview.
+SUPPLY_IMAGE_MAX_SIDE = (800, 800)
 
 
 def usage_cost_subject(supply_id: int) -> str:
@@ -123,6 +132,7 @@ class SupplyService:
             is_negative=on_hand < 0,
             created_at=supply.created_at,
             updated_at=supply.updated_at,
+            has_image=supply.image_path is not None,
         )
 
     # ---- catalog CRUD -------------------------------------------------------
@@ -228,9 +238,76 @@ class SupplyService:
             supply.is_active = False
             await self.db.commit()
             return True
+        image_path = supply.image_path
         await self.db.delete(supply)
         await self.db.commit()
+        if image_path:
+            self.unlink_image(image_path)
         return False
+
+    # ---- product image ------------------------------------------------------
+
+    @staticmethod
+    def image_file(image_path: str) -> Path:
+        """Absolute, validated location of a stored supply image."""
+        return validate_path_within_base(
+            settings.photos_dir / image_path, settings.photos_dir, raise_error=True
+        )
+
+    @classmethod
+    def unlink_image(cls, image_path: str) -> None:
+        """Best-effort removal of a stored image; call only after the DB commit."""
+        try:
+            cls.image_file(image_path).unlink(missing_ok=True)
+        except (OSError, HTTPException):
+            logger.warning("Could not remove supply image %s", sanitize_for_log(image_path))
+
+    async def set_image(self, supply_id: int, contents: bytes) -> SupplyResponse:
+        """Replace the supply's image with ``contents`` (re-encoded, size-capped)."""
+        supply = await self.get_supply(supply_id)
+        try:
+            image = ImageOps.exif_transpose(Image.open(BytesIO(contents)))
+            image.thumbnail(SUPPLY_IMAGE_MAX_SIDE)
+            if image.mode in ("RGBA", "LA", "P"):
+                # JPEG has no alpha: flatten onto white so a transparent product
+                # shot doesn't turn black.
+                rgba = image.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.getchannel("A"))
+                image = flat
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+            raise HTTPException(status_code=400, detail="Invalid image file")
+
+        relative = f"supplies/{supply_id}-{uuid.uuid4().hex[:8]}.jpg"
+        destination = self.image_file(relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        image.save(destination, format="JPEG", quality=88)
+
+        old_path = supply.image_path
+        supply.image_path = relative
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            self.unlink_image(relative)
+            raise
+        if old_path:
+            self.unlink_image(old_path)
+        await self.db.refresh(supply)
+        on_hand, avg = (await self._compute_balances([supply.id]))[supply.id]
+        return self._to_supply_response(supply, on_hand, avg)
+
+    async def clear_image(self, supply_id: int) -> None:
+        """Drop the supply's image; 404 when it has none."""
+        supply = await self.get_supply(supply_id)
+        old_path = supply.image_path
+        if not old_path:
+            raise HTTPException(status_code=404, detail="This supply has no image")
+        supply.image_path = None
+        await self.db.commit()
+        self.unlink_image(old_path)
 
     # ---- purchases ----------------------------------------------------------
 

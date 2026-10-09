@@ -43,6 +43,7 @@ from app.schemas.supply import (
 from app.services.auth import require_auth
 from app.services.file_upload_service import ATTACHMENT_UPLOAD_CONFIG, FileUploadService
 from app.services.supply_service import SupplyService
+from app.utils.file_validation import validate_image_upload
 
 router = APIRouter(prefix="/api/supplies", tags=["supplies"])
 
@@ -185,6 +186,50 @@ async def supply_history(
 ) -> SupplyHistoryResponse:
     """Full chronological purchase/usage ledger for a supply, with running balance."""
     return await SupplyService(db).get_supply_history(supply_id, current_user)
+
+
+# ---- product image -----------------------------------------------------------
+
+
+@router.post("/{supply_id}/image", response_model=SupplyResponse)
+async def upload_supply_image(
+    supply_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(require_auth)],
+    file: UploadFile = File(...),
+) -> SupplyResponse:
+    """Set (or REPLACE) the supply's product image. Re-encoded to a bounded JPEG."""
+    svc = SupplyService(db)
+    await svc.get_supply(supply_id)  # 404 before reading the body
+    contents = await validate_image_upload(file)
+    return await svc.set_image(supply_id, contents)
+
+
+@router.get("/{supply_id}/image")
+async def get_supply_image(
+    supply_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(require_auth)],
+) -> FileResponse:
+    """The supply's product image."""
+    supply = await SupplyService(db).get_supply(supply_id)
+    if not supply.image_path:
+        raise HTTPException(status_code=404, detail="This supply has no image")
+    path = SupplyService.image_file(supply.image_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="This supply has no image")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.delete("/{supply_id}/image", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_supply_image(
+    supply_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(require_auth)],
+) -> Response:
+    """Remove the supply's product image."""
+    await SupplyService(db).clear_image(supply_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---- purchase receipts -------------------------------------------------------

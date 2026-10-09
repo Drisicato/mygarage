@@ -98,6 +98,9 @@ class SupplyResponse(SupplyBase):
     volume_unit: LenientSupplyVolumeUnit = Field(
         None, description="Per-supply display unit; null means the legacy binary pick"
     )
+    has_image: bool = Field(
+        False, description="True when a product image is stored (GET /supplies/{id}/image)"
+    )
 
     model_config = {"from_attributes": True}
 
