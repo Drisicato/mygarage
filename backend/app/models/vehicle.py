@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from app.models.def_record import DEFRecord
     from app.models.document import Document
     from app.models.financing import FinancingRecord
-    from app.models.planned_repair import PlannedRepair
     from app.models.fuel import FuelRecord
     from app.models.hours import HoursRecord
     from app.models.insurance import InsurancePolicyVehicle
@@ -35,6 +34,7 @@ if TYPE_CHECKING:
     from app.models.note import Note
     from app.models.odometer import OdometerRecord
     from app.models.photo import VehiclePhoto
+    from app.models.planned_repair import PlannedRepair
     from app.models.recall import Recall
     from app.models.reminder import Reminder
     from app.models.service_visit import ServiceVisit

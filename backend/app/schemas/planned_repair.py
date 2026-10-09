@@ -31,7 +31,7 @@ class PlannedRepairPartInput(BaseModel):
     )
 
     @model_validator(mode="after")
-    def supply_and_quantity_together(self) -> "PlannedRepairPartInput":
+    def supply_and_quantity_together(self) -> PlannedRepairPartInput:
         if (self.supply_id is None) != (self.supply_quantity is None):
             raise ValueError("supply_id and supply_quantity are given together")
         return self

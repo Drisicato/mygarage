@@ -69,9 +69,7 @@ def upgrade(engine=None):
             """)
             )
             conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_planned_repairs_vin ON planned_repairs (vin)"
-                )
+                text("CREATE INDEX IF NOT EXISTS idx_planned_repairs_vin ON planned_repairs (vin)")
             )
             conn.execute(
                 text(

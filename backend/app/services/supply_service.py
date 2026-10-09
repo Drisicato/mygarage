@@ -259,7 +259,7 @@ class SupplyService:
         """Best-effort removal of a stored image; call only after the DB commit."""
         try:
             cls.image_file(image_path).unlink(missing_ok=True)
-        except (OSError, HTTPException):
+        except OSError, HTTPException:
             logger.warning("Could not remove supply image %s", sanitize_for_log(image_path))
 
     async def set_image(self, supply_id: int, contents: bytes) -> SupplyResponse:
@@ -277,7 +277,7 @@ class SupplyService:
                 image = flat
             elif image.mode != "RGB":
                 image = image.convert("RGB")
-        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        except UnidentifiedImageError, OSError, Image.DecompressionBombError:
             raise HTTPException(status_code=400, detail="Invalid image file")
 
         relative = f"supplies/{supply_id}-{uuid.uuid4().hex[:8]}.jpg"

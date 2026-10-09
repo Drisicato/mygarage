@@ -31,9 +31,7 @@ async def list_planned_repairs(
     vin = vin.upper().strip()
     await get_vehicle_or_403(vin, current_user, db)
     repairs = await PlannedRepairService(db).list_repairs(vin)
-    return PlannedRepairListResponse(
-        repairs=[to_response(r) for r in repairs], total=len(repairs)
-    )
+    return PlannedRepairListResponse(repairs=[to_response(r) for r in repairs], total=len(repairs))
 
 
 @router.post("", response_model=PlannedRepairResponse, status_code=201)
