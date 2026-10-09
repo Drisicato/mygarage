@@ -1,0 +1,22 @@
+# Runs the Drisicato fork of MyGarage from its GHCR image.
+# The image is built by .github/workflows/fork-image.yml on every push to main.
+#
+#   docker compose -f compose.fork.yml pull
+#   docker compose -f compose.fork.yml up -d
+#
+# Data lives in ./data next to this file. The app is served on http://localhost:8686.
+services:
+  mygarage:
+    image: ghcr.io/drisicato/mygarage:latest
+    container_name: mygarage
+    ports:
+      - "8686:8686"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8686/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
