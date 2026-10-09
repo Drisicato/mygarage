@@ -39,8 +39,10 @@ vi.mock('../../hooks/queries/useSupplies', () => ({
   useDeleteSupplyImage: () => mutationStub(),
 }))
 
-vi.mock('../../hooks/queries/useAddressBook', () => ({
+vi.mock('../../hooks/queries/useAddressBook', async (importActual) => ({
+  ...(await importActual<typeof import('../../hooks/queries/useAddressBook')>()),
   useAddressBookEntries: () => ({ data: [] }),
+  useCreateAddressBookEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 vi.mock('../../hooks/queries/useQuickEntryVehicles', () => ({

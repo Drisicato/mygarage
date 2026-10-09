@@ -24,6 +24,15 @@ vi.mock('../../hooks/queries/useSupplies', () => ({
   useDeleteReceipt: () => mutationStub(),
 }))
 
+// Suppliers are address-book entries. The list is mutable so a test can start
+// with or without one; the REAL name matcher runs.
+const addressBookMock = vi.hoisted(() => ({ entries: [] as Array<Record<string, unknown>> }))
+const createEntryMock = vi.fn()
+vi.mock('../../hooks/queries/useAddressBook', async (importActual) => ({
+  ...(await importActual<typeof import('../../hooks/queries/useAddressBook')>()),
+  useAddressBookEntries: () => ({ data: addressBookMock.entries }),
+  useCreateAddressBookEntry: () => ({ mutateAsync: createEntryMock, isPending: false }),
+}))
 // Same mock pattern as Supplies.test.tsx — these hooks need AuthProvider
 // otherwise, and it's not under test here.
 const unitMock = vi.hoisted(() => ({ system: 'metric' as 'metric' | 'imperial' }))
@@ -97,6 +106,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   currencyMock.code = 'USD'
   unitMock.system = 'metric'
+  addressBookMock.entries = []
+  createEntryMock.mockResolvedValue({ id: 500 })
   useSupplyHistoryMock.mockReturnValue({
     data: { supply_id: 1, on_hand: '3.500', avg_unit_cost: '5.25', entries: mockEntries },
     isLoading: false,
@@ -443,5 +454,71 @@ describe('SupplyHistoryModal: the supply keeps its own unit', () => {
       expect(addAdjustmentMock).toHaveBeenCalledTimes(1)
     })
     expect(addAdjustmentMock.mock.calls[0][0].quantity).toBeCloseTo(0.5, 9)
+  })
+})
+
+describe('SupplyHistoryModal purchase supplier', () => {
+  const fill = async (user: ReturnType<typeof userEvent.setup>, supplier: string) => {
+    await user.type(screen.getByLabelText(/supplies\.history\.quantity/), '2')
+    if (supplier) await user.type(screen.getByLabelText('supplies.history.supplier'), supplier)
+    await user.click(screen.getByRole('button', { name: 'save' }))
+  }
+
+  it('offers the address-book entries as suggestions', () => {
+    addressBookMock.entries = [
+      { id: 1, business_name: 'AutoZone', name: null },
+      { id: 2, business_name: null, name: 'Pat at the Garage' },
+    ]
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} initialForm="purchase" />)
+
+    const options = [...document.querySelectorAll('#purchase-supplier-options option')].map(
+      (option) => (option as HTMLOptionElement).value,
+    )
+    expect(options).toEqual(['AutoZone', 'Pat at the Garage'])
+  })
+
+  it('a name already in the address book is reused, ignoring case', async () => {
+    addressBookMock.entries = [{ id: 7, business_name: 'AutoZone', name: null }]
+    const user = userEvent.setup()
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} initialForm="purchase" />)
+
+    await fill(user, '  autozone ')
+
+    await waitFor(() => expect(addPurchaseMock).toHaveBeenCalledTimes(1))
+    expect(addPurchaseMock.mock.calls[0][0].supplier_id).toBe(7)
+    expect(createEntryMock).not.toHaveBeenCalled()
+  })
+
+  it('a new name is added to the address book and used for the purchase', async () => {
+    const user = userEvent.setup()
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} initialForm="purchase" />)
+
+    await fill(user, 'NAPA Auto Parts')
+
+    await waitFor(() => expect(addPurchaseMock).toHaveBeenCalledTimes(1))
+    expect(createEntryMock).toHaveBeenCalledWith('NAPA Auto Parts')
+    expect(addPurchaseMock.mock.calls[0][0].supplier_id).toBe(500)
+  })
+
+  it('no supplier typed means no entry and no supplier on the purchase', async () => {
+    const user = userEvent.setup()
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} initialForm="purchase" />)
+
+    await fill(user, '')
+
+    await waitFor(() => expect(addPurchaseMock).toHaveBeenCalledTimes(1))
+    expect(createEntryMock).not.toHaveBeenCalled()
+    expect(addPurchaseMock.mock.calls[0][0].supplier_id).toBeUndefined()
+  })
+
+  it('a failed address-book save keeps the purchase from being logged', async () => {
+    createEntryMock.mockRejectedValue(new Error('boom'))
+    const user = userEvent.setup()
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} initialForm="purchase" />)
+
+    await fill(user, 'NAPA Auto Parts')
+
+    await waitFor(() => expect(createEntryMock).toHaveBeenCalled())
+    expect(addPurchaseMock).not.toHaveBeenCalled()
   })
 })

@@ -14,7 +14,11 @@ import {
   useUploadReceipt,
   useDeleteReceipt,
 } from '@/hooks/queries/useSupplies'
-import { useAddressBookEntries } from '@/hooks/queries/useAddressBook'
+import {
+  findAddressBookEntry,
+  useAddressBookEntries,
+  useCreateAddressBookEntry,
+} from '@/hooks/queries/useAddressBook'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import {
@@ -31,7 +35,7 @@ import { formatDateForDisplay, formatDateForInput } from '@/utils/dateUtils'
 import { FormError } from '@/components/FormError'
 import FormModalWrapper from '@/components/FormModalWrapper'
 import CurrencyInput from '@/components/common/CurrencyInput'
-import { NumberInput, Select, registerDecimal } from '@/components/ui'
+import { NumberInput, registerDecimal } from '@/components/ui'
 import type { Supply } from '@/types/supplies'
 import type { AddressBookEntry } from '@/types/addressBook'
 import type { components } from '@/types/api.generated'
@@ -427,7 +431,8 @@ interface PurchaseFormValues {
   date: string
   quantity: number
   total_cost?: number
-  supplier_id: string
+  /** Typed or picked; an unknown name becomes a new address-book entry on save. */
+  supplier_name: string
   part_number: string
 }
 
@@ -447,6 +452,7 @@ function PurchaseForm({
   const addPurchase = useAddPurchase(supply.id)
   const uploadReceipt = useUploadReceipt(supply.id)
   const { data: addressBookEntries = [] } = useAddressBookEntries()
+  const createAddressBookEntry = useCreateAddressBookEntry()
   const quantityUnit = unitLabel(unit)
 
   const {
@@ -460,7 +466,7 @@ function PurchaseForm({
       date: formatDateForInput(),
       quantity: undefined,
       total_cost: undefined,
-      supplier_id: '',
+      supplier_name: '',
       part_number: '',
     },
   })
@@ -474,11 +480,20 @@ function PurchaseForm({
       const quantity = toCanonical(Number(values.quantity), unit)
       const totalCost =
         values.total_cost === undefined || Number.isNaN(values.total_cost) ? undefined : values.total_cost
+      // A name that isn't in the address book yet is added there first, so it's
+      // on the list next time. If the purchase then fails, the entry stays and a
+      // retry matches it instead of adding a duplicate.
+      const typedSupplier = values.supplier_name.trim()
+      let supplierId: number | undefined
+      if (typedSupplier) {
+        const existing = findAddressBookEntry(addressBookEntries, typedSupplier)
+        supplierId = existing ? existing.id : (await createAddressBookEntry.mutateAsync(typedSupplier)).id
+      }
       const purchase = await addPurchase.mutateAsync({
         date: values.date,
         quantity,
         total_cost: totalCost,
-        supplier_id: values.supplier_id ? Number(values.supplier_id) : undefined,
+        supplier_id: supplierId,
         part_number: values.part_number?.trim() || undefined,
       })
 
@@ -493,7 +508,7 @@ function PurchaseForm({
         date: formatDateForInput(),
         quantity: undefined,
         total_cost: undefined,
-        supplier_id: '',
+        supplier_name: '',
         part_number: '',
       })
       setFile(null)
@@ -507,7 +522,7 @@ function PurchaseForm({
         'date',
         'quantity',
         'total_cost',
-        'supplier_id',
+        'supplier_name',
       ])
       if (attached.length === 0 || unhandled.length > 0) {
         setError(getActionErrorMessage(err, t('supplies.history.logPurchaseAction')))
@@ -575,16 +590,23 @@ function PurchaseForm({
           <label htmlFor="purchase-supplier" className="block text-xs font-medium text-garage-text mb-1">
             {t('supplies.history.supplier')}
           </label>
-          <Select
+          <input
+            type="text"
             id="purchase-supplier"
-            {...register('supplier_id')}
+            list="purchase-supplier-options"
+            maxLength={150}
+            autoComplete="off"
+            {...register('supplier_name')}
+            placeholder={t('supplies.history.supplierPlaceholder')}
+            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-garage-bg text-garage-text border-garage-border"
             disabled={isSubmitting}
-            placeholder={t('supplies.history.noSupplier')}
-            options={addressBookEntries.map((entry) => ({
-              value: String(entry.id),
-              label: supplierLabel(entry),
-            }))}
           />
+          <datalist id="purchase-supplier-options">
+            {addressBookEntries.map((entry) => (
+              <option key={entry.id} value={supplierLabel(entry)} />
+            ))}
+          </datalist>
+          <p className="mt-1 text-xs text-garage-text-muted">{t('supplies.history.supplierHint')}</p>
         </div>
       </div>
 
