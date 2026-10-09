@@ -7134,6 +7134,32 @@
             "description": "Average fuel rate (L/hr) across all records; null for pure-distance",
             "title": "Average L Per Hr"
           },
+          "odometer_max_km": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Highest odometer reading (km) across all records",
+            "title": "Odometer Max Km"
+          },
+          "odometer_min_km": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lowest odometer reading (km) across all records",
+            "title": "Odometer Min Km"
+          },
           "records": {
             "items": {
               "$ref": "#/components/schemas/FuelRecordResponse"
@@ -7144,6 +7170,32 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "total_liters": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total fuel volume (liters) across all records, not just this page",
+            "title": "Total Liters"
+          },
+          "total_spent": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total fuel cost across all records, not just this page",
+            "title": "Total Spent"
           }
         },
         "required": [

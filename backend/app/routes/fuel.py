@@ -77,12 +77,18 @@ async def list_fuel_records(
         vin, current_user, skip, limit, include_hauling
     )
 
+    total_spent, total_liters, odo_min, odo_max = await service.fuel_totals(vin)
+
     return FuelRecordListResponse(
         records=responses,
         total=total,
         average_l_per_100km=avg_value,
         average_l_per_hr=avg_l_per_hr,
         average_cost_per_hr=avg_cost_per_hr,
+        total_spent=total_spent,
+        total_liters=total_liters,
+        odometer_min_km=odo_min,
+        odometer_max_km=odo_max,
     )
 
 

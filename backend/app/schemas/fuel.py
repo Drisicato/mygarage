@@ -794,6 +794,18 @@ class FuelRecordListResponse(BaseModel):
         None,
         description="Average fuel cost per engine-hour across all records; null for pure-distance",
     )
+    total_spent: Decimal | None = Field(
+        None, description="Total fuel cost across all records, not just this page"
+    )
+    total_liters: Decimal | None = Field(
+        None, description="Total fuel volume (liters) across all records, not just this page"
+    )
+    odometer_min_km: Decimal | None = Field(
+        None, description="Lowest odometer reading (km) across all records"
+    )
+    odometer_max_km: Decimal | None = Field(
+        None, description="Highest odometer reading (km) across all records"
+    )
 
     model_config = {
         "json_schema_extra": {

@@ -260,6 +260,23 @@ class TestFuelHoursEconomyRoutes:
         assert Decimal(str(data["average_cost_per_hr"])) == Decimal("1.25")  # 25 / 20
         assert Decimal(str(data["average_l_per_100km"])) == Decimal("3.00")
 
+    async def test_list_totals_cover_every_record_not_just_the_page(
+        self, client: AsyncClient, auth_headers, test_user, db_session: AsyncSession
+    ) -> None:
+        vin = "FUELHOURS00000008"
+        await _make_vehicle(db_session, int(test_user["id"]), vin)  # type: ignore[arg-type]
+        await self._seed_two_full_tanks(client, auth_headers, vin)
+
+        resp = await client.get(f"/api/vehicles/{vin}/fuel?limit=1", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert len(data["records"]) == 1
+        assert data["total"] == 2
+        assert Decimal(str(data["total_spent"])) == Decimal("55")  # 30 + 25
+        assert Decimal(str(data["total_liters"])) == Decimal("35")  # 20 + 15
+        assert Decimal(str(data["odometer_min_km"])) == Decimal("1000")
+        assert Decimal(str(data["odometer_max_km"])) == Decimal("1500")
+
     async def test_pure_distance_list_has_null_hours_averages(
         self, client: AsyncClient, auth_headers, test_user, db_session: AsyncSession
     ) -> None:

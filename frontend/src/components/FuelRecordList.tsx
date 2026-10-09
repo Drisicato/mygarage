@@ -374,14 +374,24 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
 
       {/* Inline Analytics Cards */}
       {records.length > 0 && (() => {
-        const totalCost = records.reduce((sum, r) => sum + (r.cost ? parseFloat(String(r.cost)) : 0), 0)
-        const totalLiters = records.reduce((sum, r) => sum + (r.liters ? parseFloat(String(r.liters)) : 0), 0)
+        // Totals come from the server over the vehicle's whole history; the
+        // list itself is paginated, so summing `records` would only cover one page.
+        const pageCost = records.reduce((sum, r) => sum + (r.cost ? parseFloat(String(r.cost)) : 0), 0)
+        const pageLiters = records.reduce((sum, r) => sum + (r.liters ? parseFloat(String(r.liters)) : 0), 0)
+        const totalCost = data?.total_spent != null ? parseFloat(String(data.total_spent)) : pageCost
+        const totalLiters = data?.total_liters != null ? parseFloat(String(data.total_liters)) : pageLiters
         const avgCostPerLiter = totalLiters > 0 ? totalCost / totalLiters : null
-        const odometers = records
+        const pageOdometers = records
           .map(r => r.odometer_km != null ? parseFloat(String(r.odometer_km)) : null)
           .filter((v): v is number => v != null && !isNaN(v))
-        const costPerKm = odometers.length >= 2
-          ? totalCost / (Math.max(...odometers) - Math.min(...odometers))
+        const odoMin = data?.odometer_min_km != null
+          ? parseFloat(String(data.odometer_min_km))
+          : pageOdometers.length >= 2 ? Math.min(...pageOdometers) : null
+        const odoMax = data?.odometer_max_km != null
+          ? parseFloat(String(data.odometer_max_km))
+          : pageOdometers.length >= 2 ? Math.max(...pageOdometers) : null
+        const costPerKm = odoMin != null && odoMax != null && odoMax > odoMin
+          ? totalCost / (odoMax - odoMin)
           : null
 
         // The towing toggle lives in the average card, so the card stays while

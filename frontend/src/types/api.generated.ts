@@ -10828,10 +10828,30 @@ export interface components {
              * @description Average fuel rate (L/hr) across all records; null for pure-distance
              */
             average_l_per_hr?: string | null;
+            /**
+             * Odometer Max Km
+             * @description Highest odometer reading (km) across all records
+             */
+            odometer_max_km?: string | null;
+            /**
+             * Odometer Min Km
+             * @description Lowest odometer reading (km) across all records
+             */
+            odometer_min_km?: string | null;
             /** Records */
             records: components["schemas"]["FuelRecordResponse"][];
             /** Total */
             total: number;
+            /**
+             * Total Liters
+             * @description Total fuel volume (liters) across all records, not just this page
+             */
+            total_liters?: string | null;
+            /**
+             * Total Spent
+             * @description Total fuel cost across all records, not just this page
+             */
+            total_spent?: string | null;
         };
         /**
          * FuelRecordResponse

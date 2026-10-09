@@ -785,6 +785,26 @@ class FuelRecordService:
             )
             raise HTTPException(status_code=503, detail="Database temporarily unavailable")
 
+    async def fuel_totals(
+        self, vin: str
+    ) -> tuple[Decimal | None, Decimal | None, Decimal | None, Decimal | None]:
+        """``(total_cost, total_liters, min_odometer_km, max_odometer_km)`` over
+        every fuel record of the vehicle, so the list's summary cards don't
+        shrink to the current page. Access is checked by ``list_fuel_records``.
+        """
+        vin = vin.upper().strip()
+        row = (
+            await self.db.execute(
+                select(
+                    func.sum(FuelRecord.cost),
+                    func.sum(FuelRecord.liters),
+                    func.min(FuelRecord.odometer_km),
+                    func.max(FuelRecord.odometer_km),
+                ).where(FuelRecord.vin == vin)
+            )
+        ).one()
+        return tuple(None if v is None else Decimal(str(v)) for v in row)  # type: ignore[return-value]
+
     async def get_fuel_record(
         self, vin: str, record_id: int, current_user: User
     ) -> tuple[FuelRecord, Decimal | None, Decimal | None]:
