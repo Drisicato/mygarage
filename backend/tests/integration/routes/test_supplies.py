@@ -692,3 +692,124 @@ async def test_deleting_unused_supply_removes_its_image(client: AsyncClient, aut
     assert list((settings.photos_dir / "supplies").glob(f"{sid}-*"))
     assert (await client.delete(f"/api/supplies/{sid}", headers=auth_headers)).status_code == 204
     assert not list((settings.photos_dir / "supplies").glob(f"{sid}-*"))
+
+
+# ---- edit a logged purchase ------------------------------------------------
+
+
+async def _supply_with_purchase(client: AsyncClient, auth_headers, **purchase) -> tuple[int, int]:
+    sid = (
+        await client.post(
+            "/api/supplies",
+            json={"name": "Brake Fluid", "unit_type": "count"},
+            headers=auth_headers,
+        )
+    ).json()["id"]
+    body = {"date": "2026-01-05", "quantity": 4, "total_cost": 20, **purchase}
+    pid = (
+        await client.post(f"/api/supplies/{sid}/purchases", json=body, headers=auth_headers)
+    ).json()["id"]
+    return sid, pid
+
+
+async def test_edit_purchase_changes_the_ledger(client: AsyncClient, auth_headers):
+    sid, pid = await _supply_with_purchase(client, auth_headers, part_number="BF-1")
+
+    r = await client.patch(
+        f"/api/supplies/{sid}/purchases/{pid}",
+        json={"date": "2026-02-01", "quantity": 6, "total_cost": 30, "part_number": "BF-2"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["date"] == "2026-02-01"
+    assert Decimal(str(body["quantity"])) == Decimal("6")
+    assert Decimal(str(body["total_cost"])) == Decimal("30")
+    assert body["part_number"] == "BF-2"
+
+    supply = (await client.get(f"/api/supplies/{sid}", headers=auth_headers)).json()
+    assert Decimal(str(supply["on_hand"])) == Decimal("6")
+    assert Decimal(str(supply["avg_unit_cost"])) == Decimal("5")  # 30 / 6
+
+    entry = (await client.get(f"/api/supplies/{sid}/history", headers=auth_headers)).json()[
+        "entries"
+    ][0]
+    assert entry["part_number"] == "BF-2"
+    assert entry["at"].startswith("2026-02-01")
+
+
+async def test_edit_purchase_leaves_omitted_fields_and_can_clear_optional_ones(
+    client: AsyncClient, auth_headers
+):
+    sid, pid = await _supply_with_purchase(client, auth_headers, part_number="BF-1", notes="n")
+
+    r = await client.patch(
+        f"/api/supplies/{sid}/purchases/{pid}", json={"quantity": 5}, headers=auth_headers
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert Decimal(str(body["quantity"])) == Decimal("5")
+    assert body["date"] == "2026-01-05"
+    assert Decimal(str(body["total_cost"])) == Decimal("20")
+    assert body["part_number"] == "BF-1"
+
+    cleared = await client.patch(
+        f"/api/supplies/{sid}/purchases/{pid}",
+        json={"total_cost": None, "part_number": None, "supplier_id": None},
+        headers=auth_headers,
+    )
+    assert cleared.status_code == 200
+    body = cleared.json()
+    assert body["total_cost"] is None
+    assert body["part_number"] is None
+    assert body["notes"] == "n"
+
+
+async def test_edit_purchase_refuses_bad_values(client: AsyncClient, auth_headers):
+    sid, pid = await _supply_with_purchase(client, auth_headers)
+    url = f"/api/supplies/{sid}/purchases/{pid}"
+    for bad in ({"quantity": None}, {"date": None}, {"quantity": 0}, {"quantity": -1}):
+        r = await client.patch(url, json=bad, headers=auth_headers)
+        assert r.status_code == 422, bad
+    r = await client.patch(url, json={"supplier_id": 999999}, headers=auth_headers)
+    assert r.status_code == 422
+
+    body = (await client.get(f"/api/supplies/{sid}", headers=auth_headers)).json()
+    assert Decimal(str(body["on_hand"])) == Decimal("4")  # nothing changed
+
+
+async def test_edit_purchase_sets_a_supplier(client: AsyncClient, auth_headers):
+    sid, pid = await _supply_with_purchase(client, auth_headers)
+    supplier = (
+        await client.post("/api/address-book", json={"business_name": "NAPA"}, headers=auth_headers)
+    ).json()["id"]
+
+    r = await client.patch(
+        f"/api/supplies/{sid}/purchases/{pid}", json={"supplier_id": supplier}, headers=auth_headers
+    )
+    assert r.status_code == 200
+    assert r.json()["supplier_id"] == supplier
+
+
+async def test_edit_purchase_not_found_wrong_supply_and_auth(client: AsyncClient, auth_headers):
+    sid, pid = await _supply_with_purchase(client, auth_headers)
+    other = (
+        await client.post(
+            "/api/supplies", json={"name": "Other", "unit_type": "count"}, headers=auth_headers
+        )
+    ).json()["id"]
+
+    assert (
+        await client.patch(
+            f"/api/supplies/{sid}/purchases/999999", json={"quantity": 1}, headers=auth_headers
+        )
+    ).status_code == 404
+    # A purchase of another supply can't be edited through this one.
+    assert (
+        await client.patch(
+            f"/api/supplies/{other}/purchases/{pid}", json={"quantity": 1}, headers=auth_headers
+        )
+    ).status_code == 404
+    assert (
+        await client.patch(f"/api/supplies/{sid}/purchases/{pid}", json={"quantity": 1})
+    ).status_code == 401

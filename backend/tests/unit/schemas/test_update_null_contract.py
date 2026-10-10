@@ -43,7 +43,7 @@ from app.models.service_visit import ServiceVisit
 from app.models.settings import Setting
 from app.models.spot_rental import SpotRental
 from app.models.spot_rental_billing import SpotRentalBilling
-from app.models.supply import Supply
+from app.models.supply import Supply, SupplyPurchase
 from app.models.tax import TaxRecord
 from app.models.tire import Tire, TireMountPeriod, TireSet
 from app.models.toll import TollTag, TollTransaction
@@ -85,7 +85,7 @@ from app.schemas.service_visit import ServiceVisitUpdate
 from app.schemas.settings import POIProviderUpdate, SettingUpdate
 from app.schemas.spot_rental import SpotRentalUpdate
 from app.schemas.spot_rental_billing import SpotRentalBillingUpdate
-from app.schemas.supply import SupplyUpdate
+from app.schemas.supply import SupplyPurchaseUpdate, SupplyUpdate
 from app.schemas.tax import TaxRecordUpdate
 from app.schemas.tire import MountPeriodUpdate, TireSetUpdate, TireUpdate
 from app.schemas.toll import TollTagUpdate, TollTransactionUpdate
@@ -177,6 +177,7 @@ REGISTRY: dict[type[BaseModel], Entry] = {
     SettingUpdate: Entry(Setting),
     SpotRentalBillingUpdate: Entry(SpotRentalBilling),
     SpotRentalUpdate: Entry(SpotRental),
+    SupplyPurchaseUpdate: Entry(SupplyPurchase),
     SupplyUpdate: Entry(Supply),
     TaxRecordUpdate: Entry(TaxRecord),
     TireSetUpdate: Entry(TireSet),
@@ -262,6 +263,7 @@ EXPECTED_NOT_NULL: dict[str, set[str]] = {
     "SettingUpdate": {"category", "encrypted"},
     "SpotRentalBillingUpdate": {"billing_date"},
     "SpotRentalUpdate": {"check_in_date"},
+    "SupplyPurchaseUpdate": {"date", "quantity"},
     "SupplyUpdate": {"is_active", "name"},
     "TaxRecordUpdate": {"amount", "date"},
     "TireSetUpdate": {"name"},

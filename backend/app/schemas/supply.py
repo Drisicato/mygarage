@@ -140,6 +140,27 @@ class SupplyPurchaseCreate(BaseModel):
     _quantity_grain = field_validator("quantity")(_storable_quantity)
 
 
+class SupplyPurchaseUpdate(BaseModel):
+    """Patch a logged purchase. Omitted keeps the stored value; null clears the optional ones."""
+
+    date: date_type | None = None
+    quantity: Decimal | None = Field(
+        None, gt=0, le=SUPPLY_QUANTITY_MAX, description="Canonical units (L or count)"
+    )
+    total_cost: OptionalMoney = None
+    supplier_id: int | None = None
+    part_number: str | None = Field(None, max_length=60)
+    notes: str | None = Field(None, max_length=5000)
+
+    # NOT NULL columns: omitted keeps the stored value, null is a 422.
+    _no_null = reject_null("date", "quantity")
+
+    @field_validator("quantity")
+    @classmethod
+    def _quantity_grain(cls, value: Decimal | None) -> Decimal | None:
+        return None if value is None else _storable_quantity(value)
+
+
 class SupplyPurchaseResponse(BaseModel):
     id: int
     supply_id: int
@@ -211,6 +232,8 @@ class SupplyLedgerEntry(BaseModel):
     running_balance: Decimal
     cost: Decimal | None = Field(None, description="purchase total_cost or usage cost_snapshot")
     supplier_id: int | None = None
+    part_number: str | None = Field(None, description="A purchase entry's part number")
+    notes: str | None = Field(None, description="A purchase entry's notes")
     service_line_item_id: int | None = None
     service_visit_id: int | None = Field(None, description="Owning visit for a job usage")
     service_visit_date: date_type | None = None

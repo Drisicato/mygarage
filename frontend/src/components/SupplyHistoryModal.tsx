@@ -1,13 +1,14 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useForm } from 'react-hook-form'
-import { AlertTriangle, Download, FileX, History, Plus, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, Download, FileX, History, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/services/api'
 import {
   useSupplyHistory,
   useAddPurchase,
+  useUpdatePurchase,
   useDeletePurchase,
   useAddAdjustment,
   useDeleteAdjustment,
@@ -27,6 +28,7 @@ import {
   formatSupplyQuantity,
   supplyDisplayUnit,
   toCanonical,
+  toDisplay,
   unitCostToDisplay,
   unitLabel,
   type SupplyUnit,
@@ -36,7 +38,7 @@ import { FormError } from '@/components/FormError'
 import FormModalWrapper from '@/components/FormModalWrapper'
 import CurrencyInput from '@/components/common/CurrencyInput'
 import { NumberInput, registerDecimal } from '@/components/ui'
-import type { Supply } from '@/types/supplies'
+import type { Supply, SupplyPurchaseUpdate } from '@/types/supplies'
 import type { AddressBookEntry } from '@/types/addressBook'
 import type { components } from '@/types/api.generated'
 import { getActiveLocale } from '@/constants/i18n'
@@ -188,6 +190,7 @@ function PurchaseRow({ entry, supply, unit }: LedgerRowProps) {
   const uploadReceipt = useUploadReceipt(supply.id)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [downloading, setDownloading] = useState(false)
+  const [editing, setEditing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputId = `receipt-upload-${entry.id}`
 
@@ -242,6 +245,10 @@ function PurchaseRow({ entry, supply, unit }: LedgerRowProps) {
     )
     setSelectedFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  if (editing) {
+    return <PurchaseForm supply={supply} unit={unit} editing={entry} onDone={() => setEditing(false)} />
   }
 
   return (
@@ -316,6 +323,15 @@ function PurchaseRow({ entry, supply, unit }: LedgerRowProps) {
             )}
           </>
         )}
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="p-1.5 text-garage-text-muted hover:text-primary rounded transition-colors"
+          aria-label={t('supplies.history.editPurchaseButton')}
+          title={t('supplies.history.editPurchaseButton')}
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
         <button
           type="button"
           onClick={handleDeletePurchase}
@@ -436,59 +452,115 @@ interface PurchaseFormValues {
   part_number: string
 }
 
+const supplierLabel = (entry: AddressBookEntry): string =>
+  entry.business_name || entry.name || `#${entry.id}`
+
+/** The quantity box's starting value for a stored purchase, in the supply's display unit. */
+function editableQuantity(canonical: string, unit: SupplyUnit): number {
+  return Number(toDisplay(Number(canonical), unit).toFixed(4))
+}
+
 function PurchaseForm({
   supply,
   unit,
   onDone,
+  editing,
 }: {
   supply: Supply
   unit: SupplyUnit
   onDone: () => void
+  /** A logged purchase to edit; without it the form logs a new one. */
+  editing?: SupplyLedgerEntry
 }) {
   const { t } = useTranslation('common')
   const [error, setError] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const addPurchase = useAddPurchase(supply.id)
+  const updatePurchase = useUpdatePurchase(supply.id)
   const uploadReceipt = useUploadReceipt(supply.id)
   const { data: addressBookEntries = [] } = useAddressBookEntries()
   const createAddressBookEntry = useCreateAddressBookEntry()
   const quantityUnit = unitLabel(unit)
+  // The add form keeps its plain ids; an edit form sits beside it, so it gets its own.
+  const idPrefix = editing ? `purchase-edit-${editing.id}` : 'purchase'
 
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    resetField,
+    formState: { errors, isSubmitting, dirtyFields },
     setError: setFieldError,
   } = useForm<PurchaseFormValues>({
-    defaultValues: {
-      date: formatDateForInput(),
-      quantity: undefined,
-      total_cost: undefined,
-      supplier_name: '',
-      part_number: '',
-    },
+    defaultValues: editing
+      ? {
+          date: editing.at.split('T')[0],
+          quantity: editableQuantity(editing.quantity, unit),
+          total_cost: editing.cost != null ? Number(editing.cost) : undefined,
+          supplier_name: '',
+          part_number: editing.part_number ?? '',
+        }
+      : {
+          date: formatDateForInput(),
+          quantity: undefined,
+          total_cost: undefined,
+          supplier_name: '',
+          part_number: '',
+        },
   })
 
-  const supplierLabel = (entry: AddressBookEntry): string =>
-    entry.business_name || entry.name || `#${entry.id}`
+  // The address book may still be loading when the edit form opens; fill the
+  // stored supplier's name in once it's there, unless the user already typed one.
+  const storedSupplier = editing?.supplier_id
+    ? addressBookEntries.find((entry) => entry.id === editing.supplier_id)
+    : undefined
+  const storedSupplierName = storedSupplier ? supplierLabel(storedSupplier) : ''
+  useEffect(() => {
+    if (storedSupplierName) resetField('supplier_name', { defaultValue: storedSupplierName, keepDirty: true })
+  }, [storedSupplierName, resetField])
+
+  // A typed name that isn't in the address book yet is added there first, so
+  // it's on the list next time. If the purchase then fails, the entry stays and
+  // a retry matches it instead of adding a duplicate.
+  const resolveSupplierId = async (typed: string): Promise<number | undefined> => {
+    if (!typed) return undefined
+    const existing = findAddressBookEntry(addressBookEntries, typed)
+    return existing ? existing.id : (await createAddressBookEntry.mutateAsync(typed)).id
+  }
+
+  const saveEdit = async (values: PurchaseFormValues, entry: SupplyLedgerEntry) => {
+    // Only what was changed goes up, so an untouched quantity isn't re-converted
+    // from the rounded number on screen.
+    const changes: SupplyPurchaseUpdate = {}
+    if (dirtyFields.date) changes.date = values.date
+    if (dirtyFields.quantity) changes.quantity = toCanonical(Number(values.quantity), unit)
+    if (dirtyFields.total_cost) {
+      changes.total_cost =
+        values.total_cost === undefined || Number.isNaN(values.total_cost) ? null : values.total_cost
+    }
+    if (dirtyFields.supplier_name) {
+      changes.supplier_id = (await resolveSupplierId(values.supplier_name.trim())) ?? null
+    }
+    if (dirtyFields.part_number) changes.part_number = values.part_number.trim() || null
+    if (Object.keys(changes).length > 0) {
+      await updatePurchase.mutateAsync({ purchaseId: entry.id, ...changes })
+      toast.success(t('supplies.history.purchaseUpdated'))
+    }
+    onDone()
+  }
 
   const onSubmit = async (values: PurchaseFormValues) => {
     setError(null)
     try {
+      if (editing) {
+        await saveEdit(values, editing)
+        return
+      }
       const quantity = toCanonical(Number(values.quantity), unit)
       const totalCost =
         values.total_cost === undefined || Number.isNaN(values.total_cost) ? undefined : values.total_cost
-      // A name that isn't in the address book yet is added there first, so it's
-      // on the list next time. If the purchase then fails, the entry stays and a
-      // retry matches it instead of adding a duplicate.
-      const typedSupplier = values.supplier_name.trim()
-      let supplierId: number | undefined
-      if (typedSupplier) {
-        const existing = findAddressBookEntry(addressBookEntries, typedSupplier)
-        supplierId = existing ? existing.id : (await createAddressBookEntry.mutateAsync(typedSupplier)).id
-      }
+      const supplierId = await resolveSupplierId(values.supplier_name.trim())
       const purchase = await addPurchase.mutateAsync({
         date: values.date,
         quantity,
@@ -525,7 +597,9 @@ function PurchaseForm({
         'supplier_name',
       ])
       if (attached.length === 0 || unhandled.length > 0) {
-        setError(getActionErrorMessage(err, t('supplies.history.logPurchaseAction')))
+        setError(
+          getActionErrorMessage(err, t(editing ? 'supplies.history.editPurchaseAction' : 'supplies.history.logPurchaseAction')),
+        )
       }
     }
   }
@@ -535,7 +609,9 @@ function PurchaseForm({
       onSubmit={handleSubmit(onSubmit)}
       className="border border-garage-border rounded-lg p-4 space-y-3 bg-garage-surface"
     >
-      <h4 className="text-sm font-semibold text-garage-text">{t('supplies.history.logPurchase')}</h4>
+      <h4 className="text-sm font-semibold text-garage-text">
+        {editing ? t('supplies.history.editPurchase') : t('supplies.history.logPurchase')}
+      </h4>
 
       {error && (
         <div className="bg-danger/10 border border-danger rounded-lg p-2 text-sm text-danger">{error}</div>
@@ -543,23 +619,23 @@ function PurchaseForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label htmlFor="purchase-date" className="block text-xs font-medium text-garage-text mb-1">
+          <label htmlFor={`${idPrefix}-date`} className="block text-xs font-medium text-garage-text mb-1">
             {t('date')} <span className="text-danger">*</span>
           </label>
           <input
             type="date"
-            id="purchase-date"
+            id={`${idPrefix}-date`}
             {...register('date', { required: true })}
             className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-garage-bg text-garage-text border-garage-border"
             disabled={isSubmitting}
           />
         </div>
         <div>
-          <label htmlFor="purchase-quantity" className="block text-xs font-medium text-garage-text mb-1">
+          <label htmlFor={`${idPrefix}-quantity`} className="block text-xs font-medium text-garage-text mb-1">
             {t('supplies.history.quantity')} {quantityUnit && `(${quantityUnit})`} <span className="text-danger">*</span>
           </label>
           <NumberInput
-            id="purchase-quantity"
+            id={`${idPrefix}-quantity`}
             {...registerDecimal(register, 'quantity', {
               required: t('supplies.history.quantityRequired'),
               validate: (val) => validateSupplyQuantity(val, unit, t),
@@ -573,11 +649,11 @@ function PurchaseForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label htmlFor="purchase-cost" className="block text-xs font-medium text-garage-text mb-1">
+          <label htmlFor={`${idPrefix}-cost`} className="block text-xs font-medium text-garage-text mb-1">
             {t('totalCost')}
           </label>
           <CurrencyInput
-            id="purchase-cost"
+            id={`${idPrefix}-cost`}
             {...registerDecimal(register, 'total_cost', {
               validate: (val) => validateCost(val, t),
             })}
@@ -587,13 +663,13 @@ function PurchaseForm({
           <FormError error={errors.total_cost} />
         </div>
         <div>
-          <label htmlFor="purchase-supplier" className="block text-xs font-medium text-garage-text mb-1">
+          <label htmlFor={`${idPrefix}-supplier`} className="block text-xs font-medium text-garage-text mb-1">
             {t('supplies.history.supplier')}
           </label>
           <input
             type="text"
-            id="purchase-supplier"
-            list="purchase-supplier-options"
+            id={`${idPrefix}-supplier`}
+            list={`${idPrefix}-supplier-options`}
             maxLength={150}
             autoComplete="off"
             {...register('supplier_name')}
@@ -601,7 +677,7 @@ function PurchaseForm({
             className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-garage-bg text-garage-text border-garage-border"
             disabled={isSubmitting}
           />
-          <datalist id="purchase-supplier-options">
+          <datalist id={`${idPrefix}-supplier-options`}>
             {addressBookEntries.map((entry) => (
               <option key={entry.id} value={supplierLabel(entry)} />
             ))}
@@ -611,13 +687,13 @@ function PurchaseForm({
       </div>
 
       <div>
-        <label htmlFor="purchase-part-number" className="block text-xs font-medium text-garage-text mb-1">
+        <label htmlFor={`${idPrefix}-part-number`} className="block text-xs font-medium text-garage-text mb-1">
           {t('supplies.partNumber')}
         </label>
         <div className="flex gap-2 items-start">
           <input
             type="text"
-            id="purchase-part-number"
+            id={`${idPrefix}-part-number`}
             {...register('part_number')}
             className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-garage-bg text-garage-text border-garage-border"
             disabled={isSubmitting}
@@ -625,20 +701,23 @@ function PurchaseForm({
         </div>
       </div>
 
-      <div>
-        <label htmlFor="purchase-receipt" className="block text-xs font-medium text-garage-text mb-1">
-          {t('supplies.history.receipt')}
-        </label>
-        <input
-          ref={fileInputRef}
-          type="file"
-          id="purchase-receipt"
-          accept={RECEIPT_ACCEPT}
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="w-full text-sm text-garage-text"
-          disabled={isSubmitting}
-        />
-      </div>
+      {/* A logged purchase's receipt is managed on its ledger row. */}
+      {!editing && (
+        <div>
+          <label htmlFor="purchase-receipt" className="block text-xs font-medium text-garage-text mb-1">
+            {t('supplies.history.receipt')}
+          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            id="purchase-receipt"
+            accept={RECEIPT_ACCEPT}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="w-full text-sm text-garage-text"
+            disabled={isSubmitting}
+          />
+        </div>
+      )}
 
       <div className="flex gap-2">
         <button

@@ -13,10 +13,12 @@ const mutationStub = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: 
 // Stable across renders so a test can read back what the form posted.
 const addPurchaseMock = vi.fn()
 const addAdjustmentMock = vi.fn()
+const updatePurchaseMock = vi.fn()
 
 vi.mock('../../hooks/queries/useSupplies', () => ({
   useSupplyHistory: () => useSupplyHistoryMock(),
   useAddPurchase: () => ({ ...mutationStub(), mutateAsync: addPurchaseMock }),
+  useUpdatePurchase: () => ({ ...mutationStub(), mutateAsync: updatePurchaseMock }),
   useDeletePurchase: () => mutationStub(),
   useAddAdjustment: () => ({ ...mutationStub(), mutateAsync: addAdjustmentMock }),
   useDeleteAdjustment: () => mutationStub(),
@@ -114,6 +116,7 @@ beforeEach(() => {
     error: null,
   })
   addPurchaseMock.mockResolvedValue({ id: 99 })
+  updatePurchaseMock.mockResolvedValue({ id: 10 })
   addAdjustmentMock.mockResolvedValue({ id: 98 })
 })
 
@@ -520,5 +523,107 @@ describe('SupplyHistoryModal purchase supplier', () => {
 
     await waitFor(() => expect(createEntryMock).toHaveBeenCalled())
     expect(addPurchaseMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('SupplyHistoryModal edit a logged purchase', () => {
+  // The ledger's purchase row (id 10): Jan 5, 5 L, 25.00, no supplier.
+  const openEdit = async (user: ReturnType<typeof userEvent.setup>) => {
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'supplies.history.editPurchaseButton' }))
+  }
+  const field = (name: string) => document.getElementById(`purchase-edit-10-${name}`) as HTMLInputElement
+
+  it('opens the form on the stored values, in place of the row', async () => {
+    const user = userEvent.setup()
+    await openEdit(user)
+
+    expect(screen.getByText('supplies.history.editPurchase')).toBeInTheDocument()
+    expect(field('date').value).toBe('2026-01-05')
+    expect(field('quantity').value).toBe('5')
+    expect(field('cost').value).toBe('25')
+    // The receipt is handled on the row, not here.
+    expect(document.getElementById('purchase-receipt')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'supplies.history.editPurchaseButton' })).not.toBeInTheDocument()
+  })
+
+  it('saving with nothing changed sends nothing', async () => {
+    const user = userEvent.setup()
+    await openEdit(user)
+
+    await user.click(screen.getByRole('button', { name: 'save' }))
+
+    await waitFor(() => expect(screen.queryByText('supplies.history.editPurchase')).not.toBeInTheDocument())
+    expect(updatePurchaseMock).not.toHaveBeenCalled()
+  })
+
+  it('sends only the fields that changed, the quantity back in litres', async () => {
+    const user = userEvent.setup()
+    await openEdit(user)
+
+    await user.clear(field('quantity'))
+    await user.type(field('quantity'), '7.5')
+    await user.click(screen.getByRole('button', { name: 'save' }))
+
+    await waitFor(() => expect(updatePurchaseMock).toHaveBeenCalledTimes(1))
+    expect(updatePurchaseMock).toHaveBeenCalledWith({ purchaseId: 10, quantity: 7.5 })
+  })
+
+  it('clearing the cost sends null so the stored cost is removed', async () => {
+    const user = userEvent.setup()
+    await openEdit(user)
+
+    await user.clear(field('cost'))
+    await user.click(screen.getByRole('button', { name: 'save' }))
+
+    await waitFor(() => expect(updatePurchaseMock).toHaveBeenCalledTimes(1))
+    expect(updatePurchaseMock).toHaveBeenCalledWith({ purchaseId: 10, total_cost: null })
+  })
+
+  it('a new supplier name is added to the address book and set on the purchase', async () => {
+    const user = userEvent.setup()
+    await openEdit(user)
+
+    await user.type(field('supplier'), 'NAPA Auto Parts')
+    await user.click(screen.getByRole('button', { name: 'save' }))
+
+    await waitFor(() => expect(updatePurchaseMock).toHaveBeenCalledTimes(1))
+    expect(createEntryMock).toHaveBeenCalledWith('NAPA Auto Parts')
+    expect(updatePurchaseMock).toHaveBeenCalledWith({ purchaseId: 10, supplier_id: 500 })
+  })
+
+  it('shows the stored supplier and clearing it removes the link', async () => {
+    addressBookMock.entries = [{ id: 7, business_name: 'AutoZone', name: null }]
+    useSupplyHistoryMock.mockReturnValue({
+      data: {
+        supply_id: 1,
+        on_hand: '5.000',
+        avg_unit_cost: '5.00',
+        entries: [{ ...mockEntries[0], supplier_id: 7, part_number: 'MO-9' }],
+      },
+      isLoading: false,
+      error: null,
+    })
+    const user = userEvent.setup()
+    await openEdit(user)
+
+    await waitFor(() => expect(field('supplier').value).toBe('AutoZone'))
+    expect(field('part-number').value).toBe('MO-9')
+
+    await user.clear(field('supplier'))
+    await user.click(screen.getByRole('button', { name: 'save' }))
+
+    await waitFor(() => expect(updatePurchaseMock).toHaveBeenCalledTimes(1))
+    expect(updatePurchaseMock).toHaveBeenCalledWith({ purchaseId: 10, supplier_id: null })
+  })
+
+  it('cancel closes the form without saving', async () => {
+    const user = userEvent.setup()
+    await openEdit(user)
+
+    await user.click(screen.getByRole('button', { name: 'cancel' }))
+
+    expect(screen.queryByText('supplies.history.editPurchase')).not.toBeInTheDocument()
+    expect(updatePurchaseMock).not.toHaveBeenCalled()
   })
 })

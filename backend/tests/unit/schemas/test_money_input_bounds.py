@@ -60,7 +60,7 @@ from app.schemas.service_visit import (
 )
 from app.schemas.spot_rental import SpotRentalCreate, SpotRentalUpdate
 from app.schemas.spot_rental_billing import SpotRentalBillingCreate, SpotRentalBillingUpdate
-from app.schemas.supply import SupplyPurchaseCreate
+from app.schemas.supply import SupplyPurchaseCreate, SupplyPurchaseUpdate
 from app.schemas.tax import TaxRecordCreate, TaxRecordUpdate
 from app.schemas.toll import TollTransactionCreate, TollTransactionUpdate
 from app.schemas.vehicle import (
@@ -156,6 +156,7 @@ CASES = [
     ),
     Case(ServiceVisitUpdate, {}, ("total_cost", *_VISIT_FEES)),
     Case(SupplyPurchaseCreate, {"date": DAY, "quantity": 1}, ("total_cost",)),
+    Case(SupplyPurchaseUpdate, {}, ("total_cost",)),
     Case(TaxRecordCreate, {"vin": VIN, "date": DAY, "amount": 0}, ("amount",)),
     Case(TaxRecordUpdate, {}, ("amount",)),
     Case(

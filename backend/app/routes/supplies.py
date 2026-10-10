@@ -35,6 +35,7 @@ from app.schemas.supply import (
     SupplyListResponse,
     SupplyPurchaseCreate,
     SupplyPurchaseResponse,
+    SupplyPurchaseUpdate,
     SupplyResponse,
     SupplyUpdate,
     SupplyUsageResponse,
@@ -133,6 +134,19 @@ async def add_purchase(
 ) -> SupplyPurchaseResponse:
     """Record a stock-in purchase for a supply."""
     purchase = await SupplyService(db).add_purchase(supply_id, data, current_user)
+    return SupplyPurchaseResponse.model_validate(purchase)
+
+
+@router.patch("/{supply_id}/purchases/{purchase_id}", response_model=SupplyPurchaseResponse)
+async def update_purchase(
+    supply_id: int,
+    purchase_id: int,
+    data: SupplyPurchaseUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(require_auth)],
+) -> SupplyPurchaseResponse:
+    """Edit a logged purchase (date, quantity, cost, supplier, part number, notes)."""
+    purchase = await SupplyService(db).update_purchase(supply_id, purchase_id, data, current_user)
     return SupplyPurchaseResponse.model_validate(purchase)
 
 

@@ -30,6 +30,7 @@ vi.mock('../../hooks/queries/useSupplies', () => ({
     error: null,
   }),
   useAddPurchase: () => mutationStub(),
+  useUpdatePurchase: () => mutationStub(),
   useDeletePurchase: () => mutationStub(),
   useAddAdjustment: () => mutationStub(),
   useDeleteAdjustment: () => mutationStub(),

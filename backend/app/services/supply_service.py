@@ -17,6 +17,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.address_book import AddressBookEntry
 from app.models.supply import Supply, SupplyPurchase, SupplyUsage
 from app.models.user import User
 from app.schemas._money import UNIT_COST_MAX
@@ -25,6 +26,7 @@ from app.schemas.supply import (
     SupplyCreate,
     SupplyHistoryResponse,
     SupplyPurchaseCreate,
+    SupplyPurchaseUpdate,
     SupplyResponse,
     SupplyUpdate,
     SupplyUsageResponse,
@@ -329,6 +331,42 @@ class SupplyService:
         await self.db.refresh(purchase)
         return purchase
 
+    async def update_purchase(
+        self,
+        supply_id: int,
+        purchase_id: int,
+        data: SupplyPurchaseUpdate,
+        current_user: User | None,
+    ) -> SupplyPurchase:
+        """Edit a logged purchase. Balances are ledger-derived, so they follow on their own.
+
+        Usages keep the unit-cost snapshot they took when they were logged.
+        """
+        purchase = (
+            await self.db.execute(
+                select(SupplyPurchase)
+                .where(SupplyPurchase.id == purchase_id)
+                .where(SupplyPurchase.supply_id == supply_id)
+            )
+        ).scalar_one_or_none()
+        if not purchase:
+            raise HTTPException(status_code=404, detail=f"Purchase {purchase_id} not found")
+        payload = data.model_dump(exclude_unset=True)
+        supplier_id = payload.get("supplier_id")
+        if supplier_id is not None:
+            known = (
+                await self.db.execute(
+                    select(AddressBookEntry.id).where(AddressBookEntry.id == supplier_id)
+                )
+            ).scalar_one_or_none()
+            if known is None:
+                raise HTTPException(status_code=422, detail=f"Supplier {supplier_id} not found")
+        for field, value in payload.items():
+            setattr(purchase, field, value)
+        await self.db.commit()
+        await self.db.refresh(purchase)
+        return purchase
+
     async def delete_purchase(
         self, supply_id: int, purchase_id: int, current_user: User | None
     ) -> None:
@@ -554,6 +592,8 @@ class SupplyService:
                         running_balance=balance.quantize(Decimal("0.001")),
                         cost=obj.total_cost,
                         supplier_id=obj.supplier_id,
+                        part_number=obj.part_number,
+                        notes=obj.notes,
                         receipt=receipts.get(obj.id),
                     )
                 )

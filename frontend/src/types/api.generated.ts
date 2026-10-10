@@ -4192,7 +4192,11 @@ export interface paths {
         delete: operations["delete_purchase_api_supplies__supply_id__purchases__purchase_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Purchase
+         * @description Edit a logged purchase (date, quantity, cost, supplier, part number, notes).
+         */
+        patch: operations["update_purchase_api_supplies__supply_id__purchases__purchase_id__patch"];
         trace?: never;
     };
     "/api/supplies/{supply_id}/purchases/{purchase_id}/receipt": {
@@ -16127,6 +16131,16 @@ export interface components {
             /** Id */
             id: number;
             /**
+             * Notes
+             * @description A purchase entry's notes
+             */
+            notes?: string | null;
+            /**
+             * Part Number
+             * @description A purchase entry's part number
+             */
+            part_number?: string | null;
+            /**
              * Quantity
              * @description signed: + for purchase, − for usage
              */
@@ -16202,6 +16216,27 @@ export interface components {
             supply_id: number;
             /** Total Cost */
             total_cost?: string | null;
+        };
+        /**
+         * SupplyPurchaseUpdate
+         * @description Patch a logged purchase. Omitted keeps the stored value; null clears the optional ones.
+         */
+        SupplyPurchaseUpdate: {
+            /** Date */
+            date?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Part Number */
+            part_number?: string | null;
+            /**
+             * Quantity
+             * @description Canonical units (L or count)
+             */
+            quantity?: number | string | null;
+            /** Supplier Id */
+            supplier_id?: number | null;
+            /** Total Cost */
+            total_cost?: number | string | null;
         };
         /** SupplyReceiptSummary */
         SupplyReceiptSummary: {
@@ -26978,6 +27013,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_purchase_api_supplies__supply_id__purchases__purchase_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supply_id: number;
+                purchase_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplyPurchaseUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplyPurchaseResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

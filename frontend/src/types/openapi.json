@@ -20294,6 +20294,30 @@
             "title": "Id",
             "type": "integer"
           },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A purchase entry's notes",
+            "title": "Notes"
+          },
+          "part_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A purchase entry's part number",
+            "title": "Part Number"
+          },
           "quantity": {
             "description": "signed: + for purchase, \u2212 for usage",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -20565,6 +20589,95 @@
           "created_at"
         ],
         "title": "SupplyPurchaseResponse",
+        "type": "object"
+      },
+      "SupplyPurchaseUpdate": {
+        "description": "Patch a logged purchase. Omitted keeps the stored value; null clears the optional ones.",
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "part_number": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Number"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 999999999.999,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Canonical units (L or count)",
+            "title": "Quantity"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          },
+          "total_cost": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost"
+          }
+        },
+        "title": "SupplyPurchaseUpdate",
         "type": "object"
       },
       "SupplyReceiptSummary": {
@@ -42280,6 +42393,71 @@
           }
         ],
         "summary": "Delete Purchase",
+        "tags": [
+          "supplies"
+        ]
+      },
+      "patch": {
+        "description": "Edit a logged purchase (date, quantity, cost, supplier, part number, notes).",
+        "operationId": "update_purchase_api_supplies__supply_id__purchases__purchase_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "supply_id",
+            "required": true,
+            "schema": {
+              "title": "Supply Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "purchase_id",
+            "required": true,
+            "schema": {
+              "title": "Purchase Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplyPurchaseUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplyPurchaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Purchase",
         "tags": [
           "supplies"
         ]

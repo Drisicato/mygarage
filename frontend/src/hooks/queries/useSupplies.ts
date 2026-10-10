@@ -7,6 +7,7 @@ import type {
   SupplyUpdate,
   SupplyPurchase,
   SupplyPurchaseCreate,
+  SupplyPurchaseUpdate,
   SupplyAdjustmentCreate,
   SupplyHistory,
   SupplyUsage,
@@ -94,6 +95,20 @@ export function useAddPurchase(supplyId: number) {
     mutationFn: async (payload: SupplyPurchaseCreate) => {
       const { data } = await api.post<SupplyPurchase>(
         `/supplies/${supplyId}/purchases`,
+        payload
+      )
+      return data
+    },
+    onSuccess: () => invalidateSupplies(queryClient, supplyId),
+  })
+}
+
+export function useUpdatePurchase(supplyId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ purchaseId, ...payload }: SupplyPurchaseUpdate & { purchaseId: number }) => {
+      const { data } = await api.patch<SupplyPurchase>(
+        `/supplies/${supplyId}/purchases/${purchaseId}`,
         payload
       )
       return data
