@@ -9,6 +9,7 @@ import type { components } from './api.generated'
 export type PlannedRepair = components['schemas']['PlannedRepairResponse']
 export type PlannedRepairCreate = components['schemas']['PlannedRepairCreate']
 export type PlannedRepairUpdate = components['schemas']['PlannedRepairUpdate']
+export type PlannedRepairPhoto = components['schemas']['PlannedRepairPhotoResponse']
 export type PlannedRepairMove = components['schemas']['PlannedRepairMove']
 export type PlannedRepairListResponse = components['schemas']['PlannedRepairListResponse']
 

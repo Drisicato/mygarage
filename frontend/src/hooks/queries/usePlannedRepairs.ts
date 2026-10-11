@@ -6,6 +6,7 @@ import type {
   PlannedRepairCreate,
   PlannedRepairListResponse,
   PlannedRepairMove,
+  PlannedRepairPhoto,
   PlannedRepairUpdate,
 } from '@/types/plannedRepair'
 import type { ServiceVisitCreate } from '@/types/serviceVisit'
@@ -59,6 +60,37 @@ export function useDeletePlannedRepair(vin: string) {
   return useMutation({
     mutationFn: async (repairId: number) => {
       await api.delete(`/vehicles/${vin}/planned-repairs/${repairId}`)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: repairsKey(vin) })
+    },
+  })
+}
+
+export function useUploadPlannedRepairPhoto(vin: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ repairId, file }: { repairId: number; file: File }) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const { data } = await api.post<PlannedRepairPhoto>(
+        `/vehicles/${vin}/planned-repairs/${repairId}/photos`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      return data
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: repairsKey(vin) })
+    },
+  })
+}
+
+export function useDeletePlannedRepairPhoto(vin: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ repairId, photoId }: { repairId: number; photoId: number }) => {
+      await api.delete(`/vehicles/${vin}/planned-repairs/${repairId}/photos/${photoId}`)
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: repairsKey(vin) })

@@ -60,6 +60,15 @@ class PlannedRepairPartResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PlannedRepairPhotoResponse(BaseModel):
+    """A stored photo; the image itself is served by the photo endpoint."""
+
+    id: int
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
+
 class PlannedRepairCreate(BaseModel):
     """Schema for creating a planned repair. New repairs start in planning."""
 
@@ -137,6 +146,7 @@ class PlannedRepairResponse(BaseModel):
     created_at: dt.datetime
     updated_at: dt.datetime | None = None
     parts: list[PlannedRepairPartResponse] = Field(default_factory=list)
+    photos: list[PlannedRepairPhotoResponse] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

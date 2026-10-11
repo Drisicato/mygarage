@@ -6174,6 +6174,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/photos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Planned Repair Photo
+         * @description Add a photo to a repair. Re-encoded to a size-capped JPEG.
+         */
+        post: operations["upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/photos/{photo_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Planned Repair Photo
+         * @description The photo's image.
+         */
+        get: operations["get_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos__photo_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Planned Repair Photo
+         * @description Remove a photo from a repair.
+         */
+        delete: operations["delete_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos__photo_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vehicles/{vin}/recalls": {
         parameters: {
             query?: never;
@@ -8775,6 +8819,11 @@ export interface components {
             file: string;
             /** Title */
             title: string;
+        };
+        /** Body_upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post */
+        Body_upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post: {
+            /** File */
+            file: string;
         };
         /** Body_upload_receipt_api_supplies__supply_id__purchases__purchase_id__receipt_post */
         Body_upload_receipt_api_supplies__supply_id__purchases__purchase_id__receipt_post: {
@@ -14042,6 +14091,19 @@ export interface components {
             volume_unit?: ("mL" | "L" | "fl_oz_us" | "fl_oz_uk" | "qt_us" | "qt_uk" | "gal_us" | "gal_uk") | null;
         };
         /**
+         * PlannedRepairPhotoResponse
+         * @description A stored photo; the image itself is served by the photo endpoint.
+         */
+        PlannedRepairPhotoResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+        };
+        /**
          * PlannedRepairResponse
          * @description Schema for planned repair response.
          */
@@ -14067,6 +14129,8 @@ export interface components {
             id: number;
             /** Parts */
             parts?: components["schemas"]["PlannedRepairPartResponse"][];
+            /** Photos */
+            photos?: components["schemas"]["PlannedRepairPhotoResponse"][];
             /** Position */
             position: number;
             /**
@@ -30405,6 +30469,106 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PlannedRepairResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairPhotoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos__photo_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+                photo_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos__photo_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+                photo_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

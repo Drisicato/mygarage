@@ -1,14 +1,19 @@
 """Planned repair business logic: the board's ordering and completion into service history."""
 
 import logging
+import uuid
 from datetime import UTC, datetime
+from io import BytesIO
+from pathlib import Path
 
 from fastapi import HTTPException
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.planned_repair import PlannedRepair, PlannedRepairPart
+from app.config import settings
+from app.models.planned_repair import PlannedRepair, PlannedRepairPart, PlannedRepairPhoto
 from app.models.service_visit import ServiceVisit
 from app.schemas.planned_repair import (
     PlannedRepairCreate,
@@ -24,8 +29,13 @@ from app.services.supply_service import SupplyService
 from app.services.vehicle_lock import lock_vehicle_for_write
 from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.logging_utils import sanitize_for_log
+from app.utils.path_validation import validate_path_within_base
 
 logger = logging.getLogger(__name__)
+
+#: Longest edge of a stored photo: legible detail on a damaged part, without a phone's full 12 MP.
+PHOTO_MAX_SIDE = (1600, 1600)
+MAX_PHOTOS_PER_REPAIR = 12
 
 #: Board column order, so a list reads left to right.
 _STATUS_ORDER = {"planning": 0, "in_progress": 1, "done": 2}
@@ -35,6 +45,7 @@ def _load_options():
     return (
         selectinload(PlannedRepair.parts).selectinload(PlannedRepairPart.supply),
         selectinload(PlannedRepair.vendor),
+        selectinload(PlannedRepair.photos),
     )
 
 
@@ -48,6 +59,30 @@ def _parts(items: list[PlannedRepairPartInput]) -> list[PlannedRepairPart]:
         )
         for p in items
     ]
+
+
+def _encode_photo(contents: bytes) -> Image.Image:
+    """Decode an upload to an upright RGB image no larger than ``PHOTO_MAX_SIDE``."""
+    try:
+        image = ImageOps.exif_transpose(Image.open(BytesIO(contents)))
+        image.thumbnail(PHOTO_MAX_SIDE)
+        if image.mode in ("RGBA", "LA", "P"):
+            # JPEG has no alpha: flatten onto white so a transparent PNG doesn't turn black.
+            rgba = image.convert("RGBA")
+            flat = Image.new("RGB", rgba.size, (255, 255, 255))
+            flat.paste(rgba, mask=rgba.getchannel("A"))
+            return flat
+        return image.convert("RGB") if image.mode != "RGB" else image
+    except UnidentifiedImageError, OSError, Image.DecompressionBombError:
+        raise HTTPException(status_code=400, detail="Invalid image file")
+
+
+def _unlink_photo(file_path: str) -> None:
+    """Best-effort removal of a stored photo; call only after the DB commit."""
+    try:
+        PlannedRepairService.photo_file(file_path).unlink(missing_ok=True)
+    except OSError, HTTPException:
+        logger.warning("Could not remove repair photo %s", sanitize_for_log(file_path))
 
 
 class PlannedRepairService:
@@ -149,8 +184,65 @@ class PlannedRepairService:
     async def delete_repair(self, vin: str, repair_id: int) -> None:
         """Delete a repair. A service visit it logged stays in service history."""
         repair = await self.get_repair(vin, repair_id)
+        photo_paths = [p.file_path for p in repair.photos]
         await self.db.delete(repair)
         await self.db.commit()
+        for path in photo_paths:
+            _unlink_photo(path)
+
+    # ---- photos ---------------------------------------------------------------
+
+    @staticmethod
+    def photo_file(file_path: str) -> Path:
+        """Absolute, validated location of a stored repair photo."""
+        return validate_path_within_base(
+            settings.photos_dir / file_path, settings.photos_dir, raise_error=True
+        )
+
+    async def add_photo(self, vin: str, repair_id: int, contents: bytes) -> PlannedRepairPhoto:
+        """Store ``contents`` as a size-capped JPEG on the repair."""
+        repair = await self.get_repair(vin, repair_id)
+        if len(repair.photos) >= MAX_PHOTOS_PER_REPAIR:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A repair holds at most {MAX_PHOTOS_PER_REPAIR} photos",
+            )
+        image = _encode_photo(contents)
+
+        relative = f"{vin}/planned_repairs/{repair_id}-{uuid.uuid4().hex[:8]}.jpg"
+        destination = self.photo_file(relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        image.save(destination, format="JPEG", quality=88)
+
+        photo = PlannedRepairPhoto(repair_id=repair_id, file_path=relative)
+        self.db.add(photo)
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            _unlink_photo(relative)
+            raise
+        await self.db.refresh(photo)
+        return photo
+
+    async def get_photo(self, vin: str, repair_id: int, photo_id: int) -> PlannedRepairPhoto:
+        await self.get_repair(vin, repair_id)  # 404 unless the repair is this vehicle's
+        result = await self.db.execute(
+            select(PlannedRepairPhoto).where(
+                PlannedRepairPhoto.id == photo_id, PlannedRepairPhoto.repair_id == repair_id
+            )
+        )
+        photo = result.scalar_one_or_none()
+        if photo is None:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        return photo
+
+    async def delete_photo(self, vin: str, repair_id: int, photo_id: int) -> None:
+        photo = await self.get_photo(vin, repair_id, photo_id)
+        file_path = photo.file_path
+        await self.db.delete(photo)
+        await self.db.commit()
+        _unlink_photo(file_path)
 
     async def move_repair(self, vin: str, repair_id: int, move: PlannedRepairMove) -> PlannedRepair:
         """Move a repair to a stage and position, renumbering the columns it touches.

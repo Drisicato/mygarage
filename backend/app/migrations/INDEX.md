@@ -139,3 +139,4 @@ migrations must swallow their own operational errors.
 | `127_add_reminder_start_readings` | Add vehicle_reminders.start_odometer_km and start_hours: freeze a one-off's progress start. |
 | `128_add_repair_service_category` | Add 'Repair' to the service_category CHECK on service_visits and planned_repairs. |
 | `129_add_supply_image` | **FATAL** — Add supplies.image_path, the relative path of a supply's product image. |
+| `130_add_planned_repair_photos` | Create planned_repair_photos for photos attached to planned repairs. |

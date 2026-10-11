@@ -2,7 +2,8 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -11,12 +12,14 @@ from app.schemas.planned_repair import (
     PlannedRepairCreate,
     PlannedRepairListResponse,
     PlannedRepairMove,
+    PlannedRepairPhotoResponse,
     PlannedRepairResponse,
     PlannedRepairUpdate,
 )
 from app.schemas.service_visit import ServiceVisitCreate
 from app.services.auth import get_vehicle_or_403, require_auth
 from app.services.planned_repair_service import PlannedRepairService, to_response
+from app.utils.file_validation import validate_image_upload
 
 router = APIRouter(prefix="/api/vehicles/{vin}/planned-repairs", tags=["Planned Repairs"])
 
@@ -85,6 +88,55 @@ async def delete_planned_repair(
     vin = vin.upper().strip()
     await get_vehicle_or_403(vin, current_user, db, require_write=True)
     await PlannedRepairService(db).delete_repair(vin, repair_id)
+
+
+@router.post("/{repair_id}/photos", response_model=PlannedRepairPhotoResponse, status_code=201)
+async def upload_planned_repair_photo(
+    vin: str,
+    repair_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    current_user: User | None = Depends(require_auth),
+) -> PlannedRepairPhotoResponse:
+    """Add a photo to a repair. Re-encoded to a size-capped JPEG."""
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db, require_write=True)
+    contents = await validate_image_upload(file)
+    photo = await PlannedRepairService(db).add_photo(vin, repair_id, contents)
+    return PlannedRepairPhotoResponse.model_validate(photo)
+
+
+@router.get("/{repair_id}/photos/{photo_id}")
+async def get_planned_repair_photo(
+    vin: str,
+    repair_id: int,
+    photo_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: User | None = Depends(require_auth),
+) -> FileResponse:
+    """The photo's image."""
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db)
+    service = PlannedRepairService(db)
+    photo = await service.get_photo(vin, repair_id, photo_id)
+    path = service.photo_file(photo.file_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Photo file not found")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.delete("/{repair_id}/photos/{photo_id}", status_code=204)
+async def delete_planned_repair_photo(
+    vin: str,
+    repair_id: int,
+    photo_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: User | None = Depends(require_auth),
+) -> None:
+    """Remove a photo from a repair."""
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db, require_write=True)
+    await PlannedRepairService(db).delete_photo(vin, repair_id, photo_id)
 
 
 @router.post("/{repair_id}/move", response_model=PlannedRepairResponse)

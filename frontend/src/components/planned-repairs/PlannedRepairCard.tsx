@@ -7,6 +7,7 @@ import { useUnitFormat } from '../../hooks/useUnitFormat'
 import { useDateLocale } from '../../hooks/useDateLocale'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import { formatDateForDisplay } from '../../utils/dateUtils'
+import { repairPhotoUrl } from '../../utils/plannedRepairPhoto'
 import {
   REPAIR_STATUSES,
   type PlannedRepair,
@@ -23,6 +24,9 @@ const PRIORITY_TONE: Record<RepairPriority, Tone> = {
 
 /** The id dnd-kit tracks a card by, shared with the board's drop handling. */
 export const cardDndId = (id: number) => `repair:${id}`
+
+/** Photos shown on a card; the last tile carries a "+N" when there are more. */
+const MAX_THUMBS = 3
 
 interface PlannedRepairCardProps {
   repair: PlannedRepair
@@ -61,6 +65,7 @@ export default function PlannedRepairCard({ repair, onEdit, onDelete, onMoveTo }
   ]
 
   const cost = repair.estimated_cost != null ? formatCurrency(repair.estimated_cost) : null
+  const photos = repair.photos ?? []
   const partCount = repair.parts?.length ?? 0
   const supplyCount = repair.parts?.filter((p) => p.supply_id != null).length ?? 0
 
@@ -90,6 +95,38 @@ export default function PlannedRepairCard({ repair, onEdit, onDelete, onMoveTo }
 
         {repair.description && (
           <p className="mt-1 text-xs text-text-mute line-clamp-2 whitespace-pre-wrap">{repair.description}</p>
+        )}
+
+        {photos.length > 0 && (
+          // The card is a drag handle, so the thumbnails keep their clicks to themselves.
+          <div
+            className="mt-2 flex gap-1.5"
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {photos.slice(0, MAX_THUMBS).map((photo, index) => (
+              <a
+                key={photo.id}
+                href={repairPhotoUrl(repair.vin, repair.id, photo.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative h-14 w-14 overflow-hidden rounded-md border border-border bg-surface-2"
+              >
+                <img
+                  src={repairPhotoUrl(repair.vin, repair.id, photo.id)}
+                  alt={t('plannedRepairs.photoAlt', { number: index + 1, title: repair.title })}
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+                {index === MAX_THUMBS - 1 && photos.length > MAX_THUMBS && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xs font-medium text-white">
+                    <span aria-hidden="true">+{photos.length - MAX_THUMBS + 1}</span>
+                    <span className="sr-only">{t('plannedRepairs.photoMore', { count: photos.length - MAX_THUMBS + 1 })}</span>
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
         )}
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">

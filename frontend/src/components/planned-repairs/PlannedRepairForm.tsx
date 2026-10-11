@@ -4,7 +4,7 @@
  * visit's line items when the repair is completed.
  */
 
-import { useMemo, useState, type SyntheticEvent } from 'react'
+import { useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Package, Plus, Save, Trash2 } from 'lucide-react'
 import FormModalWrapper from '../FormModalWrapper'
@@ -14,7 +14,14 @@ import { useSupplies } from '../../hooks/queries/useSupplies'
 import { useUnitPreference } from '../../hooks/useUnitPreference'
 import { supplyDisplayUnit, toCanonical, toDisplay, type SupplyUnit } from '../../utils/supplyUnits'
 import { Button, Field, IconButton, Input, NumberInput, Select, Textarea } from '../ui'
-import { useCreatePlannedRepair, useUpdatePlannedRepair } from '../../hooks/queries/usePlannedRepairs'
+import PlannedRepairPhotoField from './PlannedRepairPhotoField'
+import {
+  useCreatePlannedRepair,
+  useDeletePlannedRepairPhoto,
+  useUpdatePlannedRepair,
+  useUploadPlannedRepairPhoto,
+} from '../../hooks/queries/usePlannedRepairs'
+import { MAX_REPAIR_PHOTOS } from '../../utils/plannedRepairPhoto'
 import { useFormSubmit } from '../../hooks/useFormSubmit'
 import { useUnitFormat } from '../../hooks/useUnitFormat'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
@@ -59,6 +66,8 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
   const isEdit = !!repair
   const createMutation = useCreatePlannedRepair(vin)
   const updateMutation = useUpdatePlannedRepair(vin)
+  const uploadPhotoMutation = useUploadPlannedRepairPhoto(vin)
+  const deletePhotoMutation = useDeletePlannedRepairPhoto(vin)
 
   const [title, setTitle] = useState(repair?.title ?? '')
   const [description, setDescription] = useState(repair?.description ?? '')
@@ -96,6 +105,25 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
   )
   const [nextKey, setNextKey] = useState(-1)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const savedId = useRef<number | null>(repair?.id ?? null)
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([])
+  const [removedPhotoIds, setRemovedPhotoIds] = useState<number[]>([])
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const storedPhotos = (repair?.photos ?? []).filter((p) => !removedPhotoIds.includes(p.id))
+
+  const pickPhotos = (files: File[]) => {
+    const images = files.filter((f) => f.type.startsWith('image/'))
+    const rejected = files.find((f) => !f.type.startsWith('image/'))
+    const room = MAX_REPAIR_PHOTOS - storedPhotos.length - pendingPhotos.length
+    setPhotoError(
+      rejected
+        ? t('plannedRepairs.photoNotImage', { name: rejected.name })
+        : images.length > room
+          ? t('plannedRepairs.photoLimit', { max: MAX_REPAIR_PHOTOS })
+          : null,
+    )
+    setPendingPhotos((current) => [...current, ...images.slice(0, Math.max(room, 0))])
+  }
 
   const supplyById = (id: number | null) => supplies.find((s) => s.id === id)
   /** A supply row's quantity in canonical units (L or count), as the API stores it. */
@@ -140,10 +168,22 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
             : { description: p.description.trim(), cost: parseOptionalDecimal(p.cost) ?? null },
         ),
     }
-    if (isEdit) {
-      await updateMutation.mutateAsync({ id: repair.id, ...payload })
+    // After a create whose photo upload failed, a retry updates that repair instead of creating a second.
+    let id = savedId.current
+    if (id !== null) {
+      await updateMutation.mutateAsync({ id, ...payload })
     } else {
-      await createMutation.mutateAsync(payload)
+      id = (await createMutation.mutateAsync(payload)).id
+      savedId.current = id
+    }
+    // Each step drops itself from the lists once done, so a retry only repeats what failed.
+    for (const photoId of removedPhotoIds) {
+      await deletePhotoMutation.mutateAsync({ repairId: id, photoId })
+      setRemovedPhotoIds((ids) => ids.filter((x) => x !== photoId))
+    }
+    for (const file of pendingPhotos) {
+      await uploadPhotoMutation.mutateAsync({ repairId: id, file })
+      setPendingPhotos((files) => files.filter((f) => f !== file))
     }
   }
 
@@ -152,7 +192,11 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
     onClose,
     action: t('plannedRepairs.saveAction'),
   })
-  const isSubmitting = createMutation.isPending || updateMutation.isPending
+  const isSubmitting =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    uploadPhotoMutation.isPending ||
+    deletePhotoMutation.isPending
 
   const validate = (): boolean => {
     const errors: Record<string, string> = {}
@@ -355,6 +399,21 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
             <p className="text-xs text-text-mute">{t('plannedRepairs.suppliesHint')}</p>
           )}
         </fieldset>
+
+        <div className="space-y-1">
+          <PlannedRepairPhotoField
+            vin={vin}
+            repairId={repair?.id ?? null}
+            title={title}
+            stored={storedPhotos}
+            pending={pendingPhotos}
+            onPick={pickPhotos}
+            onRemoveStored={(photoId) => setRemovedPhotoIds((ids) => [...ids, photoId])}
+            onRemovePending={(index) => setPendingPhotos((files) => files.filter((_, i) => i !== index))}
+            disabled={isSubmitting}
+          />
+          {photoError && <p className="text-xs text-danger">{photoError}</p>}
+        </div>
 
         <Field
           id="repair-estimate"

@@ -71,6 +71,12 @@ class PlannedRepair(Base):
         cascade="all, delete-orphan",
         order_by="PlannedRepairPart.id",
     )
+    photos: Mapped[list[PlannedRepairPhoto]] = relationship(
+        "PlannedRepairPhoto",
+        back_populates="repair",
+        cascade="all, delete-orphan",
+        order_by="PlannedRepairPhoto.id",
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -135,6 +141,25 @@ class PlannedRepairPart(Base):
         Index("idx_planned_repair_parts_repair_id", "repair_id"),
         Index("idx_planned_repair_parts_supply_id", "supply_id"),
     )
+
+
+class PlannedRepairPhoto(Base):
+    """A photo of the problem or the work, stored as a JPEG under the photos directory."""
+
+    __tablename__ = "planned_repair_photos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    repair_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("planned_repairs.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Relative to settings.photos_dir (``<VIN>/planned_repairs/<id>-<token>.jpg``), so
+    #: deleting the vehicle's photo directory takes these with it.
+    file_path: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    repair: Mapped[PlannedRepair] = relationship("PlannedRepair", back_populates="photos")
+
+    __table_args__ = (Index("idx_planned_repair_photos_repair_id", "repair_id"),)
 
 
 from app.models.vehicle import Vehicle
