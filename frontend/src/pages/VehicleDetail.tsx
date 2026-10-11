@@ -424,7 +424,7 @@ export default function VehicleDetail() {
         setActiveSubTab(fillUpKind({ ...logKinds, def: logKinds.defHistory }) ?? 'fuel')
         break
       case 'tracking':
-        setActiveSubTab('notes')
+        setActiveSubTab('reminders')
         break
       case 'financial':
         setActiveSubTab('warranties')
@@ -587,8 +587,8 @@ export default function VehicleDetail() {
       { id: 'propane' as const, label: t('detail.misc.propane'), icon: Fuel, visible: hasPropane },
     ],
     tracking: [
-      { id: 'notes' as const, label: t('noteList.title'), icon: FileText },
       { id: 'reminders' as const, label: t('reminderList.title'), icon: Bell },
+      { id: 'notes' as const, label: t('noteList.title'), icon: FileText },
       { id: 'reports' as const, label: t('detail.misc.reports'), icon: BarChart3 },
     ],
     financial: [

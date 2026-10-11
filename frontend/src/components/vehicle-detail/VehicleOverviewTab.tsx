@@ -111,6 +111,16 @@ export default function VehicleOverviewTab({
         </div>
       </EditableCard>
 
+      {/* Fluids & Torque, right under Basic Information */}
+      {onVehicleUpdated && (
+        <VehicleSpecsPanel
+          vin={vin}
+          vehicle={vehicle}
+          onUpdated={onVehicleUpdated}
+          editRequestKey={specsEditKey}
+        />
+      )}
+
       {/* Vehicle Details (VIN-decoded) */}
       <EditableCard breakInside {...editProps('details', 'detail.vehicleDetails')}>
         <CardHeader title={t('detail.vehicleDetails')} />
@@ -232,15 +242,6 @@ export default function VehicleOverviewTab({
       <TransferHistorySection vin={vin} />
 
       <TrailerTowPanel vehicle={vehicle} />
-
-      {onVehicleUpdated && (
-        <VehicleSpecsPanel
-          vin={vin}
-          vehicle={vehicle}
-          onUpdated={onVehicleUpdated}
-          editRequestKey={specsEditKey}
-        />
-      )}
 
       <GarageAssistantPanel
         vin={vin}
