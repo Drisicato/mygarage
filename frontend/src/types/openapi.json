@@ -3634,7 +3634,7 @@
           },
           "estimated_severity_level": {
             "default": 2,
-            "description": "Severity level: 1=minor, 2=moderate, 3=serious, 4=critical",
+            "description": "Severity level: 2=moderate, 3=serious, 4=critical (1=minor is unused by the bundled data)",
             "title": "Estimated Severity Level",
             "type": "integer"
           },
@@ -16976,7 +16976,7 @@
         "type": "object"
       },
       "ServiceLineItemUpdate": {
-        "description": "Line item shape for diff-based visit updates.\n\ntemp_id: negative int assigned by client for new items so other new items\ncan reference them via triggered_by_inspection_id before flush.",
+        "description": "Line item shape for diff-based visit updates.\n\nAn existing item (`id` set) keeps any field the request leaves out. A\nnullable field sent as null is cleared; `is_inspection` takes false, not\nnull; `supplies_used` takes [] to remove every usage (null is refused);\n`description` is always required.\n\ntemp_id: negative int assigned by client for new items so other new items\ncan reference them via triggered_by_inspection_id before flush.",
         "properties": {
           "category": {
             "anyOf": [
@@ -44079,7 +44079,7 @@
     },
     "/api/vehicles/{vin}/livelink/dtcs": {
       "get": {
-        "description": "Get DTCs for a vehicle.\n\n**Path Parameters:**\n- **vin**: Vehicle VIN\n\n**Query Parameters:**\n- **include_cleared**: Include cleared DTCs (default false)\n- **limit**: Max results\n\n**Security:**\n- Requires authentication",
+        "description": "Get DTCs for a vehicle.\n\n**Path Parameters:**\n- **vin**: Vehicle VIN\n\n**Query Parameters:**\n- **include_cleared**: Include cleared DTCs (default false)\n- **cleared_only**: Only cleared DTCs, filtered before the limit (default false)\n- **limit**: Max results\n\n**Security:**\n- Requires authentication",
         "operationId": "list_vehicle_dtcs_api_vehicles__vin__livelink_dtcs_get",
         "parameters": [
           {
@@ -44100,6 +44100,18 @@
               "default": false,
               "description": "Include cleared DTCs",
               "title": "Include Cleared",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Only cleared DTCs (filtered before the limit)",
+            "in": "query",
+            "name": "cleared_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only cleared DTCs (filtered before the limit)",
+              "title": "Cleared Only",
               "type": "boolean"
             }
           },

@@ -5115,6 +5115,7 @@ export interface paths {
          *
          *     **Query Parameters:**
          *     - **include_cleared**: Include cleared DTCs (default false)
+         *     - **cleared_only**: Only cleared DTCs, filtered before the limit (default false)
          *     - **limit**: Max results
          *
          *     **Security:**
@@ -9241,7 +9242,7 @@ export interface components {
             description: string;
             /**
              * Estimated Severity Level
-             * @description Severity level: 1=minor, 2=moderate, 3=serious, 4=critical
+             * @description Severity level: 2=moderate, 3=serious, 4=critical (1=minor is unused by the bundled data)
              * @default 2
              */
             estimated_severity_level: number;
@@ -14719,6 +14720,11 @@ export interface components {
         /**
          * ServiceLineItemUpdate
          * @description Line item shape for diff-based visit updates.
+         *
+         *     An existing item (`id` set) keeps any field the request leaves out. A
+         *     nullable field sent as null is cleared; `is_inspection` takes false, not
+         *     null; `supplies_used` takes [] to remove every usage (null is refused);
+         *     `description` is always required.
          *
          *     temp_id: negative int assigned by client for new items so other new items
          *     can reference them via triggered_by_inspection_id before flush.
@@ -28042,6 +28048,8 @@ export interface operations {
             query?: {
                 /** @description Include cleared DTCs */
                 include_cleared?: boolean;
+                /** @description Only cleared DTCs (filtered before the limit) */
+                cleared_only?: boolean;
                 limit?: number;
             };
             header?: never;
