@@ -962,7 +962,15 @@
   "warrantyForm": {
     "providerPlaceholder": "e.g., Honda, ACME Warranty Co",
     "mileageLimitPlaceholder": "e.g., 100000",
-    "policyNumberPlaceholder": "e.g., WAR-12345"
+    "policyNumberPlaceholder": "e.g., WAR-12345",
+    "documents": "Documents",
+    "documentsHint": "Optional. Contracts, certificates, or claim papers (PDF, Word, Excel, text, JPG, PNG; up to {{max}} files, {{size}} MB each). Uploaded when you save.",
+    "addDocuments": "Add documents",
+    "removeDocument": "Remove {{name}}",
+    "openDocument": "Open {{name}}",
+    "documentTooLarge": "{{name}} is larger than {{size}} MB.",
+    "documentBadType": "{{name}} isn't a supported file type.",
+    "documentLimit": "A warranty holds at most {{max}} documents."
   },
   "defRecordForm": {
     "fillLevelFull": "Full",

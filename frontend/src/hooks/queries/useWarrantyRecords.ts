@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/services/api'
-import type { WarrantyRecord, WarrantyRecordCreate, WarrantyRecordUpdate } from '@/types/warranty'
+import type {
+  WarrantyDocument,
+  WarrantyRecord,
+  WarrantyRecordCreate,
+  WarrantyRecordUpdate,
+} from '@/types/warranty'
 
 export function useWarrantyRecords(vin: string) {
   return useQuery({
@@ -34,6 +39,37 @@ export function useUpdateWarrantyRecord(vin: string) {
     mutationFn: async ({ id, ...payload }: WarrantyRecordUpdate & { id: number }) => {
       const { data } = await api.put(`/vehicles/${vin}/warranties/${id}`, payload)
       return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['warranties', vin] })
+    },
+  })
+}
+
+export function useUploadWarrantyDocument(vin: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ warrantyId, file }: { warrantyId: number; file: File }) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const { data } = await api.post<WarrantyDocument>(
+        `/vehicles/${vin}/warranties/${warrantyId}/documents`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['warranties', vin] })
+    },
+  })
+}
+
+export function useDeleteWarrantyDocument(vin: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ warrantyId, documentId }: { warrantyId: number; documentId: number }) => {
+      await api.delete(`/vehicles/${vin}/warranties/${warrantyId}/documents/${documentId}`)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['warranties', vin] })

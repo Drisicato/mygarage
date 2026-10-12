@@ -2191,6 +2191,20 @@
         "title": "Body_upload_vehicle_photo_api_vehicles__vin__photos_post",
         "type": "object"
       },
+      "Body_upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post",
+        "type": "object"
+      },
       "Body_upload_window_sticker_api_vehicles__vin__window_sticker_upload_post": {
         "properties": {
           "file": {
@@ -30347,6 +30361,56 @@
         "title": "VendorUpdate",
         "type": "object"
       },
+      "WarrantyDocumentResponse": {
+        "description": "A stored warranty document; the file itself is served by the document endpoint.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "The name the file was uploaded with",
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size in bytes",
+            "title": "File Size"
+          },
+          "file_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MIME type",
+            "title": "File Type"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "file_name",
+          "created_at"
+        ],
+        "title": "WarrantyDocumentResponse",
+        "type": "object"
+      },
       "WarrantyRecord": {
         "description": "Schema for warranty record response.",
         "properties": {
@@ -30366,6 +30430,13 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/WarrantyDocumentResponse"
+            },
+            "title": "Documents",
+            "type": "array"
           },
           "end_date": {
             "anyOf": [
@@ -53820,6 +53891,194 @@
           }
         ],
         "summary": "Update Warranty",
+        "tags": [
+          "Warranties"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/warranties/{warranty_id}/documents": {
+      "post": {
+        "description": "Attach a document (PDF, Word/Excel, text, JPG, PNG) to a warranty.",
+        "operationId": "upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "warranty_id",
+            "required": true,
+            "schema": {
+              "title": "Warranty Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarrantyDocumentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Warranty Document",
+        "tags": [
+          "Warranties"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/warranties/{warranty_id}/documents/{document_id}": {
+      "delete": {
+        "description": "Remove a document from a warranty.",
+        "operationId": "delete_warranty_document_api_vehicles__vin__warranties__warranty_id__documents__document_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "warranty_id",
+            "required": true,
+            "schema": {
+              "title": "Warranty Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Warranty Document",
+        "tags": [
+          "Warranties"
+        ]
+      },
+      "get": {
+        "description": "The document's file, shown inline so a PDF opens in the browser.",
+        "operationId": "get_warranty_document_api_vehicles__vin__warranties__warranty_id__documents__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "warranty_id",
+            "required": true,
+            "schema": {
+              "title": "Warranty Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Warranty Document",
         "tags": [
           "Warranties"
         ]

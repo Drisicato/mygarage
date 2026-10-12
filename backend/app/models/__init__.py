@@ -54,7 +54,7 @@ from app.models.vehicle_telemetry import (
 )
 from app.models.vehicle_transfer import VehicleTransfer
 from app.models.vendor import Vendor
-from app.models.warranty import WarrantyRecord
+from app.models.warranty import WarrantyDocument, WarrantyRecord
 from app.models.widget_api_key import WidgetApiKey
 
 __all__ = [
@@ -78,6 +78,7 @@ __all__ = [
     "Attachment",
     "VehiclePhoto",
     "Document",
+    "WarrantyDocument",
     "WarrantyRecord",
     "InsuranceCoverage",
     "InsurancePolicy",

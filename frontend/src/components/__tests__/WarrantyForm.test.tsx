@@ -9,6 +9,8 @@ const updateMutateAsync = vi.fn().mockResolvedValue({})
 vi.mock('../../hooks/queries/useWarrantyRecords', () => ({
   useCreateWarrantyRecord: () => ({ mutateAsync: createMutateAsync }),
   useUpdateWarrantyRecord: () => ({ mutateAsync: updateMutateAsync }),
+  useUploadWarrantyDocument: () => ({ mutateAsync: vi.fn() }),
+  useDeleteWarrantyDocument: () => ({ mutateAsync: vi.fn() }),
 }))
 // The imperial PRESET, resolved set included: `useUnitFormat` reads `units`,
 // and a mock that supplied only the collapsed `system` would hand the form an

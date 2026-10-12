@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Save } from 'lucide-react'
@@ -7,7 +7,18 @@ import FormModalWrapper from './FormModalWrapper'
 import { Button, Field, Input, NumberInput, Select, Textarea, registerDecimal } from './ui'
 import type { WarrantyRecord, WarrantyRecordCreate, WarrantyRecordUpdate } from '../types/warranty'
 import { makeWarrantySchema, type WarrantyFormData, WARRANTY_TYPES } from '../schemas/warranty'
-import { useCreateWarrantyRecord, useUpdateWarrantyRecord } from '../hooks/queries/useWarrantyRecords'
+import WarrantyDocumentField from './WarrantyDocumentField'
+import {
+  useCreateWarrantyRecord,
+  useDeleteWarrantyDocument,
+  useUpdateWarrantyRecord,
+  useUploadWarrantyDocument,
+} from '../hooks/queries/useWarrantyRecords'
+import {
+  MAX_WARRANTY_DOCUMENTS,
+  MAX_WARRANTY_DOCUMENT_MB,
+  isWarrantyDocumentType,
+} from '../utils/warrantyDocument'
 import { formatDateForInput } from '../utils/dateUtils'
 import { useFormSubmit } from '../hooks/useFormSubmit'
 import { useUnitFormat } from '../hooks/useUnitFormat'
@@ -26,7 +37,33 @@ export default function WarrantyForm({ vin, record, onClose, onSuccess }: Warran
   const isEdit = !!record
   const createMutation = useCreateWarrantyRecord(vin)
   const updateMutation = useUpdateWarrantyRecord(vin)
+  const uploadDocumentMutation = useUploadWarrantyDocument(vin)
+  const deleteDocumentMutation = useDeleteWarrantyDocument(vin)
   const u = useUnitFormat()
+
+  const savedId = useRef<number | null>(record?.id ?? null)
+  const [pendingDocs, setPendingDocs] = useState<File[]>([])
+  const [removedDocIds, setRemovedDocIds] = useState<number[]>([])
+  const [docError, setDocError] = useState<string | null>(null)
+  const storedDocs = (record?.documents ?? []).filter((d) => !removedDocIds.includes(d.id))
+
+  const pickDocuments = (files: File[]) => {
+    const limitBytes = MAX_WARRANTY_DOCUMENT_MB * 1024 * 1024
+    const badType = files.find((f) => !isWarrantyDocumentType(f))
+    const tooBig = files.find((f) => isWarrantyDocumentType(f) && f.size > limitBytes)
+    const usable = files.filter((f) => isWarrantyDocumentType(f) && f.size <= limitBytes)
+    const room = MAX_WARRANTY_DOCUMENTS - storedDocs.length - pendingDocs.length
+    setDocError(
+      badType
+        ? t('warrantyForm.documentBadType', { name: badType.name })
+        : tooBig
+          ? t('warrantyForm.documentTooLarge', { name: tooBig.name, size: MAX_WARRANTY_DOCUMENT_MB })
+          : usable.length > room
+            ? t('warrantyForm.documentLimit', { max: MAX_WARRANTY_DOCUMENTS })
+            : null,
+    )
+    setPendingDocs((current) => [...current, ...usable.slice(0, Math.max(room, 0))])
+  }
 
   /**
    * The canonical origin of the mileage limit, seeded once.
@@ -67,12 +104,33 @@ export default function WarrantyForm({ vin, record, onClose, onSuccess }: Warran
       notes: data.notes,
     }
 
-    if (isEdit) {
-      await updateMutation.mutateAsync({ id: record.id, ...payload })
+    // After a create whose upload failed, a retry updates that warranty instead of creating a second.
+    let id = savedId.current
+    if (id !== null) {
+      await updateMutation.mutateAsync({ id, ...payload })
     } else {
-      await createMutation.mutateAsync(payload as WarrantyRecordCreate)
+      id = (await createMutation.mutateAsync(payload as WarrantyRecordCreate)).id as number
+      savedId.current = id
     }
-  }, [isEdit, record, mileageLimitOrigin, u.distance, createMutation, updateMutation])
+    // Each step drops itself from the lists once done, so a retry only repeats what failed.
+    for (const documentId of removedDocIds) {
+      await deleteDocumentMutation.mutateAsync({ warrantyId: id, documentId })
+      setRemovedDocIds((ids) => ids.filter((x) => x !== documentId))
+    }
+    for (const file of pendingDocs) {
+      await uploadDocumentMutation.mutateAsync({ warrantyId: id, file })
+      setPendingDocs((files) => files.filter((f) => f !== file))
+    }
+  }, [
+    mileageLimitOrigin,
+    u.distance,
+    createMutation,
+    updateMutation,
+    uploadDocumentMutation,
+    deleteDocumentMutation,
+    removedDocIds,
+    pendingDocs,
+  ])
 
   const { error, handleSubmit: onSubmit } = useFormSubmit(submitFn, {
     onSuccess,
@@ -170,6 +228,18 @@ export default function WarrantyForm({ vin, record, onClose, onSuccess }: Warran
           <Field id="notes" label={t('common:notes')} error={errors.notes}>
             <Textarea id="notes" rows={2} {...register('notes')} placeholder={t('common:additionalNotes')} invalid={!!errors.notes} disabled={isSubmitting} />
           </Field>
+
+          <WarrantyDocumentField
+            vin={vin}
+            warrantyId={record?.id ?? null}
+            stored={storedDocs}
+            pending={pendingDocs}
+            onPick={pickDocuments}
+            onRemoveStored={(documentId) => setRemovedDocIds((ids) => [...ids, documentId])}
+            onRemovePending={(index) => setPendingDocs((files) => files.filter((_, i) => i !== index))}
+            error={docError}
+            disabled={isSubmitting}
+          />
         </form>
     </FormModalWrapper>
   )

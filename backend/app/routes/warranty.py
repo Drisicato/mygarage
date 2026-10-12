@@ -1,17 +1,19 @@
 """Warranty record API routes."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
 from app.schemas.warranty import (
+    WarrantyDocumentResponse,
     WarrantyRecord,
     WarrantyRecordCreate,
     WarrantyRecordUpdate,
 )
 from app.services.auth import require_auth
-from app.services.warranty_service import WarrantyService
+from app.services.warranty_service import WarrantyService, document_file
 
 router = APIRouter(prefix="/api", tags=["Warranties"])
 
@@ -62,6 +64,57 @@ async def update_warranty(
     """Update a warranty record."""
     service = WarrantyService(db)
     return await service.update_warranty(vin, warranty_id, warranty_update, current_user)
+
+
+@router.post(
+    "/vehicles/{vin}/warranties/{warranty_id}/documents",
+    response_model=WarrantyDocumentResponse,
+    status_code=201,
+)
+async def upload_warranty_document(
+    vin: str,
+    warranty_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """Attach a document (PDF, Word/Excel, text, JPG, PNG) to a warranty."""
+    return await WarrantyService(db).add_document(vin, warranty_id, file, current_user)
+
+
+@router.get("/vehicles/{vin}/warranties/{warranty_id}/documents/{document_id}")
+async def get_warranty_document(
+    vin: str,
+    warranty_id: int,
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """The document's file, shown inline so a PDF opens in the browser."""
+    service = WarrantyService(db)
+    document = await service.get_document(vin, warranty_id, document_id, current_user)
+    path = document_file(document.file_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Document file not found")
+    return FileResponse(
+        path,
+        media_type=document.file_type or "application/octet-stream",
+        filename=document.file_name,
+        content_disposition_type="inline",
+    )
+
+
+@router.delete("/vehicles/{vin}/warranties/{warranty_id}/documents/{document_id}", status_code=204)
+async def delete_warranty_document(
+    vin: str,
+    warranty_id: int,
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """Remove a document from a warranty."""
+    await WarrantyService(db).delete_document(vin, warranty_id, document_id, current_user)
+    return None
 
 
 @router.delete("/vehicles/{vin}/warranties/{warranty_id}", status_code=204)

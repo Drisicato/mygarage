@@ -7668,6 +7668,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vehicles/{vin}/warranties/{warranty_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Warranty Document
+         * @description Attach a document (PDF, Word/Excel, text, JPG, PNG) to a warranty.
+         */
+        post: operations["upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/warranties/{warranty_id}/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Warranty Document
+         * @description The document's file, shown inline so a PDF opens in the browser.
+         */
+        get: operations["get_warranty_document_api_vehicles__vin__warranties__warranty_id__documents__document_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Warranty Document
+         * @description Remove a document from a warranty.
+         */
+        delete: operations["delete_warranty_document_api_vehicles__vin__warranties__warranty_id__documents__document_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vehicles/{vin}/window-sticker": {
         parameters: {
             query?: never;
@@ -8854,6 +8898,11 @@ export interface components {
              * @default false
              */
             set_as_main: boolean;
+        };
+        /** Body_upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post */
+        Body_upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post: {
+            /** File */
+            file: string;
         };
         /** Body_upload_window_sticker_api_vehicles__vin__window_sticker_upload_post */
         Body_upload_window_sticker_api_vehicles__vin__window_sticker_upload_post: {
@@ -20156,6 +20205,34 @@ export interface components {
             zip_code?: string | null;
         };
         /**
+         * WarrantyDocumentResponse
+         * @description A stored warranty document; the file itself is served by the document endpoint.
+         */
+        WarrantyDocumentResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * File Name
+             * @description The name the file was uploaded with
+             */
+            file_name: string;
+            /**
+             * File Size
+             * @description Size in bytes
+             */
+            file_size?: number | null;
+            /**
+             * File Type
+             * @description MIME type
+             */
+            file_type?: string | null;
+            /** Id */
+            id: number;
+        };
+        /**
          * WarrantyRecord
          * @description Schema for warranty record response.
          */
@@ -20170,6 +20247,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Documents */
+            documents?: components["schemas"]["WarrantyDocumentResponse"][];
             /**
              * End Date
              * @description Warranty end date
@@ -33569,6 +33648,106 @@ export interface operations {
             path: {
                 vin: string;
                 warranty_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                warranty_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_warranty_document_api_vehicles__vin__warranties__warranty_id__documents_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarrantyDocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_warranty_document_api_vehicles__vin__warranties__warranty_id__documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                warranty_id: number;
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_warranty_document_api_vehicles__vin__warranties__warranty_id__documents__document_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                warranty_id: number;
+                document_id: number;
             };
             cookie?: never;
         };

@@ -44,6 +44,14 @@ class WarrantyRecord(Base):
 
     # Relationships
     vehicle: Mapped[Vehicle] = relationship("Vehicle", back_populates="warranty_records")
+    # selectin: the response schema reads these outside any lazy-load context.
+    documents: Mapped[list[WarrantyDocument]] = relationship(
+        "WarrantyDocument",
+        back_populates="warranty",
+        cascade="all, delete-orphan",
+        order_by="WarrantyDocument.id",
+        lazy="selectin",
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -53,6 +61,29 @@ class WarrantyRecord(Base):
         Index("idx_warranty_records_vin", "vin"),
         Index("idx_warranty_records_end_date", "end_date"),
     )
+
+
+class WarrantyDocument(Base):
+    """A contract, certificate, or claim paper attached to a warranty."""
+
+    __tablename__ = "warranty_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    warranty_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("warranty_records.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Relative to settings.documents_dir (``<VIN>/warranties/<id>/<name>``), so deleting
+    #: the vehicle's document directory takes these with it.
+    file_path: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: The name the file had when uploaded; the stored name is made unique.
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type: Mapped[str | None] = mapped_column(String(100))
+    file_size: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    warranty: Mapped[WarrantyRecord] = relationship("WarrantyRecord", back_populates="documents")
+
+    __table_args__ = (Index("idx_warranty_documents_warranty_id", "warranty_id"),)
 
 
 from app.models.vehicle import Vehicle

@@ -1563,6 +1563,8 @@
     "coverageDetails": "Coverage Details",
     "deleteAction": "delete the warranty",
     "deleteError": "Failed to delete warranty",
+    "documents": "Documents",
+    "openDocument": "Open {{name}}",
     "endDate": "End Date",
     "expired": "Expired",
     "loading": "Loading warranties...",

@@ -26,6 +26,8 @@ const updateMutateAsync = vi.fn().mockResolvedValue({})
 vi.mock('../../hooks/queries/useWarrantyRecords', () => ({
   useCreateWarrantyRecord: () => ({ mutateAsync: createMutateAsync }),
   useUpdateWarrantyRecord: () => ({ mutateAsync: updateMutateAsync }),
+  useUploadWarrantyDocument: () => ({ mutateAsync: vi.fn() }),
+  useDeleteWarrantyDocument: () => ({ mutateAsync: vi.fn() }),
 }))
 
 // `system` is DERIVED from `units`, exactly as the real hook derives it. A mock

@@ -1,4 +1,4 @@
-import { Shield, Plus, Trash2, Edit3, Calendar } from 'lucide-react'
+import { Shield, Plus, Trash2, Edit3, Calendar, FileText } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { WarrantyRecord } from '../types/warranty'
@@ -7,6 +7,7 @@ import { formatDateForDisplay, formatDateForInput } from '../utils/dateUtils'
 import { useDateLocale } from '../hooks/useDateLocale'
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { warrantyDocumentUrl } from '../utils/warrantyDocument'
 import { Button, IconButton, Mono, EmptyState } from './ui'
 
 interface WarrantyListProps {
@@ -146,9 +147,31 @@ export default function WarrantyList({ vin, onAddClick, onEditClick }: WarrantyL
               )}
 
               {warranty.notes && (
-                <div>
+                <div className="mb-2">
                   <p className="text-xs text-text-mute mb-1">{t('warrantyList.notes')}</p>
                   <p className="text-sm text-text whitespace-pre-wrap">{warranty.notes}</p>
+                </div>
+              )}
+
+              {(warranty.documents?.length ?? 0) > 0 && (
+                <div>
+                  <p className="text-xs text-text-mute mb-1">{t('warrantyList.documents')}</p>
+                  <ul className="flex flex-wrap gap-2">
+                    {warranty.documents?.map((doc) => (
+                      <li key={doc.id}>
+                        <a
+                          href={warrantyDocumentUrl(vin, warranty.id, doc.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={t('warrantyList.openDocument', { name: doc.file_name })}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-2.5 py-1 text-sm text-(--accent-fg) hover:underline"
+                        >
+                          <FileText aria-hidden="true" size={14} className="flex-shrink-0" />
+                          <span className="truncate">{doc.file_name}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 

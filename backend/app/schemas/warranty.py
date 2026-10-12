@@ -46,6 +46,18 @@ class WarrantyRecordUpdate(BaseModel):
     _no_null = reject_null("warranty_type", "start_date")
 
 
+class WarrantyDocumentResponse(BaseModel):
+    """A stored warranty document; the file itself is served by the document endpoint."""
+
+    id: int
+    file_name: str = Field(..., description="The name the file was uploaded with")
+    file_type: str | None = Field(None, description="MIME type")
+    file_size: int | None = Field(None, description="Size in bytes")
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class WarrantyRecord(WarrantyRecordBase):
     """Schema for warranty record response."""
 
@@ -57,6 +69,7 @@ class WarrantyRecord(WarrantyRecordBase):
     id: int
     vin: str
     created_at: datetime
+    documents: list[WarrantyDocumentResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

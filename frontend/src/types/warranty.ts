@@ -7,5 +7,6 @@
 import type { components } from './api.generated'
 
 export type WarrantyRecord = components['schemas']['WarrantyRecord']
+export type WarrantyDocument = components['schemas']['WarrantyDocumentResponse']
 export type WarrantyRecordCreate = components['schemas']['WarrantyRecordCreate']
 export type WarrantyRecordUpdate = components['schemas']['WarrantyRecordUpdate']
