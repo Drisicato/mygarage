@@ -210,10 +210,8 @@ beforeEach(() => {
 describe('the fixed copy, across every locale bundle on disk', () => {
   it('enumerates the bundles rather than assuming them', () => {
     const found = bundles().map((b) => b.lang)
-    // Nine: `en` under src/locales plus eight lazy-loaded under public/locales.
-    // Asserted so a walk that lost the lazy half fails HERE, rather than
-    // reporting eight languages of unconditional copy as clean.
-    expect(found).toStrictEqual(['en', 'de', 'fr', 'it', 'ms', 'pl', 'pt-BR', 'ru', 'uk'])
+    // English only: `en` under src/locales (the other languages were removed).
+    expect(found).toStrictEqual(['en'])
   })
 
   it('still has every fixed key in en, so the guard below has a subject', () => {
@@ -248,11 +246,7 @@ describe('the fixed copy, across every locale bundle on disk', () => {
     // total. `it` and `ms` were translated later and carry them too. If a
     // restoration is ever removed, this list shrinks and the test fails before
     // the emptiness below can go vacuous.
-    expect([...readsByBundle.keys()].sort()).toStrictEqual(['de', 'en', 'fr', 'it', 'ms'])
-    expect(readsByBundle.get('de')).toBeGreaterThan(0)
-    expect(readsByBundle.get('fr')).toBeGreaterThan(0)
-    expect(readsByBundle.get('it')).toBeGreaterThan(0)
-    expect(readsByBundle.get('ms')).toBeGreaterThan(0)
+    expect([...readsByBundle.keys()].sort()).toStrictEqual(['en'])
 
     expect(offenders).toStrictEqual([])
   })

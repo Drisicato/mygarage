@@ -141,14 +141,6 @@ const GALLONS_KM: UnitSet = { ...IMPERIAL_UNITS, distance: 'km', speed: 'kmh' }
  */
 const DISTANCE_UNIT_NAMES: Record<string, RegExp> = {
   en: /\b(miles?|kilometres?|kilometers?|km|mi)\b/iu,
-  de: /\b(meilen?|kilometern?|km|mi)\b/iu,
-  fr: /\b(milles?|miles?|kilom[eè]tres?|km|mi)\b/iu,
-  ms: /\b(batu|kilometer|kilometre|km|mi)\b/iu,
-  pl: /\b(mila|mile|mil|kilometr|kilometry|kilometrów|km|mi)\b/iu,
-  'pt-BR': /\b(milhas?|quil[oô]metros?|km|mi)\b/iu,
-  ru: /(мил[яеиь]|километр|\bкм\b)/iu,
-  uk: /(мил[яеіь]|кілометр|\bкм\b)/iu,
-  it: /\b(migli[ao]|chilometr[io]|km|mi)\b/iu,
 }
 
 /**

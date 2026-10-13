@@ -653,7 +653,7 @@ export default function VehicleDetail() {
         />
 
         {/* Key-facts strip (P5 Task 5) */}
-        {detailStats && <VehicleKeyFacts stats={detailStats} />}
+        {detailStats && vin && <VehicleKeyFacts vin={vin} stats={detailStats} />}
 
         {/* Primary tabs */}
         <VehiclePrimaryTabs tabs={primaryTabs} activeTab={activePrimaryTab} onTabClick={handlePrimaryTabClick} />

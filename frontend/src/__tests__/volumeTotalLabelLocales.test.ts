@@ -39,14 +39,6 @@ const FRONTEND = resolve(__dirname, '..', '..')
  */
 const VOLUME_UNIT_NAMES: Record<string, RegExp> = {
   en: /\b(lit(?:re|er)s?|gallons?)\b/iu,
-  de: /\b(liter[ns]?|gallonen?)\b/iu,
-  fr: /\b(litres?|gallons?)\b/iu,
-  ms: /\b(liter|gelen)\b/iu,
-  pl: /\b(litr\w*|galon\w*)\b/iu,
-  'pt-BR': /\b(litros?|gal[ãa]o|gal[õo]es)\b/iu,
-  ru: /(литр|галлон)/iu,
-  uk: /(літр|галон)/iu,
-  it: /\b(litr[io]|galloni?)\b/iu,
 }
 
 /** Which caption lives where: the component that renders it, and its bundle. */

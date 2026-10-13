@@ -16,14 +16,6 @@ export interface SupportedCurrency {
 
 export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
   { code: 'en', name: 'English', nativeName: 'English' },
-  { code: 'fr', name: 'French', nativeName: 'Français' },
-  { code: 'pl', name: 'Polish', nativeName: 'Polski' },
-  { code: 'uk', name: 'Ukrainian', nativeName: 'Українська' },
-  { code: 'ru', name: 'Russian', nativeName: 'Русский' },
-  { code: 'pt-BR', name: 'Brazilian Portuguese', nativeName: 'Português (Brasil)' },
-  { code: 'de', name: 'German', nativeName: 'Deutsch' },
-  { code: 'ms', name: 'Malay', nativeName: 'Bahasa Melayu' },
-  { code: 'it', name: 'Italian', nativeName: 'Italiano' },
 ]
 
 export const SUPPORTED_CURRENCIES: SupportedCurrency[] = [

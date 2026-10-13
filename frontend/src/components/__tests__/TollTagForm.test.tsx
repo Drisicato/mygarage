@@ -259,30 +259,6 @@ describe('TollTagForm: tags saved off the list', () => {
 })
 
 describe('TollTagForm: review focus', () => {
-  it('a language change while open keeps what was entered and rebuilds the messages in the new language', async () => {
-    const user = userEvent.setup()
-    const { rerender } = render(<TollTagForm vin="V1" onClose={vi.fn()} onSuccess={vi.fn()} />)
-    await user.selectOptions(countrySelect(), 'MY')
-    await user.selectOptions(systemSelect(), 'Touch \'n Go RFID')
-    await user.type(screen.getByLabelText('toll.tagNumber *'), '0012345678')
-    // Malay, because its country order differs from English (Italian's doesn't).
-    i18nMock.i18n.language = 'ms'
-    rerender(<TollTagForm vin="V1" onClose={vi.fn()} onSuccess={vi.fn()} />)
-    expect(control<HTMLSelectElement>('toll_country').value).toBe('MY')
-    expect(control<HTMLSelectElement>('toll_system').value).toBe('Touch \'n Go RFID')
-    expect(control<HTMLInputElement>('tag_number').value).toBe('0012345678')
-    const countries = [...control<HTMLSelectElement>('toll_country').options].filter((o) => o.value !== '' && o.value !== OTHER)
-    expect(countries.map((o) => o.text)).toEqual(['Amerika Syarikat', 'Itali', 'Malaysia'])
-    // The schema was rebuilt with the Malay t, so its messages are Malay too.
-    await user.clear(control('tag_number'))
-    await user.click(screen.getByRole('button', { name: '[ms] toll.addTag' }))
-    expect(await screen.findByText('[ms] common:validation.tollTag.tagNumberRequired')).toBeInTheDocument()
-    expect(createMutateAsync).not.toHaveBeenCalled()
-    await user.type(control('tag_number'), '0012345678')
-    await user.click(screen.getByRole('button', { name: '[ms] toll.addTag' }))
-    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1))
-    expect(createMutateAsync.mock.calls[0][0]).toMatchObject({ toll_system: 'Touch \'n Go RFID', tag_number: '0012345678' })
-  })
 
   it('a server error on the toll system shows under the name field when the name is in use', async () => {
     updateMutateAsync.mockRejectedValueOnce({

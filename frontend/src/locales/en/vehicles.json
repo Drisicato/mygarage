@@ -220,6 +220,8 @@
     "importSuccess": "Import completed successfully",
     "importing": "Importing...",
     "keyFacts": {
+      "reminder": "Tracked reminder",
+      "pickReminder": "Choose which reminder to track",
       "spent": "Spent",
       "upcoming": "Upcoming"
     },

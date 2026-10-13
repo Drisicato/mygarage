@@ -34,6 +34,17 @@ vi.mock('react-i18next', () => {
   }
 })
 
+// Only English ships, but the control's switch-and-save behaviour is tested
+// against a longer list so it keeps its coverage.
+vi.mock('@/constants/i18n', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/constants/i18n')>()),
+  SUPPORTED_LANGUAGES: [
+    { code: 'en', name: 'English', nativeName: 'English' },
+    { code: 'pl', name: 'Polish', nativeName: 'Polski' },
+    { code: 'de', name: 'German', nativeName: 'Deutsch' },
+  ],
+}))
+
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import api from '@/services/api'

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { TOLL_COUNTRIES } from '../tollSystems'
-import { SUPPORTED_CURRENCIES, SUPPORTED_LANGUAGES } from '../i18n'
+import { SUPPORTED_CURRENCIES } from '../i18n'
 import { TOLL_OTHER, listedTollSystem, tidyTollSystem, tollSystemMatchKey } from '../../utils/tollSystems'
 
 // Contributors add rows here, so these checks are the review a PR gets for free.
@@ -20,12 +20,10 @@ describe('TOLL_COUNTRIES', () => {
     }
   })
 
-  it('guesses only from currencies and languages the app supports', () => {
+  it('guesses only from currencies the app supports', () => {
     const currencies = new Set(SUPPORTED_CURRENCIES.map((c) => c.code))
-    const languages = new Set(SUPPORTED_LANGUAGES.map((l) => l.code))
     for (const c of TOLL_COUNTRIES) {
       for (const code of c.currencies) expect(currencies.has(code), `${c.country} ${code}`).toBe(true)
-      for (const code of c.languages) expect(languages.has(code), `${c.country} ${code}`).toBe(true)
     }
   })
 
