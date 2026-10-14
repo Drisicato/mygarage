@@ -267,17 +267,22 @@ export default function ServiceVisitForm({
 
   // Informational estimate only — the authoritative cost snapshot (frozen at
   // each usage's unit_cost_snapshot) is computed server-side.
-  const partsSupplies = useMemo(() => {
-    let total = 0
-    for (const item of formData.line_items) {
+  const partsByLineItem = useMemo(() => {
+    return formData.line_items.map((item) => {
+      let total = 0
       // Same conversion as submit, so the estimate prices exactly what gets sent.
       for (const usage of convertSupplyUsages(item.supplies_used ?? [], unitsBySupplyId, toCanonical)) {
         const avgCost = suppliesById.get(usage.supply_id)?.avg_unit_cost
         total += (avgCost != null ? Number(avgCost) : 0) * usage.quantity
       }
-    }
-    return total
+      return total
+    })
   }, [formData.line_items, suppliesById, unitsBySupplyId])
+
+  const partsSupplies = useMemo(
+    () => partsByLineItem.reduce((sum, cost) => sum + cost, 0),
+    [partsByLineItem],
+  )
 
   const totalCost = useMemo(() => {
     return (
@@ -804,6 +809,7 @@ export default function ServiceVisitForm({
                     vin={vin}
                     supplies={supplies}
                     unitsBySupplyId={unitsBySupplyId}
+                    partsCost={partsByLineItem[index] ?? 0}
                     failedInspections={failedInspections.filter((fi) => fi.refId !== (item.id ?? item.tempId ?? 0))}
                     onChange={handleLineItemChange}
                     onRemove={handleRemoveLineItem}

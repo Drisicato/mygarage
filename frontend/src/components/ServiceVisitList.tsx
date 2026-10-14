@@ -228,6 +228,10 @@ export default function ServiceVisitList({
   }
 
   const renderLineItem = (item: ServiceLineItem, index: number) => {
+    const laborCost = item.cost ? Number(item.cost) : 0
+    const partsCost = (item.supply_usages ?? []).reduce((sum, u) => sum + Number(u.cost_snapshot ?? 0), 0)
+    const lineTotal = laborCost + partsCost
+    const fmt = (n: number) => formatCurrency(n, { currencyCode, locale })
     return (
       <Card key={item.id || index} padding="sm" className="flex items-start gap-3 bg-surface-2/50">
         <div className="flex-shrink-0 mt-0.5">
@@ -252,8 +256,13 @@ export default function ServiceVisitList({
           </div>
           {item.notes && <p className="text-xs text-text-mute mt-1">{item.notes}</p>}
         </div>
-        <div className="flex-shrink-0 text-sm text-text">
-          {item.cost ? <Mono size="sm">{formatCurrency(item.cost, { currencyCode, locale })}</Mono> : '-'}
+        <div className="flex-shrink-0 text-sm text-text text-right">
+          {lineTotal > 0 ? <Mono size="sm">{fmt(lineTotal)}</Mono> : '-'}
+          {laborCost > 0 && partsCost > 0 && (
+            <p className="text-xs text-text-mute">
+              {t('serviceList.laborCost', { amount: fmt(laborCost) })} · {t('serviceList.partsCost', { amount: fmt(partsCost) })}
+            </p>
+          )}
         </div>
       </Card>
     )
