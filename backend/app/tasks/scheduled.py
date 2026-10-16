@@ -47,6 +47,7 @@ from app.utils.household_time import (
 )
 from app.utils.render_context import render_context_for_vehicle, render_context_for_vehicle_row
 from app.utils.unit_adapters import adapter_for
+from app.utils.usage_tracking import tracks_distance
 
 logger = logging.getLogger(__name__)
 
@@ -215,10 +216,11 @@ async def check_expiring_documents() -> None:
 async def check_odometer_milestones() -> None:
     """Check for odometer milestones and send notifications.
 
-    Runs daily at 10 AM UTC. Checks each vehicle's latest odometer_km against
-    milestone boundaries: every 10,000 of the distance unit the vehicle renders
-    in (its own odometer unit, else its owner's, else the instance default;
-    #172). Uses last_milestone_notified_km on the vehicle to prevent duplicate
+    Runs daily at 10 AM UTC. Skips a vehicle with no odometer (#217). Checks
+    each vehicle's latest odometer_km against milestone boundaries: every
+    10,000 of the distance unit the vehicle renders in (its own odometer unit,
+    else its owner's, else the instance default; #172). Uses
+    last_milestone_notified_km on the vehicle to prevent duplicate
     notifications; the comparison stays in canonical km, so a unit change never
     fires a mark twice or goes backwards.
     """
@@ -249,6 +251,9 @@ async def check_odometer_milestones() -> None:
             ).all()
 
             for vehicle, owner in rows:
+                # No odometer, no odometer milestones, whatever rows a tire wrote (#217).
+                if not tracks_distance(vehicle.usage_unit, vehicle.secondary_usage_enabled):
+                    continue
                 try:
                     # Get latest odometer_km
                     odo_result = await db.execute(

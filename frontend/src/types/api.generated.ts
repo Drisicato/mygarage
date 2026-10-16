@@ -5019,6 +5019,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vehicles/{vin}/hours/nearest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Nearest Hours Reading
+         * @description The hours reading closest to a date, for prefilling a tire dialog. 404 when there are none.
+         */
+        get: operations["nearest_hours_reading_api_vehicles__vin__hours_nearest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vehicles/{vin}/hours/{record_id}": {
         parameters: {
             query?: never;
@@ -12814,6 +12834,8 @@ export interface components {
          *     is ahead of the server's).
          */
         MountPeriodCreate: {
+            /** Dismounted Hours */
+            dismounted_hours?: number | string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km?: number | string | null;
             /**
@@ -12821,6 +12843,8 @@ export interface components {
              * Format: date
              */
             dismounted_on: string;
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /**
@@ -12841,6 +12865,8 @@ export interface components {
          * @description One interval a tire spent mounted at one position.
          */
         MountPeriodResponse: {
+            /** Dismounted Hours */
+            dismounted_hours?: string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km: string | null;
             /** Dismounted On */
@@ -12849,6 +12875,8 @@ export interface components {
             id: number;
             /** Is Assumed */
             is_assumed: boolean;
+            /** Mounted Hours */
+            mounted_hours?: string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km: string | null;
             /** Mounted On */
@@ -12870,10 +12898,14 @@ export interface components {
          *     and forbid-extra makes sending it a 422 rather than a silent ignore.
          */
         MountPeriodUpdate: {
+            /** Dismounted Hours */
+            dismounted_hours?: number | string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km?: number | string | null;
             /** Dismounted On */
             dismounted_on?: string | null;
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /** Mounted On */
@@ -12904,6 +12936,23 @@ export interface components {
             label: string;
             /** Value */
             value: string;
+        };
+        /**
+         * NearestHoursResponse
+         * @description The hours reading closest to a requested day, for the tire dialogs' suggestion.
+         */
+        NearestHoursResponse: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Days Away */
+            days_away: number;
+            /** Engine Hours */
+            engine_hours: string;
+            /** Source */
+            source: string;
         };
         /**
          * NearestOdometerResponse
@@ -14317,12 +14366,20 @@ export interface components {
             rule_id?: number | null;
             /** Snoozed Until */
             snoozed_until?: string | null;
+            /** Source */
+            source?: string | null;
             /** Status */
             status: string;
             /** Superseded By Id */
             superseded_by_id?: number | null;
+            /** Tire Id */
+            tire_id?: number | null;
             /** Title */
             title: string;
+            /** Tread Depth Mm */
+            tread_depth_mm?: string | null;
+            /** Tread Threshold Mm */
+            tread_threshold_mm?: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -16158,9 +16215,20 @@ export interface components {
              * @default false
              */
             has_odometer_record: boolean;
+            /**
+             * Has Usage Record
+             * @default false
+             */
+            has_usage_record: boolean;
             readiness?: components["schemas"]["TireReadiness"];
             /** Tires */
             tires?: components["schemas"]["TireResponse"][];
+            /**
+             * Usage Axis
+             * @default distance
+             * @enum {string}
+             */
+            usage_axis: "distance" | "hours";
         };
         /**
          * TireCreate
@@ -16215,6 +16283,8 @@ export interface components {
             min_tread_mm: number | string | null;
             /** Model Name */
             model_name?: string | null;
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /** Mounted On */
@@ -16242,6 +16312,8 @@ export interface components {
          * @description Take a tire off the vehicle.
          */
         TireDismountRequest: {
+            /** Dismounted Hours */
+            dismounted_hours?: number | string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km?: number | string | null;
             /** Dismounted On */
@@ -16260,12 +16332,30 @@ export interface components {
             tires: components["schemas"]["TireResponse"][];
             /** Total */
             total: number;
+            /**
+             * Tracks Distance
+             * @default true
+             */
+            tracks_distance: boolean;
+            /**
+             * Tracks Hours
+             * @default false
+             */
+            tracks_hours: boolean;
+            /**
+             * Usage Axis
+             * @default distance
+             * @enum {string}
+             */
+            usage_axis: "distance" | "hours";
         };
         /**
          * TireMountRequest
          * @description Mount a tire at a position.
          */
         TireMountRequest: {
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /** Mounted On */
@@ -16345,8 +16435,13 @@ export interface components {
          *     no tread gauge, and a required tread beside an optional odometer meant they
          *     could not record a pressure at all. What is required is that a reading carry
          *     at least one measurement (see ``_at_least_one_measurement``).
+         *
+         *     Forbids extras like every other tire write schema, so a misspelt field is
+         *     a 422 and not a silent drop.
          */
         TireReadingCreate: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
             /** Notes */
             notes?: string | null;
             /** Odometer Km */
@@ -16371,6 +16466,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Engine Hours */
+            engine_hours?: string | null;
             /** Id */
             id: number;
             /** Mount Period Id */
@@ -16441,6 +16538,10 @@ export interface components {
             known_distance_km?: string | null;
             /** Known Distance Since */
             known_distance_since?: string | null;
+            /** Known Usage */
+            known_usage?: string | null;
+            /** Known Usage Since */
+            known_usage_since?: string | null;
             /**
              * Min Tread Mm
              * @description Wear-out threshold in mm; drives reminder hooks
@@ -16459,6 +16560,8 @@ export interface components {
             pressure_kpa?: string | null;
             /** Projected Km Remaining */
             projected_km_remaining?: string | null;
+            /** Projected Usage Remaining */
+            projected_usage_remaining?: string | null;
             /** Projected Wear Date */
             projected_wear_date?: string | null;
             /** Readings */
@@ -16475,6 +16578,14 @@ export interface components {
             tread_depth_mm?: string | null;
             /** Updated At */
             updated_at?: string | null;
+            /**
+             * Usage Axis
+             * @default distance
+             * @enum {string}
+             */
+            usage_axis: "distance" | "hours";
+            /** Usage On Tire */
+            usage_on_tire?: string | null;
             /** Vin */
             vin: string;
             /** Wear Status */
@@ -16502,6 +16613,8 @@ export interface components {
          *     for something done four tires at a time is worse than a refusal.
          */
         TireRotationRequest: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
             /** Moves */
             moves: components["schemas"]["TireRotationMove"][];
             /** Notes */
@@ -16545,6 +16658,8 @@ export interface components {
          *     the dash once.
          */
         TireSetMountRequest: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
             /** Mounted On */
             mounted_on?: string | null;
             /** Notes */
@@ -27901,6 +28016,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HoursRecordResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    nearest_hours_reading_api_vehicles__vin__hours_nearest_get: {
+        parameters: {
+            query: {
+                date: string;
+            };
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NearestHoursResponse"];
                 };
             };
             /** @description Validation Error */
