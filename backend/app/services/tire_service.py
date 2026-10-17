@@ -7,6 +7,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from datetime import timedelta
 from decimal import Decimal
+from typing import Literal
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
@@ -32,6 +33,7 @@ from app.schemas.tire import (
     TireMountRequest,
     TireReadingCreate,
     TireReadingResponse,
+    TireReadingUpdate,
     TireResponse,
     TireRotationRequest,
     TireUpdate,
@@ -45,6 +47,8 @@ from app.services.tire_history import (
     fault_map,
     new_or_touched_faults,
     odometer_contradictions,
+    reading_contradiction_message,
+    reading_contradictions,
     validate_period_history,
 )
 from app.services.tire_results import (
@@ -110,10 +114,10 @@ async def publish_tire_odometer(
     1. A record with that marker has its value updated. Under the tire's own
        marker a figure below it, beyond the same-reading tolerance, leaves
        it: every reading of the tire that day shares that marker, so the
-       record keeps the highest (#224) and only a reading delete lowers it
-       (`_withdraw_reading_usage`). A set fit or rotation published again
-       lower is taken as a correction and lowers its record; the period
-       editor moves a period's record itself.
+       record keeps the highest (#224) and only a reading delete or edit
+       lowers it (`_withdraw_reading_usage`). A set fit or rotation
+       published again lower is taken as a correction and lowers its record;
+       the period editor moves a period's record itself.
     2. Otherwise, when another record on the day (manual, a service visit's,
        a fuel-up's, LiveLink's, another tire event's) reads at or above the
        figure, within the same-reading tolerance, nothing is published: the
@@ -257,6 +261,7 @@ UNTRACKED_DISTANCE = (
 UNTRACKED_HOURS = (
     "This vehicle doesn't track engine hours, so a tire can't take an hour meter reading."
 )
+MEASURES_NOTHING = "A reading needs a tread depth, a pressure, or both"
 
 
 def refuse_untracked(
@@ -831,6 +836,26 @@ def _same_measure(a: Decimal | None, b: Decimal | None) -> bool:
     column compare equal. An unknown on either side is never the same.
     """
     return a is not None and b is not None and Decimal(a) == Decimal(b)
+
+
+Measure = Literal["tread_depth_mm", "pressure_kpa"]
+#: What a reading measures about the tire. The odometer and hours are context, not these.
+MEASURES: tuple[Measure, ...] = ("tread_depth_mm", "pressure_kpa")
+
+
+def _newest_with(readings: Iterable[TireReading], measure: Measure) -> TireReading | None:
+    """The newest reading that takes `measure`, by (recorded_at, id) as `delete_reading` orders."""
+    return max(
+        (r for r in readings if getattr(r, measure) is not None),
+        key=lambda r: (r.recorded_at, r.id or 0),
+        default=None,
+    )
+
+
+def _newest_value(readings: Iterable[TireReading], measure: Measure) -> Decimal | None:
+    """The newest reading's value of `measure`, or None when no reading takes it."""
+    newest = _newest_with(readings, measure)
+    return getattr(newest, measure) if newest is not None else None
 
 
 def _low_tread_title(position: str | None) -> str:
@@ -2108,12 +2133,14 @@ class TireService:
             # to False and `_sync_low_tread_reminder` would mark a live
             # low-tread reminder done. Logging a pressure would have silently
             # dismissed the warning that the tire is worn out.
-            recorded_dates = [r.recorded_at for r in (tire.readings or [])]
-            if not recorded_dates or data.recorded_at >= max(recorded_dates):
-                if data.tread_depth_mm is not None:
-                    tire.tread_depth_mm = data.tread_depth_mm
-                if data.pressure_kpa is not None:
-                    tire.pressure_kpa = data.pressure_kpa
+            # Per measure, so a later pressure-only reading doesn't hold back a
+            # tread, and the other way round. A same-day reading wins: it has the
+            # highest id, so it's the newest by (recorded_at, id) too.
+            for measure in MEASURES:
+                value = getattr(data, measure)
+                newest = _newest_with(tire.readings or [], measure)
+                if value is not None and (newest is None or data.recorded_at >= newest.recorded_at):
+                    setattr(tire, measure, value)
             # A reading's odometer is vehicle context by this schema's own
             # words, not an observation of the tire. Without publishing it the
             # five writers above make things WORSE for someone who only records
@@ -2149,12 +2176,10 @@ class TireService:
     async def delete_reading(
         self, vin: str, tire_id: int, reading_id: int, current_user: User | None
     ) -> None:
-        """Delete one reading, for one logged with the wrong odometer or date.
+        """Delete one reading, for one that shouldn't be there at all.
 
-        The repair for a mistyped reading. The writers that validate the mount
-        history refuse any write that leaves a period contradicting a reading,
-        and that refusal names the reading to delete; there is no reading edit,
-        so the user re-logs the correct one.
+        A reading with a wrong value is corrected in place by `update_reading`;
+        the writers that check the mount history name the reading either way.
 
         No vehicle write lock, for the reason `add_reading` takes none: it
         writes no position, retirement or period row, which is what the lock
@@ -2216,7 +2241,15 @@ class TireService:
 
             # Each captured axis published its own row; a junk odometer on an hours vehicle stays put.
             for axis in axes.captured:
-                await self._withdraw_reading_usage(vin, tire.id, reading, remaining, axis)
+                await self._withdraw_reading_usage(
+                    vin,
+                    tire.id,
+                    reading.id,
+                    reading.recorded_at,
+                    axis.reading(reading),
+                    remaining,
+                    axis,
+                )
 
             # Removed from the loaded collection, not just `db.delete`d: the
             # reload below finds this tire in the identity map with `readings`
@@ -2242,15 +2275,110 @@ class TireService:
             )
             raise HTTPException(status_code=503, detail="Database temporarily unavailable")
 
+    async def update_reading(
+        self,
+        vin: str,
+        tire_id: int,
+        reading_id: int,
+        data: TireReadingUpdate,
+        current_user: User | None,
+    ) -> TireResponse:
+        """Correct one reading in place: its date, measurements, figures or notes (#225).
+
+        Under the vehicle write lock, like the period editor. The tire's tread and
+        pressure, the rows the reading published on each axis the vehicle tracks,
+        and the low-tread reminder follow the corrected values. A change that makes
+        a mount period newly contradict the reading is a 409; one it already
+        contradicted never blocks it.
+        """
+        from app.services.auth import get_vehicle_or_403
+
+        vin = vin.upper().strip()
+        await get_vehicle_or_403(vin, current_user, self.db, require_write=True)
+        await lock_vehicle_for_write(self.db, vin)
+        axes = await self.request_axes(current_user, vin)
+        fields = data.model_dump(exclude_unset=True)
+        # The body's figures only: a junk figure already on the reading can't block an edit.
+        refuse_untracked(
+            axes, odometers=(fields.get("odometer_km"),), hours=(fields.get("engine_hours"),)
+        )
+        tire = await self._get_tire_for_update(vin, tire_id)
+        # Looked up inside this tire's readings, so another tire's reading is a 404.
+        reading = next((r for r in tire.readings or [] if r.id == reading_id), None)
+        if reading is None:
+            raise HTTPException(status_code=404, detail="Reading not found")
+        if all(fields.get(m, getattr(reading, m)) is None for m in MEASURES):
+            raise HTTPException(status_code=422, detail=MEASURES_NOTHING)
+
+        readings = list(tire.readings or [])
+        newest_before = {m: _newest_value(readings, m) for m in MEASURES}
+        old_values = {m: getattr(reading, m) for m in MEASURES}
+        old_day = reading.recorded_at
+        published = {axis.kind: axis.reading(reading) for axis in axes.captured}
+        periods = list(tire.mount_periods or [])
+        contradicted = {
+            (axis.kind, period.id)
+            for axis, period in reading_contradictions(periods, reading, axes.captured)
+        }
+
+        for key, value in fields.items():
+            setattr(reading, key, value)
+        await self.db.flush()
+
+        # Rule 5 flags each period once, so a period another reading already
+        # contradicts would hide a new one. This judges the reading's own pairs.
+        fresh = [
+            (axis, period)
+            for axis, period in reading_contradictions(periods, reading, axes.captured)
+            if (axis.kind, period.id) not in contradicted
+        ]
+        if fresh:
+            axis, period = fresh[0]
+            raise HTTPException(
+                status_code=409, detail=reading_contradiction_message(period, reading, axis)
+            )
+
+        moved = reading.recorded_at != old_day
+        for m in MEASURES:
+            value = getattr(reading, m)
+            changed = moved or not _same_measure(value, old_values[m])
+            if _same_measure(getattr(tire, m), newest_before[m]):
+                # It tracked the newest reading, so it tracks the newest one now.
+                setattr(tire, m, _newest_value(readings, m))
+            elif changed and _newest_with(readings, m) is reading:
+                # A value set by hand gives way only to a changed reading that's
+                # now the newest, as logging it fresh would.
+                setattr(tire, m, value)
+
+        # Each captured axis moves its row only when its figure or the date changed;
+        # an untracked axis's junk stays put, as `delete_reading` leaves it.
+        others = [r for r in readings if r.id != reading.id]
+        for axis in axes.captured:
+            was, now = published[axis.kind], axis.reading(reading)
+            if (old_day, was) == (reading.recorded_at, now):
+                continue
+            await self._withdraw_reading_usage(vin, tire.id, reading.id, old_day, was, others, axis)
+            await self._publish_usage(
+                vin, reading.recorded_at, now, ODOMETER_SOURCE_TIRE, tire.id, axis
+            )
+
+        await self.db.commit()
+        # Read back at the columns' scale, so the echo says 170.00 and not 170.
+        # Tire.readings cascades refresh, so this reloads the reading too.
+        await self.db.refresh(tire)
+        return await self._reload_and_sync(tire.id, vin, axes)
+
     async def _withdraw_reading_usage(
         self,
         vin: str,
         tire_id: int,
-        reading: TireReading,
+        reading_id: int,
+        day: dt.date,
+        value: Decimal | None,
         remaining: Sequence[TireReading],
         axis: UsageAxis,
     ) -> None:
-        """Withdraw the vehicle odometer record a reading published, if it is still that.
+        """Withdraw the row a reading published on `day` at `value`, if it is still that.
 
         `add_reading` publishes with `ODOMETER_SOURCE_TIRE` keyed by the TIRE,
         so the marker alone does not say which reading a record came from: a
@@ -2280,21 +2408,18 @@ class TireService:
         sessions do not autoflush, and the publish looks for a same-day row by
         SQL, where an unflushed delete would still show it this one.
 
+        Takes the day and figure rather than the reading, so an edit can
+        withdraw what it published after the reading changed.
+
         Per axis (#217).
         """
-        value = axis.reading(reading)
         if value is None:
             return
-        if any(
-            r.recorded_at == reading.recorded_at and _same_measure(axis.reading(r), value)
-            for r in remaining
-        ):
+        if any(r.recorded_at == day and _same_measure(axis.reading(r), value) for r in remaining):
             return
         marker = auto_sync_marker(ODOMETER_SOURCE_TIRE, tire_id)
         candidates = [
-            r
-            for r in await _same_day_usage(self.db, vin, axis, reading.recorded_at)
-            if r.notes == marker
+            r for r in await _same_day_usage(self.db, vin, axis, day) if r.notes == marker
         ]
         # Compared in Python, as Decimals: NUMERIC equality in SQL depends on the dialect.
         record = next((c for c in candidates if _same_measure(_usage_value(c), value)), None)
@@ -2303,16 +2428,16 @@ class TireService:
         await self.db.delete(record)
         await self.db.flush()
         column = TireReading.engine_hours if axis.is_hours else TireReading.odometer_km
-        # The reading being deleted is still in the database here (it goes on
-        # the caller's commit), hence the id filter.
+        # The reading is still in the database here (a delete goes on the
+        # caller's commit, and an edited reading is still there), hence the id filter.
         backer = (
             await self.db.execute(
                 select(TireReading)
                 .where(
                     TireReading.vin == vin,
-                    TireReading.recorded_at == reading.recorded_at,
+                    TireReading.recorded_at == day,
                     column.is_not(None),
-                    TireReading.id != reading.id,
+                    TireReading.id != reading_id,
                 )
                 .order_by(column.desc(), TireReading.id.desc())
                 .limit(1)

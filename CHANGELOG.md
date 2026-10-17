@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SSO settings have a Callback URL field, so `oidc_redirect_uri` can be pinned from Settings
 - Tires on a vehicle that tracks engine hours use the hour meter: mounts, dismounts, rotations, set fits and readings take hours, and hours on the tire and the wear estimate are worked out in hours (#217)
 - A vehicle that tracks both distance and hours records both on each tire event, the second one optional, and its tire figures stay on distance
+- Tire readings can be edited from the tire's history: fix a wrong date, tread, pressure or note, or add an odometer or hour meter reading later
+- A tread gauge reading in inches (0.346) typed into a 32nds field is read as 32nds (11/32)
 
 ### Changed
 - CI splits the test suites across parallel runners (shared-workflows v1.7.0)
@@ -65,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A tire reading logged after a higher one the same day no longer lowers the vehicle's odometer or hours for that day, and deleting a tire reading leaves the day at the highest reading still on file
 - A reminder you make counts its progress bar from the readings on file when you made it, so a reading added or corrected later that day no longer holds the bar at zero or hides it (thanks @Drisicato, PR #216)
 - Importing an old (pre-v3) vehicle backup counts a repeating reminder's mileage from the vehicle's odometer instead of saving the interval as the due odometer, keeps a one-time reminder's due date and mileage, and brings completed reminders back as done; a mileage-only reminder with no odometer reading to count from is reported instead
+- A tread or pressure reading dated before a newer reading of the other kind now updates the tire's tread or pressure
 
 ### Security
 - POI provider settings are admin-only

@@ -17,6 +17,7 @@ import type {
   TireListResponse,
   TireMountRequest,
   TireReadingCreate,
+  TireReadingUpdate,
   TireRotationRequest,
   TireSet,
   TireSetCreate,
@@ -245,7 +246,33 @@ export function useAddTireReading(vin: string) {
 }
 
 /**
- * Delete one reading, for one logged with the wrong odometer or date.
+ * Correct one reading. Absent keys stay; null clears one, except the date.
+ *
+ * Through the helper like every tire write: an edit can move the tire's tread
+ * and pressure, the rows the reading published and the low-tread reminder.
+ */
+export function useUpdateTireReading(
+  vin: string
+): UseMutationResult<Tire, Error, TireReadingUpdate & { tireId: number; readingId: number }> {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      tireId,
+      readingId,
+      ...payload
+    }: TireReadingUpdate & { tireId: number; readingId: number }) => {
+      const { data } = await api.put<Tire>(
+        `/vehicles/${vin}/tires/${tireId}/readings/${readingId}`,
+        payload
+      )
+      return data
+    },
+    onSuccess: () => invalidateTireViews(queryClient, vin),
+  })
+}
+
+/**
+ * Delete one reading that shouldn't be there; a wrong value is fixed with useUpdateTireReading.
  *
  * Through the helper like every other tire write: the server may put the
  * tire's tread and pressure back to an older reading, delete the odometer
