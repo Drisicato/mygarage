@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from app.models.tax import TaxRecord
     from app.models.toll import TollTag, TollTransaction
     from app.models.user import User
+    from app.models.vehicle_inspection import VehicleInspection
     from app.models.warranty import WarrantyRecord
 
 
@@ -219,6 +220,9 @@ class Vehicle(Base):
     )
     planned_repairs: Mapped[list[PlannedRepair]] = relationship(
         "PlannedRepair", back_populates="vehicle", cascade="all, delete-orphan"
+    )
+    inspections: Mapped[list[VehicleInspection]] = relationship(
+        "VehicleInspection", back_populates="vehicle", cascade="all, delete-orphan"
     )
     reminders: Mapped[list[Reminder]] = relationship(
         "Reminder", back_populates="vehicle", cascade="all, delete-orphan"

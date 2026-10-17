@@ -46,6 +46,12 @@ from app.models.toll import TollTag, TollTransaction
 from app.models.user import User
 from app.models.vehicle import TrailerDetails, Vehicle
 from app.models.vehicle_dtc import VehicleDTC
+from app.models.vehicle_inspection import (
+    VehicleInspection,
+    VehicleInspectionCorner,
+    VehicleInspectionItem,
+    VehicleInspectionPhoto,
+)
 from app.models.vehicle_share import VehicleShare
 from app.models.vehicle_telemetry import (
     TelemetryDailySummary,
@@ -74,6 +80,10 @@ __all__ = [
     "PlannedRepair",
     "PlannedRepairPart",
     "PlannedRepairPhoto",
+    "VehicleInspection",
+    "VehicleInspectionItem",
+    "VehicleInspectionCorner",
+    "VehicleInspectionPhoto",
     "Recall",
     "Attachment",
     "VehiclePhoto",

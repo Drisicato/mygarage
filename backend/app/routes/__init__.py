@@ -38,6 +38,7 @@ from app.routes.supplies import vehicle_supplies_router
 from app.routes.tax import router as tax_router
 from app.routes.tires import router as tires_router
 from app.routes.toll import toll_tags_router, toll_transactions_router
+from app.routes.vehicle_inspections import router as vehicle_inspections_router
 from app.routes.vehicles import router as vehicles_router
 from app.routes.vendors import router as vendors_router
 from app.routes.vin import router as vin_router
@@ -87,6 +88,7 @@ __all__ = [
     "reminder_packs_router",
     "service_visits_router",
     "planned_repairs_router",
+    "vehicle_inspections_router",
     "supplies_router",
     "vehicle_supplies_router",
 ]

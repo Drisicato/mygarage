@@ -502,6 +502,22 @@ CHECK_BACKED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
         "planned_repairs",
         "check_planned_repairs_status",
     ),
+    ("InspectionCornerResponse", "brake_status"): (
+        "vehicle_inspection_corners",
+        "check_vehicle_inspection_corners_brake_status",
+    ),
+    ("InspectionCornerResponse", "position"): (
+        "vehicle_inspection_corners",
+        "check_vehicle_inspection_corners_position",
+    ),
+    ("InspectionCornerResponse", "tread_status"): (
+        "vehicle_inspection_corners",
+        "check_vehicle_inspection_corners_tread_status",
+    ),
+    ("InspectionItemResponse", "status"): (
+        "vehicle_inspection_items",
+        "check_vehicle_inspection_items_status",
+    ),
     ("ServiceLineItemResponse", "inspection_result"): (
         "service_line_items",
         "check_inspection_result",

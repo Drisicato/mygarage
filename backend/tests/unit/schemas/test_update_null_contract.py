@@ -50,6 +50,7 @@ from app.models.toll import TollTag, TollTransaction
 from app.models.user import User
 from app.models.vehicle import TrailerDetails, Vehicle
 from app.models.vehicle_dtc import VehicleDTC
+from app.models.vehicle_inspection import VehicleInspection
 from app.models.vehicle_share import VehicleShare
 from app.models.vendor import Vendor
 from app.models.warranty import WarrantyRecord
@@ -98,6 +99,7 @@ from app.schemas.user import (
     UserSelfUpdate,
 )
 from app.schemas.vehicle import TrailerDetailsUpdate, VehicleUpdate
+from app.schemas.vehicle_inspection import VehicleInspectionUpdate
 from app.schemas.vendor import VendorUpdate
 from app.schemas.warranty import WarrantyRecordUpdate
 
@@ -195,6 +197,13 @@ REGISTRY: dict[type[BaseModel], Entry] = {
     ),
     UserSelfUpdate: Entry(User),
     VehicleDTCUpdate: Entry(VehicleDTC),
+    VehicleInspectionUpdate: Entry(
+        VehicleInspection,
+        unmapped={
+            "items": "VehicleInspectionItem child rows, replaced whole",
+            "corners": "VehicleInspectionCorner child rows, replaced whole",
+        },
+    ),
     VehicleShareUpdate: Entry(VehicleShare, baseline={"permission": "read"}),
     VehicleUpdate: Entry(Vehicle),
     VendorUpdate: Entry(Vendor),

@@ -3,11 +3,9 @@
 import logging
 import uuid
 from datetime import UTC, datetime
-from io import BytesIO
 from pathlib import Path
 
 from fastapi import HTTPException
-from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -30,11 +28,11 @@ from app.services.vehicle_lock import lock_vehicle_for_write
 from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.path_validation import validate_path_within_base
+from app.utils.photo_encoding import PHOTO_MAX_SIDE  # noqa: F401 (re-exported)
+from app.utils.photo_encoding import encode_photo as _encode_photo
 
 logger = logging.getLogger(__name__)
 
-#: Longest edge of a stored photo: legible detail on a damaged part, without a phone's full 12 MP.
-PHOTO_MAX_SIDE = (1600, 1600)
 MAX_PHOTOS_PER_REPAIR = 12
 
 #: Board column order, so a list reads left to right.
@@ -59,22 +57,6 @@ def _parts(items: list[PlannedRepairPartInput]) -> list[PlannedRepairPart]:
         )
         for p in items
     ]
-
-
-def _encode_photo(contents: bytes) -> Image.Image:
-    """Decode an upload to an upright RGB image no larger than ``PHOTO_MAX_SIDE``."""
-    try:
-        image = ImageOps.exif_transpose(Image.open(BytesIO(contents)))
-        image.thumbnail(PHOTO_MAX_SIDE)
-        if image.mode in ("RGBA", "LA", "P"):
-            # JPEG has no alpha: flatten onto white so a transparent PNG doesn't turn black.
-            rgba = image.convert("RGBA")
-            flat = Image.new("RGB", rgba.size, (255, 255, 255))
-            flat.paste(rgba, mask=rgba.getchannel("A"))
-            return flat
-        return image.convert("RGB") if image.mode != "RGB" else image
-    except UnidentifiedImageError, OSError, Image.DecompressionBombError:
-        raise HTTPException(status_code=400, detail="Invalid image file")
 
 
 def _unlink_photo(file_path: str) -> None:

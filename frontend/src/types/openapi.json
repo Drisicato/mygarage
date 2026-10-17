@@ -2161,6 +2161,20 @@
         "title": "Body_upload_supply_image_api_supplies__supply_id__image_post",
         "type": "object"
       },
+      "Body_upload_vehicle_inspection_photo_api_vehicles__vin__inspections__inspection_id__photos_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_vehicle_inspection_photo_api_vehicles__vin__inspections__inspection_id__photos_post",
+        "type": "object"
+      },
       "Body_upload_vehicle_photo_api_vehicles__vin__photos_post": {
         "properties": {
           "caption": {
@@ -9236,6 +9250,352 @@
           }
         },
         "title": "InboxResponse",
+        "type": "object"
+      },
+      "InspectionCornerInput": {
+        "description": "One wheel's tread depth and brake pad readings.",
+        "properties": {
+          "brake_pad_mm": {
+            "anyOf": [
+              {
+                "maximum": 99.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Brake pad thickness",
+            "title": "Brake Pad Mm"
+          },
+          "brake_status": {
+            "default": "not_inspected",
+            "description": "Brake pad band",
+            "enum": [
+              "green",
+              "yellow",
+              "red",
+              "not_inspected"
+            ],
+            "title": "Brake Status",
+            "type": "string"
+          },
+          "position": {
+            "description": "Which wheel",
+            "enum": [
+              "lf",
+              "rf",
+              "lr",
+              "rr"
+            ],
+            "title": "Position",
+            "type": "string"
+          },
+          "tread_depth_mm": {
+            "anyOf": [
+              {
+                "maximum": 99.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tread depth",
+            "title": "Tread Depth Mm"
+          },
+          "tread_status": {
+            "default": "not_inspected",
+            "description": "Tread band",
+            "enum": [
+              "green",
+              "yellow",
+              "red",
+              "not_inspected"
+            ],
+            "title": "Tread Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "InspectionCornerInput",
+        "type": "object"
+      },
+      "InspectionCornerResponse": {
+        "description": "A stored wheel's readings.",
+        "properties": {
+          "brake_pad_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Brake pad thickness",
+            "title": "Brake Pad Mm"
+          },
+          "brake_repair_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The planned repair created from this brake pad",
+            "title": "Brake Repair Id"
+          },
+          "brake_status": {
+            "description": "Brake pad band",
+            "enum": [
+              "green",
+              "yellow",
+              "red",
+              "not_inspected"
+            ],
+            "title": "Brake Status",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Which wheel",
+            "enum": [
+              "lf",
+              "rf",
+              "lr",
+              "rr"
+            ],
+            "title": "Position",
+            "type": "string"
+          },
+          "tread_depth_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tread depth",
+            "title": "Tread Depth Mm"
+          },
+          "tread_repair_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The planned repair created from this tire",
+            "title": "Tread Repair Id"
+          },
+          "tread_status": {
+            "description": "Tread band",
+            "enum": [
+              "green",
+              "yellow",
+              "red",
+              "not_inspected"
+            ],
+            "title": "Tread Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "tread_status",
+          "brake_status"
+        ],
+        "title": "InspectionCornerResponse",
+        "type": "object"
+      },
+      "InspectionItemInput": {
+        "description": "One checklist point's result.",
+        "properties": {
+          "item_key": {
+            "description": "Which checklist point",
+            "enum": [
+              "exterior_lights",
+              "wipers",
+              "rear_lights",
+              "cabin_filter",
+              "engine_oil",
+              "coolant",
+              "power_steering_fluid",
+              "brake_fluid",
+              "washer_fluid",
+              "transmission_fluid",
+              "cooling_system",
+              "ac_system",
+              "engine_air_filter",
+              "drive_belts",
+              "front_suspension",
+              "rear_suspension",
+              "differential",
+              "drive_shaft",
+              "exhaust",
+              "axles",
+              "fluid_leaks",
+              "battery",
+              "tire_rotation"
+            ],
+            "title": "Item Key",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What was found",
+            "title": "Note"
+          },
+          "status": {
+            "default": "not_inspected",
+            "description": "Result of the check",
+            "enum": [
+              "green",
+              "yellow",
+              "red",
+              "not_inspected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_key"
+        ],
+        "title": "InspectionItemInput",
+        "type": "object"
+      },
+      "InspectionItemRepairCreate": {
+        "description": "Create a planned repair from a checklist point. The client sends the\npoint's label, since the labels are translated on the frontend.",
+        "properties": {
+          "title": {
+            "description": "The planned repair's title",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "InspectionItemRepairCreate",
+        "type": "object"
+      },
+      "InspectionItemResponse": {
+        "description": "A stored checklist result.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "item_key": {
+            "description": "Which checklist point",
+            "title": "Item Key",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What was found",
+            "title": "Note"
+          },
+          "planned_repair_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The planned repair created from this point",
+            "title": "Planned Repair Id"
+          },
+          "status": {
+            "description": "Result of the check",
+            "enum": [
+              "green",
+              "yellow",
+              "red",
+              "not_inspected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "item_key",
+          "status"
+        ],
+        "title": "InspectionItemResponse",
+        "type": "object"
+      },
+      "InspectionStatusCounts": {
+        "description": "How many checklist points, tread bands and brake bands landed in each status.",
+        "properties": {
+          "green": {
+            "default": 0,
+            "title": "Green",
+            "type": "integer"
+          },
+          "not_inspected": {
+            "default": 0,
+            "title": "Not Inspected",
+            "type": "integer"
+          },
+          "red": {
+            "default": 0,
+            "title": "Red",
+            "type": "integer"
+          },
+          "yellow": {
+            "default": 0,
+            "title": "Yellow",
+            "type": "integer"
+          }
+        },
+        "title": "InspectionStatusCounts",
         "type": "object"
       },
       "InsurancePolicyCreate": {
@@ -27383,6 +27743,643 @@
         "title": "VehicleDetailStats",
         "type": "object"
       },
+      "VehicleInspectionCreate": {
+        "description": "Schema for logging an inspection.",
+        "properties": {
+          "corners": {
+            "description": "Tire and brake readings, one per wheel",
+            "items": {
+              "$ref": "#/components/schemas/InspectionCornerInput"
+            },
+            "title": "Corners",
+            "type": "array"
+          },
+          "date": {
+            "description": "When the inspection was done",
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "inspector": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who inspected it",
+            "title": "Inspector"
+          },
+          "items": {
+            "description": "Checklist results, one per item_key",
+            "items": {
+              "$ref": "#/components/schemas/InspectionItemInput"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "notes_battery": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Battery comments",
+            "title": "Notes Battery"
+          },
+          "notes_brakes": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Brake comments",
+            "title": "Notes Brakes"
+          },
+          "notes_interior": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interior/exterior comments",
+            "title": "Notes Interior"
+          },
+          "notes_tires": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tire comments",
+            "title": "Notes Tires"
+          },
+          "notes_under_hood": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Under-hood comments",
+            "title": "Notes Under Hood"
+          },
+          "notes_under_vehicle": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Under-vehicle comments",
+            "title": "Notes Under Vehicle"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Odometer reading at the inspection",
+            "title": "Odometer Km"
+          },
+          "recommendations": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recommendations",
+            "title": "Recommendations"
+          },
+          "tire_pressure_front_kpa": {
+            "anyOf": [
+              {
+                "maximum": 9999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Front tire pressure",
+            "title": "Tire Pressure Front Kpa"
+          },
+          "tire_pressure_rear_kpa": {
+            "anyOf": [
+              {
+                "maximum": 9999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rear tire pressure",
+            "title": "Tire Pressure Rear Kpa"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "VehicleInspectionCreate",
+        "type": "object"
+      },
+      "VehicleInspectionListResponse": {
+        "description": "Schema for an inspection list response.",
+        "properties": {
+          "inspections": {
+            "items": {
+              "$ref": "#/components/schemas/VehicleInspectionResponse"
+            },
+            "title": "Inspections",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inspections",
+          "total"
+        ],
+        "title": "VehicleInspectionListResponse",
+        "type": "object"
+      },
+      "VehicleInspectionPhotoResponse": {
+        "description": "A stored photo; the image itself is served by the photo endpoint.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_at"
+        ],
+        "title": "VehicleInspectionPhotoResponse",
+        "type": "object"
+      },
+      "VehicleInspectionResponse": {
+        "description": "Schema for an inspection response.",
+        "properties": {
+          "corners": {
+            "items": {
+              "$ref": "#/components/schemas/InspectionCornerResponse"
+            },
+            "title": "Corners",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/InspectionStatusCounts",
+            "description": "Results tallied by status"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "date": {
+            "description": "When the inspection was done",
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inspector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who inspected it",
+            "title": "Inspector"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InspectionItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "notes_battery": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Battery"
+          },
+          "notes_brakes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Brakes"
+          },
+          "notes_interior": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Interior"
+          },
+          "notes_tires": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Tires"
+          },
+          "notes_under_hood": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Under Hood"
+          },
+          "notes_under_vehicle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Under Vehicle"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Odometer reading at the inspection",
+            "title": "Odometer Km"
+          },
+          "photos": {
+            "items": {
+              "$ref": "#/components/schemas/VehicleInspectionPhotoResponse"
+            },
+            "title": "Photos",
+            "type": "array"
+          },
+          "recommendations": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendations"
+          },
+          "tire_pressure_front_kpa": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Front tire pressure",
+            "title": "Tire Pressure Front Kpa"
+          },
+          "tire_pressure_rear_kpa": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rear tire pressure",
+            "title": "Tire Pressure Rear Kpa"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "vin": {
+            "title": "Vin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "vin",
+          "date",
+          "created_at"
+        ],
+        "title": "VehicleInspectionResponse",
+        "type": "object"
+      },
+      "VehicleInspectionUpdate": {
+        "description": "Schema for updating an inspection. Items and corners are replaced whole when given.",
+        "properties": {
+          "corners": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/InspectionCornerInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces every wheel's readings when given",
+            "title": "Corners"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the inspection was done",
+            "title": "Date"
+          },
+          "inspector": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who inspected it",
+            "title": "Inspector"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/InspectionItemInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces every checklist result when given",
+            "title": "Items"
+          },
+          "notes_battery": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Battery comments",
+            "title": "Notes Battery"
+          },
+          "notes_brakes": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Brake comments",
+            "title": "Notes Brakes"
+          },
+          "notes_interior": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interior/exterior comments",
+            "title": "Notes Interior"
+          },
+          "notes_tires": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tire comments",
+            "title": "Notes Tires"
+          },
+          "notes_under_hood": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Under-hood comments",
+            "title": "Notes Under Hood"
+          },
+          "notes_under_vehicle": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Under-vehicle comments",
+            "title": "Notes Under Vehicle"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Odometer reading at the inspection",
+            "title": "Odometer Km"
+          },
+          "recommendations": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recommendations",
+            "title": "Recommendations"
+          },
+          "tire_pressure_front_kpa": {
+            "anyOf": [
+              {
+                "maximum": 9999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Front tire pressure",
+            "title": "Tire Pressure Front Kpa"
+          },
+          "tire_pressure_rear_kpa": {
+            "anyOf": [
+              {
+                "maximum": 9999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rear tire pressure",
+            "title": "Tire Pressure Rear Kpa"
+          }
+        },
+        "title": "VehicleInspectionUpdate",
+        "type": "object"
+      },
       "VehicleListResponse": {
         "description": "Schema for vehicle list response.",
         "examples": [
@@ -45457,6 +46454,664 @@
         "summary": "Update Hours Record",
         "tags": [
           "Hours Records"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/inspections": {
+      "get": {
+        "description": "List a vehicle's inspections, newest first.",
+        "operationId": "list_vehicle_inspections_api_vehicles__vin__inspections_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleInspectionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Vehicle Inspections",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      },
+      "post": {
+        "description": "Log an inspection.",
+        "operationId": "create_vehicle_inspection_api_vehicles__vin__inspections_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VehicleInspectionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleInspectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Vehicle Inspection",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/inspections/{inspection_id}": {
+      "delete": {
+        "description": "Delete an inspection and its photos. Planned repairs made from it stay.",
+        "operationId": "delete_vehicle_inspection_api_vehicles__vin__inspections__inspection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Vehicle Inspection",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      },
+      "get": {
+        "description": "Get an inspection.",
+        "operationId": "get_vehicle_inspection_api_vehicles__vin__inspections__inspection_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleInspectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Vehicle Inspection",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      },
+      "put": {
+        "description": "Update an inspection. Items and corners, when given, replace the stored ones.",
+        "operationId": "update_vehicle_inspection_api_vehicles__vin__inspections__inspection_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VehicleInspectionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleInspectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Vehicle Inspection",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/inspections/{inspection_id}/corners/{position}/{reading}/planned-repair": {
+      "post": {
+        "description": "Create a planned repair from a red tire (tread) or brake pad on one wheel and link it.\n\n409 when that reading already has one.",
+        "operationId": "create_planned_repair_from_inspection_corner_api_vehicles__vin__inspections__inspection_id__corners__position___reading__planned_repair_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "enum": [
+                "lf",
+                "rf",
+                "lr",
+                "rr"
+              ],
+              "title": "Position",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "reading",
+            "required": true,
+            "schema": {
+              "enum": [
+                "tread",
+                "brake"
+              ],
+              "title": "Reading",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectionItemRepairCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleInspectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Planned Repair From Inspection Corner",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/inspections/{inspection_id}/items/{item_key}/planned-repair": {
+      "post": {
+        "description": "Create a planned repair from a red or yellow checklist point and link it.\n\n409 when the point already has one.",
+        "operationId": "create_planned_repair_from_inspection_item_api_vehicles__vin__inspections__inspection_id__items__item_key__planned_repair_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_key",
+            "required": true,
+            "schema": {
+              "enum": [
+                "exterior_lights",
+                "wipers",
+                "rear_lights",
+                "cabin_filter",
+                "engine_oil",
+                "coolant",
+                "power_steering_fluid",
+                "brake_fluid",
+                "washer_fluid",
+                "transmission_fluid",
+                "cooling_system",
+                "ac_system",
+                "engine_air_filter",
+                "drive_belts",
+                "front_suspension",
+                "rear_suspension",
+                "differential",
+                "drive_shaft",
+                "exhaust",
+                "axles",
+                "fluid_leaks",
+                "battery",
+                "tire_rotation"
+              ],
+              "title": "Item Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectionItemRepairCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleInspectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Planned Repair From Inspection Item",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/inspections/{inspection_id}/photos": {
+      "post": {
+        "description": "Add a photo to an inspection. Re-encoded to a size-capped JPEG.",
+        "operationId": "upload_vehicle_inspection_photo_api_vehicles__vin__inspections__inspection_id__photos_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_vehicle_inspection_photo_api_vehicles__vin__inspections__inspection_id__photos_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleInspectionPhotoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Vehicle Inspection Photo",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/inspections/{inspection_id}/photos/{photo_id}": {
+      "delete": {
+        "description": "Remove a photo from an inspection.",
+        "operationId": "delete_vehicle_inspection_photo_api_vehicles__vin__inspections__inspection_id__photos__photo_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "photo_id",
+            "required": true,
+            "schema": {
+              "title": "Photo Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Vehicle Inspection Photo",
+        "tags": [
+          "Vehicle Inspections"
+        ]
+      },
+      "get": {
+        "description": "The photo's image.",
+        "operationId": "get_vehicle_inspection_photo_api_vehicles__vin__inspections__inspection_id__photos__photo_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "inspection_id",
+            "required": true,
+            "schema": {
+              "title": "Inspection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "photo_id",
+            "required": true,
+            "schema": {
+              "title": "Photo Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Vehicle Inspection Photo",
+        "tags": [
+          "Vehicle Inspections"
         ]
       }
     },

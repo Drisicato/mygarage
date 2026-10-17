@@ -142,3 +142,4 @@ migrations must swallow their own operational errors.
 | `129_add_supply_image` | **FATAL** — Add supplies.image_path, the relative path of a supply's product image. |
 | `130_add_planned_repair_photos` | Create planned_repair_photos for photos attached to planned repairs. |
 | `131_add_warranty_documents` | Create warranty_documents for files attached to warranty records. |
+| `132_add_vehicle_inspections` | Create the vehicle inspection tables: inspections, checklist items, wheel corners, photos. |
