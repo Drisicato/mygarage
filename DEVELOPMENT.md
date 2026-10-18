@@ -417,7 +417,27 @@ pytest tests/integration/
 
 ### End-to-End Tests
 
-Currently manual. Automated E2E tests (Playwright/Cypress) coming soon.
+Playwright specs live in `frontend/e2e/` and run in CI on pushes to `main`,
+`develop` and `release/**`, and on pull requests to `main` and `develop`.
+
+Running them locally needs, beyond the setup above, `uv` on your PATH (the
+config starts the backend with `uv run`), Node at the major version in `.nvmrc`,
+and Playwright's Chromium:
+
+```bash
+cd frontend
+bunx playwright install chromium --with-deps
+bun run e2e        # or e2e:ui, e2e:headed, e2e:debug
+```
+
+The Playwright config starts four servers: the backend on port 8686 against a
+throwaway SQLite database (`/tmp/mygarage-e2e.db`), the Vite dev server on port
+3000, and, for the subpath specs, a production build served by a second backend
+on 8687 behind a small proxy on 3001. Run plainly, it reuses anything already
+listening on those ports, so stop anything on 8686, 8687, 3000 or 3001 first (a
+dev backend or `bun run dev`), or the tests run against it. `bin/ci-check --all`
+from the repo root runs them with `CI=true`, the way CI does: it stops with an
+error instead of reusing a busy port.
 
 ---
 
