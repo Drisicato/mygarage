@@ -312,7 +312,8 @@
     "title": "Apólices de seguro"
   },
   "lineItemEditor": {
-    "cost": "Custo",
+    "cost": "Custo de mão de obra / oficina",
+    "partsCost": "Peças e suprimentos: {{amount}}",
     "notes": "Notas"
   },
   "livelink": {
@@ -545,12 +546,23 @@
     "loading": "Carregando...",
     "logFirstVisit": "Registrar primeira visita",
     "logVisit": "Registrar visita",
+    "detail": {
+      "cost": "Custo",
+      "labor": "Mão de obra / oficina",
+      "noSupplies": "Nenhum suprimento registrado para este serviço.",
+      "openSupply": "Abrir {{name}} em Suprimentos",
+      "parts": "Peças e suprimentos",
+      "supplies": "Suprimentos usados",
+      "viewDetails": "Ver detalhes de {{name}}"
+    },
+    "laborCost": "Mão de obra {{amount}}",
     "miscFees": "Taxas diversas",
     "noMatchingVisits": "Nenhuma visita correspondente",
     "noRecords": "Nenhum registro",
     "noRecordsDesc": "Comece a registrar as manutenções e os reparos do seu veículo",
     "searchPlaceholder": "Buscar...",
     "serviceCount": "{{count}} serviços",
+    "partsCost": "Peças {{amount}}",
     "servicesPerformed": "Serviços realizados",
     "shopSupplies": "Insumos da oficina",
     "showingResults": "Exibindo {{shown}} de {{total}} visitas",

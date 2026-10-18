@@ -17,7 +17,7 @@ const updateSupplyMock = vi.fn()
 const mutationStub = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, variables: undefined })
 
 vi.mock('../../hooks/queries/useSupplies', () => ({
-  useSupplies: () => useSuppliesMock(),
+  useSupplies: (includeArchived?: boolean) => useSuppliesMock(includeArchived),
   useCreateSupply: () => ({ mutateAsync: createSupplyMock, mutate: vi.fn(), isPending: false }),
   useUpdateSupply: () => ({ mutateAsync: updateSupplyMock, mutate: vi.fn(), isPending: false }),
   useDeleteSupply: () => useDeleteSupplyMock(),
@@ -419,6 +419,44 @@ describe('Supplies page quick actions', () => {
     const table = screen.getByRole('table')
     expect(within(table).getByRole('button', { name: 'supplies.history.logPurchase' })).toBeInTheDocument()
     expect(within(table).getByRole('button', { name: 'supplies.history.logAdjustment' })).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page deep link', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it("?supply=<id> opens that supply's history and drops the param", async () => {
+    window.history.replaceState(null, '', '/supplies?supply=1')
+    render(<Supplies />)
+
+    expect(await screen.findByText('supplies.history.title')).toBeInTheDocument()
+    await waitFor(() => expect(window.location.search).toBe(''))
+  })
+
+  it('an archived supply widens the list to archived before opening', async () => {
+    const archived = { ...mockSupply, id: 7, name: 'Old Filter', is_active: false } as Supply
+    useSuppliesMock.mockImplementation((includeArchived?: boolean) => ({
+      data: includeArchived
+        ? { supplies: [mockSupply, archived], total: 2 }
+        : { supplies: [mockSupply], total: 1 },
+      isLoading: false,
+      error: null,
+    }))
+    window.history.replaceState(null, '', '/supplies?supply=7')
+    render(<Supplies />)
+
+    expect(await screen.findByText('supplies.history.title')).toBeInTheDocument()
+    expect(useSuppliesMock).toHaveBeenLastCalledWith(true)
+  })
+
+  it('an unknown supply id opens nothing', async () => {
+    window.history.replaceState(null, '', '/supplies?supply=999')
+    render(<Supplies />)
+
+    await waitFor(() => expect(window.location.search).toBe(''))
+    expect(screen.queryByText('supplies.history.title')).not.toBeInTheDocument()
   })
 })
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -59,6 +60,30 @@ export default function Supplies() {
   const { data: quickVehicles = [] } = useQuickEntryVehicles()
 
   const supplies = useMemo(() => data?.supplies ?? [], [data?.supplies])
+
+  // `?supply=<id>` (from a service's Supplies used) opens that supply's history.
+  // An archived supply isn't in the default list, so widen it once before giving up.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const linkedSupplyId = Number(searchParams.get('supply')) || null
+  const handledLinkRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (linkedSupplyId == null || handledLinkRef.current === linkedSupplyId || isLoading || !data) return
+    const linked = supplies.find((s) => s.id === linkedSupplyId)
+    if (!linked && !includeArchived) {
+      setIncludeArchived(true)
+      return
+    }
+    handledLinkRef.current = linkedSupplyId
+    if (linked) setHistoryTarget({ supply: linked })
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('supply')
+        return next
+      },
+      { replace: true },
+    )
+  }, [linkedSupplyId, isLoading, data, supplies, includeArchived, setSearchParams])
 
   const vehicleLabelFor = (vin: string): string => {
     const known = quickVehicles.find((v) => v.vin === vin)

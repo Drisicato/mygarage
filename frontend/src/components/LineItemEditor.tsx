@@ -39,6 +39,8 @@ interface LineItemEditorProps {
   /** ServiceVisitForm's pinned unit per supply, passed straight to the picker. */
   unitsBySupplyId: Map<number, SupplyUnit>
   failedInspections: { refId: number; description: string }[]
+  // Estimated cost of the supplies on this line; informational, the server snapshots the real figure.
+  partsCost?: number
   onChange: (index: number, field: keyof ServiceVisitFormLineItem, value: unknown) => void
   onRemove: (index: number) => void
   disabled?: boolean
@@ -55,6 +57,7 @@ export default function LineItemEditor({
   vin,
   supplies,
   unitsBySupplyId,
+  partsCost = 0,
   failedInspections,
   onChange,
   onRemove,
@@ -142,8 +145,8 @@ export default function LineItemEditor({
           )}
         </div>
 
-        {item.cost !== undefined && item.cost > 0 && (
-          <span className="text-sm text-garage-text-muted">{formatCurrency(item.cost)}</span>
+        {(item.cost ?? 0) + partsCost > 0 && (
+          <span className="text-sm text-garage-text-muted">{formatCurrency((item.cost ?? 0) + partsCost)}</span>
         )}
 
         <button
@@ -231,6 +234,11 @@ export default function LineItemEditor({
                   style={affixStyle(symbolWidth)}
                 />
               </div>
+              {partsCost > 0 && (
+                <p className="text-xs text-garage-text-muted mt-1">
+                  {t('lineItemEditor.partsCost', { amount: formatCurrency(partsCost) })}
+                </p>
+              )}
             </div>
           </div>
 

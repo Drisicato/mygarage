@@ -518,7 +518,8 @@
     "loadAction": "Versicherungspolicen laden"
   },
   "lineItemEditor": {
-    "cost": "Kosten",
+    "cost": "Arbeits-/Werkstattkosten",
+    "partsCost": "Teile & Vorräte: {{amount}}",
     "notes": "Notizen",
     "misc": {
       "lineItem": "Posten {{number}}",
@@ -937,12 +938,23 @@
     "loading": "Servicehistorie wird geladen...",
     "logFirstVisit": "Ersten Servicebesuch erfassen",
     "logVisit": "Servicebesuch erfassen",
+    "detail": {
+      "cost": "Kosten",
+      "labor": "Arbeit / Werkstatt",
+      "noSupplies": "Für diesen Service wurden keine Vorräte erfasst.",
+      "openSupply": "{{name}} in Vorräte öffnen",
+      "parts": "Teile & Vorräte",
+      "supplies": "Verwendete Vorräte",
+      "viewDetails": "Details zu {{name}} anzeigen"
+    },
+    "laborCost": "Arbeit {{amount}}",
     "miscFees": "Sonstige Gebühren",
     "noMatchingVisits": "Keine übereinstimmenden Besuche gefunden",
     "noRecords": "Noch keine Servicebesuche vorhanden",
     "noRecordsDesc": "Beginne mit der Erfassung der Wartungsarbeiten und Reparaturen deines Fahrzeugs",
     "searchPlaceholder": "Services durchsuchen...",
     "serviceCount": "{{count}} Services",
+    "partsCost": "Teile {{amount}}",
     "servicesPerformed": "Durchgeführte Services",
     "shopSupplies": "Werkstattmaterial",
     "showingResults": "Zeige {{shown}} von {{total}} Besuchen",

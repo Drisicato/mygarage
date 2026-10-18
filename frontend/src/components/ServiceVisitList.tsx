@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useId } from 'react'
+import { useState, useMemo, useCallback, useEffect, useId, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDateForDisplay } from '../utils/dateUtils'
 import { formatCurrency } from '../utils/formatUtils'
@@ -31,6 +31,7 @@ import { useUnitFormat } from '../hooks/useUnitFormat'
 import { getUsageTracking } from '../utils/usageTracking'
 import { useServiceVisits, useDeleteServiceVisit } from '../hooks/queries/useServiceVisits'
 import { Button, Card, IconButton, Chip, Mono, SearchField, EmptyState } from './ui'
+import ServiceLineItemDetail from './ServiceLineItemDetail'
 import { cameFromNestedControl } from './ClickableCard'
 import { isSelectingText } from '../utils/textSelection'
 import type { Tone } from './ui'
@@ -83,6 +84,7 @@ export default function ServiceVisitList({
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set())
   const rowIdPrefix = useId()
+  const [detail, setDetail] = useState<{ visit: ServiceVisit; item: ServiceLineItem } | null>(null)
   const [visitAttachments, setVisitAttachments] = useState<Record<number, Attachment[]>>({})
   const u = useUnitFormat()
   const { currencyCode, locale } = useCurrencyPreference()
@@ -226,9 +228,27 @@ export default function ServiceVisitList({
     )
   }
 
-  const renderLineItem = (item: ServiceLineItem, index: number) => {
+  const renderLineItem = (visit: ServiceVisit, item: ServiceLineItem, index: number) => {
+    const laborCost = item.cost ? Number(item.cost) : 0
+    const partsCost = (item.supply_usages ?? []).reduce((sum, u) => sum + Number(u.cost_snapshot ?? 0), 0)
+    const lineTotal = laborCost + partsCost
+    const fmt = (n: number) => formatCurrency(n, { currencyCode, locale })
     return (
-      <Card key={item.id || index} padding="sm" className="flex items-start gap-3 bg-surface-2/50">
+      <div
+        key={item.id || index}
+        role="button"
+        tabIndex={0}
+        aria-label={t('serviceList.detail.viewDetails', { name: item.description })}
+        onClick={() => setDetail({ visit, item })}
+        onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setDetail({ visit, item })
+          }
+        }}
+        className="cursor-pointer rounded-card ui-focus-ring"
+      >
+      <Card padding="sm" className="flex items-start gap-3 bg-surface-2/50 hover:bg-surface-2">
         <div className="flex-shrink-0 mt-0.5">
           {item.is_inspection
             ? <Clipboard aria-hidden="true" className="w-4 h-4 text-info" />
@@ -251,10 +271,16 @@ export default function ServiceVisitList({
           </div>
           {item.notes && <p className="text-xs text-text-mute mt-1">{item.notes}</p>}
         </div>
-        <div className="flex-shrink-0 text-sm text-text">
-          {item.cost ? <Mono size="sm">{formatCurrency(item.cost, { currencyCode, locale })}</Mono> : '-'}
+        <div className="flex-shrink-0 text-sm text-text text-right">
+          {lineTotal > 0 ? <Mono size="sm">{fmt(lineTotal)}</Mono> : '-'}
+          {laborCost > 0 && partsCost > 0 && (
+            <p className="text-xs text-text-mute">
+              {t('serviceList.laborCost', { amount: fmt(laborCost) })} · {t('serviceList.partsCost', { amount: fmt(partsCost) })}
+            </p>
+          )}
         </div>
       </Card>
+      </div>
     )
   }
 
@@ -441,7 +467,7 @@ export default function ServiceVisitList({
                       <div className="space-y-2">
                         <h4 className="text-xs font-medium text-text-mute uppercase tracking-wide">{t('serviceList.servicesPerformed')}</h4>
                         <div className="space-y-1">
-                          {visit.line_items.map((item, index) => renderLineItem(item, index))}
+                          {visit.line_items.map((item, index) => renderLineItem(visit, item, index))}
                         </div>
                       </div>
                     )}
@@ -526,6 +552,10 @@ export default function ServiceVisitList({
             )
           })}
         </div>
+      )}
+
+      {detail && (
+        <ServiceLineItemDetail visit={detail.visit} item={detail.item} onClose={() => setDetail(null)} />
       )}
     </div>
   )

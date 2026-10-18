@@ -312,7 +312,8 @@
     "title": "Страховые полисы"
   },
   "lineItemEditor": {
-    "cost": "Стоимость",
+    "cost": "Стоимость работ / сервиса",
+    "partsCost": "Запчасти и материалы: {{amount}}",
     "notes": "Заметки"
   },
   "livelink": {
@@ -545,12 +546,23 @@
     "loading": "Загрузка...",
     "logFirstVisit": "Зарегистрировать первый визит",
     "logVisit": "Зарегистрировать визит",
+    "detail": {
+      "cost": "Стоимость",
+      "labor": "Работа / сервис",
+      "noSupplies": "Для этой услуги расходные материалы не записаны.",
+      "openSupply": "Открыть {{name}} в расходных материалах",
+      "parts": "Запчасти и материалы",
+      "supplies": "Использованные материалы",
+      "viewDetails": "Подробнее: {{name}}"
+    },
+    "laborCost": "Работа {{amount}}",
     "miscFees": "Различные сборы",
     "noMatchingVisits": "Нет совпадающих визитов",
     "noRecords": "Нет записей",
     "noRecordsDesc": "Кнопка отсутствия записей",
     "searchPlaceholder": "Поиск...",
     "serviceCount": "{{count}} услуг",
+    "partsCost": "Запчасти {{amount}}",
     "servicesPerformed": "Выполненные услуги",
     "shopSupplies": "Материалы мастерской",
     "showingResults": "Показано {{shown}} из {{total}} визитов",
