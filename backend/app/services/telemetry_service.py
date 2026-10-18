@@ -24,7 +24,7 @@ else:
 from app.models import OdometerRecord
 from app.models.drive_session import DriveSession
 from app.models.livelink_device import LiveLinkDevice
-from app.models.livelink_parameter import LiveLinkParameter
+from app.models.livelink_parameter import DISPLAY_NAME_MAX_LENGTH, LiveLinkParameter
 from app.models.vehicle_telemetry import (
     TelemetryDailySummary,
     VehicleTelemetry,
@@ -226,8 +226,11 @@ class TelemetryService:
         Returns existing parameter if already registered.
 
         A source's `display_name` names a new row, and an existing one still on
-        its auto name; a name someone set stays.
+        its auto name; a name someone set stays. It is cut to the column's
+        width: PostgreSQL refuses a longer one where SQLite stores it (TQ-L2).
         """
+        if display_name is not None:
+            display_name = display_name[:DISPLAY_NAME_MAX_LENGTH]
         # Explicit config class always wins; otherwise fall back to the
         # conservative catalog inference so MQTT-discovered params (which
         # arrive with an empty config block) still get validator range/rate

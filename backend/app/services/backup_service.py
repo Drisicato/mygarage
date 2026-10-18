@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import restore_staging
 from app.services.oidc.config import OIDC_REDIRECT_URI_KEY, checked_redirect_uri
+from app.services.setting_rules import check_setting_value
 from app.services.settings_service import SettingsService
 from app.utils.default_unit_prefs import (
     DEFAULT_UNIT_PREFS_KEY,
@@ -448,6 +449,22 @@ class BackupService:
                     logger.warning("Skipping setting with no key during restore")
                     continue
 
+                # A hand-edited file can hold JSON other than a string, and the
+                # column is Text, which asyncpg refuses anything else into. A
+                # switch gets the spelling the exact readers match ("true", not
+                # Python's "True"); a number keeps its digits; anything else is
+                # not a setting value.
+                if isinstance(value, bool):
+                    value = "true" if value else "false"
+                elif isinstance(value, int | float):
+                    value = str(value)
+                elif value is not None and not isinstance(value, str):
+                    logger.warning(
+                        "Skipping %s during restore: not a text value",
+                        sanitize_for_log(str(key)),
+                    )
+                    continue
+
                 # ★ THE FOURTH WRITER OF A SETTINGS VALUE, and the only one that
                 # is not on `app.routes.settings.router`. That router refuses a
                 # `default_unit_prefs` the reader could not use, on all three of
@@ -469,6 +486,19 @@ class BackupService:
                     logger.warning(
                         "Skipping %s during restore: computed, never stored",
                         sanitize_for_log(key),
+                    )
+                    continue
+
+                # The value rules the settings routes apply too (setting_rules).
+                # A 0-day telemetry retention here would make the daily prune
+                # delete every raw reading (O-T1).
+                try:
+                    check_setting_value(key, value)
+                except ValueError as exc:
+                    logger.warning(
+                        "Skipping %s during restore: %s",
+                        sanitize_for_log(key),
+                        sanitize_for_log(str(exc)),
                     )
                     continue
 
