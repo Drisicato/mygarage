@@ -71,6 +71,8 @@ class Reading:
     value: float
     unit: str | None = None
     param_class: str | None = None
+    #: A readable name from the source, for a key whose auto name says nothing.
+    display_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,9 @@ class IngestBatch:
 
     device_key: str
     readings: list[Reading] = field(default_factory=list)
+    #: Units a source declares ahead of any value, by param_key. Torque sends
+    #: them once per session, in a request with no values.
+    declared_units: dict[str, str] = field(default_factory=dict)
     #: 'online' | 'offline' | None. None means LEAVE UNCHANGED, and is the
     #: default for a reason: `update_device_status` treats None as "keep the
     #: current value" while still refreshing `last_seen`

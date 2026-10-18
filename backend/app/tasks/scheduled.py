@@ -47,6 +47,7 @@ from app.utils.household_time import (
 )
 from app.utils.render_context import render_context_for_vehicle, render_context_for_vehicle_row
 from app.utils.unit_adapters import adapter_for
+from app.utils.usage_tracking import tracks_distance
 
 logger = logging.getLogger(__name__)
 
@@ -215,10 +216,11 @@ async def check_expiring_documents() -> None:
 async def check_odometer_milestones() -> None:
     """Check for odometer milestones and send notifications.
 
-    Runs daily at 10 AM UTC. Checks each vehicle's latest odometer_km against
-    milestone boundaries: every 10,000 of the distance unit the vehicle renders
-    in (its own odometer unit, else its owner's, else the instance default;
-    #172). Uses last_milestone_notified_km on the vehicle to prevent duplicate
+    Runs daily at 10 AM UTC. Skips a vehicle with no odometer (#217). Checks
+    each vehicle's latest odometer_km against milestone boundaries: every
+    10,000 of the distance unit the vehicle renders in (its own odometer unit,
+    else its owner's, else the instance default; #172). Uses
+    last_milestone_notified_km on the vehicle to prevent duplicate
     notifications; the comparison stays in canonical km, so a unit change never
     fires a mark twice or goes backwards.
     """
@@ -249,6 +251,9 @@ async def check_odometer_milestones() -> None:
             ).all()
 
             for vehicle, owner in rows:
+                # No odometer, no odometer milestones, whatever rows a tire wrote (#217).
+                if not tracks_distance(vehicle.usage_unit, vehicle.secondary_usage_enabled):
+                    continue
                 try:
                     # Get latest odometer_km
                     odo_result = await db.execute(
@@ -548,13 +553,24 @@ async def check_recalls_all_vehicles() -> None:
 
 
 async def check_reminder_notifications() -> None:
-    """Check pending vehicle reminders and send notifications for due items."""
+    """Check pending vehicle reminders and send notifications for due items.
+
+    Raises the brake reminders time alone has made due first, so one raised
+    today goes out today.
+    """
     logger.info("Running reminder notification check...")
     try:
         async with AsyncSessionLocal() as db:
             await load_household_zone(db)
+            from app.services.brake_service import BrakeService
             from app.services.reminder_service import check_due_reminders
 
+            try:
+                await BrakeService(db).refresh_reminders()
+            except Exception as e:
+                # The notifications still go out without it.
+                await db.rollback()
+                logger.error("Brake reminder refresh failed: %s", str(e))
             await check_due_reminders(db)
         logger.info("Reminder notification check completed")
     except Exception as e:
@@ -651,7 +667,7 @@ def start_scheduler() -> None:
     Schedules:
         - Daily reset at midnight UTC for daily-limited providers
         - Monthly reset on 1st at midnight UTC for monthly-limited providers
-        - Maintenance notification check at 8 AM UTC
+        - Maintenance notification check at 8 AM UTC (brake reminders raised first)
         - Document expiration check at 9 AM UTC
         - Odometer milestone check at 10 AM UTC
         - DEF level check at 11 AM UTC

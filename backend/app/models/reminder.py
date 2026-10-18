@@ -61,11 +61,11 @@ class Reminder(Base):
     # What created this reminder: 'low_tread' for the tire sync, NULL for a
     # reminder a human made. The sync never adopts a row whose source is NULL.
     source: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Canonical snapshots taken when a low-tread reminder was raised, so the
-    # notification can say what it saw without re-deriving it later.
+    # Canonical tread figures on a low-tread reminder. The sync sets them when it
+    # raises the reminder and keeps them current while it's pending, and the
+    # notification renders them in the reader's units.
     tread_depth_mm: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     tread_threshold_mm: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
-    projected_distance_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -96,11 +96,8 @@ class Reminder(Base):
     anchor_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     anchor_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     anchor_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
-    # What an unanchored one-off counts its progress from: the current readings
-    # when it was created (migration 127), so a reading added or edited later
-    # can't move its start. Not an anchor: rule adoption and reconciliation
-    # never read these. NULL on older rows, which fall back to the readings
-    # nearest their creation day.
+    # What an unanchored reminder counts from: the readings when it was made
+    # (migration 129). Not an anchor, so adoption and reconcile never read them.
     start_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     start_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
     # How and when it was closed. `completed_line_item_id` is the work that

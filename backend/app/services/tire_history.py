@@ -19,35 +19,15 @@ list after a flush and before the commit.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
 from app.models.tire import TireMountPeriod, TireReading
-from app.utils.odometer_tolerance import odometer_above, odometer_below
-from app.utils.unit_adapters import ADAPTERS, UnitAdapter
-
-DistanceFormatter = Callable[[Decimal], str]
-
-
-def distance_formatter(adapter: UnitAdapter) -> DistanceFormatter:
-    """Render a canonical km odometer for a message, in `adapter`'s unit.
-
-    One decimal place, trailing zeros dropped, rather than the adapter's own
-    display precision: a message says one odometer is below another, and at
-    whole miles 16,093.4 km and 16,094 km both print as 10,000 mi.
-    """
-
-    def render(value: Decimal) -> str:
-        display = adapter.to_display(value)
-        assert display is not None
-        shown = display.quantize(Decimal("0.1")).normalize()
-        return f"{shown:,f} {adapter.label}"
-
-    return render
-
-
-format_km: DistanceFormatter = distance_formatter(ADAPTERS["km"])
+from app.services.usage_axis import DISTANCE, UsageAxis
+from app.services.usage_axis import DistanceFormatter as DistanceFormatter
+from app.services.usage_axis import distance_formatter as distance_formatter
+from app.services.usage_axis import format_km as format_km
 
 REVERSED_DATES = "reversed_dates"
 REVERSED_ODOMETER = "reversed_odometer"
@@ -98,7 +78,9 @@ def _label(period: TireMountPeriod, *, capital: bool = False) -> str:
 
 
 def odometer_contradictions(
-    periods: Sequence[TireMountPeriod], readings: Sequence[TireReading]
+    periods: Sequence[TireMountPeriod],
+    readings: Sequence[TireReading],
+    axis: UsageAxis = DISTANCE,
 ) -> list[tuple[TireMountPeriod, TireReading]]:
     """C5: every (period, reading) pair whose odometer bounds contradict the reading's date.
 
@@ -122,6 +104,8 @@ def odometer_contradictions(
     A violation of any of the four means the dates and the odometers
     describe two different histories, which is what an odometer reset looks
     like.
+
+    On the hours axis the same four implications hold for the hour meter (#217).
 
     Every comparison is STRICT on the date, never `>=`/`<=`. These dates are
     day-granular, so two events recorded on the same calendar day cannot be
@@ -152,33 +136,78 @@ def odometer_contradictions(
     projection needs only which periods to withhold a figure over (its
     `_odometer_goes_backwards` reduces these pairs to ids), while a write-time
     refusal has to name the READING, because a mistyped reading is as likely
-    as a mistyped period and deleting it is the repair. One rule, two callers.
-    Each pair appears once however many implications it violates, in the
-    order of `periods`, then of `readings`.
+    as a mistyped period and correcting or deleting it is the repair. One rule
+    for the projection and every write-time refusal. Each pair appears once
+    however many implications it violates, in the order of `periods`, then
+    of `readings`.
     """
     pairs: list[tuple[TireMountPeriod, TireReading]] = []
     for period in periods:
         for reading in readings:
-            odometer = reading.odometer_km
-            if odometer is None:
+            value = axis.reading(reading)
+            if value is None:
                 continue
             day = reading.recorded_at
             backwards = False
-            dismounted_on, dismounted_at = period.dismounted_on, period.dismounted_odometer_km
+            dismounted_on, dismounted_at = period.dismounted_on, axis.dismounted(period)
             if dismounted_on is not None and dismounted_at is not None:
-                if day > dismounted_on and odometer_below(odometer, dismounted_at):
+                if day > dismounted_on and axis.below(value, dismounted_at):
                     backwards = True
-                if day < dismounted_on and odometer_above(odometer, dismounted_at):
+                if day < dismounted_on and axis.above(value, dismounted_at):
                     backwards = True
-            mounted_on, mounted_at = period.mounted_on, period.mounted_odometer_km
+            mounted_on, mounted_at = period.mounted_on, axis.mounted(period)
             if mounted_on is not None and mounted_at is not None:
-                if day < mounted_on and odometer_above(odometer, mounted_at):
+                if day < mounted_on and axis.above(value, mounted_at):
                     backwards = True
-                if day > mounted_on and odometer_below(odometer, mounted_at):
+                if day > mounted_on and axis.below(value, mounted_at):
                     backwards = True
             if backwards:
                 pairs.append((period, reading))
     return pairs
+
+
+def reading_contradictions(
+    periods: Sequence[TireMountPeriod],
+    reading: TireReading,
+    axes: Sequence[UsageAxis],
+) -> list[tuple[UsageAxis, TireMountPeriod]]:
+    """Every (axis, period) whose bounds contradict this one reading, periods by id.
+
+    For a reading edit, which judges its own pairs: rule 5 keeps one fault per
+    period, so another reading's flag on a period would hide a new one.
+    """
+    by_id = sorted(periods, key=lambda p: p.id or 0)
+    return [
+        (axis, period)
+        for axis in axes
+        for period, _ in odometer_contradictions(by_id, [reading], axis)
+    ]
+
+
+def reading_contradiction_message(
+    period: TireMountPeriod, reading: TireReading, axis: UsageAxis
+) -> str:
+    """Rule 5's sentence, for the history check and a reading edit's 409 alike."""
+    value = axis.reading(reading)
+    assert value is not None  # only a reading with a figure on `axis` can contradict
+    return (
+        f"{_label(period, capital=True)} contradicts the reading dated {reading.recorded_at} at "
+        f"{axis.fmt(value)}: the vehicle's {axis.meter} would have to run backwards. "
+        "If that reading is wrong, correct or delete it in the tire's history."
+    )
+
+
+def _bounded_spans(
+    periods: Sequence[TireMountPeriod], axis: UsageAxis
+) -> list[tuple[Decimal, Decimal, TireMountPeriod]]:
+    """Periods with both bounds known on `axis`, by start then id."""
+    spans: list[tuple[Decimal, Decimal, TireMountPeriod]] = []
+    for p in periods:
+        start, end = axis.mounted(p), axis.dismounted(p)
+        if start is not None and end is not None:
+            spans.append((start, end, p))
+    spans.sort(key=lambda span: (span[0], span[2].id or 0))
+    return spans
 
 
 def validate_period_history(
@@ -186,6 +215,7 @@ def validate_period_history(
     readings: Sequence[TireReading],
     *,
     format_distance: DistanceFormatter = format_km,
+    axes: Sequence[UsageAxis] | None = None,
 ) -> list[PeriodFault]:
     """Every contradiction in this tire's history, or an empty list.
 
@@ -213,7 +243,12 @@ def validate_period_history(
     `format_distance` renders every odometer that appears in a fault message,
     in `format_km`'s wording by default. It shapes message text only: which
     faults are raised, their codes and their keys never depend on it.
+
+    `axes` are the axes to check (#217). Dates are checked once; rules 2, 4a,
+    4b and 5 run on each axis with its own codes. `None` means distance alone,
+    rendered with `format_distance`.
     """
+    checked = tuple(axes) if axes is not None else (DISTANCE.with_fmt(format_distance),)
     faults: list[PeriodFault] = []
     seen: set[tuple[int, str, int | None]] = set()
 
@@ -241,18 +276,15 @@ def validate_period_history(
                 f"{_label(p, capital=True)} is dismounted on {p.dismounted_on}, before it was "
                 "mounted.",
             )
-        if (
-            p.mounted_odometer_km is not None
-            and p.dismounted_odometer_km is not None
-            and odometer_below(p.dismounted_odometer_km, p.mounted_odometer_km)
-        ):
-            add(
-                p,
-                REVERSED_ODOMETER,
-                f"{_label(p, capital=True)} is dismounted at "
-                f"{format_distance(p.dismounted_odometer_km)}, below its mount odometer of "
-                f"{format_distance(p.mounted_odometer_km)}.",
-            )
+        for axis in checked:
+            mounted, dismounted = axis.mounted(p), axis.dismounted(p)
+            if mounted is not None and dismounted is not None and axis.below(dismounted, mounted):
+                add(
+                    p,
+                    axis.reversed_code,
+                    f"{_label(p, capital=True)} is dismounted at {axis.fmt(dismounted)}, below its "
+                    f"{axis.mount_reading} of {axis.fmt(mounted)}.",
+                )
 
     # 3: dates, over periods with a known mount date, in date order. Each
     # period is judged against EVERY earlier one, not a running maximum. A
@@ -291,20 +323,16 @@ def validate_period_history(
             # This is the rule a running maximum really did hide behind: a
             # period with a dismount odometer and no mount odometer can be a
             # counterpart but is never judged, so nothing else names it.
-            if (
-                q.mounted_odometer_km is not None
-                and earlier.dismounted_odometer_km is not None
-                and odometer_below(q.mounted_odometer_km, earlier.dismounted_odometer_km)
-            ):
-                add(
-                    q,
-                    OVERLAPPING_ODOMETER,
-                    f"{_label(q, capital=True)} is mounted at "
-                    f"{format_distance(q.mounted_odometer_km)}, below the "
-                    f"{format_distance(earlier.dismounted_odometer_km)} at which "
-                    f"{_label(earlier)} was dismounted.",
-                    counterpart=earlier,
-                )
+            for axis in checked:
+                start, earlier_end = axis.mounted(q), axis.dismounted(earlier)
+                if start is not None and earlier_end is not None and axis.below(start, earlier_end):
+                    add(
+                        q,
+                        axis.overlapping_code,
+                        f"{_label(q, capital=True)} is mounted at {axis.fmt(start)}, below the "
+                        f"{axis.fmt(earlier_end)} at which {_label(earlier)} was dismounted.",
+                        counterpart=earlier,
+                    )
 
     # 4b: order-free. Two fully bounded spans that intersect by more than the
     # same-reading band are a contradiction whatever their dates say: a tire
@@ -325,59 +353,37 @@ def validate_period_history(
     # unreported; a contradiction hidden behind the one currently named
     # becomes its own key, for `new_or_touched_faults` to see, once the fault
     # naming it is repaired.
-    spans = sorted(
-        (
-            p
-            for p in periods
-            if p.mounted_odometer_km is not None and p.dismounted_odometer_km is not None
-        ),
-        key=lambda p: (p.mounted_odometer_km, p.id or 0),
-    )
-    covered: tuple[Decimal, TireMountPeriod] | None = None
-    for q in spans:
-        # Narrowed for pyright, which cannot see the filter that built `spans`.
-        start = q.mounted_odometer_km
-        assert start is not None
-        if covered is not None and odometer_below(start, covered[0]):
-            add(
-                q,
-                OVERLAPPING_ODOMETER,
-                f"{_label(q, capital=True)} claims distance {_label(covered[1])} already "
-                f"covers: it starts at {format_distance(start)}, before that "
-                f"period ended at {format_distance(covered[0])}.",
-                counterpart=covered[1],
-            )
-        # The TRUE maximum, by a plain comparison and not outside the band. A
-        # maximum that moved only when a dismount cleared the band could lag
-        # a span ending within the band above it, and a later span starting
-        # beyond the band below that span's end, a genuine overlap, would be
-        # judged against the lower figure and pass.
-        if covered is None or q.dismounted_odometer_km > covered[0]:
-            # `spans` is filtered to periods with a known dismount odometer;
-            # this asserts that invariant for pyright, which cannot see
-            # through the generator filter that built `spans`.
-            end = q.dismounted_odometer_km
-            assert end is not None
-            covered = (end, q)
+    for axis in checked:
+        covered: tuple[Decimal, TireMountPeriod] | None = None
+        for start, end, q in _bounded_spans(periods, axis):
+            if covered is not None and axis.below(start, covered[0]):
+                add(
+                    q,
+                    axis.overlapping_code,
+                    f"{_label(q, capital=True)} claims {axis.quantity} {_label(covered[1])} already "
+                    f"covers: it starts at {axis.fmt(start)}, before that "
+                    f"period ended at {axis.fmt(covered[0])}.",
+                    counterpart=covered[1],
+                )
+            # The TRUE maximum, by a plain comparison and not outside the band. A
+            # maximum that moved only when a dismount cleared the band could lag
+            # a span ending within the band above it, and a later span starting
+            # beyond the band below that span's end, a genuine overlap, would be
+            # judged against the lower figure and pass.
+            if covered is None or end > covered[0]:
+                covered = (end, q)
 
     # 5: the projection's own monotonicity rule, the same function it calls.
     # One fault per period, naming the EARLIEST reading it contradicts, so the
     # sentence is stable whatever order the readings were loaded in. The
-    # message says what to do, because until readings could be deleted a
-    # mistyped one refused every honest dismount, retire, rotation, set fit
-    # and remount of its tire with no way out.
+    # message says what to do, because until readings could be corrected or
+    # deleted a mistyped one refused every honest dismount, retire, rotation,
+    # set fit and remount of its tire with no way out.
     in_order = sorted(readings, key=lambda r: (r.recorded_at, r.id or 0))
-    for p, reading in odometer_contradictions(sorted(periods, key=lambda p: p.id or 0), in_order):
-        # `odometer_contradictions` pairs only readings with an odometer.
-        odometer = reading.odometer_km
-        assert odometer is not None
-        add(
-            p,
-            CONTRADICTS_READING,
-            f"{_label(p, capital=True)} contradicts the reading dated {reading.recorded_at} at "
-            f"{format_distance(odometer)}: the vehicle's odometer would have to run backwards. "
-            "If that reading is wrong, delete it from the tire's history.",
-        )
+    by_id = sorted(periods, key=lambda p: p.id or 0)
+    for axis in checked:
+        for p, reading in odometer_contradictions(by_id, in_order, axis):
+            add(p, axis.contradicts_code, reading_contradiction_message(p, reading, axis))
     return faults
 
 
@@ -389,13 +395,16 @@ def fault_map(
     readings: Sequence[TireReading],
     *,
     format_distance: DistanceFormatter = format_km,
+    axes: Sequence[UsageAxis] | None = None,
 ) -> FaultMap:
     """`validate_period_history` keyed by (period, code, counterpart), for a before/after
     comparison. `format_distance` shapes message text only; keys and codes never depend on it.
     """
     return {
         f.key: f
-        for f in validate_period_history(periods, readings, format_distance=format_distance)
+        for f in validate_period_history(
+            periods, readings, format_distance=format_distance, axes=axes
+        )
     }
 
 

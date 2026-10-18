@@ -4,21 +4,43 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 from app.schemas._nullability import reject_null
 from app.utils.household_time import household_today
 from app.utils.lenient_vocab import LenientVocab, lenient_reader
 
 TirePosition = Literal["FL", "FR", "RL", "RR", "SPARE"]
+#: Which reading a tire's figures run on (#217). Same values as `usage_axis.UsageKind`.
+UsageAxisName = Literal["distance", "hours"]
 # For TireResponse: `tires.position` has no CHECK, so a corner we don't know
 # reads as null (like a stored tire) instead of 500ing the tire list.
 LenientTirePosition = Annotated[
     TirePosition | None, BeforeValidator(lenient_reader(TirePosition)), LenientVocab(None)
 ]
+
+#: The `hours_records.engine_hours` bounds, so a tire takes any figure the hours log does.
+_HOURS_MAX = Decimal("999999999.9")
+
+
+def _to_stored_tenth(value: Decimal) -> Decimal:
+    """Round to the tenth NUMERIC(10, 1) keeps, so what's checked is what's saved (#217)."""
+    return value.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+
+
+#: An hour meter figure on a tire write. Rounded as it's parsed: unrounded,
+#: 100.15 then 100.10 passed the history check and stored as 100.2 then 100.1.
+HoursFigure = Annotated[Decimal, Field(ge=0, le=_HOURS_MAX), AfterValidator(_to_stored_tenth)]
 
 
 class TireBase(BaseModel):
@@ -106,6 +128,7 @@ class TireMountRequest(BaseModel):
     position: TirePosition
     mounted_on: date_type | None = None
     mounted_odometer_km: Decimal | None = Field(None, ge=0)
+    mounted_hours: HoursFigure | None = None
     notes: str | None = None
 
 
@@ -116,6 +139,7 @@ class TireDismountRequest(BaseModel):
 
     dismounted_on: date_type | None = None
     dismounted_odometer_km: Decimal | None = Field(None, ge=0)
+    dismounted_hours: HoursFigure | None = None
     notes: str | None = None
     storage_location: str | None = Field(
         None, max_length=120
@@ -135,6 +159,7 @@ class TireCreateAndMountRequest(TireCreate):
     position: TirePosition
     mounted_on: date_type | None = None
     mounted_odometer_km: Decimal | None = Field(None, ge=0)
+    mounted_hours: HoursFigure | None = None
 
 
 class TireRotationMove(BaseModel):
@@ -158,6 +183,7 @@ class TireRotationRequest(BaseModel):
 
     moves: list[TireRotationMove] = Field(..., min_length=1)
     odometer_km: Decimal | None = Field(None, ge=0)
+    engine_hours: HoursFigure | None = None
     rotated_on: date_type | None = None
     notes: str | None = None
 
@@ -185,10 +211,16 @@ class TireReadingCreate(BaseModel):
     no tread gauge, and a required tread beside an optional odometer meant they
     could not record a pressure at all. What is required is that a reading carry
     at least one measurement (see ``_at_least_one_measurement``).
+
+    Forbids extras like every other tire write schema, so a misspelt field is
+    a 422 and not a silent drop.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     recorded_at: date_type
     odometer_km: Decimal | None = Field(None, ge=0)
+    engine_hours: HoursFigure | None = None
     tread_depth_mm: Decimal | None = Field(None, ge=0, le=30)
     pressure_kpa: Decimal | None = Field(None, ge=0, le=1000)
     notes: str | None = None
@@ -197,16 +229,38 @@ class TireReadingCreate(BaseModel):
     def _at_least_one_measurement(self) -> TireReadingCreate:
         """Reject a reading that measures nothing.
 
-        ``odometer_km`` deliberately does not count. It is context for the wear
-        projection, not an observation of the tire, so a date-plus-odometer row
-        would add a history entry that says nothing about the tire and would
-        still be picked up by ``_project_wear`` as the newest reading.
+        ``odometer_km`` and ``engine_hours`` deliberately do not count. They are
+        context for the wear projection, not an observation of the tire, so a
+        date-plus-odometer row would add a history entry that says nothing
+        about the tire and would still be picked up by ``_project_wear`` as
+        the newest reading.
 
         :raises ValueError: when both tread and pressure are absent.
         """
         if self.tread_depth_mm is None and self.pressure_kpa is None:
             raise ValueError("A reading needs a tread depth, a pressure, or both")
         return self
+
+
+class TireReadingUpdate(BaseModel):
+    """Correct one reading's date, measurements, odometer, hour meter or notes (#225).
+
+    `exclude_unset`, like `MountPeriodUpdate`: an absent key is untouched, null
+    clears it. The date can't be cleared, and the result must still measure
+    tread or pressure, which `TireService.update_reading` judges on the merged values.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    recorded_at: date_type | None = None
+    odometer_km: Decimal | None = Field(None, ge=0)
+    engine_hours: HoursFigure | None = None
+    tread_depth_mm: Decimal | None = Field(None, ge=0, le=30)
+    pressure_kpa: Decimal | None = Field(None, ge=0, le=1000)
+    notes: str | None = None
+
+    # NOT NULL column: omitted keeps the stored date, null is a 422.
+    _no_null = reject_null("recorded_at")
 
 
 class TireReadingResponse(BaseModel):
@@ -220,6 +274,7 @@ class TireReadingResponse(BaseModel):
     mount_period_id: int | None = None
     recorded_at: date_type
     odometer_km: Decimal | None
+    engine_hours: Decimal | None = None
     tread_depth_mm: Decimal | None
     pressure_kpa: Decimal | None
     notes: str | None
@@ -237,6 +292,8 @@ class MountPeriodResponse(BaseModel):
     dismounted_on: date_type | None
     mounted_odometer_km: Decimal | None
     dismounted_odometer_km: Decimal | None
+    mounted_hours: Decimal | None = None
+    dismounted_hours: Decimal | None = None
     is_assumed: bool
     observed_active_on: date_type | None
     notes: str | None
@@ -257,8 +314,10 @@ class MountPeriodUpdate(BaseModel):
 
     mounted_on: date_type | None = None
     mounted_odometer_km: Decimal | None = Field(None, ge=0)
+    mounted_hours: HoursFigure | None = None
     dismounted_on: date_type | None = None
     dismounted_odometer_km: Decimal | None = Field(None, ge=0)
+    dismounted_hours: HoursFigure | None = None
     notes: str | None = None
 
 
@@ -276,8 +335,10 @@ class MountPeriodCreate(BaseModel):
     position: TirePosition
     mounted_on: date_type
     mounted_odometer_km: Decimal | None = Field(None, ge=0)
+    mounted_hours: HoursFigure | None = None
     dismounted_on: date_type
     dismounted_odometer_km: Decimal | None = Field(None, ge=0)
+    dismounted_hours: HoursFigure | None = None
     notes: str | None = None
 
     @model_validator(mode="after")
@@ -357,6 +418,13 @@ class TireResponse(TireBase):
     known_distance_since: date_type | None = None
     # Why the distance is or is not available. See DistanceStatus.
     distance_status: str | None = None
+    #: Which reading the figures run on: the hour meter on an hours-only vehicle (#217).
+    usage_axis: UsageAxisName = "distance"
+    #: The figures on `usage_axis`, km or hours. The km fields above are null on the hours axis.
+    usage_on_tire: Decimal | None = None
+    known_usage: Decimal | None = None
+    known_usage_since: date_type | None = None
+    projected_usage_remaining: Decimal | None = None
     # The periods a user must supply a number for, so the UI can link to the
     # exact one instead of saying "record a mount".
     blocking_period_ids: list[int] = Field(default_factory=list)
@@ -375,6 +443,10 @@ class TireListResponse(BaseModel):
 
     tires: list[TireResponse]
     total: int
+    usage_axis: UsageAxisName = "distance"
+    #: Which readings this vehicle takes, so the dialogs show the right fields.
+    tracks_distance: bool = True
+    tracks_hours: bool = False
 
 
 class TireSetCreate(BaseModel):
@@ -442,5 +514,6 @@ class TireSetMountRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     odometer_km: Decimal | None = Field(None, ge=0)
+    engine_hours: HoursFigure | None = None
     mounted_on: date_type | None = None
     notes: str | None = None

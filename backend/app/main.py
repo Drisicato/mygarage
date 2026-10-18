@@ -202,6 +202,18 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down MyGarage application (maintenance mode)...")
         return
 
+    # After the maintenance-mode stop, since it writes. A failure keeps the
+    # list, so the next start tries again.
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.services import session_repair
+
+    try:
+        async with get_db_context() as db:
+            await session_repair.recompute_pending_sessions(db)
+    except SQLAlchemyError:
+        logger.exception("Recomputing older Torque trips failed; the next start tries again")
+
     start_scheduler()
 
     await start_mqtt_subscriber()
@@ -354,6 +366,7 @@ from app.routes import (
     analytics_router,
     attachments_router,
     backup_router,
+    brakes_router,
     calendar_router,
     dashboard_router,
     def_router,
@@ -443,6 +456,7 @@ app.include_router(backup_router)
 app.include_router(attachments_router)
 app.include_router(tax_router)
 app.include_router(tires_router)
+app.include_router(brakes_router)
 app.include_router(spot_rental_router)
 app.include_router(spot_rental_billing_router)
 app.include_router(address_book_router)

@@ -17,6 +17,7 @@ import type {
   TireListResponse,
   TireMountRequest,
   TireReadingCreate,
+  TireReadingUpdate,
   TireRotationRequest,
   TireSet,
   TireSetCreate,
@@ -74,12 +75,13 @@ export function useTires(vin: string, includeRetired = false) {
  * tests because they mock these hooks away.
  */
 function invalidateTireViews(queryClient: ReturnType<typeof useQueryClient>, vin: string) {
-  queryClient.invalidateQueries({ queryKey: ['tires', vin] })
   queryClient.invalidateQueries({ queryKey: ['tire-sets', vin] })
   // Every tire write publishes, moves or deletes a vehicle odometer record
   // (the nearest-reading suggestion lives under that prefix too), which moves
   // the reminders and the hero. Missing odometerRecords until v3.4.0 is why
   // the Odometer tab showed a stale reading for thirty seconds after a mount.
+  // The tire list comes from there too since #217; naming it here as well
+  // fetched it twice.
   invalidateReadingViews(queryClient, vin)
 }
 
@@ -244,7 +246,33 @@ export function useAddTireReading(vin: string) {
 }
 
 /**
- * Delete one reading, for one logged with the wrong odometer or date.
+ * Correct one reading. Absent keys stay; null clears one, except the date.
+ *
+ * Through the helper like every tire write: an edit can move the tire's tread
+ * and pressure, the rows the reading published and the low-tread reminder.
+ */
+export function useUpdateTireReading(
+  vin: string
+): UseMutationResult<Tire, Error, TireReadingUpdate & { tireId: number; readingId: number }> {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      tireId,
+      readingId,
+      ...payload
+    }: TireReadingUpdate & { tireId: number; readingId: number }) => {
+      const { data } = await api.put<Tire>(
+        `/vehicles/${vin}/tires/${tireId}/readings/${readingId}`,
+        payload
+      )
+      return data
+    },
+    onSuccess: () => invalidateTireViews(queryClient, vin),
+  })
+}
+
+/**
+ * Delete one reading that shouldn't be there; a wrong value is fixed with useUpdateTireReading.
  *
  * Through the helper like every other tire write: the server may put the
  * tire's tread and pressure back to an older reading, delete the odometer

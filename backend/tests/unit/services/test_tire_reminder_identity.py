@@ -36,11 +36,13 @@ import pytest_asyncio
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
+from app.models import HoursRecord, OdometerRecord
 from app.models.reminder import Reminder
 from app.models.tire import Tire, TireMountPeriod, TireReading
 from app.models.vehicle import Vehicle
 from app.schemas.reminder import ReminderCreate
 from app.services.tire_service import TireService
+from app.utils.household_time import household_today
 
 # No `pytestmark`: pytest.ini sets `asyncio_mode = auto`.
 
@@ -62,6 +64,8 @@ async def vin(db_session, test_user):
     await db_session.commit()
     yield plate
     await db_session.execute(delete(Reminder).where(Reminder.vin == plate))
+    await db_session.execute(delete(OdometerRecord).where(OdometerRecord.vin == plate))
+    await db_session.execute(delete(HoursRecord).where(HoursRecord.vin == plate))
     await db_session.execute(delete(Tire).where(Tire.vin == plate))
     await db_session.execute(delete(Vehicle).where(Vehicle.vin == plate))
     await db_session.commit()
@@ -136,6 +140,24 @@ class TestAForeignReminderIsLeftAlone:
         assert [r.tire_id for r in rows] == [None, tire.id]
         assert rows[1].source == "low_tread"
 
+    async def test_a_low_tread_reminder_stores_the_readings_it_starts_from(self, db_session, vin):
+        today = household_today()
+        db_session.add(
+            OdometerRecord(vin=vin, date=today, odometer_km=Decimal("42000"), source="manual")
+        )
+        db_session.add(
+            HoursRecord(vin=vin, date=today, engine_hours=Decimal("300.0"), source="manual")
+        )
+        await db_session.commit()
+        tire = await _tire(db_session, vin, position="FL", tread="1.5")
+        await _sync(db_session, tire)
+        (reminder,) = await _pending(db_session, vin)
+        assert reminder.source == "low_tread"
+        assert (reminder.start_odometer_km, reminder.start_hours) == (
+            Decimal("42000.00"),
+            Decimal("300.0"),
+        )
+
     async def test_a_human_authored_reminder_is_not_completed(self, db_session, vin):
         db_session.add(
             Reminder(
@@ -170,6 +192,27 @@ class TestTheOwnedReminderFollowsTheTire:
         assert len(rows) == 1
         assert rows[0].id == first.id
         assert rows[0].title == "Tire tread low (FR)"
+
+    async def test_a_new_tread_moves_the_snapshot(self, db_session, vin):
+        """G3a-21: the notification and the list read these columns, so they follow the tire."""
+        tire = await _tire(db_session, vin, position="FL", tread="1.8")
+        await _sync(db_session, tire)
+        first = (await _pending(db_session, vin))[0]
+
+        tire.tread_depth_mm = Decimal("1.2")
+        tire.min_tread_mm = Decimal("1.6")
+        await db_session.commit()
+        await _sync(db_session, tire)
+        # Only what the sync committed survives this.
+        await db_session.rollback()
+
+        rows = await _pending(db_session, vin)
+        assert [r.id for r in rows] == [first.id]
+        assert (rows[0].tread_depth_mm, rows[0].tread_threshold_mm) == (
+            Decimal("1.2"),
+            Decimal("1.6"),
+        )
+        assert rows[0].title == "Tire tread low (FL)"
 
     async def test_a_stale_none_title_is_repaired(self, db_session, vin):
         tire = await _tire(db_session, vin, position="FL", tread="1.5")

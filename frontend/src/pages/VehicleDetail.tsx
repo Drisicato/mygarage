@@ -32,6 +32,7 @@ import {
   CircleDot,
   ClipboardList,
   ClipboardCheck,
+  Disc,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import vehicleService from '../services/vehicleService'
@@ -58,6 +59,7 @@ import SafetyTab from '../components/tabs/SafetyTab'
 import TaxRecordList from '../components/TaxRecordList'
 import FinancingRecordList from '../components/FinancingRecordList'
 import TireList from '../components/TireList'
+import BrakeList from '../components/brakes/BrakeList'
 import SpotRentalsTab from '../components/tabs/SpotRentalsTab'
 import PropaneTab from '../components/tabs/PropaneTab'
 import DEFTab from '../components/tabs/DEFTab'
@@ -95,7 +97,7 @@ import { buildImportSummary } from '../utils/importSummary'
 
 export type ModalType = 'remove' | 'transfer' | 'sharing' | 'windowSticker' | 'torqueSource' | null
 export type PrimaryTabType = 'overview' | 'media' | 'maintenance' | 'fuel' | 'tracking' | 'financial' | 'livelink'
-export type SubTabType = 'photos' | 'documents' | 'service' | 'repairs' | 'inspections' | 'fuel' | 'def' | 'propane' | 'odometer' | 'hours' | 'notes' | 'warranties' | 'insurance' | 'tax' | 'tolls' | 'financing' | 'spotrentals' | 'suppliesused' | 'recalls' | 'reports' | 'reminders' | 'live' | 'dtcs' | 'sessions' | 'charts' | 'trips' | 'tires'
+export type SubTabType = 'photos' | 'documents' | 'service' | 'repairs' | 'inspections' | 'fuel' | 'def' | 'propane' | 'odometer' | 'hours' | 'notes' | 'warranties' | 'insurance' | 'tax' | 'tolls' | 'financing' | 'spotrentals' | 'suppliesused' | 'recalls' | 'reports' | 'reminders' | 'live' | 'dtcs' | 'sessions' | 'charts' | 'trips' | 'tires' | 'brakes'
 
 export default function VehicleDetail() {
   const { t } = useTranslation('vehicles')
@@ -177,6 +179,7 @@ export default function VehicleDetail() {
   }, [loadVehicle])
 
   const syncQuickEntryVehicle = useSyncQuickEntryVehicle()
+  const queryClient = useQueryClient()
   /**
    * Every sidecar save lands here, not in `setVehicle` (#172). Each one gets
    * the server's fresh row, which can carry an odometer unit changed on
@@ -185,10 +188,16 @@ export default function VehicleDetail() {
   const handleVehicleUpdated = useCallback(
     (updated: Vehicle) => {
       setVehicle(updated)
-      if (vin) rememberVehicle(vin, updated)
+      if (vin) {
+        rememberVehicle(vin, updated)
+        // Tracking distance or hours changes the tire and brake dialogs and figures (#217, #202).
+        for (const key of ['tires', 'brakes']) {
+          void queryClient.invalidateQueries({ queryKey: [key, vin] })
+        }
+      }
       syncQuickEntryVehicle(updated)
     },
-    [vin, syncQuickEntryVehicle]
+    [vin, syncQuickEntryVehicle, queryClient]
   )
 
   // What this vehicle's LiveLink sources can actually do. Gates both the
@@ -247,7 +256,6 @@ export default function VehicleDetail() {
   // one (codex R1-M2); and a write for A that finishes after navigating to B
   // only marks A stale, since A has no observer left to refetch for (codex
   // R2-M1). A failed refresh keeps the last good stats.
-  const queryClient = useQueryClient()
   const { data: detailStats = null } = useVehicleDetailStats(vin ?? '')
 
   // Handle URL tab parameter from calendar navigation
@@ -275,6 +283,7 @@ export default function VehicleDetail() {
       'spotrentals': { primary: 'financial', sub: 'spotrentals' },
       'recalls': { primary: 'maintenance', sub: 'recalls' },
       'tires': { primary: 'maintenance', sub: 'tires' },
+      'brakes': { primary: 'maintenance', sub: 'brakes' },
       'reports': { primary: 'tracking', sub: 'reports' },
       'reminders': { primary: 'tracking', sub: 'reminders' },
       'live': { primary: 'livelink', sub: 'live' },
@@ -424,6 +433,16 @@ export default function VehicleDetail() {
     setActiveSubTab(sub)
   }
 
+  // Tires -> Brakes with Log measurements open, offered after a rotation or a
+  // set fit while the wheels are off (#202).
+  const [brakeLogRequested, setBrakeLogRequested] = useState(false)
+  const openBrakeLog = useCallback((): void => {
+    setBrakeLogRequested(true)
+    setActivePrimaryTab('maintenance')
+    setActiveSubTab('brakes')
+  }, [])
+  const clearBrakeLog = useCallback((): void => setBrakeLogRequested(false), [])
+
   // Equipment pill (SDQ-2): open the equipment editor sidecar for the requested
   // list. The drawer is portalled, so it works from any tab — no tab switch.
   const handleEquipmentClick = (which: 'standard' | 'optional') => {
@@ -553,6 +572,7 @@ export default function VehicleDetail() {
       { id: 'odometer' as const, label: t('detail.misc.odometer'), icon: Gauge, visible: logKinds.odometer },
       { id: 'hours' as const, label: t('common:engineHours'), icon: Clock, visible: logKinds.hours },
       { id: 'tires' as const, label: t('detail.misc.tires'), icon: CircleDot, visible: isMotorized },
+      { id: 'brakes' as const, label: t('detail.misc.brakes'), icon: Disc, visible: isMotorized },
       { id: 'recalls' as const, label: t('detail.misc.recalls'), icon: AlertTriangle },
     ],
     fuel: [
@@ -707,7 +727,12 @@ export default function VehicleDetail() {
         {activePrimaryTab === 'fuel' && activeSubTab === 'propane' && vin && <PropaneTab vin={vin} />}
         {activePrimaryTab === 'maintenance' && activeSubTab === 'odometer' && vin && <OdometerTab vin={vin} />}
         {activePrimaryTab === 'maintenance' && activeSubTab === 'hours' && vin && <HoursTab vin={vin} />}
-        {activePrimaryTab === 'maintenance' && activeSubTab === 'tires' && vin && <TireList vin={vin} />}
+        {activePrimaryTab === 'maintenance' && activeSubTab === 'tires' && vin && (
+          <TireList key={vin} vin={vin} onLogBrakes={isMotorized ? openBrakeLog : undefined} />
+        )}
+        {activePrimaryTab === 'maintenance' && activeSubTab === 'brakes' && vin && isMotorized && (
+          <BrakeList key={vin} vin={vin} logOnOpen={brakeLogRequested} onLogOpened={clearBrakeLog} />
+        )}
         {activePrimaryTab === 'maintenance' && activeSubTab === 'recalls' && vin && <SafetyTab vin={vin} />}
 
         {/* Tracking Sub-tabs */}

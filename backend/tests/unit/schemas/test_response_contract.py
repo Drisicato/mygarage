@@ -484,6 +484,13 @@ def test_no_stale_validator_entries():
 #: Vocabulary fields a CHECK keeps inside the vocabulary: (model, field) -> (table, check).
 #: The table is where the value is stored, which isn't always the response's own.
 CHECK_BACKED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
+    ("BrakeJobResponse", "brake_type"): ("brake_jobs", "check_brake_jobs_brake_type"),
+    ("BrakeJobResponse", "position"): ("brake_jobs", "check_brake_jobs_position"),
+    ("BrakeJobResponse", "surface"): ("brake_jobs", "check_brake_jobs_surface"),
+    ("BrakeMeasurementResponse", "position"): (
+        "brake_measurements",
+        "check_brake_measurements_position",
+    ),
     ("FinancingRecordResponse", "category"): (
         "financing_records",
         "check_financing_records_category",
@@ -549,6 +556,38 @@ COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
     ("AssistantCitation", "source"): (
         "app.services.garage_assistant_service._coerce_citations",
         "drops a source outside `allowed`, which is the Literal's values",
+    ),
+    ("BrakeAxleResponse", "axle"): (
+        "app.services.brake_service.BrakeService._respond",
+        "the setup's axle, one of AXLES",
+    ),
+    ("BrakeAxleResponse", "brake_type"): (
+        "app.services.brake_wear.axle_setup",
+        "a ternary of two constants",
+    ),
+    ("BrakeCornerResponse", "axle"): (
+        "app.services.brake_service.BrakeService._corner_response",
+        "the corner's axle from AXLE_OF, one of two constants",
+    ),
+    ("BrakeCornerResponse", "brake_type"): (
+        "app.services.brake_wear.axle_setup",
+        "a ternary of two constants",
+    ),
+    ("BrakeCornerResponse", "condition"): (
+        "app.services.brake_wear.brake_condition",
+        "every branch returns a BrakeCondition member",
+    ),
+    ("BrakeCornerResponse", "position"): (
+        "app.services.brake_service.BrakeService._corners",
+        "one corner per entry of POSITIONS",
+    ),
+    ("BrakeCornerResponse", "wear_status"): (
+        "app.services.brake_wear.project_brake_wear",
+        "every branch returns a BrakeWearStatus member",
+    ),
+    ("BrakeOverviewResponse", "usage_axis"): (
+        "app.services.brake_service.BrakeService._respond",
+        "the primary axis's kind, one of two constants",
     ),
     ("CalendarEvent", "type"): (
         "app.routes.calendar.get_calendar_events",
@@ -629,6 +668,18 @@ COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
     ("TelemetryLatestValue", "alert_band"): (
         "app.services.livelink_alerts.alert_band",
         "every branch returns a constant",
+    ),
+    ("TireAnalyticsSummary", "usage_axis"): (
+        "app.routes.analytics.get_tire_analytics",
+        "copies TireListResponse.usage_axis",
+    ),
+    ("TireListResponse", "usage_axis"): (
+        "app.services.tire_service.TireService.list_tires",
+        "the primary axis's kind, one of two constants",
+    ),
+    ("TireResponse", "usage_axis"): (
+        "app.services.tire_service.TireService._to_response",
+        "the primary axis's kind, one of two constants",
     ),
     **{
         ("UnitSet", quantity): (

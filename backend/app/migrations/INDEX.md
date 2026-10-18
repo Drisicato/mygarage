@@ -137,9 +137,14 @@ migrations must swallow their own operational errors.
 | `125_add_planned_repairs` | Create planned_repairs and planned_repair_parts for the per-vehicle repair board. |
 | `125_correct_dtc_definitions` | Correct the DTC definitions by code, and fill DTCs recorded without one (1d). |
 | `126_add_planned_repair_part_supplies` | Add planned_repair_parts.supply_id and supply_quantity: plan a repair with supplies on hand. |
-| `127_add_reminder_start_readings` | Add vehicle_reminders.start_odometer_km and start_hours: freeze a one-off's progress start. |
+| `126_add_tire_hours` | **FATAL** — Add the hour meter beside the odometer on tire mounts and readings (#217). |
+| `127_clear_low_tread_prose` | Clear the prose the low-tread sync used to write into reminder notes (G3a-21). |
 | `128_add_repair_service_category` | Add 'Repair' to the service_category CHECK on service_visits and planned_repairs. |
+| `128_drop_reminder_projected_distance` | Drop vehicle_reminders.projected_distance_km, a column nothing writes or reads. |
+| `129_add_reminder_start_readings` | **FATAL** — Store the readings an unanchored reminder counts from (PR #216). |
 | `129_add_supply_image` | **FATAL** — Add supplies.image_path, the relative path of a supply's product image. |
 | `130_add_planned_repair_photos` | Create planned_repair_photos for photos attached to planned repairs. |
+| `130_move_torque_one_digit_pid_keys` | Move Torque's one-digit PID keys onto the keys the parser files them under now (#223). |
+| `131_add_brake_tracking` | Add brake tracking: axle setup, brake measurements, brake jobs and reminder marks (#202). |
 | `131_add_warranty_documents` | Create warranty_documents for files attached to warranty records. |
 | `132_add_vehicle_inspections` | Create the vehicle inspection tables: inspections, checklist items, wheel corners, photos. |

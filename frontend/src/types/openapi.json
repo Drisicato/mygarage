@@ -2238,6 +2238,1259 @@
         "title": "Body_upload_window_sticker_api_vehicles__vin__window_sticker_upload_post",
         "type": "object"
       },
+      "BrakeAxleResponse": {
+        "description": "An axle's setup, saved or the defaults.",
+        "properties": {
+          "axle": {
+            "enum": [
+              "front",
+              "rear"
+            ],
+            "title": "Axle",
+            "type": "string"
+          },
+          "brake_type": {
+            "enum": [
+              "disc",
+              "drum"
+            ],
+            "title": "Brake Type",
+            "type": "string"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "drum_max_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drum Max Mm"
+          },
+          "due_soon_mm": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Due Soon Mm",
+            "type": "string"
+          },
+          "min_thickness_mm": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Min Thickness Mm",
+            "type": "string"
+          },
+          "new_thickness_mm": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "New Thickness Mm",
+            "type": "string"
+          },
+          "rotor_min_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotor Min Mm"
+          }
+        },
+        "required": [
+          "axle",
+          "brake_type",
+          "min_thickness_mm",
+          "new_thickness_mm",
+          "configured",
+          "due_soon_mm"
+        ],
+        "title": "BrakeAxleResponse",
+        "type": "object"
+      },
+      "BrakeAxleUpdate": {
+        "additionalProperties": false,
+        "description": "An axle's whole setup. PUT replaces it.",
+        "properties": {
+          "brake_type": {
+            "enum": [
+              "disc",
+              "drum"
+            ],
+            "title": "Brake Type",
+            "type": "string"
+          },
+          "drum_max_mm": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drum Max Mm"
+          },
+          "min_thickness_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Min Thickness Mm"
+          },
+          "new_thickness_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "New Thickness Mm"
+          },
+          "rotor_min_mm": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotor Min Mm"
+          }
+        },
+        "required": [
+          "brake_type",
+          "min_thickness_mm",
+          "new_thickness_mm"
+        ],
+        "title": "BrakeAxleUpdate",
+        "type": "object"
+      },
+      "BrakeCornerResponse": {
+        "description": "One corner: its condition, wear estimate, newest figures and history.",
+        "properties": {
+          "axle": {
+            "enum": [
+              "front",
+              "rear"
+            ],
+            "title": "Axle",
+            "type": "string"
+          },
+          "brake_type": {
+            "enum": [
+              "disc",
+              "drum"
+            ],
+            "title": "Brake Type",
+            "type": "string"
+          },
+          "condition": {
+            "enum": [
+              "ok",
+              "due_soon",
+              "replace_now",
+              "unknown"
+            ],
+            "title": "Condition",
+            "type": "string"
+          },
+          "inner_pad_measured_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Pad Measured On"
+          },
+          "inner_pad_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Pad Mm"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/BrakeJobResponse"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "last_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BrakeJobResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "measured_hours": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Hours"
+          },
+          "measured_odometer_km": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Odometer Km"
+          },
+          "measured_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured On"
+          },
+          "measurements": {
+            "items": {
+              "$ref": "#/components/schemas/BrakeMeasurementResponse"
+            },
+            "title": "Measurements",
+            "type": "array"
+          },
+          "outer_pad_measured_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outer Pad Measured On"
+          },
+          "outer_pad_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outer Pad Mm"
+          },
+          "position": {
+            "enum": [
+              "FL",
+              "FR",
+              "RL",
+              "RR"
+            ],
+            "title": "Position",
+            "type": "string"
+          },
+          "projected_usage_remaining": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Usage Remaining"
+          },
+          "projected_wear_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Wear Date"
+          },
+          "reading_needed_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Needed On"
+          },
+          "shoe_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shoe Mm"
+          },
+          "surface_measured_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface Measured On"
+          },
+          "surface_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface Mm"
+          },
+          "surface_past_limit": {
+            "default": false,
+            "title": "Surface Past Limit",
+            "type": "boolean"
+          },
+          "thinnest_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinnest Mm"
+          },
+          "wear_status": {
+            "enum": [
+              "projected",
+              "at_or_below_minimum",
+              "no_measurements",
+              "replaced_not_measured",
+              "insufficient_measurements",
+              "no_usage_figures",
+              "no_usage_between",
+              "not_decreasing"
+            ],
+            "title": "Wear Status",
+            "type": "string"
+          },
+          "worn_by": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worn By"
+          }
+        },
+        "required": [
+          "position",
+          "axle",
+          "brake_type",
+          "condition",
+          "wear_status"
+        ],
+        "title": "BrakeCornerResponse",
+        "type": "object"
+      },
+      "BrakeJobCorner": {
+        "additionalProperties": false,
+        "description": "One corner of a brake job, with the new pads' thickness if it was measured.",
+        "properties": {
+          "new_thickness_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Thickness Mm"
+          },
+          "position": {
+            "enum": [
+              "FL",
+              "FR",
+              "RL",
+              "RR"
+            ],
+            "title": "Position",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "BrakeJobCorner",
+        "type": "object"
+      },
+      "BrakeJobCreate": {
+        "additionalProperties": false,
+        "description": "Work done on one to four corners on one day.",
+        "properties": {
+          "corners": {
+            "items": {
+              "$ref": "#/components/schemas/BrakeJobCorner"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Corners",
+            "type": "array"
+          },
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
+          "friction_replaced": {
+            "default": false,
+            "title": "Friction Replaced",
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odometer Km"
+          },
+          "performed_on": {
+            "format": "date",
+            "title": "Performed On",
+            "type": "string"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "enum": [
+                  "replaced",
+                  "resurfaced"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface"
+          }
+        },
+        "required": [
+          "performed_on",
+          "corners"
+        ],
+        "title": "BrakeJobCreate",
+        "type": "object"
+      },
+      "BrakeJobResponse": {
+        "description": "One corner's brake job.",
+        "properties": {
+          "brake_type": {
+            "enum": [
+              "disc",
+              "drum"
+            ],
+            "title": "Brake Type",
+            "type": "string"
+          },
+          "engine_hours": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
+          "friction_replaced": {
+            "title": "Friction Replaced",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odometer Km"
+          },
+          "performed_on": {
+            "format": "date",
+            "title": "Performed On",
+            "type": "string"
+          },
+          "position": {
+            "enum": [
+              "FL",
+              "FR",
+              "RL",
+              "RR"
+            ],
+            "title": "Position",
+            "type": "string"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "enum": [
+                  "replaced",
+                  "resurfaced"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "brake_type",
+          "performed_on",
+          "friction_replaced"
+        ],
+        "title": "BrakeJobResponse",
+        "type": "object"
+      },
+      "BrakeJobUpdate": {
+        "additionalProperties": false,
+        "description": "Correct one corner's brake job. Omitted keeps, null clears.\n\nIts date, odometer and hours carry over to the measurement it wrote, and\nturning `friction_replaced` off deletes that measurement.",
+        "properties": {
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
+          "friction_replaced": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Friction Replaced"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odometer Km"
+          },
+          "performed_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Performed On"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "enum": [
+                  "replaced",
+                  "resurfaced"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface"
+          }
+        },
+        "title": "BrakeJobUpdate",
+        "type": "object"
+      },
+      "BrakeMeasurementBatchCreate": {
+        "additionalProperties": false,
+        "description": "Measurements for one to four corners, taken on one day at one odometer.",
+        "properties": {
+          "corners": {
+            "items": {
+              "$ref": "#/components/schemas/BrakeMeasurementCorner"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Corners",
+            "type": "array"
+          },
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odometer Km"
+          },
+          "recorded_at": {
+            "format": "date",
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recorded_at",
+          "corners"
+        ],
+        "title": "BrakeMeasurementBatchCreate",
+        "type": "object"
+      },
+      "BrakeMeasurementCorner": {
+        "additionalProperties": false,
+        "description": "One corner's figures in a measurement batch.",
+        "properties": {
+          "drum_mm": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drum Mm"
+          },
+          "inner_pad_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Pad Mm"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "outer_pad_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outer Pad Mm"
+          },
+          "position": {
+            "enum": [
+              "FL",
+              "FR",
+              "RL",
+              "RR"
+            ],
+            "title": "Position",
+            "type": "string"
+          },
+          "rotor_mm": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotor Mm"
+          },
+          "shoe_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shoe Mm"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "BrakeMeasurementCorner",
+        "type": "object"
+      },
+      "BrakeMeasurementResponse": {
+        "description": "One corner's measurement.",
+        "properties": {
+          "brake_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brake Job Id"
+          },
+          "drum_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drum Mm"
+          },
+          "engine_hours": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inner_pad_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Pad Mm"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odometer Km"
+          },
+          "outer_pad_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outer Pad Mm"
+          },
+          "position": {
+            "enum": [
+              "FL",
+              "FR",
+              "RL",
+              "RR"
+            ],
+            "title": "Position",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "rotor_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotor Mm"
+          },
+          "shoe_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shoe Mm"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "recorded_at"
+        ],
+        "title": "BrakeMeasurementResponse",
+        "type": "object"
+      },
+      "BrakeMeasurementUpdate": {
+        "additionalProperties": false,
+        "description": "Correct one measurement. Omitted keeps, null clears.\n\nThe result must still measure something, and a changed figure must fit the\ncorner's brake type; `BrakeService.update_measurement` judges both on the\nmerged row. A measurement a brake job wrote takes figure and note edits\nonly: its date, odometer and hours are the job's.",
+        "properties": {
+          "drum_mm": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drum Mm"
+          },
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
+          "inner_pad_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Pad Mm"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odometer Km"
+          },
+          "outer_pad_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outer Pad Mm"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "rotor_mm": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotor Mm"
+          },
+          "shoe_mm": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shoe Mm"
+          }
+        },
+        "title": "BrakeMeasurementUpdate",
+        "type": "object"
+      },
+      "BrakeOverviewResponse": {
+        "description": "A vehicle's brakes: both axles and the four corners, FL, FR, RL, RR.",
+        "properties": {
+          "axles": {
+            "items": {
+              "$ref": "#/components/schemas/BrakeAxleResponse"
+            },
+            "title": "Axles",
+            "type": "array"
+          },
+          "corners": {
+            "items": {
+              "$ref": "#/components/schemas/BrakeCornerResponse"
+            },
+            "title": "Corners",
+            "type": "array"
+          },
+          "tracks_distance": {
+            "default": true,
+            "title": "Tracks Distance",
+            "type": "boolean"
+          },
+          "tracks_hours": {
+            "default": false,
+            "title": "Tracks Hours",
+            "type": "boolean"
+          },
+          "usage_axis": {
+            "default": "distance",
+            "enum": [
+              "distance",
+              "hours"
+            ],
+            "title": "Usage Axis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "axles",
+          "corners"
+        ],
+        "title": "BrakeOverviewResponse",
+        "type": "object"
+      },
       "CalendarEvent": {
         "description": "Schema for a calendar event.",
         "properties": {
@@ -12525,6 +13778,23 @@
         "additionalProperties": false,
         "description": "A closed period the tire spent on a corner, recorded after the fact.\n\nClosed only: an open period is what Mount creates, and it is the one whose\ncorner `tires.position` holds. Odometers optional, dates required, the\ndismount no later than tomorrow (a day of slack for a user whose calendar\nis ahead of the server's).",
         "properties": {
+          "dismounted_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismounted Hours"
+          },
           "dismounted_odometer_km": {
             "anyOf": [
               {
@@ -12545,6 +13815,23 @@
             "format": "date",
             "title": "Dismounted On",
             "type": "string"
+          },
+          "mounted_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mounted Hours"
           },
           "mounted_odometer_km": {
             "anyOf": [
@@ -12601,6 +13888,18 @@
       "MountPeriodResponse": {
         "description": "One interval a tire spent mounted at one position.",
         "properties": {
+          "dismounted_hours": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismounted Hours"
+          },
           "dismounted_odometer_km": {
             "anyOf": [
               {
@@ -12632,6 +13931,18 @@
           "is_assumed": {
             "title": "Is Assumed",
             "type": "boolean"
+          },
+          "mounted_hours": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mounted Hours"
           },
           "mounted_odometer_km": {
             "anyOf": [
@@ -12703,6 +14014,23 @@
         "additionalProperties": false,
         "description": "Correct one mount period's bounds or notes.\n\nEvery field optional, `exclude_unset` semantics: a key absent from the\nbody is untouched, a key sent as null is cleared to unknown. `position`\nis deliberately not here (D14: only mount, dismount and rotate write it),\nand forbid-extra makes sending it a 422 rather than a silent ignore.",
         "properties": {
+          "dismounted_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismounted Hours"
+          },
           "dismounted_odometer_km": {
             "anyOf": [
               {
@@ -12730,6 +14058,23 @@
               }
             ],
             "title": "Dismounted On"
+          },
+          "mounted_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mounted Hours"
           },
           "mounted_odometer_km": {
             "anyOf": [
@@ -12814,6 +14159,37 @@
           "value"
         ],
         "title": "NamedFieldResponse",
+        "type": "object"
+      },
+      "NearestHoursResponse": {
+        "description": "The hours reading closest to a requested day, for the tire dialogs' suggestion.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "days_away": {
+            "title": "Days Away",
+            "type": "integer"
+          },
+          "engine_hours": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Engine Hours",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "engine_hours",
+          "source",
+          "days_away"
+        ],
+        "title": "NearestHoursResponse",
         "type": "object"
       },
       "NearestOdometerResponse": {
@@ -17330,6 +18706,17 @@
             ],
             "title": "Snoozed Until"
           },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -17345,9 +18732,44 @@
             ],
             "title": "Superseded By Id"
           },
+          "tire_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tire Id"
+          },
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "tread_depth_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tread Depth Mm"
+          },
+          "tread_threshold_mm": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tread Threshold Mm"
           },
           "updated_at": {
             "format": "date-time",
@@ -22235,6 +23657,11 @@
             "title": "Has Odometer Record",
             "type": "boolean"
           },
+          "has_usage_record": {
+            "default": false,
+            "title": "Has Usage Record",
+            "type": "boolean"
+          },
           "readiness": {
             "$ref": "#/components/schemas/TireReadiness"
           },
@@ -22244,6 +23671,15 @@
             },
             "title": "Tires",
             "type": "array"
+          },
+          "usage_axis": {
+            "default": "distance",
+            "enum": [
+              "distance",
+              "hours"
+            ],
+            "title": "Usage Axis",
+            "type": "string"
           }
         },
         "title": "TireAnalyticsSummary",
@@ -22448,6 +23884,23 @@
             ],
             "title": "Model Name"
           },
+          "mounted_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mounted Hours"
+          },
           "mounted_odometer_km": {
             "anyOf": [
               {
@@ -22573,6 +24026,23 @@
         "additionalProperties": false,
         "description": "Take a tire off the vehicle.",
         "properties": {
+          "dismounted_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismounted Hours"
+          },
           "dismounted_odometer_km": {
             "anyOf": [
               {
@@ -22641,6 +24111,25 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "tracks_distance": {
+            "default": true,
+            "title": "Tracks Distance",
+            "type": "boolean"
+          },
+          "tracks_hours": {
+            "default": false,
+            "title": "Tracks Hours",
+            "type": "boolean"
+          },
+          "usage_axis": {
+            "default": "distance",
+            "enum": [
+              "distance",
+              "hours"
+            ],
+            "title": "Usage Axis",
+            "type": "string"
           }
         },
         "required": [
@@ -22654,6 +24143,23 @@
         "additionalProperties": false,
         "description": "Mount a tire at a position.",
         "properties": {
+          "mounted_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mounted Hours"
+          },
           "mounted_odometer_km": {
             "anyOf": [
               {
@@ -22764,8 +24270,26 @@
         "type": "object"
       },
       "TireReadingCreate": {
-        "description": "Record a tread/pressure reading (updates the parent tire's latest depth).\n\nTread is OPTIONAL (#152): the reporter tracks a slow pressure leak and owns\nno tread gauge, and a required tread beside an optional odometer meant they\ncould not record a pressure at all. What is required is that a reading carry\nat least one measurement (see ``_at_least_one_measurement``).",
+        "additionalProperties": false,
+        "description": "Record a tread/pressure reading (updates the parent tire's latest depth).\n\nTread is OPTIONAL (#152): the reporter tracks a slow pressure leak and owns\nno tread gauge, and a required tread beside an optional odometer meant they\ncould not record a pressure at all. What is required is that a reading carry\nat least one measurement (see ``_at_least_one_measurement``).\n\nForbids extras like every other tire write schema, so a misspelt field is\na 422 and not a silent drop.",
         "properties": {
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
           "notes": {
             "anyOf": [
               {
@@ -22846,6 +24370,18 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "engine_hours": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
           },
           "id": {
             "title": "Id",
@@ -22946,6 +24482,104 @@
           "created_at"
         ],
         "title": "TireReadingResponse",
+        "type": "object"
+      },
+      "TireReadingUpdate": {
+        "additionalProperties": false,
+        "description": "Correct one reading's date, measurements, odometer, hour meter or notes (#225).\n\n`exclude_unset`, like `MountPeriodUpdate`: an absent key is untouched, null\nclears it. The date can't be cleared, and the result must still measure\ntread or pressure, which `TireService.update_reading` judges on the merged values.",
+        "properties": {
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odometer Km"
+          },
+          "pressure_kpa": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure Kpa"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "tread_depth_mm": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tread Depth Mm"
+          }
+        },
+        "title": "TireReadingUpdate",
         "type": "object"
       },
       "TireResponse": {
@@ -23061,6 +24695,30 @@
             ],
             "title": "Known Distance Since"
           },
+          "known_usage": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Usage"
+          },
+          "known_usage_since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Usage Since"
+          },
           "min_tread_mm": {
             "anyOf": [
               {
@@ -23145,6 +24803,18 @@
               }
             ],
             "title": "Projected Km Remaining"
+          },
+          "projected_usage_remaining": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Usage Remaining"
           },
           "projected_wear_date": {
             "anyOf": [
@@ -23234,6 +24904,27 @@
             ],
             "title": "Updated At"
           },
+          "usage_axis": {
+            "default": "distance",
+            "enum": [
+              "distance",
+              "hours"
+            ],
+            "title": "Usage Axis",
+            "type": "string"
+          },
+          "usage_on_tire": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage On Tire"
+          },
           "vin": {
             "title": "Vin",
             "type": "string"
@@ -23289,6 +24980,23 @@
         "additionalProperties": false,
         "description": "Move several tires at once.\n\nAll or nothing. A partial rotation would leave the vehicle in an\narrangement the user did not ask for and cannot easily read back, which\nfor something done four tires at a time is worse than a refusal.",
         "properties": {
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
           "moves": {
             "items": {
               "$ref": "#/components/schemas/TireRotationMove"
@@ -23397,6 +25105,23 @@
         "additionalProperties": false,
         "description": "Fit every tire in a set, each at the corner it was last on.\n\nThe odometer is a reading of the VEHICLE and applies to the whole swap: it\ncloses the periods of everything coming off and opens the periods of\neverything going on. One number, because that is what the user reads off\nthe dash once.",
         "properties": {
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 999999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Hours"
+          },
           "mounted_on": {
             "anyOf": [
               {
@@ -44795,6 +46520,471 @@
         ]
       }
     },
+    "/api/vehicles/{vin}/brakes": {
+      "get": {
+        "description": "A vehicle's brakes: both axles and the four corners, with wear estimates and history.",
+        "operationId": "get_brakes_api_vehicles__vin__brakes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrakeOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Brakes",
+        "tags": [
+          "brakes"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/brakes/axles/{axle}": {
+      "put": {
+        "description": "Save an axle's setup: disc or drum, its minimum and new thickness, and the rotor or drum limit.",
+        "operationId": "update_brake_axle_api_vehicles__vin__brakes_axles__axle__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "axle",
+            "required": true,
+            "schema": {
+              "enum": [
+                "front",
+                "rear"
+              ],
+              "title": "Axle",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrakeAxleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrakeOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Brake Axle",
+        "tags": [
+          "brakes"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/brakes/jobs": {
+      "post": {
+        "description": "Record a brake job on one to four corners.\n\nA pads or shoes job starts those corners' wear estimates over, from the\nnew thickness when one is given.",
+        "operationId": "create_brake_job_api_vehicles__vin__brakes_jobs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrakeJobCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrakeOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Brake Job",
+        "tags": [
+          "brakes"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/brakes/jobs/{job_id}": {
+      "delete": {
+        "description": "Delete one corner's brake job and the new-pads measurement it wrote.",
+        "operationId": "delete_brake_job_api_vehicles__vin__brakes_jobs__job_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Brake Job",
+        "tags": [
+          "brakes"
+        ]
+      },
+      "put": {
+        "description": "Correct one corner's brake job. The new-pads measurement it wrote moves with it.",
+        "operationId": "update_brake_job_api_vehicles__vin__brakes_jobs__job_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrakeJobUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrakeOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Brake Job",
+        "tags": [
+          "brakes"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/brakes/measurements": {
+      "post": {
+        "description": "Record one to four corners measured on one day.\n\nReturns the whole overview: a measurement can move a corner's condition\nand its axle's reminder.",
+        "operationId": "log_brake_measurements_api_vehicles__vin__brakes_measurements_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrakeMeasurementBatchCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrakeOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Log Brake Measurements",
+        "tags": [
+          "brakes"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/brakes/measurements/{measurement_id}": {
+      "delete": {
+        "description": "Delete one measurement.",
+        "operationId": "delete_brake_measurement_api_vehicles__vin__brakes_measurements__measurement_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "measurement_id",
+            "required": true,
+            "schema": {
+              "title": "Measurement Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Brake Measurement",
+        "tags": [
+          "brakes"
+        ]
+      },
+      "put": {
+        "description": "Correct one measurement. Omitted keeps a field, null clears it.",
+        "operationId": "update_brake_measurement_api_vehicles__vin__brakes_measurements__measurement_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "measurement_id",
+            "required": true,
+            "schema": {
+              "title": "Measurement Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrakeMeasurementUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrakeOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Brake Measurement",
+        "tags": [
+          "brakes"
+        ]
+      }
+    },
     "/api/vehicles/{vin}/def": {
       "get": {
         "description": "Get all DEF records for a vehicle.\n\n**Path Parameters:**\n- **vin**: Vehicle VIN\n\n**Query Parameters:**\n- **skip**: Number of records to skip (pagination)\n- **limit**: Maximum number of records to return",
@@ -46282,6 +48472,64 @@
           }
         ],
         "summary": "Create Hours Record",
+        "tags": [
+          "Hours Records"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/hours/nearest": {
+      "get": {
+        "description": "The hours reading closest to a date, for prefilling a tire dialog. 404 when there are none.",
+        "operationId": "nearest_hours_reading_api_vehicles__vin__hours_nearest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NearestHoursResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Nearest Hours Reading",
         "tags": [
           "Hours Records"
         ]
@@ -54106,7 +56354,7 @@
     },
     "/api/vehicles/{vin}/tires/{tire_id}/readings/{reading_id}": {
       "delete": {
-        "description": "Delete one reading, for one logged with the wrong odometer or date.\n\n404 when the reading is not this tire's. The tire's tread and pressure fall\nback to the newest remaining reading when they still hold the deleted\nreading's value, the odometer record the reading published goes with it,\nand the low-tread reminder is re-synced.",
+        "description": "Delete one reading that shouldn't be there; a wrong value is fixed with the PUT above.\n\n404 when the reading is not this tire's. The tire's tread and pressure fall\nback to the newest remaining reading when they still hold the deleted\nreading's value, the odometer record the reading published goes with it,\nand the low-tread reminder is re-synced.",
         "operationId": "delete_tire_reading_api_vehicles__vin__tires__tire_id__readings__reading_id__delete",
         "parameters": [
           {
@@ -54158,6 +56406,80 @@
           }
         ],
         "summary": "Delete Tire Reading",
+        "tags": [
+          "tires"
+        ]
+      },
+      "put": {
+        "description": "Correct one reading's date, tread, pressure, odometer, hour meter or notes.\n\nAbsent keys stay; null clears one, except the date. 404 when the reading\nisn't this tire's, 409 when the change makes a mount period newly contradict\nit, 422 when it would measure nothing or carries a figure the vehicle doesn't\ntrack. Returns the whole tire.",
+        "operationId": "update_tire_reading_api_vehicles__vin__tires__tire_id__readings__reading_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tire_id",
+            "required": true,
+            "schema": {
+              "title": "Tire Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "reading_id",
+            "required": true,
+            "schema": {
+              "title": "Reading Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TireReadingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TireResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Tire Reading",
         "tags": [
           "tires"
         ]

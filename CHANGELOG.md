@@ -8,7 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A Brakes tab beside Tires tracks pads, shoes, rotors and drums per corner, brake jobs, and a wear estimate for each corner (#202)
+- Each axle gets a brake pads low reminder when a corner is due soon or worn out, closed by a brake job or a healthy measurement
+- After a tire rotation or set fit, the Tires tab offers to log brake measurements while the wheels are off
 - SSO settings have a Callback URL field, so `oidc_redirect_uri` can be pinned from Settings
+- Tires on a vehicle that tracks engine hours use the hour meter: mounts, dismounts, rotations, set fits and readings take hours, and hours on the tire and the wear estimate are worked out in hours (#217)
+- A vehicle that tracks both distance and hours records both on each tire event, the second one optional, and its tire figures stay on distance
+- Tire readings can be edited from the tire's history: fix a wrong date, tread, pressure or note, or add an odometer or hour meter reading later
+- A tread gauge reading in inches (0.346) typed into a 32nds field is read as 32nds (11/32)
+- Common Torque Pro extended PIDs, such as OBD adapter voltage and turbo boost, have readable names
 
 ### Changed
 - CI splits the test suites across parallel runners (shared-workflows v1.7.0)
@@ -19,11 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The API refuses (400) a line-item link to an item outside its visit when updating a visit or adding a line item, and ignores one when creating a visit
 - The API refuses a line item that links to itself
 - Manufacturer-specific codes (P1xxx, B1xxx and so on) no longer show one maker's meaning; the DTC card says the code is manufacturer-specific
+- The tire API refuses (422) an odometer on a vehicle that doesn't track distance, and engine hours on one that doesn't track hours
+- Low-tread reminders show the tread and the minimum in your units, in the reminder list and in the notification, instead of a note in millimetres
 
 ### Removed
 - Sign-in for accounts still on a pre-Argon2 (bcrypt) password hash. bcrypt hasn't shipped since at least v2.14.0, so such accounts couldn't sign in anyway. An admin resets the password, and the log names the account
 
 ### Fixed
+- Torque Pro's one-digit PIDs (`kc`, `kd`, `k5` and the rest) are stored as Engine RPM, Speed, Coolant and so on instead of `KC`, `KD`, `K5`, and what's already stored moves over, with older trips' speed, RPM and coolant filled in (#223)
 - Toasts no longer cover a drawer's buttons on tablets and desktops (bottom-left, top-left while a drawer is open), and sit above the tab bar on phones
 - Small supply amounts (a few mL in L, qt or gal) no longer show as 0.00, and supply amounts follow the selected language
 - With sign-in off, creating a user and resetting a password no longer error after saving, the family pages no longer error, and Share is hidden on the vehicle page
@@ -52,6 +63,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A signed-out page load no longer logs an ERROR line
 - SSO sign-in through Rauthy no longer logs a SecurityWarning about the EdDSA algorithm name, and providers that use the newer Ed25519 name work too
 - The Callback URL refuses invisible characters, an address with no host, and a port that isn't a number
+- Tires on an hours-only vehicle no longer ask for an odometer, and the hour meter typed there no longer ends up in hidden odometer readings
+- Hour meter readings typed into a tire's odometer before this release stay in the vehicle's odometer history; turn on distance tracking for the vehicle to see and delete them. They stay on the tire's mount periods and readings too, where Edit on the period or deleting the reading clears them while distance tracking is on
+- An hours-only vehicle no longer gets odometer milestone notifications
+- Clearing the date in a tire dialog asks for a date instead of failing with an error
+- A past mount period can no longer run past the day its tire was retired, and a tire can't be retired before the end of its mount history
+- The hours list shows a reading a tire recorded as Tire instead of Manual
+- A tire reading logged after a higher one the same day no longer lowers the vehicle's odometer or hours for that day, and deleting a tire reading leaves the day at the highest reading still on file
+- A reminder you make counts its progress bar from the readings on file when you made it, so a reading added or corrected later that day no longer holds the bar at zero or hides it (thanks @Drisicato, PR #216)
+- Importing an old (pre-v3) vehicle backup counts a repeating reminder's mileage from the vehicle's odometer instead of saving the interval as the due odometer, keeps a one-time reminder's due date and mileage, and brings completed reminders back as done; a mileage-only reminder with no odometer reading to count from is reported instead
+- A tread or pressure reading dated before a newer reading of the other kind now updates the tire's tread or pressure
+- Torque Pro readings show their units, and intake manifold pressure no longer shows as a temperature
 
 ### Security
 - POI provider settings are admin-only

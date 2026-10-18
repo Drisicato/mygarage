@@ -4705,6 +4705,140 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vehicles/{vin}/brakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Brakes
+         * @description A vehicle's brakes: both axles and the four corners, with wear estimates and history.
+         */
+        get: operations["get_brakes_api_vehicles__vin__brakes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/brakes/axles/{axle}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Brake Axle
+         * @description Save an axle's setup: disc or drum, its minimum and new thickness, and the rotor or drum limit.
+         */
+        put: operations["update_brake_axle_api_vehicles__vin__brakes_axles__axle__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/brakes/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Brake Job
+         * @description Record a brake job on one to four corners.
+         *
+         *     A pads or shoes job starts those corners' wear estimates over, from the
+         *     new thickness when one is given.
+         */
+        post: operations["create_brake_job_api_vehicles__vin__brakes_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/brakes/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Brake Job
+         * @description Correct one corner's brake job. The new-pads measurement it wrote moves with it.
+         */
+        put: operations["update_brake_job_api_vehicles__vin__brakes_jobs__job_id__put"];
+        post?: never;
+        /**
+         * Delete Brake Job
+         * @description Delete one corner's brake job and the new-pads measurement it wrote.
+         */
+        delete: operations["delete_brake_job_api_vehicles__vin__brakes_jobs__job_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/brakes/measurements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Log Brake Measurements
+         * @description Record one to four corners measured on one day.
+         *
+         *     Returns the whole overview: a measurement can move a corner's condition
+         *     and its axle's reminder.
+         */
+        post: operations["log_brake_measurements_api_vehicles__vin__brakes_measurements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/brakes/measurements/{measurement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Brake Measurement
+         * @description Correct one measurement. Omitted keeps a field, null clears it.
+         */
+        put: operations["update_brake_measurement_api_vehicles__vin__brakes_measurements__measurement_id__put"];
+        post?: never;
+        /**
+         * Delete Brake Measurement
+         * @description Delete one measurement.
+         */
+        delete: operations["delete_brake_measurement_api_vehicles__vin__brakes_measurements__measurement_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vehicles/{vin}/def": {
         parameters: {
             query?: never;
@@ -5119,6 +5253,26 @@ export interface paths {
          *     - **500**: Database error
          */
         post: operations["create_hours_record_api_vehicles__vin__hours_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/hours/nearest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Nearest Hours Reading
+         * @description The hours reading closest to a date, for prefilling a tire dialog. 404 when there are none.
+         */
+        get: operations["nearest_hours_reading_api_vehicles__vin__hours_nearest_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7461,11 +7615,20 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Update Tire Reading
+         * @description Correct one reading's date, tread, pressure, odometer, hour meter or notes.
+         *
+         *     Absent keys stay; null clears one, except the date. 404 when the reading
+         *     isn't this tire's, 409 when the change makes a mount period newly contradict
+         *     it, 422 when it would measure nothing or carries a figure the vehicle doesn't
+         *     track. Returns the whole tire.
+         */
+        put: operations["update_tire_reading_api_vehicles__vin__tires__tire_id__readings__reading_id__put"];
         post?: never;
         /**
          * Delete Tire Reading
-         * @description Delete one reading, for one logged with the wrong odometer or date.
+         * @description Delete one reading that shouldn't be there; a wrong value is fixed with the PUT above.
          *
          *     404 when the reading is not this tire's. The tire's tread and pressure fall
          *     back to the newest remaining reading when they still hold the deleted
@@ -9058,6 +9221,348 @@ export interface components {
              * @default false
              */
             replace: boolean;
+        };
+        /**
+         * BrakeAxleResponse
+         * @description An axle's setup, saved or the defaults.
+         */
+        BrakeAxleResponse: {
+            /**
+             * Axle
+             * @enum {string}
+             */
+            axle: "front" | "rear";
+            /**
+             * Brake Type
+             * @enum {string}
+             */
+            brake_type: "disc" | "drum";
+            /** Configured */
+            configured: boolean;
+            /** Drum Max Mm */
+            drum_max_mm?: string | null;
+            /** Due Soon Mm */
+            due_soon_mm: string;
+            /** Min Thickness Mm */
+            min_thickness_mm: string;
+            /** New Thickness Mm */
+            new_thickness_mm: string;
+            /** Rotor Min Mm */
+            rotor_min_mm?: string | null;
+        };
+        /**
+         * BrakeAxleUpdate
+         * @description An axle's whole setup. PUT replaces it.
+         */
+        BrakeAxleUpdate: {
+            /**
+             * Brake Type
+             * @enum {string}
+             */
+            brake_type: "disc" | "drum";
+            /** Drum Max Mm */
+            drum_max_mm?: number | string | null;
+            /** Min Thickness Mm */
+            min_thickness_mm: number | string;
+            /** New Thickness Mm */
+            new_thickness_mm: number | string;
+            /** Rotor Min Mm */
+            rotor_min_mm?: number | string | null;
+        };
+        /**
+         * BrakeCornerResponse
+         * @description One corner: its condition, wear estimate, newest figures and history.
+         */
+        BrakeCornerResponse: {
+            /**
+             * Axle
+             * @enum {string}
+             */
+            axle: "front" | "rear";
+            /**
+             * Brake Type
+             * @enum {string}
+             */
+            brake_type: "disc" | "drum";
+            /**
+             * Condition
+             * @enum {string}
+             */
+            condition: "ok" | "due_soon" | "replace_now" | "unknown";
+            /** Inner Pad Measured On */
+            inner_pad_measured_on?: string | null;
+            /** Inner Pad Mm */
+            inner_pad_mm?: string | null;
+            /** Jobs */
+            jobs?: components["schemas"]["BrakeJobResponse"][];
+            last_job?: components["schemas"]["BrakeJobResponse"] | null;
+            /** Measured Hours */
+            measured_hours?: string | null;
+            /** Measured Odometer Km */
+            measured_odometer_km?: string | null;
+            /** Measured On */
+            measured_on?: string | null;
+            /** Measurements */
+            measurements?: components["schemas"]["BrakeMeasurementResponse"][];
+            /** Outer Pad Measured On */
+            outer_pad_measured_on?: string | null;
+            /** Outer Pad Mm */
+            outer_pad_mm?: string | null;
+            /**
+             * Position
+             * @enum {string}
+             */
+            position: "FL" | "FR" | "RL" | "RR";
+            /** Projected Usage Remaining */
+            projected_usage_remaining?: string | null;
+            /** Projected Wear Date */
+            projected_wear_date?: string | null;
+            /** Reading Needed On */
+            reading_needed_on?: string | null;
+            /** Shoe Mm */
+            shoe_mm?: string | null;
+            /** Surface Measured On */
+            surface_measured_on?: string | null;
+            /** Surface Mm */
+            surface_mm?: string | null;
+            /**
+             * Surface Past Limit
+             * @default false
+             */
+            surface_past_limit: boolean;
+            /** Thinnest Mm */
+            thinnest_mm?: string | null;
+            /**
+             * Wear Status
+             * @enum {string}
+             */
+            wear_status: "projected" | "at_or_below_minimum" | "no_measurements" | "replaced_not_measured" | "insufficient_measurements" | "no_usage_figures" | "no_usage_between" | "not_decreasing";
+            /** Worn By */
+            worn_by?: string | null;
+        };
+        /**
+         * BrakeJobCorner
+         * @description One corner of a brake job, with the new pads' thickness if it was measured.
+         */
+        BrakeJobCorner: {
+            /** New Thickness Mm */
+            new_thickness_mm?: number | string | null;
+            /**
+             * Position
+             * @enum {string}
+             */
+            position: "FL" | "FR" | "RL" | "RR";
+        };
+        /**
+         * BrakeJobCreate
+         * @description Work done on one to four corners on one day.
+         */
+        BrakeJobCreate: {
+            /** Corners */
+            corners: components["schemas"]["BrakeJobCorner"][];
+            /** Engine Hours */
+            engine_hours?: number | string | null;
+            /**
+             * Friction Replaced
+             * @default false
+             */
+            friction_replaced: boolean;
+            /** Notes */
+            notes?: string | null;
+            /** Odometer Km */
+            odometer_km?: number | string | null;
+            /**
+             * Performed On
+             * Format: date
+             */
+            performed_on: string;
+            /** Surface */
+            surface?: ("replaced" | "resurfaced") | null;
+        };
+        /**
+         * BrakeJobResponse
+         * @description One corner's brake job.
+         */
+        BrakeJobResponse: {
+            /**
+             * Brake Type
+             * @enum {string}
+             */
+            brake_type: "disc" | "drum";
+            /** Engine Hours */
+            engine_hours?: string | null;
+            /** Friction Replaced */
+            friction_replaced: boolean;
+            /** Id */
+            id: number;
+            /** Notes */
+            notes?: string | null;
+            /** Odometer Km */
+            odometer_km?: string | null;
+            /**
+             * Performed On
+             * Format: date
+             */
+            performed_on: string;
+            /**
+             * Position
+             * @enum {string}
+             */
+            position: "FL" | "FR" | "RL" | "RR";
+            /** Surface */
+            surface?: ("replaced" | "resurfaced") | null;
+        };
+        /**
+         * BrakeJobUpdate
+         * @description Correct one corner's brake job. Omitted keeps, null clears.
+         *
+         *     Its date, odometer and hours carry over to the measurement it wrote, and
+         *     turning `friction_replaced` off deletes that measurement.
+         */
+        BrakeJobUpdate: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
+            /** Friction Replaced */
+            friction_replaced?: boolean | null;
+            /** Notes */
+            notes?: string | null;
+            /** Odometer Km */
+            odometer_km?: number | string | null;
+            /** Performed On */
+            performed_on?: string | null;
+            /** Surface */
+            surface?: ("replaced" | "resurfaced") | null;
+        };
+        /**
+         * BrakeMeasurementBatchCreate
+         * @description Measurements for one to four corners, taken on one day at one odometer.
+         */
+        BrakeMeasurementBatchCreate: {
+            /** Corners */
+            corners: components["schemas"]["BrakeMeasurementCorner"][];
+            /** Engine Hours */
+            engine_hours?: number | string | null;
+            /** Odometer Km */
+            odometer_km?: number | string | null;
+            /**
+             * Recorded At
+             * Format: date
+             */
+            recorded_at: string;
+        };
+        /**
+         * BrakeMeasurementCorner
+         * @description One corner's figures in a measurement batch.
+         */
+        BrakeMeasurementCorner: {
+            /** Drum Mm */
+            drum_mm?: number | string | null;
+            /** Inner Pad Mm */
+            inner_pad_mm?: number | string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Outer Pad Mm */
+            outer_pad_mm?: number | string | null;
+            /**
+             * Position
+             * @enum {string}
+             */
+            position: "FL" | "FR" | "RL" | "RR";
+            /** Rotor Mm */
+            rotor_mm?: number | string | null;
+            /** Shoe Mm */
+            shoe_mm?: number | string | null;
+        };
+        /**
+         * BrakeMeasurementResponse
+         * @description One corner's measurement.
+         */
+        BrakeMeasurementResponse: {
+            /** Brake Job Id */
+            brake_job_id?: number | null;
+            /** Drum Mm */
+            drum_mm?: string | null;
+            /** Engine Hours */
+            engine_hours?: string | null;
+            /** Id */
+            id: number;
+            /** Inner Pad Mm */
+            inner_pad_mm?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Odometer Km */
+            odometer_km?: string | null;
+            /** Outer Pad Mm */
+            outer_pad_mm?: string | null;
+            /**
+             * Position
+             * @enum {string}
+             */
+            position: "FL" | "FR" | "RL" | "RR";
+            /**
+             * Recorded At
+             * Format: date
+             */
+            recorded_at: string;
+            /** Rotor Mm */
+            rotor_mm?: string | null;
+            /** Shoe Mm */
+            shoe_mm?: string | null;
+        };
+        /**
+         * BrakeMeasurementUpdate
+         * @description Correct one measurement. Omitted keeps, null clears.
+         *
+         *     The result must still measure something, and a changed figure must fit the
+         *     corner's brake type; `BrakeService.update_measurement` judges both on the
+         *     merged row. A measurement a brake job wrote takes figure and note edits
+         *     only: its date, odometer and hours are the job's.
+         */
+        BrakeMeasurementUpdate: {
+            /** Drum Mm */
+            drum_mm?: number | string | null;
+            /** Engine Hours */
+            engine_hours?: number | string | null;
+            /** Inner Pad Mm */
+            inner_pad_mm?: number | string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Odometer Km */
+            odometer_km?: number | string | null;
+            /** Outer Pad Mm */
+            outer_pad_mm?: number | string | null;
+            /** Recorded At */
+            recorded_at?: string | null;
+            /** Rotor Mm */
+            rotor_mm?: number | string | null;
+            /** Shoe Mm */
+            shoe_mm?: number | string | null;
+        };
+        /**
+         * BrakeOverviewResponse
+         * @description A vehicle's brakes: both axles and the four corners, FL, FR, RL, RR.
+         */
+        BrakeOverviewResponse: {
+            /** Axles */
+            axles: components["schemas"]["BrakeAxleResponse"][];
+            /** Corners */
+            corners: components["schemas"]["BrakeCornerResponse"][];
+            /**
+             * Tracks Distance
+             * @default true
+             */
+            tracks_distance: boolean;
+            /**
+             * Tracks Hours
+             * @default false
+             */
+            tracks_hours: boolean;
+            /**
+             * Usage Axis
+             * @default distance
+             * @enum {string}
+             */
+            usage_axis: "distance" | "hours";
         };
         /**
          * CalendarEvent
@@ -13496,6 +14001,8 @@ export interface components {
          *     is ahead of the server's).
          */
         MountPeriodCreate: {
+            /** Dismounted Hours */
+            dismounted_hours?: number | string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km?: number | string | null;
             /**
@@ -13503,6 +14010,8 @@ export interface components {
              * Format: date
              */
             dismounted_on: string;
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /**
@@ -13523,6 +14032,8 @@ export interface components {
          * @description One interval a tire spent mounted at one position.
          */
         MountPeriodResponse: {
+            /** Dismounted Hours */
+            dismounted_hours?: string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km: string | null;
             /** Dismounted On */
@@ -13531,6 +14042,8 @@ export interface components {
             id: number;
             /** Is Assumed */
             is_assumed: boolean;
+            /** Mounted Hours */
+            mounted_hours?: string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km: string | null;
             /** Mounted On */
@@ -13552,10 +14065,14 @@ export interface components {
          *     and forbid-extra makes sending it a 422 rather than a silent ignore.
          */
         MountPeriodUpdate: {
+            /** Dismounted Hours */
+            dismounted_hours?: number | string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km?: number | string | null;
             /** Dismounted On */
             dismounted_on?: string | null;
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /** Mounted On */
@@ -13586,6 +14103,23 @@ export interface components {
             label: string;
             /** Value */
             value: string;
+        };
+        /**
+         * NearestHoursResponse
+         * @description The hours reading closest to a requested day, for the tire dialogs' suggestion.
+         */
+        NearestHoursResponse: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Days Away */
+            days_away: number;
+            /** Engine Hours */
+            engine_hours: string;
+            /** Source */
+            source: string;
         };
         /**
          * NearestOdometerResponse
@@ -15294,12 +15828,20 @@ export interface components {
             rule_id?: number | null;
             /** Snoozed Until */
             snoozed_until?: string | null;
+            /** Source */
+            source?: string | null;
             /** Status */
             status: string;
             /** Superseded By Id */
             superseded_by_id?: number | null;
+            /** Tire Id */
+            tire_id?: number | null;
             /** Title */
             title: string;
+            /** Tread Depth Mm */
+            tread_depth_mm?: string | null;
+            /** Tread Threshold Mm */
+            tread_threshold_mm?: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -17172,9 +17714,20 @@ export interface components {
              * @default false
              */
             has_odometer_record: boolean;
+            /**
+             * Has Usage Record
+             * @default false
+             */
+            has_usage_record: boolean;
             readiness?: components["schemas"]["TireReadiness"];
             /** Tires */
             tires?: components["schemas"]["TireResponse"][];
+            /**
+             * Usage Axis
+             * @default distance
+             * @enum {string}
+             */
+            usage_axis: "distance" | "hours";
         };
         /**
          * TireCreate
@@ -17229,6 +17782,8 @@ export interface components {
             min_tread_mm: number | string | null;
             /** Model Name */
             model_name?: string | null;
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /** Mounted On */
@@ -17256,6 +17811,8 @@ export interface components {
          * @description Take a tire off the vehicle.
          */
         TireDismountRequest: {
+            /** Dismounted Hours */
+            dismounted_hours?: number | string | null;
             /** Dismounted Odometer Km */
             dismounted_odometer_km?: number | string | null;
             /** Dismounted On */
@@ -17274,12 +17831,30 @@ export interface components {
             tires: components["schemas"]["TireResponse"][];
             /** Total */
             total: number;
+            /**
+             * Tracks Distance
+             * @default true
+             */
+            tracks_distance: boolean;
+            /**
+             * Tracks Hours
+             * @default false
+             */
+            tracks_hours: boolean;
+            /**
+             * Usage Axis
+             * @default distance
+             * @enum {string}
+             */
+            usage_axis: "distance" | "hours";
         };
         /**
          * TireMountRequest
          * @description Mount a tire at a position.
          */
         TireMountRequest: {
+            /** Mounted Hours */
+            mounted_hours?: number | string | null;
             /** Mounted Odometer Km */
             mounted_odometer_km?: number | string | null;
             /** Mounted On */
@@ -17359,8 +17934,13 @@ export interface components {
          *     no tread gauge, and a required tread beside an optional odometer meant they
          *     could not record a pressure at all. What is required is that a reading carry
          *     at least one measurement (see ``_at_least_one_measurement``).
+         *
+         *     Forbids extras like every other tire write schema, so a misspelt field is
+         *     a 422 and not a silent drop.
          */
         TireReadingCreate: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
             /** Notes */
             notes?: string | null;
             /** Odometer Km */
@@ -17385,6 +17965,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Engine Hours */
+            engine_hours?: string | null;
             /** Id */
             id: number;
             /** Mount Period Id */
@@ -17408,6 +17990,28 @@ export interface components {
             tread_depth_mm: string | null;
             /** Vin */
             vin: string;
+        };
+        /**
+         * TireReadingUpdate
+         * @description Correct one reading's date, measurements, odometer, hour meter or notes (#225).
+         *
+         *     `exclude_unset`, like `MountPeriodUpdate`: an absent key is untouched, null
+         *     clears it. The date can't be cleared, and the result must still measure
+         *     tread or pressure, which `TireService.update_reading` judges on the merged values.
+         */
+        TireReadingUpdate: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Odometer Km */
+            odometer_km?: number | string | null;
+            /** Pressure Kpa */
+            pressure_kpa?: number | string | null;
+            /** Recorded At */
+            recorded_at?: string | null;
+            /** Tread Depth Mm */
+            tread_depth_mm?: number | string | null;
         };
         /**
          * TireResponse
@@ -17455,6 +18059,10 @@ export interface components {
             known_distance_km?: string | null;
             /** Known Distance Since */
             known_distance_since?: string | null;
+            /** Known Usage */
+            known_usage?: string | null;
+            /** Known Usage Since */
+            known_usage_since?: string | null;
             /**
              * Min Tread Mm
              * @description Wear-out threshold in mm; drives reminder hooks
@@ -17473,6 +18081,8 @@ export interface components {
             pressure_kpa?: string | null;
             /** Projected Km Remaining */
             projected_km_remaining?: string | null;
+            /** Projected Usage Remaining */
+            projected_usage_remaining?: string | null;
             /** Projected Wear Date */
             projected_wear_date?: string | null;
             /** Readings */
@@ -17489,6 +18099,14 @@ export interface components {
             tread_depth_mm?: string | null;
             /** Updated At */
             updated_at?: string | null;
+            /**
+             * Usage Axis
+             * @default distance
+             * @enum {string}
+             */
+            usage_axis: "distance" | "hours";
+            /** Usage On Tire */
+            usage_on_tire?: string | null;
             /** Vin */
             vin: string;
             /** Wear Status */
@@ -17516,6 +18134,8 @@ export interface components {
          *     for something done four tires at a time is worse than a refusal.
          */
         TireRotationRequest: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
             /** Moves */
             moves: components["schemas"]["TireRotationMove"][];
             /** Notes */
@@ -17559,6 +18179,8 @@ export interface components {
          *     the dash once.
          */
         TireSetMountRequest: {
+            /** Engine Hours */
+            engine_hours?: number | string | null;
             /** Mounted On */
             mounted_on?: string | null;
             /** Notes */
@@ -28565,6 +29187,275 @@ export interface operations {
             };
         };
     };
+    get_brakes_api_vehicles__vin__brakes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrakeOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_brake_axle_api_vehicles__vin__brakes_axles__axle__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                axle: "front" | "rear";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrakeAxleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrakeOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_brake_job_api_vehicles__vin__brakes_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrakeJobCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrakeOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_brake_job_api_vehicles__vin__brakes_jobs__job_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrakeJobUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrakeOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_brake_job_api_vehicles__vin__brakes_jobs__job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    log_brake_measurements_api_vehicles__vin__brakes_measurements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrakeMeasurementBatchCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrakeOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_brake_measurement_api_vehicles__vin__brakes_measurements__measurement_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                measurement_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrakeMeasurementUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrakeOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_brake_measurement_api_vehicles__vin__brakes_measurements__measurement_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                measurement_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_def_records_api_vehicles__vin__def_get: {
         parameters: {
             query?: {
@@ -29415,6 +30306,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HoursRecordResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    nearest_hours_reading_api_vehicles__vin__hours_nearest_get: {
+        parameters: {
+            query: {
+                date: string;
+            };
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NearestHoursResponse"];
                 };
             };
             /** @description Validation Error */
@@ -33728,6 +34652,43 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TireResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_tire_reading_api_vehicles__vin__tires__tire_id__readings__reading_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                tire_id: number;
+                reading_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TireReadingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

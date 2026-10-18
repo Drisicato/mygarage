@@ -295,3 +295,16 @@ describe('the window sticker upload', () => {
     expect(screen.queryByText('WindowStickerUpload')).not.toBeInTheDocument()
   })
 })
+
+describe('a vehicle save refreshes the tire and brake lists (#217, #202)', () => {
+  it.each(['tires', 'brakes'])(
+    'so switching distance or hours tracking reaches the %s dialogs and figures',
+    async (key) => {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const invalidate = vi.spyOn(client, 'invalidateQueries')
+      renderPage(client)
+      fireEvent.click(await screen.findByText('save-edit'))
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: [key, VIN] }))
+    }
+  )
+})

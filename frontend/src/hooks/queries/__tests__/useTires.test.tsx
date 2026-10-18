@@ -20,6 +20,7 @@ import {
   useMountTire,
   useTires,
   useUpdateMountPeriod,
+  useUpdateTireReading,
 } from '../useTires'
 
 const VIN = '1HGCM82633A004352'
@@ -151,6 +152,41 @@ describe('deleting a reading', () => {
   })
 })
 
+describe('editing a reading', () => {
+  beforeEach(() => {
+    vi.mocked(api.put).mockResolvedValue({ data: {} })
+  })
+
+  it('puts the body without the ids and refreshes every view a reading moves, the list once', async () => {
+    const { queryClient, wrapper } = harness()
+    const keys = {
+      tires: ['tires', VIN, false],
+      reminders: ['reminders', VIN],
+      sets: ['tire-sets', VIN],
+      odometer: LIST_KEY,
+      hours: ['hoursRecords', VIN],
+    }
+    for (const key of Object.values(keys)) queryClient.setQueryData(key, {})
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { result } = renderHook(() => useUpdateTireReading(VIN), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync({ tireId: 4, readingId: 17, tread_depth_mm: 7.9375, engine_hours: 155 })
+    })
+
+    expect(vi.mocked(api.put)).toHaveBeenCalledWith('/vehicles/' + VIN + '/tires/4/readings/17', {
+      tread_depth_mm: 7.9375,
+      engine_hours: 155,
+    })
+    for (const key of Object.values(keys)) expect(invalidated(queryClient, key)).toBe(true)
+    expect(invalidated(queryClient, NEAREST_KEY)).toBe(true)
+    const listCalls = invalidate.mock.calls.filter(
+      ([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(['tires', VIN])
+    )
+    expect(listCalls).toHaveLength(1)
+  })
+})
+
 describe('useTires across the Show retired toggle', () => {
   const listed = (ids: number[]) => ({ tires: ids.map((id) => ({ id })), total: ids.length })
 
@@ -194,5 +230,22 @@ describe('useTires across the Show retired toggle', () => {
     rerender({ vin: '2T1BURHE0JC000001', includeRetired: false })
     expect(result.current.data).toBeUndefined()
     expect(result.current.isLoading).toBe(true)
+  })
+})
+
+describe('a tire write refreshes the tire list once (#217)', () => {
+  it('names the list once, since invalidateReadingViews already covers it', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const { queryClient, wrapper } = harness()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const { result } = renderHook(() => useMountTire(VIN), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync({ tireId: 1, position: 'FL' })
+    })
+    // Two invalidations in one tick fetch the list twice.
+    const listCalls = invalidate.mock.calls.filter(
+      ([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(['tires', VIN])
+    )
+    expect(listCalls).toHaveLength(1)
   })
 })
