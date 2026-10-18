@@ -1137,6 +1137,7 @@
       "cost": "Cost",
       "labor": "Labor / shop",
       "noSupplies": "No supplies recorded for this service.",
+      "openSupply": "Open {{name}} in Supplies",
       "parts": "Parts & supplies",
       "supplies": "Supplies used",
       "viewDetails": "View details for {{name}}"

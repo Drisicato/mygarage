@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
-import { Calendar, Gauge, Store } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Calendar, ExternalLink, Gauge, Store } from 'lucide-react'
 import type { ServiceVisit, ServiceLineItem } from '../types/serviceVisit'
 import FormModalWrapper from './FormModalWrapper'
 import { Button, Chip, Mono } from './ui'
@@ -96,17 +97,23 @@ export default function ServiceLineItemDetail({ visit, item, onClose }: ServiceL
           ) : (
             <ul className="space-y-1">
               {usages.map((usage) => (
-                <li
-                  key={usage.id}
-                  className="flex items-center justify-between gap-3 rounded-md bg-surface-2/50 px-3 py-2 text-sm"
-                >
-                  <span className="min-w-0 truncate text-text">{usage.supply_name}</span>
-                  <span className="flex flex-shrink-0 items-center gap-3 text-text-mute">
-                    <Mono size="sm">
-                      {formatSupplyQuantity(Number(usage.quantity), supplyDisplayUnit(usage, system), locale)}
-                    </Mono>
-                    <Mono size="sm">{usage.cost_snapshot != null ? fmt(Number(usage.cost_snapshot)) : '-'}</Mono>
-                  </span>
+                <li key={usage.id}>
+                  <Link
+                    to={`/supplies?supply=${usage.supply_id}`}
+                    aria-label={t('serviceList.detail.openSupply', { name: usage.supply_name })}
+                    className="group flex items-center justify-between gap-3 rounded-md bg-surface-2/50 px-3 py-2 text-sm transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 text-text group-hover:text-primary">
+                      <span className="truncate">{usage.supply_name}</span>
+                      <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+                    </span>
+                    <span className="flex flex-shrink-0 items-center gap-3 text-text-mute">
+                      <Mono size="sm">
+                        {formatSupplyQuantity(Number(usage.quantity), supplyDisplayUnit(usage, system), locale)}
+                      </Mono>
+                      <Mono size="sm">{usage.cost_snapshot != null ? fmt(Number(usage.cost_snapshot)) : '-'}</Mono>
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>
