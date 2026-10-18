@@ -350,13 +350,18 @@ class TestSettingsAdminRoutes:
     test environments.
     """
 
-    async def test_create_setting_requires_admin(self, client: AsyncClient, auth_headers):
+    async def test_create_setting_requires_admin(
+        self, client: AsyncClient, auth_headers, db_session, keep_rows
+    ):
         """Test that creating settings requires admin role."""
+        # A key the generic API writes, absent first: create 400s on an existing row.
+        await keep_rows("ntfy_server")
+        await _delete_setting(db_session, "ntfy_server")
         response = await client.post(
             "/api/settings",
             headers=auth_headers,
             json={
-                "key": "test_new_setting",
+                "key": "ntfy_server",
                 "value": "test_value",
                 "description": "Test setting",
             },
@@ -364,12 +369,15 @@ class TestSettingsAdminRoutes:
         # Regular users get 403, admin gets 201
         assert response.status_code in [201, 403]
 
-    async def test_update_setting_requires_admin(self, client: AsyncClient, auth_headers):
+    async def test_update_setting_requires_admin(
+        self, client: AsyncClient, auth_headers, keep_rows
+    ):
         """Test that updating settings requires admin role."""
+        await keep_rows("ntfy_server")
         response = await client.put(
-            "/api/settings/app_name",
+            "/api/settings/ntfy_server",
             headers=auth_headers,
-            json={"value": "New App Name"},
+            json={"value": "https://ntfy.example"},
         )
         # Regular users get 403, admin gets 200 or 404
         assert response.status_code in [200, 403, 404]
@@ -392,12 +400,13 @@ class TestSettingsAdminRoutes:
         # Regular users get 403, admin gets 200
         assert response.status_code in [200, 403]
 
-    async def test_batch_update_requires_admin(self, client: AsyncClient, auth_headers):
+    async def test_batch_update_requires_admin(self, client: AsyncClient, auth_headers, keep_rows):
         """Test that batch update requires admin role."""
+        await keep_rows("ntfy_server")
         response = await client.post(
             "/api/settings/batch",
             headers=auth_headers,
-            json={"settings": {"theme": "dark"}},
+            json={"settings": {"ntfy_server": "https://ntfy.example"}},
         )
         # Regular users get 403, admin gets 200
         assert response.status_code in [200, 403]
@@ -1094,7 +1103,12 @@ class TestPOIProviderListIsAdminOnly:
 @pytest.mark.asyncio
 class TestSettingsBatchKeyWidth:
     """`Setting.key` is String(50): a longer key was stored on SQLite and a 500
-    on PostgreSQL."""
+    on PostgreSQL.
+
+    The write allowlist now refuses any key it does not name, so this 422 holds
+    for two reasons; `test_setting_rules.py::test_every_writable_key_fits_the_key_column`
+    is what keeps every writable key within the column.
+    """
 
     async def test_a_settings_key_longer_than_50_characters_is_a_422_and_stores_nothing(
         self, client: AsyncClient, auth_headers, db_session
@@ -1111,16 +1125,174 @@ class TestSettingsBatchKeyWidth:
             await db_session.execute(delete(Setting).where(Setting.key == key))
             await db_session.commit()
 
-    async def test_a_50_character_key_saves(self, client: AsyncClient, auth_headers, db_session):
-        """Guard, passes before the constraint too. Mutant: max_length=49."""
-        key = f"e8-{uuid.uuid4().hex}".ljust(50, "x")
-        try:
-            response = await client.post(
-                "/api/settings/batch", headers=auth_headers, json={"settings": {key: "v"}}
-            )
-            assert response.status_code == 200, response.text
-            assert await _stored_or_none(db_session, key) == "v"
-        finally:
-            await db_session.rollback()
-            await db_session.execute(delete(Setting).where(Setting.key == key))
-            await db_session.commit()
+
+# ---------------------------------------------------------------------------
+# The generic write allowlist and value rules (PR 0: G3b-20, O-T1)
+# ---------------------------------------------------------------------------
+
+
+# System-maintained, owned by a typed API, or the computed time zone's raw store.
+_EXCLUDED_KEYS = (
+    "app_version",
+    "nhtsa_last_check",
+    "telegram_update_offset",
+    "livelink_telemetry_retention_days",
+    "livelink_global_token_hash",
+    "livelink_mqtt_broker_port",
+)
+
+# What a reader cannot use: a bare int() or float(), a lockout, a 500.
+_BAD_VALUES = (
+    ("notify_insurance_days", "abc"),
+    ("notify_insurance_days", "1.5"),
+    ("notify_warranty_days", "abc"),
+    ("notification_retry_delay", "abc"),
+    ("notification_retry_delay", "inf"),
+    ("oidc_link_token_expire_minutes", ""),
+    ("oidc_link_max_password_attempts", "0"),
+)
+
+_SEED = "seeded-before-the-write"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestGenericWriteAllowlist:
+    """`POST /settings`, `PUT /settings/{key}` and `POST /settings/batch` took
+    any key up to 50 characters (G3b-20). A telemetry retention of 0 written
+    that way made the daily pruner delete every raw reading (O-T1)."""
+
+    async def test_an_unknown_key_cannot_be_created(
+        self, client, auth_headers, db_session, keep_rows
+    ):
+        key = f"made_up_{uuid.uuid4().hex[:12]}"
+        await keep_rows(key)
+        response = await client.post(
+            "/api/settings", headers=auth_headers, json={"key": key, "value": "v"}
+        )
+        assert response.status_code == 422, response.text
+        assert not await _has_row(db_session, key)
+
+    async def test_an_unknown_key_cannot_be_updated(
+        self, client, auth_headers, db_session, keep_rows
+    ):
+        """Even when a row exists (an old instance's leftover, a hand edit)."""
+        key = f"made_up_{uuid.uuid4().hex[:12]}"
+        await keep_rows(key)
+        await _set_setting(db_session, key, _SEED)
+        response = await client.put(
+            f"/api/settings/{key}", headers=auth_headers, json={"value": "v"}
+        )
+        assert response.status_code == 422, response.text
+        assert await _stored_value(db_session, key) == _SEED
+
+    async def test_an_unknown_key_cannot_be_batched(
+        self, client, auth_headers, db_session, keep_rows
+    ):
+        key = f"made_up_{uuid.uuid4().hex[:12]}"
+        await keep_rows(key)
+        response = await client.post(
+            "/api/settings/batch", headers=auth_headers, json={"settings": {key: "v"}}
+        )
+        assert response.status_code == 422, response.text
+        assert not await _has_row(db_session, key)
+
+    @pytest.mark.parametrize("endpoint", WRITE_ENDPOINTS)
+    @pytest.mark.parametrize("key", _EXCLUDED_KEYS)
+    async def test_an_excluded_key_is_refused_on_every_write_path(
+        self, client, auth_headers, db_session, keep_rows, endpoint, key
+    ):
+        await keep_rows(key)
+        response = await _write_through(
+            client, endpoint, auth_headers, db_session, "0", key=key, seed=_SEED
+        )
+        assert response.status_code == 422, response.text
+        expected = None if endpoint == "create_setting" else _SEED
+        assert await _stored_or_none(db_session, key) == expected
+
+    async def test_a_zero_retention_cannot_be_batched(
+        self, client, auth_headers, db_session, keep_rows
+    ):
+        """O-T1 as it happened: 0 days, through the batch the settings screens use."""
+        key = "livelink_telemetry_retention_days"
+        await keep_rows(key)
+        await _set_setting(db_session, key, "90")
+        response = await client.post(
+            "/api/settings/batch", headers=auth_headers, json={"settings": {key: "0"}}
+        )
+        assert response.status_code == 422, response.text
+        assert await _stored_value(db_session, key) == "90"
+
+    @pytest.mark.parametrize("endpoint", WRITE_ENDPOINTS)
+    @pytest.mark.parametrize(("key", "raw"), _BAD_VALUES)
+    async def test_a_value_its_reader_cannot_use_is_refused(
+        self, client, auth_headers, db_session, keep_rows, endpoint, key, raw
+    ):
+        await keep_rows(key)
+        response = await _write_through(
+            client, endpoint, auth_headers, db_session, raw, key=key, seed=_SEED
+        )
+        assert response.status_code == 422, response.text
+        assert key in response.text
+        expected = None if endpoint == "create_setting" else _SEED
+        assert await _stored_or_none(db_session, key) == expected
+
+    @pytest.mark.parametrize("endpoint", ["update_setting", "batch_update_settings"])
+    async def test_an_unknown_auth_mode_is_refused(
+        self, client, auth_headers, db_session, keep_rows, endpoint
+    ):
+        """Seeded paths only: the create path would delete the live auth_mode row first."""
+        await keep_rows("auth_mode")
+        current = await _stored_or_none(db_session, "auth_mode")
+        response = await _write_through(
+            client,
+            endpoint,
+            auth_headers,
+            db_session,
+            "locall",
+            key="auth_mode",
+            seed=current or "none",
+        )
+        assert response.status_code == 422, response.text
+        assert await _stored_value(db_session, "auth_mode") == (current or "none")
+
+    @pytest.mark.parametrize(
+        "rejected",
+        [{"app_version": "9.9.9"}, {"notify_insurance_days": "abc"}],
+        ids=["excluded-key", "bad-value"],
+    )
+    async def test_a_refused_entry_fails_the_whole_batch(
+        self, client, auth_headers, db_session, keep_rows, rejected
+    ):
+        """The allowed key comes first, so a partial apply would already have written it."""
+        keys = ("ntfy_topic", *rejected)
+        await keep_rows(*keys)
+        for key in keys:
+            await _set_setting(db_session, key, _SEED)
+        response = await client.post(
+            "/api/settings/batch",
+            headers=auth_headers,
+            json={"settings": {"ntfy_topic": "changed", **rejected}},
+        )
+        assert response.status_code == 422, response.text
+        for key in keys:
+            assert await _stored_value(db_session, key) == _SEED
+
+    async def test_a_blank_number_and_an_unchecked_oddity_still_save(
+        self, client, auth_headers, db_session, keep_rows
+    ):
+        """Control, passes on main too. The Notifications tab re-sends every stored
+        value on each save, so a rule on a lenient key would lock the whole tab."""
+        payload = {
+            "notify_insurance_days": "",
+            "notification_retry_delay": "",
+            "notify_service_miles": "-1",
+            "email_smtp_port": "",
+        }
+        await keep_rows(*payload)
+        response = await client.post(
+            "/api/settings/batch", headers=auth_headers, json={"settings": payload}
+        )
+        assert response.status_code == 200, response.text
+        for key, value in payload.items():
+            assert await _stored_value(db_session, key) == value

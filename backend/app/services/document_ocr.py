@@ -7,6 +7,7 @@ and routes to the appropriate parser based on document type.
 import asyncio
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -398,11 +399,14 @@ class DocumentOCRService:
             pass  # PyMuPDF is optional - status remains False if not installed
 
         try:
-            import pytesseract  # noqa: F401  # type: ignore[reportUnusedImport]
+            import pytesseract
 
+            # The wrapper imports fine without the engine, so ask the binary.
+            # cached=True reuses a good answer; a failed probe is not cached.
+            pytesseract.get_tesseract_version(cached=True)
             status["tesseract_available"] = True
-        except ImportError:
-            pass  # Tesseract is optional - status remains False if not installed
+        except ImportError, OSError, subprocess.CalledProcessError:
+            pass  # No pytesseract, or no working tesseract binary on PATH
 
         if PADDLEOCR_ENABLED:
             try:

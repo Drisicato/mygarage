@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-10-18
+
+### Upgrade note
+
+Back up before you upgrade from 3.8.0. Migrations 125 to 131 run on the first start, and two of them, 126 (tire hours) and 129 (reminder start readings), are FATAL: if either fails, MyGarage refuses to start.
+
+Make a full backup from Settings > Backup > Create Full Backup, or as an admin call `POST /api/backup/create-full`. Don't copy the database file while MyGarage is running: a live SQLite database in WAL mode can copy incomplete.
+
+This release also carries the security fixes listed under Security below, so upgrade even if you don't use tires, brakes or reminders.
+
+Migration 125 corrects the built-in DTC descriptions and 130 moves stored Torque Pro readings to their real names. Neither needs anything from you.
+
 ### Added
 - A Brakes tab beside Tires tracks pads, shoes, rotors and drums per corner, brake jobs, and a wear estimate for each corner (#202)
 - Each axle gets a brake pads low reminder when a corner is due soon or worn out, closed by a brake job or a healthy measurement
@@ -29,11 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manufacturer-specific codes (P1xxx, B1xxx and so on) no longer show one maker's meaning; the DTC card says the code is manufacturer-specific
 - The tire API refuses (422) an odometer on a vehicle that doesn't track distance, and engine hours on one that doesn't track hours
 - Low-tread reminders show the tread and the minimum in your units, in the reminder list and in the notification, instead of a note in millimetres
+- The settings API refuses (422) a key that isn't a known setting, including the ones the app keeps itself and the `livelink_*` keys, which have their own routes. It also checks the values a reader would crash on, such as the telemetry retention (30 to 365 days)
 
 ### Removed
 - Sign-in for accounts still on a pre-Argon2 (bcrypt) password hash. bcrypt hasn't shipped since at least v2.14.0, so such accounts couldn't sign in anyway. An admin resets the password, and the log names the account
 
 ### Fixed
+- A LiveLink telemetry retention of 0 or less, saved through the settings API or a settings restore, made the nightly prune delete every stored reading. Both refuse it now, and below 30 days the prune deletes nothing and logs a warning
+- A settings restore stores a hand-edited number or true/false instead of failing on PostgreSQL, and skips a value the settings API would refuse, with a warning
+- Alert lines on percent readings that can pass 100, such as volumetric efficiency and fuel trims, are no longer refused; the 0 to 100 limit stays on propane, battery and other fill-like readings
+- Completing a reminder whose stored maintenance type isn't a known one (a hand edit or an old restore) no longer errors; the type comes from the title
+- A LiveLink reading name longer than 100 characters no longer fails ingest on PostgreSQL
+- Photos and scanned PDFs can be read: the image now ships the Tesseract OCR engine (English), which it never had, so a scanned insurance declarations page, a window sticker photo and a fuel receipt photo no longer come back blank. Before this only PDFs with a text layer could be read
+- The OCR status endpoints report Tesseract as available only when the engine itself is installed, not just its Python wrapper
 - Torque Pro's one-digit PIDs (`kc`, `kd`, `k5` and the rest) are stored as Engine RPM, Speed, Coolant and so on instead of `KC`, `KD`, `K5`, and what's already stored moves over, with older trips' speed, RPM and coolant filled in (#223)
 - Toasts no longer cover a drawer's buttons on tablets and desktops (bottom-left, top-left while a drawer is open), and sit above the tab bar on phones
 - Small supply amounts (a few mL in L, qt or gal) no longer show as 0.00, and supply amounts follow the selected language
