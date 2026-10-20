@@ -1603,6 +1603,11 @@
       },
       "Body_import_def_csv_api_import_vehicles__vin__def_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1626,6 +1631,11 @@
             "default": "dot",
             "title": "Decimal Separator",
             "type": "string"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
           },
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -1655,6 +1665,11 @@
             "default": "dot",
             "title": "Decimal Separator",
             "type": "string"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
           },
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -1691,6 +1706,11 @@
       },
       "Body_import_fuel_csv_api_import_vehicles__vin__fuel_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1714,6 +1734,11 @@
             "default": "dot",
             "title": "Decimal Separator",
             "type": "string"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
           },
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -1739,6 +1764,11 @@
       },
       "Body_import_hours_csv_api_import_vehicles__vin__hours_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1758,6 +1788,11 @@
       },
       "Body_import_insurance_csv_api_import_vehicles__vin__insurance_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1828,6 +1863,17 @@
             "default": true,
             "title": "Skip Duplicates",
             "type": "boolean"
+          },
+          "supply_units": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supply Units"
           }
         },
         "required": [
@@ -1838,6 +1884,11 @@
       },
       "Body_import_notes_csv_api_import_vehicles__vin__notes_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1857,6 +1908,11 @@
       },
       "Body_import_odometer_csv_api_import_vehicles__vin__odometer_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1876,6 +1932,11 @@
       },
       "Body_import_service_csv_api_import_vehicles__vin__service_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1893,8 +1954,37 @@
         "title": "Body_import_service_csv_api_import_vehicles__vin__service_csv_post",
         "type": "object"
       },
+      "Body_import_supplies_csv_api_import_vehicles__vin__supplies_csv_post": {
+        "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "skip_duplicates": {
+            "default": true,
+            "title": "Skip Duplicates",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_supplies_csv_api_import_vehicles__vin__supplies_csv_post",
+        "type": "object"
+      },
       "Body_import_tax_csv_api_import_vehicles__vin__tax_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1918,6 +2008,11 @@
             "default": "dot",
             "title": "Decimal Separator",
             "type": "string"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
           },
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -1943,6 +2038,11 @@
       },
       "Body_import_vehicle_json_api_import_vehicles__vin__json_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1962,6 +2062,11 @@
       },
       "Body_import_warranties_csv_api_import_vehicles__vin__warranties_csv_post": {
         "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -38577,6 +38682,52 @@
         ]
       }
     },
+    "/api/export/vehicles/{vin}/supplies/csv": {
+      "get": {
+        "description": "Export the supplies this vehicle can use (its own and the shared ones) as CSV.\n\nOne row per active supply. Each row names its own ``Unit`` (``count`` or a\nsupply volume unit such as ``qt_us``) and gives ``On Hand`` in it, so the\nfile reads the same whatever the account's unit preference. ``Total Cost``\nis what the stock on hand cost at the supply's average price. ``Shared``\nis ``yes`` for a supply every vehicle can use.",
+        "operationId": "export_supplies_csv_api_export_vehicles__vin__supplies_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Supplies Csv",
+        "tags": [
+          "export"
+        ]
+      }
+    },
     "/api/export/vehicles/{vin}/tax/csv": {
       "get": {
         "description": "Export tax records as CSV",
@@ -39999,7 +40150,7 @@
     },
     "/api/import/vehicles/{vin}/lubelogger": {
       "post": {
-        "description": "Import LubeLogger CSV exports: Fuel, and Service / Repair / Upgrade.\n\nOne or more files (LubeLogger exports one per record type). ``record_type``,\none per file in the same order, says which of service, repair or upgrade a\nservice-like file is (they share one header); ``auto`` or leaving it out\nreads fuel as fuel and the rest as service. The export carries no units and\nfollows its server's locale, so the four options declare how to read it.\n\n``dry_run`` reads every file and reports what it found, writing nothing.\nOtherwise every file is read first (a file that isn't a supported export\nfails the request before anything is written), then the vehicle is locked,\nits JSON export is saved as a backup, and only then are the rows written,\nall files in one transaction. If the backup can't be saved nothing is\nimported.",
+        "description": "Import LubeLogger CSV exports: Fuel, Service / Repair / Upgrade, and Supplies.\n\nOne or more files (LubeLogger exports one per record type). ``record_type``,\none per file in the same order, says which of service, repair or upgrade a\nservice-like file is (they share one header); ``auto`` or leaving it out\nreads fuel as fuel, supplies as supplies and the rest as service. The\nexport carries no units and follows its server's locale, so the four\noptions declare how to read it. A supply's quantity has no unit either:\n``supply_units`` is a JSON object of each supply's ``key`` (from the\npreview's ``supplies``) to ``count`` or a supply volume unit; a supply\nleft out imports as a count, or in the unit of the supply it joins.\n\nEvery file is read first (a file that isn't a supported export fails the\nrequest before anything is written). Then, like every import, the vehicle\nis locked and, unless ``dry_run``, backed up; the rows are written, all\nfiles in one transaction, and committed, or for ``dry_run`` rolled back,\nso a preview reports what the import would.",
         "operationId": "import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post",
         "parameters": [
           {
@@ -40216,6 +40367,62 @@
           }
         ],
         "summary": "Import Service Csv",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/api/import/vehicles/{vin}/supplies/csv": {
+      "post": {
+        "description": "Import supplies from the supplies CSV export.\n\nEach row is one supply (``SUPPLY_CSV_HEADERS`` in the export). A supply\nthis vehicle can already use, by part number or else by name, is a\nduplicate and skipped. A new one is created shared (``Shared`` = yes) or\nlinked to this vehicle, with its ``On Hand`` (in the row's ``Unit``) as\nopening stock bought today for ``Total Cost``.",
+        "operationId": "import_supplies_csv_api_import_vehicles__vin__supplies_csv_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_supplies_csv_api_import_vehicles__vin__supplies_csv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Supplies Csv",
         "tags": [
           "import"
         ]

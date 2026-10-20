@@ -1,4 +1,4 @@
-"""LubeLogger CSV exports: Fuel, and Service / Repair / Upgrade records.
+"""LubeLogger CSV exports: Fuel, Service / Repair / Upgrade records, and Supplies.
 
 LubeLogger (github.com/hargata/lubelog) exports one CSV per record type per
 vehicle, under a random file name, so the type is read from the headers:
@@ -6,6 +6,8 @@ vehicle, under a random file name, so the type is read from the headers:
     Fuel:                      Date,Odometer,FuelConsumed,Cost,FuelEconomy,IsFillToFull,
                                MissedFuelUp,[StartingSoc,EndingSoc,]Notes,Tags
     Service, Repair, Upgrade:  Date,Description,Cost,Notes,Odometer,Tags
+    Supplies:                  Date,PartNumber,PartSupplier,PartQuantity,Description,
+                               Cost,Notes,Tags
 
 plus one ``extrafield_<Name>`` column per custom field. Older versions (1.2)
 wrote the same columns in another order, so columns are matched by name,
@@ -18,6 +20,8 @@ Nothing in the file says what units or locale it was written in:
 - Distance is whatever the user typed, miles or km (an integer).
 - Fuel is US gallons, UK gallons or litres, by the user's LubeLogger settings.
   An electric vehicle's export (it has StartingSoc/EndingSoc) is in kWh.
+- A supply's quantity has no unit at all (5 filters, or 5 quarts of oil), so
+  the caller says per supply what it counts.
 - Dates and money follow the LubeLogger server's culture: ``10/6/2026`` and
   ``$1,234.56`` on en-US, ``06.10.2026`` and ``1.234,56 €`` on de-DE.
 
@@ -43,7 +47,7 @@ from typing import Any, Literal
 
 from app.utils.units import UnitConverter
 
-RecordKind = Literal["fuel", "service", "repair", "upgrade"]
+RecordKind = Literal["fuel", "service", "repair", "upgrade", "supply"]
 #: The MyGarage service category each service-like kind becomes.
 SERVICE_CATEGORY: dict[str, str] = {
     "service": "Maintenance",
@@ -76,12 +80,14 @@ _MISSED = ("missed_fuelup", "missedfuelup", "missed fill up", "missed_fill")
 _DESCRIPTION = ("description",)
 _TAGS = ("tags",)
 _SOC = ("startingsoc", "endingsoc")
+_PART_NUMBER = ("partnumber",)
+_SUPPLIER = ("partsupplier",)
+_PART_QUANTITY = ("partquantity",)
 _EXTRA_PREFIX = "extrafield_"
 
 #: Headers that mark a LubeLogger export this importer doesn't take, and what it is.
 _UNSUPPORTED: tuple[tuple[str, str], ...] = (
     ("initialodometer", "Odometer"),
-    ("partnumber", "Supplies"),
     ("datecreated", "Plan"),
     ("isequipped", "Equipment"),
 )
@@ -122,7 +128,8 @@ class ParsedFile:
     rows: list[dict[str, Any]] = field(default_factory=list)
     #: (CSV row number, reason). The header is row 1.
     errors: list[tuple[int, str]] = field(default_factory=list)
-    #: Rows LubeLogger itself would skip (a fill-up with no fuel), counted, not errors.
+    #: Rows with nothing to import (a fill-up with no fuel, a used-up supply),
+    #: counted, not errors.
     ignored: int = 0
     electric: bool = False
 
@@ -183,26 +190,30 @@ def _read(csv_data: str) -> tuple[set[str], list[tuple[int, dict[str, str]]]]:
     return set(keys), rows
 
 
-def detect_kind(headers: set[str]) -> Literal["fuel", "service"]:
-    """Fuel, or one of the three service-like types (which one is the caller's)."""
+_SUPPORTED_TEXT = "only Fuel, Service / Repair / Upgrade and Supplies exports can be imported"
+
+
+def detect_kind(headers: set[str]) -> Literal["fuel", "service", "supply"]:
+    """Fuel, Supplies, or one of the three service-like types (which one is the caller's)."""
     for marker, name in _UNSUPPORTED:
         if marker in headers:
             raise LubeLoggerFileError(
-                f"This looks like a LubeLogger {name} export; only Fuel and "
-                "Service / Repair / Upgrade exports can be imported"
+                f"This looks like a LubeLogger {name} export; {_SUPPORTED_TEXT}"
             )
     if not any(h in headers for h in _DATE):
         raise LubeLoggerFileError("No Date column: this isn't a LubeLogger export")
+    # Before fuel: a supply's quantity isn't fuel, whatever else the file holds.
+    if any(h in headers for h in _PART_QUANTITY + _PART_NUMBER):
+        return "supply"
     if any(h in headers for h in _FUEL):
         return "fuel"
     if "description" in headers and any(h in headers for h in _ODOMETER):
         return "service"
     if "description" in headers:
-        raise LubeLoggerFileError(
-            "This looks like a LubeLogger Tax export; only Fuel and "
-            "Service / Repair / Upgrade exports can be imported"
-        )
-    raise LubeLoggerFileError("The columns don't match a LubeLogger Fuel or Service export")
+        raise LubeLoggerFileError(f"This looks like a LubeLogger Tax export; {_SUPPORTED_TEXT}")
+    raise LubeLoggerFileError(
+        "The columns don't match a LubeLogger Fuel, Service or Supplies export"
+    )
 
 
 def _first(row: dict[str, str], names: tuple[str, ...]) -> str:
@@ -381,6 +392,42 @@ def _service_row(row: dict[str, str], opts: LubeLoggerOptions, kind: str) -> dic
     }
 
 
+def _supply_row(row: dict[str, str], opts: LubeLoggerOptions) -> dict[str, Any] | None:
+    """One supply purchase, or None for one with nothing left to import.
+
+    LubeLogger takes what a service uses off the supply record itself, so the
+    export's quantity and cost are what's still on hand, not what was bought.
+    A record used up to 0 has no stock to bring over.
+    """
+    sep = opts.decimal_separator
+    quantity = parse_number(_first(row, _PART_QUANTITY), sep)
+    if quantity is None or quantity == 0:
+        return None
+    if quantity < 0:
+        raise LubeLoggerRowError("the quantity can't be negative")
+    part_number = _first(row, _PART_NUMBER)[:60] or None
+    description = _first(row, _DESCRIPTION) or part_number or "Supply"
+    supplier = _first(row, _SUPPLIER)
+    notes = "\n".join(
+        p
+        for p in (
+            description if len(description) > 120 else "",
+            _notes(row),
+            f"Supplier: {supplier}" if supplier else "",
+        )
+        if p
+    )
+    return {
+        "date": parse_date(_first(row, _DATE), opts.date_order),
+        # A supply's name holds 120 characters; the whole text stays in the notes.
+        "name": description[:120],
+        "part_number": part_number,
+        "quantity": quantity,
+        "cost": parse_number(_first(row, _COST), sep),
+        "notes": notes or None,
+    }
+
+
 def _join_long_description(description: str, notes: str | None) -> str | None:
     if len(description) <= 200:
         return notes
@@ -395,24 +442,29 @@ def parse_lubelogger(
     """Read one LubeLogger export.
 
     ``kind`` is the caller's choice for a service-like file (service, repair or
-    upgrade); left out, such a file reads as service. Passing ``fuel`` for a
-    service file, or a service kind for a fuel file, is refused: the columns
-    say which it is.
+    upgrade); left out, such a file reads as service. Passing ``fuel`` or
+    ``supply`` for a file of another type, or a service kind for one of
+    those, is refused: the columns say which it is.
     """
     opts = opts or LubeLoggerOptions()
     headers, rows = _read(csv_data)
     detected = detect_kind(headers)
     if kind is None:
-        kind = "fuel" if detected == "fuel" else "service"
-    elif (kind == "fuel") != (detected == "fuel"):
-        found = "Fuel" if detected == "fuel" else "Service / Repair / Upgrade"
-        raise LubeLoggerFileError(f"This is a LubeLogger {found} export, not {kind}")
+        kind = detected
+    elif (kind if kind in ("fuel", "supply") else "service") != detected:
+        found = {"fuel": "Fuel", "supply": "Supplies", "service": "Service / Repair / Upgrade"}
+        raise LubeLoggerFileError(f"This is a LubeLogger {found[detected]} export, not {kind}")
 
     parsed = ParsedFile(kind=kind, electric=detected == "fuel" and any(h in headers for h in _SOC))
     for number, row in rows:
         try:
             if kind == "fuel":
                 result = _fuel_row(row, opts, parsed.electric)
+                if result is None:
+                    parsed.ignored += 1
+                    continue
+            elif kind == "supply":
+                result = _supply_row(row, opts)
                 if result is None:
                     parsed.ignored += 1
                     continue

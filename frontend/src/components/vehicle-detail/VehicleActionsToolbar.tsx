@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import {
-  Wrench, Fuel, Bell, List, Plus, Edit, Upload, Download, BarChart3, Share2,
+  Wrench, Fuel, Bell, List, Plus, Edit, BarChart3, Share2,
   ArrowRightLeft, Trash2, MoreVertical,
 } from 'lucide-react'
 import { Button } from '../ui'
@@ -8,9 +8,6 @@ import { useAuth } from '../../contexts/AuthContext'
 
 interface VehicleActionsToolbarProps {
   isAdmin: boolean
-  importing: boolean
-  exporting: boolean
-  isOnline: boolean
   showFuelAction: boolean
   hasStandardEquipment: boolean
   hasOptionalEquipment: boolean
@@ -20,8 +17,6 @@ interface VehicleActionsToolbarProps {
   onEditEquipment: (which: 'standard' | 'optional') => void
   onEdit: () => void
   onAnalytics: () => void
-  onImport: () => void
-  onExport: () => void
   onOpenModal: (modal: 'remove' | 'transfer' | 'sharing') => void
   onOpenMobileMenu: () => void
 }
@@ -30,16 +25,16 @@ interface VehicleActionsToolbarProps {
  * Vehicle Detail actions (P5 Task 4). Two rows per the prototype: primary
  * actions (Log Service / Add Fuel / Reminder switch tabs — SDQ-1; an Equipment
  * pill expands the Overview lists — SDQ-2, each button rendered only when its
- * target list exists; Edit) and a secondary toolbar (Import / Export /
- * Analytics / Share / Transfer / Remove). Every control keeps its title attr
+ * target list exists; Edit) and a secondary toolbar (Analytics / Share /
+ * Transfer / Remove; import and export live in Settings > Import & Export). Every control keeps its title attr
  * and Transfer/Remove stay real, clickable, literal text (G6). No `vin` prop —
  * Edit/Analytics navigate via the page's callbacks.
  */
 export default function VehicleActionsToolbar({
-  isAdmin, importing, exporting, isOnline, showFuelAction,
+  isAdmin, showFuelAction,
   hasStandardEquipment, hasOptionalEquipment,
   onLogService, onAddFuel, onReminder, onEditEquipment, onEdit, onAnalytics,
-  onImport, onExport, onOpenModal, onOpenMobileMenu,
+  onOpenModal, onOpenMobileMenu,
 }: VehicleActionsToolbarProps) {
   const { t } = useTranslation('vehicles')
   // Sharing needs a signed-in user, so it's gone with sign-in off (A-12).
@@ -97,12 +92,6 @@ export default function VehicleActionsToolbar({
 
       {/* Secondary toolbar (desktop) */}
       <div className="mt-3 hidden md:flex flex-wrap items-center gap-2">
-        <Button variant="secondary" size="sm" icon={Upload} disabled={importing || !isOnline} onClick={onImport} title={t('detail.misc.importTooltip')}>
-          {importing ? t('detail.importing') : t('detail.import')}
-        </Button>
-        <Button variant="secondary" size="sm" icon={Download} disabled={exporting || !isOnline} onClick={onExport} title={t('detail.exportTooltip')}>
-          {exporting ? t('detail.exporting') : t('detail.export')}
-        </Button>
         <Button variant="accentTint" size="sm" icon={BarChart3} onClick={onAnalytics} title={t('detail.analyticsTooltip')}>
           {t('detail.analytics')}
         </Button>

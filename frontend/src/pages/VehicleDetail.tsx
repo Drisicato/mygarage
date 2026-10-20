@@ -86,14 +86,12 @@ import PricingDrawer from '../components/vehicle-detail/PricingDrawer'
 import VehicleFieldsDrawer, { type VehicleCardKey } from '../components/vehicle-detail/VehicleFieldsDrawer'
 import VehicleEditDrawer from '../components/vehicle-detail/VehicleEditDrawer'
 import TorqueSourceModal from '../components/modals/TorqueSourceModal'
-import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { useAuth } from '../contexts/AuthContext'
 import { fillUpKind, vehicleLogKinds } from '../utils/vehicleLogKinds'
 import { VehicleUnitScope } from '../contexts/VehicleUnitScope'
 import { forgetCachedVehicle, readCachedVehicle, rememberVehicle } from '../utils/vehicleCache'
 import { useSyncQuickEntryVehicle } from '../hooks/queries/useQuickEntryVehicles'
 import { useVehicleDetailStats } from '../hooks/queries/useVehicleDetailStats'
-import { buildImportSummary } from '../utils/importSummary'
 
 export type ModalType = 'remove' | 'transfer' | 'sharing' | 'windowSticker' | 'torqueSource' | null
 export type PrimaryTabType = 'overview' | 'media' | 'maintenance' | 'fuel' | 'tracking' | 'financial' | 'livelink'
@@ -111,8 +109,6 @@ export default function VehicleDetail() {
   const [activePrimaryTab, setActivePrimaryTab] = useState<PrimaryTabType>('overview')
   const [activeSubTab, setActiveSubTab] = useState<SubTabType | null>(null)
   const [openModal, setOpenModal] = useState<ModalType>(null)
-  const [exporting, setExporting] = useState(false)
-  const [importing, setImporting] = useState(false)
   const [fromCache, setFromCache] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   // Capabilities of every LiveLink device linked to this vehicle, unioned by
@@ -129,8 +125,6 @@ export default function VehicleDetail() {
   // doesn't blank mid-exit.
   const [fieldsCard, setFieldsCard] = useState<VehicleCardKey | null>(null)
   const [fieldsOpen, setFieldsOpen] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const isOnline = useOnlineStatus()
 
   // Kept out of loadVehicle's dependency array on purpose: the ref always
   // reads the latest translator without destabilizing the callback,
@@ -302,90 +296,6 @@ export default function VehicleDetail() {
   const handleVehicleRemoved = () => {
     // Navigate home after vehicle is removed (archived or deleted)
     navigate('/')
-  }
-
-  const handleExportJSON = async () => {
-    if (!vin) return
-    if (!isOnline) {
-      toast.error(t('detail.connectToExport'))
-      return
-    }
-
-    setExporting(true)
-    try {
-      const response = await api.get(`/export/vehicles/${vin}/json`, {
-        responseType: 'blob'
-      })
-
-      // Get the filename from Content-Disposition header
-      const contentDisposition = response.headers['content-disposition']
-      const filenameMatch = contentDisposition?.match(/filename="(.+)"/)
-      const filename = filenameMatch ? filenameMatch[1] : 'vehicle_data.json'
-
-      // Download the file
-      const blob = response.data
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      toast.success(t('detail.exportSuccess'))
-    } catch (err) {
-      toast.error(t('detail.exportError'), {
-        description: getActionErrorMessage(err, t('detail.exportAction'))
-      })
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click()
-  }
-
-  const handleImportJSON = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file || !vin) return
-    if (!isOnline) {
-      toast.error(t('detail.connectToImport'))
-      return
-    }
-
-    setImporting(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const response = await api.post(`/import/vehicles/${vin}/json`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      })
-      toast.success(t('detail.importSuccess'), {
-        description: buildImportSummary(response.data, t)
-      })
-
-      // Reload the vehicle data
-      await loadVehicle()
-      // An import can write every record type, reminders and readings
-      // included, and vehicle-scoped query keys don't share one shape (the
-      // insurance key puts the VIN third), so mark everything stale. Only
-      // what's on screen refetches (#192).
-      void queryClient.invalidateQueries()
-    } catch (err) {
-      toast.error(t('detail.importError'), {
-        description: getActionErrorMessage(err, t('detail.importAction'))
-      })
-    } finally {
-      setImporting(false)
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-    }
   }
 
   // Handle primary tab click
@@ -652,15 +562,9 @@ export default function VehicleDetail() {
         {/* Hero */}
         <VehicleHero vehicle={vehicle} photoUrl={photoUrl} fromCache={fromCache} detailStats={detailStats} />
 
-        {/* Hidden file input for import */}
-        <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-
         {/* Actions row + secondary toolbar (Task 4 restyle) */}
         <VehicleActionsToolbar
           isAdmin={isAdmin}
-          importing={importing}
-          exporting={exporting}
-          isOnline={isOnline}
           showFuelAction={Boolean(showFuelLog || hasDEF || hasPropane)}
           hasStandardEquipment={hasStandardEquipment}
           hasOptionalEquipment={hasOptionalEquipment}
@@ -670,8 +574,6 @@ export default function VehicleDetail() {
           onEditEquipment={handleEquipmentClick}
           onEdit={() => setEditDrawerOpen(true)}
           onAnalytics={() => navigate(`/vehicles/${vin}/analytics`)}
-          onImport={handleImportClick}
-          onExport={handleExportJSON}
           onOpenModal={setOpenModal}
           onOpenMobileMenu={() => setShowMobileMenu(true)}
         />
@@ -858,11 +760,6 @@ export default function VehicleDetail() {
         <VehicleMobileActionsSheet
           vin={vin!}
           isAdmin={isAdmin}
-          importing={importing}
-          exporting={exporting}
-          isOnline={isOnline}
-          onImportClick={handleImportClick}
-          onExport={handleExportJSON}
           onOpenModal={setOpenModal}
           onClose={() => setShowMobileMenu(false)}
           onEdit={() => setEditDrawerOpen(true)}

@@ -94,7 +94,6 @@ vi.mock('../../hooks/queries/useOdometerRecords', () => ({
     error: null,
   }),
   useDeleteOdometerRecord: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useImportOdometerCSV: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 vi.mock('../../hooks/queries/useWarrantyRecords', () => ({
   useWarrantyRecords: () => ({ data: [WARRANTY], isLoading: false, error: null }),

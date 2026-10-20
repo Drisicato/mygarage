@@ -33,7 +33,7 @@ import operator
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_type
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -63,6 +63,7 @@ from app.models import (
     TaxRecord,
     WarrantyRecord,
 )
+from app.models.supply import Supply, SupplyPurchase, SupplyVehicle
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.models.vendor import Vendor
@@ -81,6 +82,7 @@ from app.schemas.insurance import CoverageEntry, PolicyVehicleCreate
 from app.schemas.odometer import OdometerRecordCreate
 from app.schemas.reminder import ReminderCreate
 from app.schemas.service_visit import ServiceLineItemCreate, ServiceVisitCreate
+from app.schemas.supply import SupplyPurchaseCreate
 from app.schemas.tax import TaxRecordCreate
 from app.schemas.warranty import WarrantyRecordCreate
 from app.services import maintenance_service
@@ -177,6 +179,58 @@ def _normalized_fuel_type(raw: str | None) -> str | None:
     """A legacy free-text fuel type as its canonical enum value, or None."""
     normalized = normalize_fuel_type(raw)
     return normalized.value if normalized is not None else None
+
+
+#: The reason a pre-import backup's file name carries (see `app.services.vehicle_backup`).
+_IMPORT_BACKUP_REASON = "before-import"
+
+
+async def _begin_import(
+    db: AsyncSession, vin: str, dry_run: bool, reason: str = _IMPORT_BACKUP_REASON
+) -> str | None:
+    """Take the vehicle write lock, then (unless previewing) back the vehicle up.
+
+    Every import route calls this exactly once, after its authorization check
+    and its file parsing, before its first read of stored rows. The lock comes
+    first so the backup is exactly what the rows are written on top of. A
+    preview writes nothing that survives, so it takes no backup. Returns the
+    backup's file name; if it can't be saved, nothing is imported.
+    """
+    from app.services.vehicle_backup import write_vehicle_backup
+
+    await lock_vehicle_for_write(db, vin)
+    if dry_run:
+        return None
+    vehicle = await db.get(Vehicle, vin)
+    if vehicle is None:  # the caller's access check already found it
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    try:
+        return await write_vehicle_backup(db, vehicle, reason)
+    except Exception as e:
+        logger.error("Pre-import backup failed for %s: %s", sanitize_for_log(vin), e)
+        raise HTTPException(
+            status_code=500,
+            detail="Couldn't save a backup of this vehicle, so nothing was imported",
+        ) from e
+
+
+async def _end_import(db: AsyncSession, dry_run: bool) -> None:
+    """Commit the import, or roll a preview back.
+
+    A preview runs the whole import, every check and duplicate test included,
+    so its counts and row errors are what the import would report; only the
+    end differs. Side effects that commit on their own (maintenance reconcile,
+    cache invalidation) are the caller's to skip for a preview.
+    """
+    if dry_run:
+        await db.rollback()
+    else:
+        await db.commit()
+
+
+def _import_response(result: dict[str, Any], dry_run: bool, backup: str | None) -> dict[str, Any]:
+    """An import's counts, marked as a preview or carrying its backup's file name."""
+    return {**result, "dry_run": dry_run, "backup_filename": backup}
 
 
 async def _last_id_before_import(db: AsyncSession, model: Any) -> int:
@@ -769,6 +823,7 @@ async def import_service_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -786,7 +841,7 @@ async def import_service_csv(
     # row's savepoint nests in; without it each savepoint commits its row on
     # release (see `app.database`), and a failure later in the upload would
     # leave the rows before it behind. Every import route takes it the same way.
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
     # Taken before the first write; see `_converted_value_matches` for why.
     odometer_converted = units.converts(DISTANCE)
     last_id = await _last_id_before_import(db, ServiceVisit)
@@ -900,12 +955,13 @@ async def import_service_csv(
             logger.error("Service import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid service record data")
 
-    await db.commit()
-    # Imported services may be the newest of a rule's type: reconcile once per
-    # upload (own lock, own commit), never per row.
-    await maintenance_service.reconcile_vehicle(db, vin)
+    await _end_import(db, dry_run)
+    if not dry_run:
+        # Imported services may be the newest of a rule's type: reconcile once
+        # per upload (own lock, own commit), never per row.
+        await maintenance_service.reconcile_vehicle(db, vin)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/fuel/csv")
@@ -915,6 +971,7 @@ async def import_fuel_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -941,7 +998,7 @@ async def import_fuel_csv(
         ),
     )
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
     # Taken before the first write; see `_converted_value_matches` for why.
     odometer_converted = units.converts(DISTANCE)
     last_id = await _last_id_before_import(db, FuelRecord)
@@ -1083,9 +1140,9 @@ async def import_fuel_csv(
             logger.error("Fuel import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid fuel record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/def/csv")
@@ -1095,6 +1152,7 @@ async def import_def_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1107,7 +1165,7 @@ async def import_def_csv(
     csv_data = await validate_csv_upload(file)
     rows, units = _read_csv_with_units(csv_data, (ODOMETER_DISTANCE, FUEL_VOLUME, DEF_PRICE))
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
     # Taken before the first write; see `_converted_value_matches` for why.
     odometer_converted = units.converts(DISTANCE)
     last_id = await _last_id_before_import(db, DEFRecord)
@@ -1186,9 +1244,9 @@ async def import_def_csv(
             logger.error("DEF import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid DEF record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/odometer/csv")
@@ -1198,6 +1256,7 @@ async def import_odometer_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1209,7 +1268,7 @@ async def import_odometer_csv(
     csv_data = await validate_csv_upload(file)
     rows, units = _read_csv_with_units(csv_data, (READING_DISTANCE,))
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
     # Taken before the first write; see `_converted_value_matches` for why.
     odometer_converted = units.converts(DISTANCE)
     last_id = await _last_id_before_import(db, OdometerRecord)
@@ -1269,9 +1328,9 @@ async def import_odometer_csv(
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/hours/csv")
@@ -1281,6 +1340,7 @@ async def import_hours_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1303,7 +1363,7 @@ async def import_hours_csv(
     csv_data = await validate_csv_upload(file)
     csv_reader = csv.DictReader(io.StringIO(csv_data))
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
 
     import_result = ImportResult()
 
@@ -1360,9 +1420,9 @@ async def import_hours_csv(
             logger.error("Hours import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid hours record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/warranties/csv")
@@ -1372,6 +1432,7 @@ async def import_warranties_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1385,7 +1446,7 @@ async def import_warranties_csv(
     csv_data = await validate_csv_upload(file)
     rows, units = _read_csv_with_units(csv_data, (MILEAGE_LIMIT_DISTANCE,))
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
 
     import_result = ImportResult()
 
@@ -1445,9 +1506,9 @@ async def import_warranties_csv(
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/insurance/csv")
@@ -1457,6 +1518,7 @@ async def import_insurance_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1467,7 +1529,7 @@ async def import_insurance_csv(
     csv_data = await validate_csv_upload(file)
     csv_reader = csv.DictReader(io.StringIO(csv_data))
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
 
     import_result = ImportResult()
 
@@ -1506,9 +1568,9 @@ async def import_insurance_csv(
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/tax/csv")
@@ -1518,6 +1580,7 @@ async def import_tax_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1528,7 +1591,7 @@ async def import_tax_csv(
     csv_data = await validate_csv_upload(file)
     csv_reader = csv.DictReader(io.StringIO(csv_data))
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
 
     import_result = ImportResult()
 
@@ -1585,9 +1648,9 @@ async def import_tax_csv(
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/notes/csv")
@@ -1597,6 +1660,7 @@ async def import_notes_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1607,7 +1671,7 @@ async def import_notes_csv(
     csv_data = await validate_csv_upload(file)
     csv_reader = csv.DictReader(io.StringIO(csv_data))
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
 
     import_result = ImportResult()
 
@@ -1640,9 +1704,116 @@ async def import_notes_csv(
             logger.error("Import row %d failed: %s", row_num, e)
             import_result.add_error(row_num, "Invalid record data")
 
-    await db.commit()
+    await _end_import(db, dry_run)
 
-    return import_result.to_dict()
+    return _import_response(import_result.to_dict(), dry_run, backup)
+
+
+def _supply_csv_number(raw: str, column: str) -> Decimal | None:
+    """A supplies-CSV number, or a row error naming the column."""
+    value = parse_decimal(raw)
+    if value is None and raw.strip():
+        raise _RowError(f"{column} is not a number")
+    if value is not None and value < 0:
+        raise _RowError(f"{column} can't be negative")
+    return value
+
+
+@router.post("/vehicles/{vin}/supplies/csv")
+@limiter.limit(settings.rate_limit_uploads)
+async def import_supplies_csv(
+    request: Request,
+    vin: str,
+    file: UploadFile = File(...),
+    skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """Import supplies from the supplies CSV export.
+
+    Each row is one supply (``SUPPLY_CSV_HEADERS`` in the export). A supply
+    this vehicle can already use, by part number or else by name, is a
+    duplicate and skipped. A new one is created shared (``Shared`` = yes) or
+    linked to this vehicle, with its ``On Hand`` (in the row's ``Unit``) as
+    opening stock bought today for ``Total Cost``.
+    """
+    from app.services.supply_import import (
+        SUPPLY_UNITS,
+        match_supply,
+        supplies_usable_on,
+        supply_key,
+        to_canonical,
+    )
+
+    await get_vehicle_or_403(vin, current_user, db, require_write=True)
+    csv_data = await validate_csv_upload(file)
+    csv_reader = csv.DictReader(io.StringIO(csv_data))
+
+    backup = await _begin_import(db, vin, dry_run)
+    candidates = await supplies_usable_on(db, vin)
+    created: dict[str, Supply] = {}
+    import_result = ImportResult()
+
+    for row_num, row in enumerate(csv_reader, start=2):
+        try:
+            name = (row.get("Name") or "").strip()
+            if not name:
+                raise _RowError("Name is required")
+            if len(name) > 120:
+                raise _RowError("Name is longer than 120 characters")
+            part_number = (row.get("Part Number") or "").strip()[:60] or None
+            unit = (row.get("Unit") or "").strip() or "count"
+            if unit not in SUPPLY_UNITS:
+                raise _RowError(f"Unit must be one of {', '.join(SUPPLY_UNITS)}")
+            on_hand = _supply_csv_number(row.get("On Hand") or "", "On Hand")
+            cost = _supply_csv_number(row.get("Total Cost") or "", "Total Cost")
+            quantity = to_canonical(on_hand, unit) if on_hand else None
+            if cost is not None:
+                cost = cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            _within_api_bounds(SupplyPurchaseCreate, quantity=quantity, total_cost=cost)
+
+            key = supply_key(name, part_number)
+            if skip_duplicates and (key in created or match_supply(candidates, name, part_number)):
+                import_result.add_skip()
+                continue
+            shared = (row.get("Shared") or "").strip().lower() in ("yes", "true", "1")
+            async with db.begin_nested():
+                supply = Supply(
+                    name=name,
+                    part_number=part_number,
+                    barcode=(row.get("Barcode") or "").strip()[:64] or None,
+                    category=(row.get("Category") or "").strip()[:40] or None,
+                    unit_type="count" if unit == "count" else "volume",
+                    volume_unit=None if unit == "count" else unit,
+                    notes=(row.get("Notes") or "").strip() or None,
+                    created_by_user_id=current_user.id if current_user else None,
+                    vehicle_links=[] if shared else [SupplyVehicle(vin=vin)],
+                )
+                db.add(supply)
+                await db.flush()
+                if quantity:
+                    db.add(
+                        SupplyPurchase(
+                            supply_id=supply.id,
+                            date=household_today(),
+                            quantity=quantity,
+                            total_cost=cost,
+                            part_number=part_number,
+                            notes="Opening stock (imported)",
+                        )
+                    )
+                    await db.flush()
+            created[key] = supply
+            import_result.add_success()
+        except _RowError as e:
+            import_result.add_error(row_num, e.reason)
+        except Exception as e:
+            logger.error("Supplies import row %d failed: %s", row_num, e)
+            import_result.add_error(row_num, "Invalid supply data")
+
+    await _end_import(db, dry_run)
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/json")
@@ -1650,6 +1821,7 @@ async def import_vehicle_json(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
@@ -1723,7 +1895,7 @@ async def import_vehicle_json(
         d = Decimal(str(val))
         return d / UnitConverter.US_GALLONS_TO_LITERS if is_legacy_v2 else d
 
-    await lock_vehicle_for_write(db, vin)
+    backup = await _begin_import(db, vin, dry_run)
     # Taken before the first section writes: only a row at or below these can
     # carry the pre-v3.4.0 factors (see `_converted_value_matches`), and a v3
     # backup is canonical already, so only a legacy one was converted.
@@ -2301,9 +2473,10 @@ async def import_vehicle_json(
             logger.warning("Import: insurance policy %s failed: %s", idx, sanitize_for_log(e))
             errors.append(f"Insurance policy {idx}: could not be imported")
 
-    await db.commit()
-    # Imported services may be the newest of a rule's type: reconcile once.
-    await maintenance_service.reconcile_vehicle(db, vin)
+    await _end_import(db, dry_run)
+    if not dry_run:
+        # Imported services may be the newest of a rule's type: reconcile once.
+        await maintenance_service.reconcile_vehicle(db, vin)
 
     metric_keys = (
         "service_records",
@@ -2321,7 +2494,7 @@ async def import_vehicle_json(
         bucket["error_count"] = bucket.get("errors", 0)
         bucket["skipped_count"] = bucket.get("skipped", 0)
 
-    return results
+    return _import_response(results, dry_run, backup)
 
 
 @router.post("/vehicles/{vin}/fuel/fuelio")
@@ -2331,6 +2504,7 @@ async def import_fuelio_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     odometer_unit: str = Form("km"),
     decimal_separator: str = Form("dot"),
     db: AsyncSession = Depends(get_db),
@@ -2349,6 +2523,7 @@ async def import_fuelio_csv(
         current_user,
         "fuelio",
         _parse_options(odometer_unit, decimal_separator),
+        dry_run,
     )
 
 
@@ -2359,6 +2534,7 @@ async def import_drivvo_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     odometer_unit: str = Form("km"),
     decimal_separator: str = Form("dot"),
     db: AsyncSession = Depends(get_db),
@@ -2377,6 +2553,7 @@ async def import_drivvo_csv(
         current_user,
         "drivvo",
         _parse_options(odometer_unit, decimal_separator),
+        dry_run,
     )
 
 
@@ -2387,6 +2564,7 @@ async def import_tesla_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     odometer_unit: str = Form("km"),
     decimal_separator: str = Form("dot"),
     db: AsyncSession = Depends(get_db),
@@ -2405,6 +2583,7 @@ async def import_tesla_csv(
         current_user,
         "tesla",
         _parse_options(odometer_unit, decimal_separator),
+        dry_run,
     )
 
 
@@ -2415,6 +2594,7 @@ async def import_external_fuel_csv(
     vin: str,
     file: UploadFile = File(...),
     skip_duplicates: bool = Form(True),
+    dry_run: bool = Form(False),
     format: str | None = Form(None),
     odometer_unit: str = Form("km"),
     decimal_separator: str = Form("dot"),
@@ -2434,8 +2614,8 @@ async def import_external_fuel_csv(
     # Re-wrap for the shared helper (it re-reads the upload); parse inline instead.
     await get_vehicle_or_403(vin, current_user, db, require_write=True)
     parsed = PARSERS[fmt](csv_data, _parse_options(odometer_unit, decimal_separator))
-    await lock_vehicle_for_write(db, vin)
-    return await _persist_parsed_fuel(vin, parsed, skip_duplicates, db)
+    backup = await _begin_import(db, vin, dry_run)
+    return await _persist_parsed_fuel(vin, parsed, skip_duplicates, db, dry_run, backup)
 
 
 # The natural key of a physical fill-up or charge session: when it happened,
@@ -2504,14 +2684,15 @@ async def _import_third_party_fuel(
     current_user: User | None,
     format_name: str,
     opts=None,
+    dry_run: bool = False,
 ):
     from app.services.import_adapters import PARSERS
 
     await get_vehicle_or_403(vin, current_user, db, require_write=True)
     csv_data = await validate_csv_upload(file)
     parsed = PARSERS[format_name](csv_data, opts)
-    await lock_vehicle_for_write(db, vin)
-    return await _persist_parsed_fuel(vin, parsed, skip_duplicates, db)
+    backup = await _begin_import(db, vin, dry_run)
+    return await _persist_parsed_fuel(vin, parsed, skip_duplicates, db, dry_run, backup)
 
 
 async def _persist_parsed_fuel(
@@ -2519,12 +2700,16 @@ async def _persist_parsed_fuel(
     parsed: list[dict],
     skip_duplicates: bool,
     db: AsyncSession,
+    dry_run: bool = False,
+    backup: str | None = None,
 ):
-    """Write an adapter's fuel rows and commit them as one import."""
+    """Write an adapter's fuel rows and commit them as one import (or, for a
+    preview, roll them back)."""
     import_result = await _write_parsed_fuel(vin, parsed, skip_duplicates, db)
-    await db.commit()
-    await invalidate_cache_for_vehicle(vin)
-    return import_result.to_dict()
+    await _end_import(db, dry_run)
+    if not dry_run:
+        await invalidate_cache_for_vehicle(vin)
+    return _import_response(import_result.to_dict(), dry_run, backup)
 
 
 async def _write_parsed_fuel(
@@ -2640,7 +2825,7 @@ async def _write_parsed_fuel(
 
 #: Files one LubeLogger import takes at once (it exports one CSV per record type).
 _LUBELOGGER_MAX_FILES = 10
-_LUBELOGGER_KINDS = ("auto", "fuel", "service", "repair", "upgrade")
+_LUBELOGGER_KINDS = ("auto", "fuel", "service", "repair", "upgrade", "supply")
 _LUBELOGGER_BACKUP_REASON = "before-lubelogger-import"
 
 
@@ -2753,6 +2938,160 @@ async def _write_lubelogger_service(
     return written
 
 
+def _lubelogger_supply_units(raw: str | None) -> dict[str, str]:
+    """The per-supply unit picks (``{supply key: unit}``), rejecting anything off-vocabulary."""
+    from app.services.supply_import import SUPPLY_UNITS
+
+    if not raw:
+        return {}
+    try:
+        units = json.loads(raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="supply_units must be a JSON object") from e
+    if not isinstance(units, dict) or not all(
+        isinstance(k, str) and v in SUPPLY_UNITS for k, v in units.items()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"supply_units must map each supply to one of {', '.join(SUPPLY_UNITS)}",
+        )
+    return units
+
+
+def _lubelogger_supply_unit(match: Supply | None, chosen: str | None) -> str:
+    """What an imported supply's quantity counts.
+
+    A count supply already in MyGarage stays a count whatever was picked (its
+    ledger can't hold litres); a volume one takes the picked volume unit, else
+    its own. A new supply is what was picked, else a count.
+    """
+    from app.services.supply_import import SUPPLY_LITRES_PER, unit_of
+
+    if match is None:
+        return chosen or "count"
+    if match.unit_type == "count":
+        return "count"
+    return chosen if chosen in SUPPLY_LITRES_PER else unit_of(match)
+
+
+def _lubelogger_supply_preview(
+    rows: list[dict[str, Any]], candidates: list[Supply]
+) -> list[dict[str, Any]]:
+    """Each supply a Supplies file holds, what it joins, and the unit it would import in."""
+    from app.services.supply_import import match_supply, supply_key
+
+    groups: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = supply_key(row["name"], row["part_number"])
+        group = groups.get(key)
+        if group is None:
+            match = match_supply(candidates, row["name"], row["part_number"])
+            group = groups[key] = {
+                "key": key,
+                "name": row["name"],
+                "part_number": row["part_number"],
+                "row_count": 0,
+                "quantity": Decimal("0"),
+                "existing_supply_id": match.id if match else None,
+                "existing_supply_name": match.name if match else None,
+                "existing_unit_type": match.unit_type if match else None,
+                "unit": _lubelogger_supply_unit(match, None),
+            }
+        group["row_count"] += 1
+        group["quantity"] += row["quantity"]
+    return [{k: _preview_value(v) for k, v in g.items()} for g in groups.values()]
+
+
+async def _write_lubelogger_supplies(
+    vin: str,
+    rows: list[dict[str, Any]],
+    skip_duplicates: bool,
+    db: AsyncSession,
+    import_result: ImportResult,
+    *,
+    candidates: list[Supply],
+    units: dict[str, str],
+    created: dict[str, Supply],
+    current_user: User | None,
+    last_id: int,
+) -> None:
+    """Write one supply purchase per LubeLogger row, without committing.
+
+    A row joins the supply it matches (``match_supply``) or one this import
+    creates, linked to this vehicle as LubeLogger's per-vehicle supplies were.
+    ``created`` carries those across files, so a supply in two exports is
+    created once. A duplicate is a purchase stored before this import (id at
+    most ``last_id``) of the same supply, on the same date, of the same
+    quantity, for the same cost: two identical rows in one export are two
+    purchases.
+    """
+    from app.services.supply_import import match_supply, supply_key, to_canonical
+
+    for row in rows:
+        row_num = row["_row"]
+        try:
+            key = supply_key(row["name"], row["part_number"])
+            supply = created.get(key) or match_supply(candidates, row["name"], row["part_number"])
+            unit = _lubelogger_supply_unit(supply, units.get(key))
+            quantity = to_canonical(row["quantity"], unit)
+            if quantity == 0:
+                raise _RowError("the quantity is below the smallest storable amount (0.001)")
+            cost = row["cost"]
+            # LubeLogger takes a used share off the cost, leaving fractions of a cent.
+            if cost is not None:
+                cost = cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            _within_api_bounds(SupplyPurchaseCreate, quantity=quantity, total_cost=cost)
+
+            if supply is None:
+                supply = Supply(
+                    name=row["name"],
+                    part_number=row["part_number"],
+                    unit_type="count" if unit == "count" else "volume",
+                    volume_unit=None if unit == "count" else unit,
+                    created_by_user_id=current_user.id if current_user else None,
+                    vehicle_links=[SupplyVehicle(vin=vin)],
+                )
+                async with db.begin_nested():
+                    db.add(supply)
+                    await db.flush()
+                created[key] = supply
+            elif skip_duplicates:
+                existing = await db.execute(
+                    select(SupplyPurchase.id)
+                    .where(
+                        SupplyPurchase.id <= last_id,
+                        SupplyPurchase.supply_id == supply.id,
+                        SupplyPurchase.date == row["date"],
+                        SupplyPurchase.quantity == quantity,
+                        SupplyPurchase.total_cost.is_(None)
+                        if cost is None
+                        else SupplyPurchase.total_cost == cost,
+                    )
+                    .limit(1)
+                )
+                if existing.scalars().first():
+                    import_result.add_skip()
+                    continue
+            async with db.begin_nested():
+                db.add(
+                    SupplyPurchase(
+                        supply_id=supply.id,
+                        date=row["date"],
+                        quantity=quantity,
+                        total_cost=cost,
+                        part_number=row["part_number"],
+                        notes=row["notes"],
+                    )
+                )
+                await db.flush()
+            import_result.add_success()
+        except _RowError as e:
+            import_result.add_error(row_num, e.reason)
+        except Exception as e:
+            logger.error("LubeLogger supply import row %d failed: %s", row_num, e)
+            import_result.add_error(row_num, "Invalid supply record data")
+
+
 @router.post("/vehicles/{vin}/lubelogger")
 @limiter.limit(settings.rate_limit_uploads)
 async def import_lubelogger_csv(
@@ -2764,32 +3103,37 @@ async def import_lubelogger_csv(
     fuel_unit: str = Form("gal_us"),
     date_order: str = Form("mdy"),
     decimal_separator: str = Form("dot"),
+    supply_units: str | None = Form(None),
     skip_duplicates: bool = Form(True),
     dry_run: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_auth),
 ):
-    """Import LubeLogger CSV exports: Fuel, and Service / Repair / Upgrade.
+    """Import LubeLogger CSV exports: Fuel, Service / Repair / Upgrade, and Supplies.
 
     One or more files (LubeLogger exports one per record type). ``record_type``,
     one per file in the same order, says which of service, repair or upgrade a
     service-like file is (they share one header); ``auto`` or leaving it out
-    reads fuel as fuel and the rest as service. The export carries no units and
-    follows its server's locale, so the four options declare how to read it.
+    reads fuel as fuel, supplies as supplies and the rest as service. The
+    export carries no units and follows its server's locale, so the four
+    options declare how to read it. A supply's quantity has no unit either:
+    ``supply_units`` is a JSON object of each supply's ``key`` (from the
+    preview's ``supplies``) to ``count`` or a supply volume unit; a supply
+    left out imports as a count, or in the unit of the supply it joins.
 
-    ``dry_run`` reads every file and reports what it found, writing nothing.
-    Otherwise every file is read first (a file that isn't a supported export
-    fails the request before anything is written), then the vehicle is locked,
-    its JSON export is saved as a backup, and only then are the rows written,
-    all files in one transaction. If the backup can't be saved nothing is
-    imported.
+    Every file is read first (a file that isn't a supported export fails the
+    request before anything is written). Then, like every import, the vehicle
+    is locked and, unless ``dry_run``, backed up; the rows are written, all
+    files in one transaction, and committed, or for ``dry_run`` rolled back,
+    so a preview reports what the import would.
     """
     from app.services.import_adapters.lubelogger import LubeLoggerFileError, parse_lubelogger
-    from app.services.vehicle_backup import write_vehicle_backup
+    from app.services.supply_import import supplies_usable_on
 
     vin = vin.upper().strip()
-    vehicle = await get_vehicle_or_403(vin, current_user, db, require_write=True)
+    await get_vehicle_or_403(vin, current_user, db, require_write=True)
     opts = _lubelogger_options(distance_unit, fuel_unit, date_order, decimal_separator)
+    units = _lubelogger_supply_units(supply_units)
     if len(file) > _LUBELOGGER_MAX_FILES:
         raise HTTPException(
             status_code=400, detail=f"At most {_LUBELOGGER_MAX_FILES} files per import"
@@ -2813,43 +3157,14 @@ async def import_lubelogger_csv(
             raise HTTPException(status_code=400, detail=f"{name}: {e.reason}") from e
         parsed_files.append((name, parsed))
 
-    if dry_run:
-        files = []
-        for name, parsed in parsed_files:
-            date_range = parsed.date_range
-            files.append(
-                {
-                    "filename": name,
-                    "record_type": parsed.kind,
-                    "electric": parsed.electric,
-                    "row_count": len(parsed.rows),
-                    "error_count": len(parsed.errors),
-                    "ignored_count": parsed.ignored,
-                    "errors": [f"Row {n}: {reason}" for n, reason in parsed.errors],
-                    "date_from": date_range[0].isoformat() if date_range else None,
-                    "date_to": date_range[1].isoformat() if date_range else None,
-                    "sample": [
-                        {k: _preview_value(v) for k, v in row.items() if not k.startswith("_")}
-                        for row in parsed.rows[:3]
-                    ],
-                }
-            )
-        return {"dry_run": True, "files": files}
+    backup = await _begin_import(db, vin, dry_run, _LUBELOGGER_BACKUP_REASON)
 
-    # The vehicle write lock before the backup's reads and every write: the
-    # backup is then exactly what the rows below are written on top of.
-    await lock_vehicle_for_write(db, vin)
-    try:
-        backup = await write_vehicle_backup(db, vehicle, _LUBELOGGER_BACKUP_REASON)
-    except Exception as e:
-        logger.error("Pre-import backup failed for %s: %s", sanitize_for_log(vin), e)
-        raise HTTPException(
-            status_code=500,
-            detail="Couldn't save a backup of this vehicle, so nothing was imported",
-        ) from e
-
+    has_supplies = any(parsed.kind == "supply" for _name, parsed in parsed_files)
+    candidates = await supplies_usable_on(db, vin) if has_supplies else []
+    created_supplies: dict[str, Supply] = {}
     odometer_converted = opts.distance_unit == "mi"
     service_last_id = await _last_id_before_import(db, ServiceVisit)
+    supply_last_id = await _last_id_before_import(db, SupplyPurchase)
     results = []
     wrote_services = False
     for name, parsed in parsed_files:
@@ -2858,6 +3173,19 @@ async def import_lubelogger_csv(
             result.add_error(row_num, reason)
         if parsed.kind == "fuel":
             await _write_parsed_fuel(vin, parsed.rows, skip_duplicates, db, result)
+        elif parsed.kind == "supply":
+            await _write_lubelogger_supplies(
+                vin,
+                parsed.rows,
+                skip_duplicates,
+                db,
+                result,
+                candidates=candidates,
+                units=units,
+                created=created_supplies,
+                current_user=current_user,
+                last_id=supply_last_id,
+            )
         else:
             written = await _write_lubelogger_service(
                 vin,
@@ -2869,20 +3197,44 @@ async def import_lubelogger_csv(
                 last_id=service_last_id,
             )
             wrote_services = wrote_services or written > 0
-        results.append({"filename": name, "record_type": parsed.kind, **result.to_dict()})
+        date_range = parsed.date_range
+        results.append(
+            {
+                "filename": name,
+                "record_type": parsed.kind,
+                **result.to_dict(),
+                "row_count": len(parsed.rows),
+                "electric": parsed.electric,
+                "ignored_count": parsed.ignored,
+                "date_from": date_range[0].isoformat() if date_range else None,
+                "date_to": date_range[1].isoformat() if date_range else None,
+                "sample": [
+                    {k: _preview_value(v) for k, v in row.items() if not k.startswith("_")}
+                    for row in parsed.rows[:3]
+                ],
+                "supplies": (
+                    _lubelogger_supply_preview(parsed.rows, candidates)
+                    if parsed.kind == "supply"
+                    else []
+                ),
+            }
+        )
 
-    await db.commit()
-    if wrote_services:
-        # Imported services may be the newest of a rule's type: reconcile once
-        # per upload (own lock, own commit), never per row.
-        await maintenance_service.reconcile_vehicle(db, vin)
-    await invalidate_cache_for_vehicle(vin)
+    await _end_import(db, dry_run)
+    if not dry_run:
+        if wrote_services:
+            # Imported services may be the newest of a rule's type: reconcile
+            # once per upload (own lock, own commit), never per row.
+            await maintenance_service.reconcile_vehicle(db, vin)
+        await invalidate_cache_for_vehicle(vin)
 
     totals = {
         key: sum(int(r[key]) for r in results)
         for key in ("success_count", "error_count", "skipped_count", "total_processed")
     }
-    return {**totals, "files": results, "backup_filename": backup}
+    return _import_response(
+        {**totals, "files": results, "supplies_created": len(created_supplies)}, dry_run, backup
+    )
 
 
 @router.get("/vehicles/{vin}/backups")

@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Fuel, Plus, Edit, Trash2, TrendingUp, Search, Download, Upload, Truck, Gauge, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Fuel, Plus, Edit, Trash2, TrendingUp, Search, Truck, Gauge, ChevronLeft, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import type { FuelRecord } from '../types/fuel'
 import type { Vehicle } from '../types/vehicle'
@@ -19,16 +19,10 @@ import {
 } from '../utils/unitFormat'
 import { priceToDisplay } from '../utils/decimalSafe'
 import { getUsageTracking } from '../utils/usageTracking'
-import { useFuelRecords, useDeleteFuelRecord, useImportFuelCSV } from '../hooks/queries/useFuelRecords'
+import { useFuelRecords, useDeleteFuelRecord } from '../hooks/queries/useFuelRecords'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
-import { Button, IconButton, Card, Mono, DataTable, Badge, SearchField, EmptyState, Checkbox, Select } from './ui'
+import { Button, IconButton, Card, Mono, DataTable, Badge, SearchField, EmptyState, Checkbox } from './ui'
 import type { DataTableColumn } from './ui'
-import LubeLoggerImportModal from './modals/LubeLoggerImportModal'
-import FuelImportOptionsDrawer, { type FuelImportOptions } from './FuelImportOptionsDrawer'
-
-// 'lubelogger' isn't a plain upload: its files carry no units, so it opens
-// the LubeLogger import (units, preview, backup) instead of the file picker.
-type ImportFormat = 'csv' | 'fuelio' | 'drivvo' | 'tesla' | 'external' | 'lubelogger'
 
 interface FuelRecordListProps {
   vin: string
@@ -39,7 +33,6 @@ interface FuelRecordListProps {
 export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRecordListProps) {
   const { t } = useTranslation('vehicles')
   const [searchQuery, setSearchQuery] = useState('')
-  const [exporting, setExporting] = useState(false)
   const [includeHauling, setIncludeHauling] = useState(false)
   const [vehicleFuelType, setVehicleFuelType] = useState<string>('')
   // Task 13 — which usage dimension(s) this vehicle tracks, driving mileage
@@ -48,11 +41,6 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
   // flash the wrong columns before the vehicle fetch resolves.
   const [vehicleUsageUnit, setVehicleUsageUnit] = useState<string>('distance')
   const [vehicleSecondaryUsageEnabled, setVehicleSecondaryUsageEnabled] = useState<boolean>(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [importFormat, setImportFormat] = useState<ImportFormat>('csv')
-  const [showLubeLogger, setShowLubeLogger] = useState(false)
-  // A third-party file waits here while the options drawer asks how to read it.
-  const [pendingFile, setPendingFile] = useState<File | null>(null)
   // ★ No `system` here any more. The last two consumers were
   // `UnitFormatter.getCostPerDistanceLabel(system)` and its formatter, which
   // decided a DISTANCE on a binary collapsed from VOLUME; both now read
@@ -77,7 +65,6 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
     limit: PAGE_SIZE,
   })
   const deleteMutation = useDeleteFuelRecord(vin)
-  const importMutation = useImportFuelCSV(vin)
 
   const records = useMemo(() => data?.records ?? [], [data?.records])
   const totalRecords = data?.total ?? records.length
@@ -129,122 +116,6 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
         (r.notes && r.notes.toLowerCase().includes(query))
     )
   }, [records, searchQuery])
-
-  const handleExportCSV = async () => {
-    setExporting(true)
-    try {
-      // Export in the units the user actually reads. Storage is
-      // metric-canonical, so without this an imperial account got a
-      // metric file (#128). The backend stamps a `unit_system` column
-      // so re-importing converts back correctly.
-      //
-      // `units` is deliberately NOT sent. It used to carry `system`, the
-      // binary metric/imperial collapse of the account's volume unit, which
-      // meant an account with mixed preferences (km with UK gallons, say)
-      // asked for a clean preset and never received its own units. Omitting
-      // the parameter tells the backend to export in the caller's resolved
-      // unit set, which CSV schema v6 spells out per column
-      // (`Odometer (km)`, `Volume (gal_uk)`).
-      const response = await api.get(`/export/vehicles/${vin}/fuel/csv`, {
-        responseType: 'blob'
-      })
-
-      // Get the filename from Content-Disposition header
-      const contentDisposition = response.headers['content-disposition']
-      const filenameMatch = contentDisposition?.match(/filename="(.+)"/)
-      const filename = filenameMatch ? filenameMatch[1] : 'fuel_records.csv'
-
-      // Download the file
-      const blob = response.data
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (err) {
-      toast.error(getActionErrorMessage(err, t('fuelList.exportAction')))
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  const handleImportClick = () => {
-    if (importFormat === 'lubelogger') {
-      setShowLubeLogger(true)
-      return
-    }
-    fileInputRef.current?.click()
-  }
-
-  const clearFileInput = (): void => {
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }
-
-  const postImport = (file: File, opts?: FuelImportOptions): void => {
-    // LubeLogger has its own import modal and never posts a file from here.
-    if (importFormat === 'lubelogger') return
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('skip_duplicates', 'true')
-    if (opts) {
-      formData.append('odometer_unit', opts.odometerUnit)
-      formData.append('decimal_separator', opts.decimalSeparator)
-    }
-
-    importMutation.mutate(
-      { formData, format: importFormat },
-      {
-        onSuccess: (result) => {
-          const message = t('fuelList.importCompleted', {
-            success: result.success_count,
-            skipped: result.skipped_count,
-            errors: result.error_count,
-          })
-
-          if (result.errors && result.errors.length > 0) {
-            toast.error(t('fuelList.importErrors', { message, errors: result.errors.join(', ') }))
-          } else {
-            toast.success(message)
-          }
-        },
-        onError: (err) => {
-          toast.error(getActionErrorMessage(err, t('fuelList.importAction')))
-        },
-        onSettled: clearFileInput,
-      },
-    )
-  }
-
-  const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    // LubeLogger never reaches the file picker (handleImportClick opens its own import).
-    if (!file || importFormat === 'lubelogger') return
-
-    // Our own CSV names its units in the headers. The others don't, so a
-    // miles export would land as km unless somebody says otherwise.
-    if (importFormat === 'csv') {
-      postImport(file)
-      return
-    }
-    setPendingFile(file)
-  }
-
-  const handleImportOptionsConfirm = (opts: FuelImportOptions): void => {
-    if (!pendingFile) return
-    postImport(pendingFile, opts)
-    setPendingFile(null)
-  }
-
-  // Clearing the input is what lets the same file be picked again.
-  const handleImportOptionsClose = (): void => {
-    setPendingFile(null)
-    clearFileInput()
-  }
 
   const handleDelete = (recordId: number) => {
     if (!confirm(t('fuelList.confirmDelete'))) {
@@ -328,15 +199,6 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
       ) },
   ]
 
-  const importFormatOptions: { value: ImportFormat; label: string }[] = [
-    { value: 'csv', label: t('fuelList.importFormatCsv') },
-    { value: 'fuelio', label: t('fuelList.importFormatFuelio') },
-    { value: 'drivvo', label: t('fuelList.importFormatDrivvo') },
-    { value: 'tesla', label: t('fuelList.importFormatTesla') },
-    { value: 'external', label: t('fuelList.importFormatAuto') },
-    { value: 'lubelogger', label: t('fuelList.importFormatLubeLogger') },
-  ]
-
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-[200px]">
@@ -376,23 +238,6 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
               onChange={setSearchQuery}
               className="flex-1 min-w-[10rem] sm:flex-none sm:w-56"
             />
-          )}
-          <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleImportCSV} className="hidden" />
-          <Select
-            id="fuel-import-format"
-            aria-label={t('fuelList.importFormat')}
-            value={importFormat}
-            onChange={(e) => setImportFormat(e.target.value as ImportFormat)}
-            options={importFormatOptions}
-            className="w-40"
-          />
-          <Button variant="secondary" icon={Upload} onClick={handleImportClick} loading={importMutation.isPending} title={t('fuelList.importFromCSV')}>
-            {importMutation.isPending ? t('fuelList.importing') : t('fuelList.importCSV')}
-          </Button>
-          {records.length > 0 && (
-            <Button variant="secondary" icon={Download} onClick={handleExportCSV} loading={exporting} title={t('fuelList.exportToCSV')}>
-              {exporting ? t('fuelList.exporting') : t('fuelList.exportCSV')}
-            </Button>
           )}
           <Button variant="primary" icon={Plus} onClick={onAddClick}>
             {t('fuelList.addFillUp')}
@@ -551,16 +396,6 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
         </div>
       )}
 
-      {showLubeLogger && (
-        <LubeLoggerImportModal vin={vin} onClose={() => setShowLubeLogger(false)} />
-      )}
-      <FuelImportOptionsDrawer
-        open={pendingFile !== null}
-        formatLabel={importFormatOptions.find((o) => o.value === importFormat)?.label ?? ''}
-        defaultOdometerUnit={units.distance}
-        onConfirm={handleImportOptionsConfirm}
-        onClose={handleImportOptionsClose}
-      />
     </div>
   )
 }

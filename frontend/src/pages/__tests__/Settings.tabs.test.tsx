@@ -38,6 +38,7 @@ describe('Settings tabs', () => {
       'tabs.fileManagement',
       'tabs.integrations',
       'tabs.notifications',
+      'tabs.importExport',
       'tabs.backupRestore',
     ])
   })
@@ -45,13 +46,14 @@ describe('Settings tabs', () => {
   it('gives a non-admin only the tabs with something of theirs', () => {
     h.isAdmin = false
     render(<Settings />)
-    expect(tabNames()).toEqual(['tabs.system', 'tabs.integrations'])
+    // Import & Export is per vehicle, not an instance setting: everyone gets it.
+    expect(tabNames()).toEqual(['tabs.system', 'tabs.integrations', 'tabs.importExport'])
   })
 
   it('gives every tab to the single user when auth is off', () => {
     h.isAdmin = false
     h.authMode = 'none'
     render(<Settings />)
-    expect(tabNames()).toHaveLength(5)
+    expect(tabNames()).toHaveLength(6)
   })
 })

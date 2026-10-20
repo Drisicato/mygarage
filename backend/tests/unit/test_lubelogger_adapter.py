@@ -39,15 +39,15 @@ SERVICE_US = (
 
 
 class TestDetect:
-    def test_fuel_and_service_headers(self):
+    def test_fuel_service_and_supply_headers(self):
         assert detect_kind({"date", "odometer", "fuelconsumed", "cost"}) == "fuel"
         assert detect_kind({"date", "description", "cost", "odometer"}) == "service"
+        assert detect_kind({"date", "partnumber", "partquantity", "description"}) == "supply"
 
     @pytest.mark.parametrize(
         ("headers", "name"),
         [
             ({"date", "initialodometer", "odometer"}, "Odometer"),
-            ({"date", "partnumber", "description"}, "Supplies"),
             ({"datecreated", "description"}, "Plan"),
             ({"date", "description", "cost", "notes", "tags"}, "Tax"),
         ],
@@ -191,3 +191,36 @@ class TestService:
         row = parsed.rows[0]
         assert len(row["description"]) == 200
         assert row["notes"] == long
+
+
+SUPPLIES_US = (
+    "Date,PartNumber,PartSupplier,PartQuantity,Description,Cost,Notes,Tags\n"
+    '9/19/2025,997930,Costco,5,"Kirkland 5W-30","$27.99",Full synthetic,oil\n'
+    "10/1/2025,,,0,Used up wipers,$20.00,,\n"
+    "10/2/2025,16546-7S000,RockAuto,1,,$12.333,,\n"
+    "10/3/2025,X1,,-2,Bad quantity,$1.00,,\n"
+)
+
+
+class TestSupplies:
+    def test_a_supplies_export_reads_as_supplies(self):
+        parsed = parse_lubelogger(SUPPLIES_US, US)
+        assert parsed.kind == "supply"
+        oil, filter_ = parsed.rows
+        assert oil["date"] == date(2025, 9, 19)
+        assert (oil["name"], oil["part_number"]) == ("Kirkland 5W-30", "997930")
+        assert (oil["quantity"], oil["cost"]) == (Decimal("5"), Decimal("27.99"))
+        assert oil["notes"] == "Full synthetic\nTags: oil\nSupplier: Costco"
+        # No description: the part number names it.
+        assert filter_["name"] == "16546-7S000"
+
+    def test_a_used_up_supply_is_skipped_and_a_negative_one_is_an_error(self):
+        parsed = parse_lubelogger(SUPPLIES_US, US)
+        assert parsed.ignored == 1
+        assert parsed.errors == [(5, "the quantity can't be negative")]
+
+    def test_a_supplies_file_cannot_be_imported_as_another_type(self):
+        with pytest.raises(LubeLoggerFileError, match="Supplies"):
+            parse_lubelogger(SUPPLIES_US, US, "repair")
+        with pytest.raises(LubeLoggerFileError, match="Service"):
+            parse_lubelogger(SERVICE_US, US, "supply")

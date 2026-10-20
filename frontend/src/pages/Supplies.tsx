@@ -19,9 +19,9 @@ import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import {
   costDecimals, formatSupplyQuantity, supplyDisplayUnit, unitCostToDisplay, unitLabel,
-  type SupplyUnit, type SupplyVolumeUnit,
+  VOLUME_UNIT_LABELS, type SupplyUnit, type SupplyVolumeUnit,
 } from '@/utils/supplyUnits'
-import { UNIT_OPTION_LABELS, type VolumeUnit } from '@/types/units'
+import type { VolumeUnit } from '@/types/units'
 import {
   canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, isSharedSupply, sortSupplies,
   type SupplyFilters, type SupplyGroup,
@@ -601,18 +601,6 @@ export default function Supplies() {
 }
 
 // Form Component
-
-// Litres and gallons reuse the Settings labels as-is; the sizes in between are supply-only keys.
-const VOLUME_UNIT_LABELS: Readonly<Record<SupplyVolumeUnit, { readonly labelKey: string }>> = {
-  mL: { labelKey: 'common:supplies.volumeUnits.mL' },
-  L: UNIT_OPTION_LABELS.volume.options.L,
-  fl_oz_us: { labelKey: 'common:supplies.volumeUnits.fl_oz_us' },
-  fl_oz_uk: { labelKey: 'common:supplies.volumeUnits.fl_oz_uk' },
-  qt_us: { labelKey: 'common:supplies.volumeUnits.qt_us' },
-  qt_uk: { labelKey: 'common:supplies.volumeUnits.qt_uk' },
-  gal_us: UNIT_OPTION_LABELS.volume.options.gal_us,
-  gal_uk: UNIT_OPTION_LABELS.volume.options.gal_uk,
-}
 
 // New supplies start in litres for a litre account, quarts of its own gallon otherwise.
 // Keyed on the account's volume token so a new one won't compile until it picks a default.

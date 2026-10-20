@@ -817,6 +817,80 @@ async def export_notes_csv(
     )
 
 
+#: The supplies CSV's columns, read back by ``POST /api/import/vehicles/{vin}/supplies/csv``.
+SUPPLY_CSV_HEADERS = [
+    "Name",
+    "Part Number",
+    "Barcode",
+    "Category",
+    "Unit",
+    "Shared",
+    "On Hand",
+    "Total Cost",
+    "Notes",
+]
+
+
+@router.get("/vehicles/{vin}/supplies/csv")
+@limiter.limit(settings.rate_limit_exports)
+async def export_supplies_csv(
+    request: Request,
+    vin: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_auth),
+):
+    """Export the supplies this vehicle can use (its own and the shared ones) as CSV.
+
+    One row per active supply. Each row names its own ``Unit`` (``count`` or a
+    supply volume unit such as ``qt_us``) and gives ``On Hand`` in it, so the
+    file reads the same whatever the account's unit preference. ``Total Cost``
+    is what the stock on hand cost at the supply's average price. ``Shared``
+    is ``yes`` for a supply every vehicle can use.
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+
+    from app.services.supply_import import from_canonical, supplies_usable_on, unit_of
+    from app.services.supply_service import SupplyService
+
+    vehicle = await get_vehicle_or_403(vin, current_user, db)
+    supplies = await supplies_usable_on(db, vehicle.vin)
+    balances = await SupplyService(db)._compute_balances([s.id for s in supplies])
+
+    rows = []
+    for supply in supplies:
+        on_hand, avg = balances.get(supply.id, (Decimal("0"), None))
+        unit = unit_of(supply)
+        stock_cost = (
+            (on_hand * avg).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if avg is not None and on_hand > 0
+            else None
+        )
+        rows.append(
+            [
+                supply.name,
+                supply.part_number or "",
+                supply.barcode or "",
+                supply.category or "",
+                unit,
+                "no" if supply.vins else "yes",
+                format(from_canonical(on_hand, unit).quantize(Decimal("0.001")).normalize(), "f"),
+                "" if stock_cost is None else str(stock_cost),
+                supply.notes or "",
+            ]
+        )
+
+    output = generate_csv_stream(SUPPLY_CSV_HEADERS, rows)
+    filename = (
+        f"{vehicle.year}_{vehicle.make}_{vehicle.model}_supplies_"
+        f"{datetime.now().strftime('%Y%m%d')}.csv"
+    )
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 async def build_vehicle_export(db: AsyncSession, vehicle: Vehicle) -> dict[str, Any]:
     """The vehicle and its records as the JSON export holds them.
 

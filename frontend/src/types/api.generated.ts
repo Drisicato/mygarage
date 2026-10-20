@@ -1375,6 +1375,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/export/vehicles/{vin}/supplies/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Supplies Csv
+         * @description Export the supplies this vehicle can use (its own and the shared ones) as CSV.
+         *
+         *     One row per active supply. Each row names its own ``Unit`` (``count`` or a
+         *     supply volume unit such as ``qt_us``) and gives ``On Hand`` in it, so the
+         *     file reads the same whatever the account's unit preference. ``Total Cost``
+         *     is what the stock on hand cost at the supply's average price. ``Shared``
+         *     is ``yes`` for a supply every vehicle can use.
+         */
+        get: operations["export_supplies_csv_api_export_vehicles__vin__supplies_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/export/vehicles/{vin}/tax/csv": {
         parameters: {
             query?: never;
@@ -1997,20 +2023,23 @@ export interface paths {
         put?: never;
         /**
          * Import Lubelogger Csv
-         * @description Import LubeLogger CSV exports: Fuel, and Service / Repair / Upgrade.
+         * @description Import LubeLogger CSV exports: Fuel, Service / Repair / Upgrade, and Supplies.
          *
          *     One or more files (LubeLogger exports one per record type). ``record_type``,
          *     one per file in the same order, says which of service, repair or upgrade a
          *     service-like file is (they share one header); ``auto`` or leaving it out
-         *     reads fuel as fuel and the rest as service. The export carries no units and
-         *     follows its server's locale, so the four options declare how to read it.
+         *     reads fuel as fuel, supplies as supplies and the rest as service. The
+         *     export carries no units and follows its server's locale, so the four
+         *     options declare how to read it. A supply's quantity has no unit either:
+         *     ``supply_units`` is a JSON object of each supply's ``key`` (from the
+         *     preview's ``supplies``) to ``count`` or a supply volume unit; a supply
+         *     left out imports as a count, or in the unit of the supply it joins.
          *
-         *     ``dry_run`` reads every file and reports what it found, writing nothing.
-         *     Otherwise every file is read first (a file that isn't a supported export
-         *     fails the request before anything is written), then the vehicle is locked,
-         *     its JSON export is saved as a backup, and only then are the rows written,
-         *     all files in one transaction. If the backup can't be saved nothing is
-         *     imported.
+         *     Every file is read first (a file that isn't a supported export fails the
+         *     request before anything is written). Then, like every import, the vehicle
+         *     is locked and, unless ``dry_run``, backed up; the rows are written, all
+         *     files in one transaction, and committed, or for ``dry_run`` rolled back,
+         *     so a preview reports what the import would.
          */
         post: operations["import_lubelogger_csv_api_import_vehicles__vin__lubelogger_post"];
         delete?: never;
@@ -2073,6 +2102,32 @@ export interface paths {
          * @description Import service records from CSV file (creates ServiceVisit + ServiceLineItem).
          */
         post: operations["import_service_csv_api_import_vehicles__vin__service_csv_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/vehicles/{vin}/supplies/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Supplies Csv
+         * @description Import supplies from the supplies CSV export.
+         *
+         *     Each row is one supply (``SUPPLY_CSV_HEADERS`` in the export). A supply
+         *     this vehicle can already use, by part number or else by name, is a
+         *     duplicate and skipped. A new one is created shared (``Shared`` = yes) or
+         *     linked to this vehicle, with its ``On Hand`` (in the row's ``Unit``) as
+         *     opening stock bought today for ``Total Cost``.
+         */
+        post: operations["import_supplies_csv_api_import_vehicles__vin__supplies_csv_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8915,6 +8970,11 @@ export interface components {
         };
         /** Body_import_def_csv_api_import_vehicles__vin__def_csv_post */
         Body_import_def_csv_api_import_vehicles__vin__def_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -8930,6 +8990,11 @@ export interface components {
              * @default dot
              */
             decimal_separator: string;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -8950,6 +9015,11 @@ export interface components {
              * @default dot
              */
             decimal_separator: string;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /** Format */
@@ -8967,6 +9037,11 @@ export interface components {
         };
         /** Body_import_fuel_csv_api_import_vehicles__vin__fuel_csv_post */
         Body_import_fuel_csv_api_import_vehicles__vin__fuel_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -8982,6 +9057,11 @@ export interface components {
              * @default dot
              */
             decimal_separator: string;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -8997,6 +9077,11 @@ export interface components {
         };
         /** Body_import_hours_csv_api_import_vehicles__vin__hours_csv_post */
         Body_import_hours_csv_api_import_vehicles__vin__hours_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9007,6 +9092,11 @@ export interface components {
         };
         /** Body_import_insurance_csv_api_import_vehicles__vin__insurance_csv_post */
         Body_import_insurance_csv_api_import_vehicles__vin__insurance_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9051,9 +9141,16 @@ export interface components {
              * @default true
              */
             skip_duplicates: boolean;
+            /** Supply Units */
+            supply_units?: string | null;
         };
         /** Body_import_notes_csv_api_import_vehicles__vin__notes_csv_post */
         Body_import_notes_csv_api_import_vehicles__vin__notes_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9064,6 +9161,11 @@ export interface components {
         };
         /** Body_import_odometer_csv_api_import_vehicles__vin__odometer_csv_post */
         Body_import_odometer_csv_api_import_vehicles__vin__odometer_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9074,6 +9176,26 @@ export interface components {
         };
         /** Body_import_service_csv_api_import_vehicles__vin__service_csv_post */
         Body_import_service_csv_api_import_vehicles__vin__service_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+            /** File */
+            file: string;
+            /**
+             * Skip Duplicates
+             * @default true
+             */
+            skip_duplicates: boolean;
+        };
+        /** Body_import_supplies_csv_api_import_vehicles__vin__supplies_csv_post */
+        Body_import_supplies_csv_api_import_vehicles__vin__supplies_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9084,6 +9206,11 @@ export interface components {
         };
         /** Body_import_tax_csv_api_import_vehicles__vin__tax_csv_post */
         Body_import_tax_csv_api_import_vehicles__vin__tax_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9099,6 +9226,11 @@ export interface components {
              * @default dot
              */
             decimal_separator: string;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9114,6 +9246,11 @@ export interface components {
         };
         /** Body_import_vehicle_json_api_import_vehicles__vin__json_post */
         Body_import_vehicle_json_api_import_vehicles__vin__json_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -9124,6 +9261,11 @@ export interface components {
         };
         /** Body_import_warranties_csv_api_import_vehicles__vin__warranties_csv_post */
         Body_import_warranties_csv_api_import_vehicles__vin__warranties_csv_post: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
             /** File */
             file: string;
             /**
@@ -24057,6 +24199,37 @@ export interface operations {
             };
         };
     };
+    export_supplies_csv_api_export_vehicles__vin__supplies_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_tax_records_csv_api_export_vehicles__vin__tax_csv_get: {
         parameters: {
             query?: never;
@@ -25087,6 +25260,41 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_import_service_csv_api_import_vehicles__vin__service_csv_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_supplies_csv_api_import_vehicles__vin__supplies_csv_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_supplies_csv_api_import_vehicles__vin__supplies_csv_post"];
             };
         };
         responses: {

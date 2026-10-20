@@ -12,14 +12,12 @@ import {
   useCreateOdometerRecord,
   useUpdateOdometerRecord,
   useDeleteOdometerRecord,
-  useImportOdometerCSV,
 } from '../useOdometerRecords'
 import { useCreateHoursRecord, useUpdateHoursRecord, useDeleteHoursRecord } from '../useHoursRecords'
 import {
   useCreateFuelRecord,
   useUpdateFuelRecord,
   useDeleteFuelRecord,
-  useImportFuelCSV,
 } from '../useFuelRecords'
 import { useCreateDEFRecord, useUpdateDEFRecord, useDeleteDEFRecord } from '../useDEFRecords'
 import {
@@ -75,14 +73,12 @@ const CASES: [string, AnyMutationHook, unknown][] = [
   ['odometer create', useCreateOdometerRecord, { date: '2026-10-01', odometer_km: 1000 }],
   ['odometer update', useUpdateOdometerRecord, { id: 1, odometer_km: 1000 }],
   ['odometer delete', useDeleteOdometerRecord, 1],
-  ['odometer import', useImportOdometerCSV, new FormData()],
   ['hours create', useCreateHoursRecord, { date: '2026-10-01', engine_hours: 10 }],
   ['hours update', useUpdateHoursRecord, { id: 1, engine_hours: 10 }],
   ['hours delete', useDeleteHoursRecord, 1],
   ['fuel create', useCreateFuelRecord, { date: '2026-10-01' }],
   ['fuel update', useUpdateFuelRecord, { id: 1 }],
   ['fuel delete', useDeleteFuelRecord, 1],
-  ['fuel import', useImportFuelCSV, { formData: new FormData() }],
   ['DEF create', useCreateDEFRecord, { date: '2026-10-01', odometer_km: 1000 }],
   ['DEF update', useUpdateDEFRecord, { id: 1, odometer_km: 1000 }],
   ['DEF delete', useDeleteDEFRecord, 1],

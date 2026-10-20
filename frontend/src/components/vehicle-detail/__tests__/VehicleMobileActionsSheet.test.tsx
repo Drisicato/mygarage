@@ -12,8 +12,8 @@ import VehicleMobileActionsSheet from '../VehicleMobileActionsSheet'
 
 function setup(overrides: Partial<ComponentProps<typeof VehicleMobileActionsSheet>> = {}) {
   const props: ComponentProps<typeof VehicleMobileActionsSheet> = {
-    vin: '1HGCM82633A004352', isAdmin: false, importing: false, exporting: false, isOnline: true,
-    onImportClick: vi.fn(), onExport: vi.fn(), onOpenModal: vi.fn(), onClose: vi.fn(), onEdit: vi.fn(),
+    vin: '1HGCM82633A004352', isAdmin: false,
+    onOpenModal: vi.fn(), onClose: vi.fn(), onEdit: vi.fn(),
     ...overrides,
   }
   render(<VehicleMobileActionsSheet {...props} />)

@@ -16,11 +16,11 @@ beforeEach(() => {
 
 function setup(overrides: Partial<ComponentProps<typeof VehicleActionsToolbar>> = {}) {
   const props: ComponentProps<typeof VehicleActionsToolbar> = {
-    isAdmin: true, importing: false, exporting: false, isOnline: true,
+    isAdmin: true,
     showFuelAction: true, hasStandardEquipment: true, hasOptionalEquipment: true,
     onLogService: vi.fn(), onAddFuel: vi.fn(), onReminder: vi.fn(),
     onEditEquipment: vi.fn(), onEdit: vi.fn(), onAnalytics: vi.fn(),
-    onImport: vi.fn(), onExport: vi.fn(), onOpenModal: vi.fn(), onOpenMobileMenu: vi.fn(),
+    onOpenModal: vi.fn(), onOpenMobileMenu: vi.fn(),
     ...overrides,
   }
   render(<VehicleActionsToolbar {...props} />)
@@ -31,7 +31,7 @@ describe('VehicleActionsToolbar', () => {
   it('renders every required title attribute (G6/B8)', () => {
     setup()
     for (const title of [
-      'detail.misc.importTooltip', 'detail.exportTooltip', 'detail.analyticsTooltip',
+      'detail.analyticsTooltip',
       'detail.shareTooltip', 'detail.editVehicle', 'detail.misc.transferTooltip',
       'detail.removeVehicle',
     ]) {

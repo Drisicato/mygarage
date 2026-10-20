@@ -5,7 +5,9 @@ the vehicle page downloads, so it can be inspected or re-imported through
 ``POST /api/import/vehicles/{vin}/json``. Like that export it is not a full
 restore: a service visit keeps its first line item, and tax, warranties,
 reminders and media are not in it. The whole-instance backups in Settings >
-Backup are.
+Backup are. It also carries a ``supplies`` key: the supplies the vehicle can
+use, with their purchase and usage ledgers, because supplies imports write
+to them and the vehicle export doesn't include them.
 
 They live in ``<data_dir>/backups/vehicles/``, a folder of their own: the
 settings-backup routes treat every ``.json`` in ``<data_dir>/backups`` as a
@@ -19,13 +21,17 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.models.supply import Supply
 from app.models.vehicle import Vehicle
 
 #: ``<VIN>-<reason>-<UTC yyyymmdd-hhmmss>[-n].json``
@@ -51,6 +57,7 @@ async def write_vehicle_backup(db: AsyncSession, vehicle: Vehicle, reason: str) 
 
     data: dict[str, Any] = await build_vehicle_export(db, vehicle)
     data["backup_reason"] = reason
+    data["supplies"] = await supplies_snapshot(db, vehicle.vin)
     folder = backup_dir()
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -73,6 +80,64 @@ async def write_vehicle_backup(db: AsyncSession, vehicle: Vehicle, reason: str) 
         if partial.exists():
             partial.unlink()
     return name
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+async def supplies_snapshot(db: AsyncSession, vin: str) -> list[dict[str, Any]]:
+    """The supplies this vehicle can use (its own and the shared ones), with
+    their ledgers, as they stand. Supplies aren't part of the vehicle export,
+    and a supplies import writes to them, so the backup carries them too."""
+    supplies = (
+        (
+            await db.execute(
+                select(Supply)
+                .options(selectinload(Supply.purchases), selectinload(Supply.usages))
+                .order_by(Supply.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    columns = (
+        "id",
+        "name",
+        "part_number",
+        "barcode",
+        "category",
+        "unit_type",
+        "volume_unit",
+        "is_active",
+        "notes",
+    )
+    return [
+        {
+            **{c: _plain(getattr(s, c)) for c in columns},
+            "vins": s.vins,
+            "purchases": [
+                {
+                    c: _plain(getattr(p, c))
+                    for c in ("id", "date", "quantity", "total_cost", "part_number", "notes")
+                }
+                for p in s.purchases
+            ],
+            "usages": [
+                {
+                    c: _plain(getattr(u, c))
+                    for c in ("id", "quantity", "cost_snapshot", "service_line_item_id")
+                }
+                for u in s.usages
+            ],
+        }
+        for s in supplies
+        if s.usable_on(vin)
+    ]
 
 
 def list_vehicle_backups(vin: str) -> list[dict[str, Any]]:

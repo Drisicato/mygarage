@@ -50,13 +50,6 @@ export function useDeleteFuelRecord(vin: string) {
   })
 }
 
-interface ImportCSVResult {
-  success_count: number
-  skipped_count: number
-  error_count: number
-  errors: string[]
-}
-
 export function useCreateFuelRecord(vin: string) {
   const queryClient = useQueryClient()
   return useMutation({
@@ -76,34 +69,6 @@ export function useUpdateFuelRecord(vin: string) {
   return useMutation({
     mutationFn: async ({ id, ...payload }: FuelRecordUpdate & { id: number }) => {
       const { data } = await api.put(`/vehicles/${vin}/fuel/${id}`, payload)
-      return data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['fuelRecords', vin] })
-      invalidateReadingViews(queryClient, vin)
-    },
-  })
-}
-
-export function useImportFuelCSV(vin: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({
-      formData,
-      format = 'csv',
-    }: {
-      formData: FormData
-      format?: 'csv' | 'fuelio' | 'drivvo' | 'tesla' | 'external'
-    }) => {
-      const path =
-        format === 'csv'
-          ? `/import/vehicles/${vin}/fuel/csv`
-          : `/import/vehicles/${vin}/fuel/${format}`
-      const { data } = await api.post<ImportCSVResult>(path, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      })
       return data
     },
     onSuccess: () => {

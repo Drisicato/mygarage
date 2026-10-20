@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Settings as SettingsIcon, Plug, Bell, HardDrive, Download, Server } from 'lucide-react'
+import { Settings as SettingsIcon, Plug, Bell, HardDrive, Download, Server, ArrowDownUp } from 'lucide-react'
 import SettingsSystemTab from '../components/tabs/SettingsSystemTab'
 import SettingsFilesTab from '../components/tabs/SettingsFilesTab'
 import SettingsIntegrationsTab from '../components/tabs/SettingsIntegrationsTab'
 import SettingsNotificationsTab from '../components/tabs/SettingsNotificationsTab'
 import SettingsBackupTab from '../components/tabs/SettingsBackupTab'
+import SettingsImportExportTab from '../components/tabs/SettingsImportExportTab'
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext'
 import { useCanManageInstance } from '../hooks/useCanManageInstance'
 import SubTabNav from '../components/SubTabNav'
 
-type TabType = 'system' | 'files' | 'integrations' | 'notifications' | 'backup'
+type TabType = 'system' | 'files' | 'integrations' | 'notifications' | 'importExport' | 'backup'
 
 function SettingsContent() {
   const { t } = useTranslation('settings')
@@ -28,6 +29,8 @@ function SettingsContent() {
     { id: 'files', label: t('tabs.fileManagement'), icon: HardDrive, visible: canManageInstance },
     { id: 'integrations', label: t('tabs.integrations'), icon: Plug },
     { id: 'notifications', label: t('tabs.notifications'), icon: Bell, visible: canManageInstance },
+    // Anyone who can write to a vehicle imports into it, so this one isn't admin-only.
+    { id: 'importExport', label: t('tabs.importExport'), icon: ArrowDownUp },
     { id: 'backup', label: t('tabs.backupRestore'), icon: Download, visible: canManageInstance },
   ]
 
@@ -60,6 +63,7 @@ function SettingsContent() {
         {activeTab === 'files' && <SettingsFilesTab />}
         {activeTab === 'integrations' && <SettingsIntegrationsTab />}
         {activeTab === 'notifications' && <SettingsNotificationsTab />}
+        {activeTab === 'importExport' && <SettingsImportExportTab />}
         {activeTab === 'backup' && <SettingsBackupTab />}
       </div>
     </div>

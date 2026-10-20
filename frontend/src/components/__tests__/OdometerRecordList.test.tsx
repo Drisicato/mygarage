@@ -10,7 +10,6 @@ const deleteMutate = vi.fn()
 vi.mock('../../hooks/queries/useOdometerRecords', () => ({
   useOdometerRecords: () => useOdometerRecordsMock(),
   useDeleteOdometerRecord: () => ({ mutate: deleteMutate, isPending: false, variables: undefined }),
-  useImportOdometerCSV: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 vi.mock('../../services/api', () => ({ default: { get: vi.fn() } }))
 vi.mock('../../hooks/useUnitPreference', () => ({

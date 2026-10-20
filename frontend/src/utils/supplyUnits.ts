@@ -2,6 +2,7 @@ import type { Supply } from '@/types/supplies'
 
 import { RATE_DIGITS } from './formatUtils'
 import { UnitConverter, type UnitSystem } from './units'
+import { UNIT_OPTION_LABELS } from '@/types/units'
 
 export type SupplyUnitType = 'volume' | 'count'
 export type SupplyVolumeUnit = NonNullable<Supply['volume_unit']>
@@ -32,6 +33,18 @@ const LITERS_PER_SUPPLY_UNIT: Readonly<Record<SupplyVolumeUnit, number>> = {
   qt_uk: GAL_UK / 4,
   gal_us: GAL_US,
   gal_uk: GAL_UK,
+}
+
+// Litres and gallons reuse the Settings labels as-is; the sizes in between are supply-only keys.
+export const VOLUME_UNIT_LABELS: Readonly<Record<SupplyVolumeUnit, { readonly labelKey: string }>> = {
+  mL: { labelKey: 'common:supplies.volumeUnits.mL' },
+  L: UNIT_OPTION_LABELS.volume.options.L,
+  fl_oz_us: { labelKey: 'common:supplies.volumeUnits.fl_oz_us' },
+  fl_oz_uk: { labelKey: 'common:supplies.volumeUnits.fl_oz_uk' },
+  qt_us: { labelKey: 'common:supplies.volumeUnits.qt_us' },
+  qt_uk: { labelKey: 'common:supplies.volumeUnits.qt_uk' },
+  gal_us: UNIT_OPTION_LABELS.volume.options.gal_us,
+  gal_uk: UNIT_OPTION_LABELS.volume.options.gal_uk,
 }
 
 const UNIT_LABELS: Readonly<Record<SupplyUnit, string>> = {

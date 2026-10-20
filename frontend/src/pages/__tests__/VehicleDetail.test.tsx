@@ -134,7 +134,6 @@ vi.mock('../../contexts/AuthContext', () => ({
 }))
 
 // Import after mocks
-import api from '../../services/api'
 import vehicleService from '../../services/vehicleService'
 import { livelinkService } from '../../services/livelinkService'
 import { useAuth } from '../../contexts/AuthContext'
@@ -750,25 +749,6 @@ describe('VehicleDetail', () => {
       await client.invalidateQueries({ queryKey: ['vehicleDetailStats', 'TEST12345678901234'] })
     })
     expect(mockedVehicleService.getDetailStats.mock.calls.length).toBe(baseline + 1)
-  })
-
-  it('a vehicle JSON import refreshes every query for that vehicle (#192: it writes reminders and readings)', async () => {
-    vi.mocked(api.post).mockResolvedValue({ data: {} } as { data: unknown })
-    const { client, container } = renderVehicleDetail()
-    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
-    // Vehicle-scoped keys don't share one shape: insurance puts the VIN third.
-    const keys = [
-      ['reminders', 'TEST12345678901234', 'pending'],
-      ['insurance', 'vehicle', 'TEST12345678901234'],
-    ]
-    for (const key of keys) client.setQueryData(key, [])
-    const input = container.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement
-    fireEvent.change(input, {
-      target: { files: [new File(['{}'], 'vehicle.json', { type: 'application/json' })] },
-    })
-    for (const key of keys) {
-      await waitFor(() => expect(client.getQueryState(key)?.isInvalidated).toBe(true))
-    }
   })
 
   it('an older stats response never overwrites a newer one (codex R1-M2: a refresh cancels the one in flight)', async () => {

@@ -1,16 +1,11 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { X, Upload, Download, BarChart3, Share2, Edit, ArrowRightLeft, Trash2 } from 'lucide-react'
+import { X, BarChart3, Share2, Edit, ArrowRightLeft, Trash2 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
 interface VehicleMobileActionsSheetProps {
   vin: string
   isAdmin: boolean
-  importing: boolean
-  exporting: boolean
-  isOnline: boolean
-  onImportClick: () => void
-  onExport: () => void
   onOpenModal: (modal: 'remove' | 'transfer' | 'sharing') => void
   onClose: () => void
   onEdit: () => void
@@ -22,8 +17,7 @@ interface VehicleMobileActionsSheetProps {
  * Task 8 (stays a bespoke bottom-sheet, not a right Drawer — D2).
  */
 export default function VehicleMobileActionsSheet({
-  vin, isAdmin, importing, exporting, isOnline,
-  onImportClick, onExport, onOpenModal, onClose, onEdit,
+  vin, isAdmin, onOpenModal, onClose, onEdit,
 }: VehicleMobileActionsSheetProps) {
   const { t } = useTranslation('vehicles')
   const navigate = useNavigate()
@@ -43,22 +37,6 @@ export default function VehicleMobileActionsSheet({
           </button>
         </div>
         <div className="p-2">
-          <button
-            onClick={() => { onImportClick(); onClose() }}
-            disabled={importing || !isOnline}
-            className="w-full flex items-center space-x-3 px-4 py-3 text-left text-text hover:bg-surface-2 rounded-lg ui-motion cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Upload className="w-5 h-5" />
-            <span>{importing ? t('detail.importing') : t('detail.importData')}</span>
-          </button>
-          <button
-            onClick={() => { onExport(); onClose() }}
-            disabled={exporting || !isOnline}
-            className="w-full flex items-center space-x-3 px-4 py-3 text-left text-text hover:bg-surface-2 rounded-lg ui-motion cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download className="w-5 h-5" />
-            <span>{exporting ? t('detail.exporting') : t('detail.exportData')}</span>
-          </button>
           <button
             onClick={() => { navigate(`/vehicles/${vin}/analytics`); onClose() }}
             className="w-full flex items-center space-x-3 px-4 py-3 text-left text-text hover:bg-surface-2 rounded-lg ui-motion cursor-pointer"

@@ -47,6 +47,7 @@ from app.models import (
     Vendor,
     WarrantyRecord,
 )
+from app.models.supply import Supply, SupplyPurchase, SupplyVehicle
 from app.models.vehicle import Vehicle
 from app.services.vehicle_lock import lock_vehicle_for_write
 
@@ -65,6 +66,9 @@ _VIN_TABLES = (
     TaxRecord,
     Note,
     Reminder,
+    # Supplies are household rows; the vin-bearing one is a supply's link to
+    # the vehicle it was imported for.
+    SupplyVehicle,
 )
 
 
@@ -146,6 +150,11 @@ def _every_import(vin: str) -> list[ImportCall]:
             "Date,Type,Amount,Renewal Date\n2027-08-06,Registration,212.00,2028-08-06\n",
         ),
         ImportCall(f"{base}/notes/csv", "notes.csv", "Date,Title,Content\n2027-08-07,Note,body\n"),
+        ImportCall(
+            f"{base}/supplies/csv",
+            "supplies.csv",
+            f"Name,Part Number,Unit,Shared,On Hand,Total Cost\nOil {vin},P-{vin},qt_us,no,5,30.00\n",
+        ),
         ImportCall(f"{base}/json", "vehicle.json", _backup(vin), "application/json"),
         ImportCall(
             f"{base}/fuel/fuelio",
@@ -282,6 +291,11 @@ async def vin(db_session: AsyncSession, test_user, test_sessionmaker) -> AsyncIt
         ):
             await cleanup.execute(delete(model).where(model.vin == value))
         await cleanup.execute(delete(Vendor).where(Vendor.name.like(f"{value}-%")))
+        supply_ids = select(SupplyVehicle.supply_id).where(SupplyVehicle.vin == value)
+        imported = (await cleanup.execute(supply_ids)).scalars().all()
+        await cleanup.execute(delete(SupplyPurchase).where(SupplyPurchase.supply_id.in_(imported)))
+        await cleanup.execute(delete(SupplyVehicle).where(SupplyVehicle.vin == value))
+        await cleanup.execute(delete(Supply).where(Supply.id.in_(imported)))
         await cleanup.execute(delete(Vehicle).where(Vehicle.vin == value))
         await cleanup.commit()
 
