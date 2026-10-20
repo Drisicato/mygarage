@@ -14,6 +14,15 @@ export interface SupplyFilters {
   outOfStock: boolean
 }
 
+// No linked vehicles means shared across all of them.
+export function isSharedSupply(supply: Supply): boolean {
+  return supply.vins.length === 0
+}
+
+export function supplyFitsVehicle(supply: Supply, vin: string): boolean {
+  return isSharedSupply(supply) || supply.vins.includes(vin)
+}
+
 // on_hand is a decimal string off the wire, so compare the number, not the text.
 export function isOutOfStock(supply: Supply): boolean {
   return Number(supply.on_hand) <= 0
@@ -98,12 +107,15 @@ export function groupSupplies(
   const canonicalFor = new Map(spellings.map((s) => [s.toLowerCase(), s]))
   const buckets = new Map<string | null, Supply[]>()
   for (const s of sorted) {
-    const value = group === 'category'
-      ? (s.category ? (canonicalFor.get(s.category.toLowerCase()) ?? s.category) : null)
-      : (s.vin ?? null)
-    const bucket = buckets.get(value) ?? []
-    bucket.push(s)
-    buckets.set(value, bucket)
+    // A supply shared with several vehicles shows under each of them.
+    const values: (string | null)[] = group === 'category'
+      ? [s.category ? (canonicalFor.get(s.category.toLowerCase()) ?? s.category) : null]
+      : (isSharedSupply(s) ? [null] : s.vins)
+    for (const value of values) {
+      const bucket = buckets.get(value) ?? []
+      bucket.push(s)
+      buckets.set(value, bucket)
+    }
   }
   const labelFor = (value: string): string => (group === 'vehicle' ? vehicleLabelFor(value) : value)
   const named = [...buckets.entries()]
@@ -125,8 +137,8 @@ export function filterSupplies(supplies: Supply[], filters: SupplyFilters): Supp
     }
     if (category !== null && (s.category ?? '').toLowerCase() !== category) return false
     if (filters.vehicle === 'shared') {
-      if (s.vin != null) return false
-    } else if (filters.vehicle !== 'all' && s.vin !== filters.vehicle) {
+      if (!isSharedSupply(s)) return false
+    } else if (filters.vehicle !== 'all' && !s.vins.includes(filters.vehicle)) {
       return false
     }
     if (filters.outOfStock && !isOutOfStock(s)) return false

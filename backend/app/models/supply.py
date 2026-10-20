@@ -41,9 +41,6 @@ class Supply(Base):
     unit_type: Mapped[str] = mapped_column(String(10), nullable=False)  # 'volume' | 'count'
     # Display token (e.g. 'qt_us', 'mL'). NULL means the legacy binary pick.
     volume_unit: Mapped[str | None] = mapped_column(String(8))
-    vin: Mapped[str | None] = mapped_column(
-        String(17), ForeignKey("vehicles.vin", ondelete="CASCADE")
-    )  # NULL = shared across all vehicles; set = pinned to one
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
     # server_default (not just Python default=True): create_all runs BEFORE the migration
     # runner on a fresh boot, so the deployed schema must carry the default itself. true()
@@ -63,12 +60,45 @@ class Supply(Base):
     usages: Mapped[list[SupplyUsage]] = relationship(
         "SupplyUsage", back_populates="supply", cascade="all, delete-orphan"
     )
+    # No links = shared across all vehicles; otherwise usable only on the linked ones.
+    vehicle_links: Mapped[list[SupplyVehicle]] = relationship(
+        "SupplyVehicle",
+        back_populates="supply",
+        cascade="all, delete-orphan",
+        order_by="SupplyVehicle.vin",
+        lazy="selectin",
+    )
+
+    @property
+    def vins(self) -> list[str]:
+        """The vehicles this supply is shared with; empty = all of them."""
+        return [link.vin for link in self.vehicle_links]
+
+    def usable_on(self, vin: str) -> bool:
+        """Shared supplies fit every vehicle; linked ones only theirs."""
+        return not self.vehicle_links or vin in self.vins
 
     __table_args__ = (
         CheckConstraint("unit_type IN ('volume', 'count')", name="check_supply_unit_type"),
-        Index("idx_supplies_vin", "vin"),
         Index("idx_supplies_barcode", "barcode"),
     )
+
+
+class SupplyVehicle(Base):
+    """One vehicle a supply is shared with (migration 133)."""
+
+    __tablename__ = "supply_vehicles"
+
+    supply_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("supplies.id", ondelete="CASCADE"), primary_key=True
+    )
+    vin: Mapped[str] = mapped_column(
+        String(17), ForeignKey("vehicles.vin", ondelete="CASCADE"), primary_key=True
+    )
+
+    supply: Mapped[Supply] = relationship("Supply", back_populates="vehicle_links")
+
+    __table_args__ = (Index("idx_supply_vehicles_vin", "vin"),)
 
 
 class SupplyPurchase(Base):

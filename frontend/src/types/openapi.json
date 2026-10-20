@@ -22040,18 +22040,15 @@
             "title": "Unit Type",
             "type": "string"
           },
-          "vin": {
-            "anyOf": [
-              {
-                "maxLength": 17,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pin to a vehicle; null = shared across all",
-            "title": "Vin"
+          "vins": {
+            "description": "Vehicles this supply is shared with; empty = shared across all",
+            "items": {
+              "maxLength": 17,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Vins",
+            "type": "array"
           },
           "volume_unit": {
             "anyOf": [
@@ -22681,17 +22678,13 @@
             ],
             "title": "Updated At"
           },
-          "vin": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pin to a vehicle; null = shared across all",
-            "title": "Vin"
+          "vins": {
+            "description": "Vehicles this supply is shared with; empty = shared across all",
+            "items": {
+              "type": "string"
+            },
+            "title": "Vins",
+            "type": "array"
           },
           "volume_unit": {
             "anyOf": [
@@ -22719,6 +22712,7 @@
         "required": [
           "name",
           "unit_type",
+          "vins",
           "id",
           "is_active",
           "on_hand",
@@ -22804,17 +22798,22 @@
             ],
             "title": "Part Number"
           },
-          "vin": {
+          "vins": {
             "anyOf": [
               {
-                "maxLength": 17,
-                "type": "string"
+                "items": {
+                  "maxLength": 17,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Vin"
+            "description": "Replaces the linked vehicles; omitted keeps them, [] or null = all vehicles",
+            "title": "Vins"
           },
           "volume_unit": {
             "anyOf": [

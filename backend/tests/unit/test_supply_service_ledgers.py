@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.models.service_line_item import ServiceLineItem
 from app.models.service_visit import ServiceVisit
-from app.models.supply import Supply
+from app.models.supply import Supply, SupplyVehicle
 from app.models.vehicle import Vehicle
 from app.schemas.supply import SupplyAdjustmentCreate, SupplyPurchaseCreate
 from app.services.supply_service import SupplyService
@@ -15,8 +15,10 @@ from app.services.supply_service import SupplyService
 pytestmark = [pytest.mark.asyncio, pytest.mark.supplies]
 
 
-async def _supply(db, vin=None):
-    s = Supply(name="Coolant", unit_type="volume", vin=vin)
+async def _supply(db, *vins):
+    s = Supply(
+        name="Coolant", unit_type="volume", vehicle_links=[SupplyVehicle(vin=v) for v in vins]
+    )
     db.add(s)
     await db.flush()
     return s
@@ -68,9 +70,9 @@ async def test_history_running_balance_is_chronological(db_session):
 
 async def test_get_supply_for_use_rejects_wrong_vehicle(db_session):
     svc = SupplyService(db_session)
-    # Supply.vin is a real FK to vehicles.vin — the pinned vehicle must exist.
+    # supply_vehicles.vin is a real FK to vehicles.vin — the linked vehicle must exist.
     vehicle = await _vehicle(db_session, "5YJ3E1EA1JF000001", nickname="Pinned Car")
-    pinned = await _supply(db_session, vin=vehicle.vin)
+    pinned = await _supply(db_session, vehicle.vin)
     # Pinned to that VIN; requesting for another vehicle → 400.
     with pytest.raises(HTTPException) as ei:
         await svc.get_supply_for_use(pinned.id, "WAUZZZ8K9AA000001")
@@ -78,6 +80,18 @@ async def test_get_supply_for_use_rejects_wrong_vehicle(db_session):
     # Shared supply is usable anywhere.
     shared = await _supply(db_session)
     assert (await svc.get_supply_for_use(shared.id, "WAUZZZ8K9AA000001")).id == shared.id
+
+
+async def test_get_supply_for_use_accepts_every_linked_vehicle(db_session):
+    svc = SupplyService(db_session)
+    first = await _vehicle(db_session, "5YJ3E1EA1JF000001", nickname="Pinned Car")
+    second = await _vehicle(db_session, "5YJ3E1EA1JF000002", nickname="Second Car")
+    linked = await _supply(db_session, first.vin, second.vin)
+    assert (await svc.get_supply_for_use(linked.id, first.vin)).id == linked.id
+    assert (await svc.get_supply_for_use(linked.id, second.vin.lower())).id == linked.id
+    with pytest.raises(HTTPException) as ei:
+        await svc.get_supply_for_use(linked.id, "WAUZZZ8K9AA000001")
+    assert ei.value.status_code == 400
 
 
 async def test_delete_adjustment_rejects_job_usage(db_session):

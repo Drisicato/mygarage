@@ -26,7 +26,7 @@ describe('Supply Schema', () => {
       part_number: 'MO-5W30-QT',
       category: 'Fluids',
       notes: 'Full synthetic',
-      vin: '1HGCM82633A004352',
+      vins: ['1HGCM82633A004352', '5YJ3E1EA1JF000001'],
     })
     expect(result.success).toBe(true)
   })
@@ -59,13 +59,13 @@ describe('Supply Schema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('allows empty string vin (shared across all vehicles)', () => {
-    const result = supplySchema.safeParse({ ...validEntry, vin: '' })
+  it('allows no vins (shared across all vehicles)', () => {
+    const result = supplySchema.safeParse({ ...validEntry, vins: [] })
     expect(result.success).toBe(true)
   })
 
   it('rejects a malformed vin', () => {
-    const result = supplySchema.safeParse({ ...validEntry, vin: 'not-a-vin' })
+    const result = supplySchema.safeParse({ ...validEntry, vins: ['1HGCM82633A004352', 'not-a-vin'] })
     expect(result.success).toBe(false)
   })
 

@@ -148,3 +148,4 @@ migrations must swallow their own operational errors.
 | `131_add_brake_tracking` | Add brake tracking: axle setup, brake measurements, brake jobs and reminder marks (#202). |
 | `131_add_warranty_documents` | Create warranty_documents for files attached to warranty records. |
 | `132_add_vehicle_inspections` | Create the vehicle inspection tables: inspections, checklist items, wheel corners, photos. |
+| `133_add_supply_vehicles` | Share a supply with several vehicles: supply_vehicles replaces supplies.vin. |

@@ -27,6 +27,7 @@ import { useUnitFormat } from '../../hooks/useUnitFormat'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import { canonicalFromUnitField, seedUnitField, type UnitFieldOrigin } from '../../utils/unitFormat'
 import { parseOptionalDecimal } from '../../utils/decimalInput'
+import { supplyFitsVehicle } from '../../utils/supplyListView'
 import { moneyTextError } from '../../schemas/shared'
 import { SERVICE_CATEGORIES } from '../../schemas/serviceVisit'
 import {
@@ -83,7 +84,7 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
   const { system } = useUnitPreference()
   const { data: supplyData } = useSupplies(true)
   const supplies = useMemo(() => supplyData?.supplies ?? [], [supplyData])
-  const addableSupplies = supplies.filter((s) => s.is_active && (s.vin == null || s.vin === vin))
+  const addableSupplies = supplies.filter((s) => s.is_active && supplyFitsVehicle(s, vin))
   const [parts, setParts] = useState<PartRow[]>(
     () =>
       repair?.parts?.map((p) => {

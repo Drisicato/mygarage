@@ -42,7 +42,7 @@ async def _supply(
     """Create a supply (optionally pinned to `vin`) with a purchase establishing
     on_hand=10 @ avg_unit_cost=8.00/unit.
 
-    ``Supply.vin`` is a real FK to ``vehicles.vin`` and SQLite's
+    ``supply_vehicles.vin`` is a real FK to ``vehicles.vin`` and SQLite's
     ``foreign_keys=ON`` pragma is mirrored in tests (see `conftest.py`), so
     pinning to a vehicle that doesn't exist yet would raise an IntegrityError
     on insert — idempotently create it first (ignore the result: 201 if new,
@@ -56,7 +56,7 @@ async def _supply(
         )
     body: dict[str, str] = {"name": "Oil", "unit_type": unit}
     if vin:
-        body["vin"] = vin
+        body["vins"] = [vin]
     sid = (await client.post("/api/supplies", json=body, headers=auth_headers)).json()["id"]
     await client.post(
         f"/api/supplies/{sid}/purchases",

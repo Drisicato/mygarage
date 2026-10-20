@@ -8,7 +8,7 @@ feature only, it does not brick app startup.
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 # Non-FATAL: purely additive new tables (see module docstring).
 
@@ -84,8 +84,12 @@ def upgrade(engine=None):
                 """
             )
         )
+        # Since 133 the model no longer maps supplies.vin, so a fresh install's
+        # create_all builds supplies without it: only index it where it exists.
+        supply_cols = {c["name"] for c in inspect(conn).get_columns("supplies")}
+        vin_index = [("idx_supplies_vin", "supplies", "vin")] if "vin" in supply_cols else []
         for name, table, cols in (
-            ("idx_supplies_vin", "supplies", "vin"),
+            *vin_index,
             ("idx_supplies_barcode", "supplies", "barcode"),
             ("idx_supply_purchases_supply_date", "supply_purchases", "supply_id, date"),
             ("idx_supply_usages_supply", "supply_usages", "supply_id"),

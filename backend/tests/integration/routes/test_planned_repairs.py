@@ -34,7 +34,7 @@ async def _supply(client: AsyncClient, headers, vin: str | None = None) -> int:
             json={"vin": vin, "nickname": "Other Vehicle", "vehicle_type": "Car"},
             headers=headers,
         )
-    body = {"name": "Oil", "unit_type": "volume", **({"vin": vin} if vin else {})}
+    body = {"name": "Oil", "unit_type": "volume", **({"vins": [vin]} if vin else {})}
     created = await client.post("/api/supplies", json=body, headers=headers)
     assert created.status_code == 201, created.text
     sid = created.json()["id"]

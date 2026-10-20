@@ -813,3 +813,80 @@ async def test_edit_purchase_not_found_wrong_supply_and_auth(client: AsyncClient
     assert (
         await client.patch(f"/api/supplies/{sid}/purchases/{pid}", json={"quantity": 1})
     ).status_code == 401
+
+
+# ---- vehicle links (migration 133) -----------------------------------------
+
+_SECOND_VIN = "2HGBH41JXMN109187"
+
+
+async def _second_vehicle(client: AsyncClient, auth_headers) -> str:
+    """Idempotent: 201 if new, 400 if an earlier test registered it."""
+    await client.post(
+        "/api/vehicles",
+        json={"vin": _SECOND_VIN, "nickname": "Other Vehicle", "vehicle_type": "Car"},
+        headers=auth_headers,
+    )
+    return _SECOND_VIN
+
+
+async def test_supply_shared_with_several_vehicles(
+    client: AsyncClient, auth_headers, test_vehicle
+):
+    first = test_vehicle["vin"]
+    second = await _second_vehicle(client, auth_headers)
+    r = await client.post(
+        "/api/supplies",
+        # Lower case and a repeat: stored once, upper-cased.
+        json={"name": "Wiper Fluid", "unit_type": "volume", "vins": [first, second.lower(), first]},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201
+    sid = r.json()["id"]
+    assert sorted(r.json()["vins"]) == sorted([first, second])
+
+    for vin in (first, second):
+        listed = (
+            await client.get("/api/supplies", params={"vin": vin}, headers=auth_headers)
+        ).json()["supplies"]
+        assert sid in {s["id"] for s in listed}
+    elsewhere = (
+        await client.get("/api/supplies", params={"vin": "WAUZZZ8K9AA000001"}, headers=auth_headers)
+    ).json()["supplies"]
+    assert sid not in {s["id"] for s in elsewhere}
+
+
+async def test_update_supply_vins_replaces_keeps_and_clears(
+    client: AsyncClient, auth_headers, test_vehicle
+):
+    first = test_vehicle["vin"]
+    second = await _second_vehicle(client, auth_headers)
+    sid = (
+        await client.post(
+            "/api/supplies",
+            json={"name": "Coolant", "unit_type": "volume", "vins": [first]},
+            headers=auth_headers,
+        )
+    ).json()["id"]
+
+    r = await client.patch(f"/api/supplies/{sid}", json={"vins": [first, second]}, headers=auth_headers)
+    assert r.status_code == 200
+    assert sorted(r.json()["vins"]) == sorted([first, second])
+
+    r = await client.patch(f"/api/supplies/{sid}", json={"name": "Coolant 50/50"}, headers=auth_headers)
+    assert sorted(r.json()["vins"]) == sorted([first, second])  # omitted keeps them
+
+    r = await client.patch(f"/api/supplies/{sid}", json={"vins": [second]}, headers=auth_headers)
+    assert r.json()["vins"] == [second]
+
+    r = await client.patch(f"/api/supplies/{sid}", json={"vins": None}, headers=auth_headers)
+    assert r.json()["vins"] == []  # null shares it with every vehicle again
+
+
+async def test_supply_with_unknown_vehicle_is_422(client: AsyncClient, auth_headers):
+    r = await client.post(
+        "/api/supplies",
+        json={"name": "Oil", "unit_type": "volume", "vins": ["NOSUCHVIN00000000"]},
+        headers=auth_headers,
+    )
+    assert r.status_code == 422

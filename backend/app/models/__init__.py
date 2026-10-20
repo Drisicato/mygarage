@@ -40,7 +40,7 @@ from app.models.service_visit import ServiceVisit
 from app.models.settings import Setting
 from app.models.spot_rental import SpotRental
 from app.models.spot_rental_billing import SpotRentalBilling
-from app.models.supply import Supply, SupplyPurchase, SupplyUsage
+from app.models.supply import Supply, SupplyPurchase, SupplyUsage, SupplyVehicle
 from app.models.tax import TaxRecord
 from app.models.tire import Tire, TireReading
 from app.models.toll import TollTag, TollTransaction
@@ -98,6 +98,7 @@ __all__ = [
     "Supply",
     "SupplyPurchase",
     "SupplyUsage",
+    "SupplyVehicle",
     "Tire",
     "TireReading",
     "BrakeAxle",

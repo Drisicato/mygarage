@@ -10,6 +10,7 @@ import { NumberInput, Select } from '../ui'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import { displayDecimals, toCanonical, toDisplay, unitLabel, type SupplyUnit } from '../../utils/supplyUnits'
 import { parseOptionalDecimal } from '../../utils/decimalInput'
+import { supplyFitsVehicle } from '../../utils/supplyListView'
 import type { Supply } from '../../types/supplies'
 
 /** What a supply row's estimate costs, at the supply's average price per canonical unit. */
@@ -51,7 +52,7 @@ export default function SupplyPartFields({
   // Offer what this vehicle can use: active, and shared or pinned to it. The
   // row's own supply stays listed even if it was archived since.
   const options = supplies.filter(
-    (s) => s.id === supplyId || (s.is_active && (s.vin == null || s.vin === vin)),
+    (s) => s.id === supplyId || (s.is_active && supplyFitsVehicle(s, vin)),
   )
   const label = unitLabel(unit)
   const onHand = supply ? toDisplay(Number(supply.on_hand), unit) : 0

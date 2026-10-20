@@ -14,6 +14,7 @@ const useDeleteSupplyMock = vi.fn()
 const createSupplyMock = vi.fn()
 const updateSupplyMock = vi.fn()
 const uploadImageMock = vi.fn()
+const quickVehiclesMock = vi.fn(() => [] as unknown[])
 
 const mutationStub = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, variables: undefined })
 
@@ -47,7 +48,7 @@ vi.mock('../../hooks/queries/useAddressBook', async (importActual) => ({
 }))
 
 vi.mock('../../hooks/queries/useQuickEntryVehicles', () => ({
-  useQuickEntryVehicles: () => ({ data: [], isLoading: false }),
+  useQuickEntryVehicles: () => ({ data: quickVehiclesMock(), isLoading: false }),
 }))
 
 // Same mock pattern as DEFRecordList.test.tsx — these hooks need AuthProvider
@@ -99,7 +100,8 @@ const mockSupply: Supply = {
   unit_type: 'volume',
   category: 'Fluids',
   part_number: 'MO-530',
-  vin: null,
+  vins: [],
+  has_image: false,
   notes: null,
   on_hand: '10.500',
   avg_unit_cost: '5.25',
@@ -179,7 +181,7 @@ describe('Supplies page toolbar: search and filters', () => {
   const fluidsC = { ...mockSupply, id: 13, name: 'Oil C', category: 'Fluids' } as Supply
   const pinnedOut = {
     ...mockSupply, id: 14, name: 'Truck Brake Pads', category: null,
-    vin: '1HGCM82633A004352', on_hand: '0.000',
+    vins: ['1HGCM82633A004352'], on_hand: '0.000',
   } as Supply
 
   beforeEach(() => {
@@ -316,8 +318,8 @@ describe('Supplies page toolbar: sort, group, view', () => {
 describe('Supplies page: out of stock highlight and the vehicle line', () => {
   const zero = { ...mockSupply, id: 31, name: 'Zero Oil', on_hand: '0.000' } as Supply
   const neg = { ...mockSupply, id: 32, name: 'Neg Oil', on_hand: '-1.000', is_negative: true } as Supply
-  const shared = { ...mockSupply, id: 33, name: 'Shared Oil', vin: null } as Supply
-  const pinned = { ...mockSupply, id: 34, name: 'Pinned Oil', vin: 'VINUNKNOWN123' } as Supply
+  const shared = { ...mockSupply, id: 33, name: 'Shared Oil', vins: [] } as Supply
+  const pinned = { ...mockSupply, id: 34, name: 'Pinned Oil', vins: ['VINUNKNOWN123'] } as Supply
 
   beforeEach(() => {
     localStorage.clear()
@@ -764,6 +766,58 @@ describe('SupplyForm: the volume unit picker', () => {
 
     await waitFor(() => expect(updateSupplyMock).toHaveBeenCalled())
     expect('volume_unit' in lastPayload(updateSupplyMock)).toBe(false)
+  })
+})
+
+describe('SupplyForm: the vehicles a supply is shared with', () => {
+  const VIN_A = '1HGCM82633A004352'
+  const VIN_B = '5YJ3E1EA1JF000001'
+  const garage = [
+    { vin: VIN_A, nickname: 'Frontier', year: 2012, make: 'Nissan', model: 'Frontier' },
+    { vin: VIN_B, nickname: 'Model 3', year: 2018, make: 'Tesla', model: 'Model 3' },
+  ]
+  const box = (vin: string) => document.getElementById(`supply-vin-${vin}`) as HTMLInputElement
+  const submit = () => fireEvent.submit(document.getElementById('supply-form') as HTMLFormElement)
+
+  beforeEach(() => {
+    quickVehiclesMock.mockReturnValue(garage)
+  })
+  afterEach(() => {
+    quickVehiclesMock.mockReturnValue([])
+  })
+
+  it('a new supply with two vehicles checked is created for both', async () => {
+    render(<Supplies />)
+    fireEvent.click(screen.getByText('supplies.addSupply'))
+    expect(document.getElementById('vins-hint')).toHaveTextContent('supplies.sharedAcrossVehicles')
+
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Wiper Fluid' } })
+    fireEvent.click(box(VIN_A))
+    fireEvent.click(box(VIN_B))
+    expect(document.getElementById('vins-hint')).toHaveTextContent('supplies.vehiclesHint')
+    submit()
+
+    await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
+    expect(createSupplyMock.mock.calls.at(-1)?.[0]).toMatchObject({ vins: [VIN_A, VIN_B] })
+  })
+
+  it('editing starts from the stored vehicles and unchecking them all shares it again', async () => {
+    const linked = { ...mockSupply, vins: [VIN_A, 'HIDDENVIN00000001'] } as Supply
+    useSuppliesMock.mockReturnValue({ data: { supplies: [linked], total: 1 }, isLoading: false, error: null })
+    render(<Supplies />)
+    fireEvent.click(screen.getByLabelText('common:edit'))
+
+    expect(box(VIN_A).checked).toBe(true)
+    expect(box(VIN_B).checked).toBe(false)
+    // A linked vehicle the user can't see is still listed, so saving keeps it.
+    expect(box('HIDDENVIN00000001').checked).toBe(true)
+
+    fireEvent.click(box(VIN_A))
+    fireEvent.click(box('HIDDENVIN00000001'))
+    submit()
+
+    await waitFor(() => expect(updateSupplyMock).toHaveBeenCalled())
+    expect(updateSupplyMock.mock.calls.at(-1)?.[0]).toMatchObject({ vins: [] })
   })
 })
 

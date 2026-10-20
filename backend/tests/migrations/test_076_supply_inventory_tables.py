@@ -69,14 +69,17 @@ def test_076_create_all_matches_migration(engine_for_migration):
     _load("124_supply_volume_unit").upgrade(mig_engine)
     # 129 adds supplies.image_path.
     _load("129_add_supply_image").upgrade(mig_engine)
+    # 133 moves supplies.vin into supply_vehicles; the old column stays, unmapped.
+    _load("133_add_supply_vehicles").upgrade(mig_engine)
     mig = inspect(mig_engine)
+    unmapped_leftovers = {"supplies": {"vin"}}
 
     model_engine = create_engine("sqlite://")
     Base.metadata.create_all(model_engine)
     model = inspect(model_engine)
 
-    for table in ("supplies", "supply_purchases", "supply_usages"):
-        mig_cols = {c["name"] for c in mig.get_columns(table)}
+    for table in ("supplies", "supply_purchases", "supply_usages", "supply_vehicles"):
+        mig_cols = {c["name"] for c in mig.get_columns(table)} - unmapped_leftovers.get(table, set())
         model_cols = {c["name"] for c in model.get_columns(table)}
         assert mig_cols == model_cols, f"{table}: migration {mig_cols} != model {model_cols}"
     assert {c["name"]: c for c in mig.get_columns("supplies")}["is_active"]["default"] is not None

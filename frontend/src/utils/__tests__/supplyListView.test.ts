@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { Supply } from '@/types/supplies'
 import {
-  canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies,
+  canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies, supplyFitsVehicle,
   type SupplyFilters,
 } from '../supplyListView'
 
 const base = {
   id: 1, name: 'Mobil 1 5W-30', part_number: 'M1-5W30', barcode: null,
-  category: 'Fluids', unit_type: 'volume', vin: null, is_active: true,
+  category: 'Fluids', unit_type: 'volume', vins: [], has_image: false, is_active: true,
   notes: null, on_hand: '3.000', avg_unit_cost: '9.00', is_negative: false,
   created_at: '2026-01-01T00:00:00Z', updated_at: null,
 } as Supply
@@ -49,11 +49,19 @@ describe('filterSupplies', () => {
     const s = supply({ category: 'fluids' })
     expect(filterSupplies([s], { ...none, category: 'Fluids' })).toEqual([s])
   })
-  it('vehicle filter: shared matches null vin, a vin matches itself', () => {
-    const shared = supply({ id: 1, vin: null })
-    const pinned = supply({ id: 2, vin: '1HGCM82633A004352' })
-    expect(filterSupplies([shared, pinned], { ...none, vehicle: 'shared' })).toEqual([shared])
-    expect(filterSupplies([shared, pinned], { ...none, vehicle: '1HGCM82633A004352' })).toEqual([pinned])
+  it('vehicle filter: shared matches no vins, a vin matches every supply linked to it', () => {
+    const shared = supply({ id: 1, vins: [] })
+    const pinned = supply({ id: 2, vins: ['1HGCM82633A004352'] })
+    const both = supply({ id: 3, vins: ['1HGCM82633A004352', '5YJ3E1EA1JF000001'] })
+    const list = [shared, pinned, both]
+    expect(filterSupplies(list, { ...none, vehicle: 'shared' })).toEqual([shared])
+    expect(filterSupplies(list, { ...none, vehicle: '1HGCM82633A004352' })).toEqual([pinned, both])
+    expect(filterSupplies(list, { ...none, vehicle: '5YJ3E1EA1JF000001' })).toEqual([both])
+  })
+  it('supplyFitsVehicle: shared fits any vehicle, linked only its own', () => {
+    expect(supplyFitsVehicle(supply({ vins: [] }), 'A222')).toBe(true)
+    expect(supplyFitsVehicle(supply({ vins: ['A222', 'B111'] }), 'B111')).toBe(true)
+    expect(supplyFitsVehicle(supply({ vins: ['A222'] }), 'B111')).toBe(false)
   })
   it('out of stock keeps zero and negative only', () => {
     const list = [supply({ id: 1, on_hand: '0.000' }), supply({ id: 2, on_hand: '5.000' })]
@@ -99,12 +107,14 @@ describe('groupSupplies', () => {
   })
   it('vehicle groups order by label, shared last, and keep the incoming sort order', () => {
     const list = [
-      supply({ id: 1, vin: 'B111' }), supply({ id: 2, vin: null }),
-      supply({ id: 3, vin: 'A222' }), supply({ id: 4, vin: 'B111' }),
+      supply({ id: 1, vins: ['B111'] }), supply({ id: 2, vins: [] }),
+      supply({ id: 3, vins: ['A222', 'B111'] }), supply({ id: 4, vins: ['B111'] }),
     ]
     const groups = groupSupplies(list, 'vehicle', label)
     expect(groups.map((g) => g.value)).toEqual(['A222', 'B111', null])
-    expect(groups[1].supplies.map((s) => s.id)).toEqual([1, 4])
+    // A supply linked to two vehicles shows under both.
+    expect(groups[0].supplies.map((s) => s.id)).toEqual([3])
+    expect(groups[1].supplies.map((s) => s.id)).toEqual([1, 3, 4])
   })
   it('none returns one group holding everything', () => {
     const groups = groupSupplies([supply({})], 'none', label)

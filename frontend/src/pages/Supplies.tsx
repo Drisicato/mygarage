@@ -23,7 +23,7 @@ import {
 } from '@/utils/supplyUnits'
 import { UNIT_OPTION_LABELS, type VolumeUnit } from '@/types/units'
 import {
-  canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, sortSupplies,
+  canonicalCategories, filterSupplies, groupSupplies, isOutOfStock, isSharedSupply, sortSupplies,
   type SupplyFilters, type SupplyGroup,
 } from '@/utils/supplyListView'
 import { readSuppliesView, rememberSuppliesView, type SuppliesViewPrefs } from '@/utils/suppliesViewStore'
@@ -93,10 +93,12 @@ export default function Supplies() {
     const known = quickVehicles.find((v) => v.vin === vin)
     return known ? vehicleLabel(known) : vin
   }
+  const supplyVehiclesLabel = (supply: Supply): string =>
+    isSharedSupply(supply) ? t('supplies.sharedVehicle') : supply.vins.map(vehicleLabelFor).join(', ')
 
   const categories = useMemo(() => canonicalCategories(supplies), [supplies])
   const vins = useMemo(
-    () => [...new Set(supplies.map((s) => s.vin).filter((vin): vin is string => vin != null))],
+    () => [...new Set(supplies.flatMap((s) => s.vins))],
     [supplies],
   )
 
@@ -262,7 +264,7 @@ export default function Supplies() {
     {
       id: 'vehicle',
       header: t('supplies.vehicle'),
-      render: (s) => (s.vin ? vehicleLabelFor(s.vin) : t('supplies.sharedVehicle')),
+      render: (s) => supplyVehiclesLabel(s),
     },
     {
       id: 'on_hand',
@@ -521,7 +523,7 @@ export default function Supplies() {
                             )}
 
                             <div className="text-garage-text-muted text-xs">
-                              {supply.vin ? vehicleLabelFor(supply.vin) : t('supplies.sharedVehicle')}
+                              {supplyVehiclesLabel(supply)}
                             </div>
 
                             {isOutOfStock(supply) && (
@@ -674,9 +676,23 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
       barcode: supply?.barcode || '',
       category: supply?.category || '',
       notes: supply?.notes || '',
-      vin: supply?.vin || '',
+      vins: supply?.vins ?? [],
     },
   })
+  const selectedVins = watch('vins') ?? []
+  const toggleVin = (vin: string, checked: boolean) => {
+    const next = checked ? [...selectedVins, vin] : selectedVins.filter((v) => v !== vin)
+    setValue('vins', next, { shouldDirty: true, shouldValidate: true })
+  }
+  // The array's own message (a server 422), else the first bad VIN's.
+  const vinsError = errors.vins?.message ?? (Array.isArray(errors.vins) ? errors.vins.find(Boolean)?.message : undefined)
+  // A linked vehicle the user can't see stays listed (by VIN) so saving keeps it.
+  const vehicleChoices = [
+    ...vehicles.map((v) => ({ vin: v.vin, label: vehicleLabel(v) })),
+    ...(supply?.vins ?? [])
+      .filter((vin) => !vehicles.some((v) => v.vin === vin))
+      .map((vin) => ({ vin, label: vin })),
+  ]
   const unitType = watch('unit_type')
   const watchedName = watch('name')
   const watchedPartNumber = watch('part_number')
@@ -722,7 +738,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           barcode: data.barcode || null,
           category: data.category || null,
           notes: data.notes || null,
-          vin: data.vin || null,
+          vins: data.vins ?? [],
           is_active: isActive,
           ...(supply.unit_type === 'volume' ? { volume_unit: data.volume_unit } : {}),
         }
@@ -737,7 +753,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           barcode: data.barcode || undefined,
           category: data.category || undefined,
           notes: data.notes || undefined,
-          vin: data.vin || undefined,
+          vins: data.vins ?? [],
         }
         const saved = await createMutation.mutateAsync(payload)
         await syncImage(saved)
@@ -756,7 +772,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
         'part_number',
         'category',
         'notes',
-        'vin',
+        'vins',
       ])
       if (attached.length === 0 || unhandled.length > 0) {
         setError(getActionErrorMessage(err, t('supplies.saveAction')))
@@ -912,16 +928,29 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           </div>
         </Field>
 
-        <Field id="vin" label={t('supplies.vehicle')} error={errors.vin}>
-          <Select
-            id="vin"
-            {...register('vin')}
-            disabled={isSubmitting}
-            invalid={!!errors.vin}
-            placeholder={t('supplies.sharedAcrossVehicles')}
-            options={vehicles.map((v) => ({ value: v.vin, label: vehicleLabel(v) }))}
-          />
-        </Field>
+        <fieldset id="vins" className="mb-4" aria-describedby="vins-hint">
+          <legend className="mb-1 block text-sm font-medium text-text">{t('supplies.vehicles')}</legend>
+          <div className="space-y-2">
+            {vehicleChoices.map(({ vin, label }) => (
+              <Checkbox
+                key={vin}
+                id={`supply-vin-${vin}`}
+                label={label}
+                checked={selectedVins.includes(vin)}
+                onChange={(e) => toggleVin(vin, e.target.checked)}
+                disabled={isSubmitting}
+              />
+            ))}
+          </div>
+          <p id="vins-hint" className="mt-1 text-xs text-text-mute">
+            {selectedVins.length === 0 ? t('supplies.sharedAcrossVehicles') : t('supplies.vehiclesHint')}
+          </p>
+          {vinsError && (
+            <p id="vins-error" role="alert" className="mt-1 text-xs text-danger">
+              {vinsError}
+            </p>
+          )}
+        </fieldset>
 
         <Field id="notes" label={t('common:notes')} error={errors.notes}>
           <Textarea id="notes" rows={3} {...register('notes')} invalid={!!errors.notes} disabled={isSubmitting} />

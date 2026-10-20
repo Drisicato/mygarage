@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.address_book import AddressBookEntry
-from app.models.supply import Supply, SupplyPurchase, SupplyUsage
+from app.models.supply import Supply, SupplyPurchase, SupplyUsage, SupplyVehicle
+from app.models.vehicle import Vehicle
 from app.models.user import User
 from app.schemas._money import UNIT_COST_MAX
 from app.schemas.supply import (
@@ -126,7 +127,7 @@ class SupplyService:
             category=supply.category,
             unit_type=supply.unit_type,
             volume_unit=supply.volume_unit,
-            vin=supply.vin,
+            vins=supply.vins,
             notes=supply.notes,
             is_active=supply.is_active,
             on_hand=on_hand,
@@ -147,15 +148,18 @@ class SupplyService:
     ) -> tuple[list[SupplyResponse], int]:
         """List catalog supplies with computed balances.
 
-        vin filter (for the consume-picker): returns shared supplies (vin IS NULL)
-        plus supplies pinned to that vin.
+        vin filter (for the consume-picker): returns shared supplies (no vehicle
+        links) plus supplies linked to that vin.
         """
         try:
             stmt = select(Supply)
             if not include_archived:
                 stmt = stmt.where(Supply.is_active.is_(True))
             if vin is not None:
-                stmt = stmt.where((Supply.vin.is_(None)) | (Supply.vin == vin.upper().strip()))
+                stmt = stmt.where(
+                    ~Supply.vehicle_links.any()
+                    | Supply.vehicle_links.any(SupplyVehicle.vin == vin.upper().strip())
+                )
             stmt = stmt.order_by(Supply.name)
             supplies = (await self.db.execute(stmt)).scalars().all()
 
@@ -180,7 +184,29 @@ class SupplyService:
         on_hand, avg = (await self._compute_balances([supply_id]))[supply_id]
         return self._to_supply_response(supply, on_hand, avg)
 
+    async def _check_vins(self, vins: list[str]) -> None:
+        """422 for a VIN that names no vehicle, before the FK turns it into a 500."""
+        if not vins:
+            return
+        known = set(
+            (await self.db.execute(select(Vehicle.vin).where(Vehicle.vin.in_(vins)))).scalars()
+        )
+        missing = [vin for vin in vins if vin not in known]
+        if missing:
+            raise HTTPException(
+                status_code=422, detail=f"Vehicle {', '.join(missing)} not found"
+            )
+
+    @staticmethod
+    def _set_vins(supply: Supply, vins: list[str]) -> None:
+        """Make the links match ``vins``, keeping the rows that stay (same primary key)."""
+        wanted = set(vins)
+        supply.vehicle_links[:] = [link for link in supply.vehicle_links if link.vin in wanted]
+        have = {link.vin for link in supply.vehicle_links}
+        supply.vehicle_links.extend(SupplyVehicle(vin=vin) for vin in vins if vin not in have)
+
     async def create_supply(self, data: SupplyCreate, current_user: User | None) -> SupplyResponse:
+        await self._check_vins(data.vins)
         supply = Supply(
             name=data.name,
             part_number=data.part_number,
@@ -188,9 +214,9 @@ class SupplyService:
             category=data.category,
             unit_type=data.unit_type,
             volume_unit=data.volume_unit,
-            vin=data.vin.upper().strip() if data.vin else None,
             notes=data.notes,
             created_by_user_id=current_user.id if current_user else None,
+            vehicle_links=[SupplyVehicle(vin=vin) for vin in data.vins],
         )
         self.db.add(supply)
         await self.db.commit()
@@ -202,8 +228,10 @@ class SupplyService:
     ) -> SupplyResponse:
         supply = await self.get_supply(supply_id)
         payload = data.model_dump(exclude_unset=True)
-        if "vin" in payload and payload["vin"]:
-            payload["vin"] = payload["vin"].upper().strip()
+        vins = payload.pop("vins", ...)
+        if vins is not ...:
+            vins = vins or []  # null clears the links, the same as []
+            await self._check_vins(vins)
         # unit_type isn't patchable, so only the stored supply knows if it's a count.
         # Checked before the setattr loop so a 422 leaves nothing dirty in the session.
         merged_unit = payload["volume_unit"] if "volume_unit" in payload else supply.volume_unit
@@ -211,6 +239,8 @@ class SupplyService:
             raise HTTPException(status_code=422, detail="A count supply cannot carry a volume unit")
         for field, value in payload.items():
             setattr(supply, field, value)
+        if vins is not ...:
+            self._set_vins(supply, vins)
         await self.db.commit()
         await self.db.refresh(supply)
         on_hand, avg = (await self._compute_balances([supply.id]))[supply.id]
@@ -474,14 +504,14 @@ class SupplyService:
         await self.db.commit()
 
     async def get_supply_for_use(self, supply_id: int, vin: str) -> Supply:
-        """Validate a supply is usable on a given vehicle (shared or pinned to it, active)."""
+        """Validate a supply is usable on a given vehicle (shared or linked to it, active)."""
         supply = await self.get_supply(supply_id)
         if not supply.is_active:
             raise HTTPException(status_code=400, detail=f"Supply {supply_id} is archived")
-        if supply.vin is not None and supply.vin != vin.upper().strip():
+        if not supply.usable_on(vin.upper().strip()):
             raise HTTPException(
                 status_code=400,
-                detail=f"Supply {supply_id} is pinned to a different vehicle",
+                detail=f"Supply {supply_id} isn't shared with this vehicle",
             )
         return supply
 

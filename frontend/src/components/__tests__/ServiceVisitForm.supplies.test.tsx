@@ -65,7 +65,7 @@ const MOCK_SUPPLY: Supply = {
   notes: null,
   part_number: null,
   updated_at: null,
-  vin: null,
+  vins: [],
 }
 
 // Shared across ServiceVisitForm's own lookup fetch (includeArchived=true) and
@@ -277,10 +277,10 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
     })
 
     it('resends a usage of a supply repinned to another vehicle (unfiltered resolution avoids a silent wipe)', async () => {
-      // Supply 2 is pinned to a DIFFERENT vehicle — never OFFERED for a new row here,
+      // Supply 2 is linked to a DIFFERENT vehicle only — never OFFERED for a new row here,
       // but a past usage of it must still hydrate + resend. The form resolves usages
       // from an UNFILTERED supplies fetch precisely so this isn't dropped -> wiped.
-      const repinned: Supply = { ...MOCK_SUPPLY, id: 2, name: 'Coolant', vin: 'OTHERVIN' }
+      const repinned: Supply = { ...MOCK_SUPPLY, id: 2, name: 'Coolant', vins: ['OTHERVIN'] }
       vi.mocked(useSupplies).mockReturnValue({
         data: { supplies: [MOCK_SUPPLY, repinned], total: 2 },
         isSuccess: true,

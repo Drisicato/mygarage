@@ -74,7 +74,7 @@ const OIL_FILTER: Supply = {
   notes: null,
   part_number: null,
   updated_at: null,
-  vin: null,
+  vins: [],
 }
 
 vi.mock('../../hooks/queries/useSupplies', () => ({

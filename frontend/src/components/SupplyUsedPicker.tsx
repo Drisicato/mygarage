@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { unitLabel, type SupplyUnit } from '../utils/supplyUnits'
 import type { SupplyUsedEntry } from '../types/serviceVisit'
 import type { Supply } from '../types/supplies'
+import { supplyFitsVehicle } from '../utils/supplyListView'
 import { Select } from './ui'
 
 interface SupplyUsedPickerProps {
@@ -45,12 +46,12 @@ export default function SupplyUsedPicker({
   // already in use (via edit-hydration) stays selectable in its own row below
   // — see rowOptions — so past usage isn't orphaned, but it's never offered as
   // a fresh choice.
-  // Addable = ACTIVE and shared (vin null) or pinned to THIS vehicle, and not
+  // Addable = ACTIVE and shared (no vins) or linked to THIS vehicle, and not
   // already used. (The full `supplies` list is vin-unfiltered so existing rows
   // resolve names; but a supply pinned to another vehicle must never be OFFERED
   // — the backend would reject it — so scope the addable set here.)
   const addableSupplies = supplies.filter(
-    (s) => s.is_active && (s.vin == null || s.vin === vin) && !usedSupplyIds.has(s.id),
+    (s) => s.is_active && supplyFitsVehicle(s, vin) && !usedSupplyIds.has(s.id),
   )
 
   const handleAddRow = () => {

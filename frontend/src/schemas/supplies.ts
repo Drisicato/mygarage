@@ -27,7 +27,8 @@ export const makeSupplySchema = (t: TFunction) =>
     barcode: z.string().max(64, t('common:validation.supply.barcodeTooLong')).optional(),
     category: z.string().max(40, t('common:validation.supply.categoryTooLong')).optional(),
     notes: z.string().max(5000, t('common:validation.supply.notesTooLong')).optional(),
-    vin: makeVinSchema(t).or(z.literal('')).optional(),
+    // Empty = shared across all vehicles.
+    vins: z.array(makeVinSchema(t)).optional(),
   })
 
 export type SupplyFormData = z.infer<ReturnType<typeof makeSupplySchema>>

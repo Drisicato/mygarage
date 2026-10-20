@@ -188,7 +188,7 @@ REGISTRY: dict[type[BaseModel], Entry] = {
     SpotRentalBillingUpdate: Entry(SpotRentalBilling),
     SpotRentalUpdate: Entry(SpotRental),
     SupplyPurchaseUpdate: Entry(SupplyPurchase),
-    SupplyUpdate: Entry(Supply),
+    SupplyUpdate: Entry(Supply, unmapped={"vins": "SupplyVehicle link rows, replaced whole"}),
     TaxRecordUpdate: Entry(TaxRecord),
     TireReadingUpdate: Entry(TireReading),
     TireSetUpdate: Entry(TireSet),

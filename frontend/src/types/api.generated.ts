@@ -17094,10 +17094,10 @@ export interface components {
              */
             unit_type: "volume" | "count";
             /**
-             * Vin
-             * @description Pin to a vehicle; null = shared across all
+             * Vins
+             * @description Vehicles this supply is shared with; empty = shared across all
              */
-            vin?: string | null;
+            vins?: string[];
             /**
              * Volume Unit
              * @description Per-supply display unit for a volume supply; null = legacy binary pick
@@ -17307,10 +17307,10 @@ export interface components {
             /** Updated At */
             updated_at?: string | null;
             /**
-             * Vin
-             * @description Pin to a vehicle; null = shared across all
+             * Vins
+             * @description Vehicles this supply is shared with; empty = shared across all
              */
-            vin?: string | null;
+            vins: string[];
             /**
              * Volume Unit
              * @description Per-supply display unit; null means the legacy binary pick
@@ -17337,8 +17337,11 @@ export interface components {
             notes?: string | null;
             /** Part Number */
             part_number?: string | null;
-            /** Vin */
-            vin?: string | null;
+            /**
+             * Vins
+             * @description Replaces the linked vehicles; omitted keeps them, [] or null = all vehicles
+             */
+            vins?: string[] | null;
             /**
              * Volume Unit
              * @description Omitted keeps the stored unit; null clears back to the legacy pick

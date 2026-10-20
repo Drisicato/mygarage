@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.models.note import Note
 from app.models.reminder import Reminder
 from app.models.service_visit import ServiceVisit
-from app.models.supply import Supply
+from app.models.supply import Supply, SupplyVehicle
 from app.models.tire import Tire
 from app.models.vehicle import TrailerDetails, Vehicle
 from app.models.vehicle_dtc import VehicleDTC
@@ -103,7 +103,10 @@ async def build_garage_context(
         select(Supply)
         .where(
             Supply.is_active.is_(True),
-            or_(Supply.vin == vin, Supply.vin.is_(None)),
+            or_(
+                Supply.vehicle_links.any(SupplyVehicle.vin == vin),
+                ~Supply.vehicle_links.any(),
+            ),
         )
         .order_by(Supply.name)
         .limit(_MAX_SUPPLIES)
@@ -266,7 +269,7 @@ async def build_garage_context(
                 "name": s.name,
                 "part_number": s.part_number,
                 "category": s.category,
-                "vin_scoped": s.vin == vin,
+                "vin_scoped": bool(s.vehicle_links),
                 "notes": (s.notes or "")[:200] or None,
             }
             for s in supplies

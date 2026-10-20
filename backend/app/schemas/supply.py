@@ -7,7 +7,14 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
@@ -21,6 +28,17 @@ SupplyVolumeUnit = Literal["mL", "L", "fl_oz_us", "fl_oz_uk", "qt_us", "qt_uk", 
 LenientSupplyVolumeUnit = Annotated[
     SupplyVolumeUnit | None, BeforeValidator(lenient_reader(SupplyVolumeUnit)), LenientVocab(None)
 ]
+
+#: A VIN as a supply's vehicle link carries it: trimmed and upper-cased.
+SupplyVin = Annotated[
+    str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=1, max_length=17)
+]
+
+
+def _dedupe_vins(value: list[str] | None) -> list[str] | None:
+    """Keep the first of each VIN, so a repeated pick can't break the link table's key."""
+    return None if value is None else list(dict.fromkeys(value))
+
 
 #: The largest quantity a Numeric(12,3) supply ledger column holds (purchases
 #: and usages alike). What the column holds and no tighter: a household cap
@@ -36,14 +54,18 @@ class SupplyBase(BaseModel):
     barcode: str | None = Field(None, max_length=64, description="UPC/EAN/QR product barcode")
     category: str | None = Field(None, max_length=40)
     unit_type: SupplyUnitType = Field(..., description="volume (stored L) or count")
-    vin: str | None = Field(
-        None, max_length=17, description="Pin to a vehicle; null = shared across all"
-    )
     notes: str | None = Field(None, max_length=5000)
 
 
 class SupplyCreate(SupplyBase):
     """Create a catalog supply."""
+
+    vins: list[SupplyVin] = Field(
+        default_factory=list,
+        description="Vehicles this supply is shared with; empty = shared across all",
+    )
+
+    _vins_unique = field_validator("vins")(_dedupe_vins)
 
     volume_unit: SupplyVolumeUnit | None = Field(
         None, description="Per-supply display unit for a volume supply; null = legacy binary pick"
@@ -64,7 +86,10 @@ class SupplyUpdate(BaseModel):
     part_number: str | None = Field(None, max_length=60)
     barcode: str | None = Field(None, max_length=64)
     category: str | None = Field(None, max_length=40)
-    vin: str | None = Field(None, max_length=17)
+    vins: list[SupplyVin] | None = Field(
+        None,
+        description="Replaces the linked vehicles; omitted keeps them, [] or null = all vehicles",
+    )
     notes: str | None = Field(None, max_length=5000)
     is_active: bool | None = Field(None, description="false = archive, true = restore")
     volume_unit: SupplyVolumeUnit | None = Field(
@@ -73,6 +98,7 @@ class SupplyUpdate(BaseModel):
 
     # NOT NULL columns: omitted keeps the stored value, null is a 422.
     _no_null = reject_null("name", "is_active")
+    _vins_unique = field_validator("vins")(_dedupe_vins)
 
 
 class SupplyResponse(SupplyBase):
@@ -84,7 +110,9 @@ class SupplyResponse(SupplyBase):
     part_number: str | None = None
     barcode: str | None = Field(None, description="UPC/EAN/QR product barcode")
     category: str | None = None
-    vin: str | None = Field(None, description="Pin to a vehicle; null = shared across all")
+    vins: list[str] = Field(
+        description="Vehicles this supply is shared with; empty = shared across all"
+    )
     notes: str | None = None
     id: int
     is_active: bool

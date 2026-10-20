@@ -21,6 +21,7 @@ import { useUnitFormat } from '../../hooks/useUnitFormat'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import { canonicalFromUnitField, seedUnitField, type UnitFieldOrigin } from '../../utils/unitFormat'
 import { formatDateForInput } from '../../utils/dateUtils'
+import { supplyFitsVehicle } from '../../utils/supplyListView'
 import { parseOptionalDecimal } from '../../utils/decimalInput'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
 import { moneyTextError } from '../../schemas/shared'
@@ -78,7 +79,7 @@ export default function CompleteRepairDialog({
   const { system } = useUnitPreference()
   const { data: supplyData } = useSupplies(true)
   const supplies = useMemo(() => supplyData?.supplies ?? [], [supplyData])
-  const addableSupplies = supplies.filter((s) => s.is_active && (s.vin == null || s.vin === vin))
+  const addableSupplies = supplies.filter((s) => s.is_active && supplyFitsVehicle(s, vin))
   // The parts become the line items (supplies keep their planned quantity), or
   // the repair's title and estimate when it has no parts.
   const [items, setItems] = useState<ItemRow[]>(() => {
