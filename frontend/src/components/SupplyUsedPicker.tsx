@@ -25,6 +25,12 @@ interface SupplyUsedPickerProps {
   disabled?: boolean
 }
 
+// Native <option>s are text only, so brand and part number ride in the label to
+// tell same-named supplies apart (two "Oil Filter"s for different vehicles).
+function supplyOptionLabel(supply: Supply): string {
+  return [supply.name, supply.brand?.trim(), supply.part_number?.trim()].filter(Boolean).join(' · ')
+}
+
 /**
  * Consume-picker for a service line item: which supplies (fluids, filters,
  * parts) were used, and how much, each in its supply's display unit. The
@@ -97,8 +103,13 @@ export default function SupplyUsedPicker({
             // Row's own select keeps its current supply as an option even if it's
             // archived (not in addableSupplies) or — defensively — also picked by
             // another row (shouldn't happen via handleAddRow, but a hydrated or
-            // hand-edited value could carry a duplicate).
-            const rowOptions = supplies.filter((s) => s.id === row.supply_id || (s.is_active && !usedSupplyIds.has(s.id)))
+            // hand-edited value could carry a duplicate). Other choices get the
+            // same vehicle scope as addableSupplies.
+            const rowOptions = supplies.filter(
+              (s) =>
+                s.id === row.supply_id ||
+                (s.is_active && supplyFitsVehicle(s, vin) && !usedSupplyIds.has(s.id)),
+            )
 
             return (
               <div key={rowIndex} className="flex items-center gap-2">
@@ -110,7 +121,7 @@ export default function SupplyUsedPicker({
                     aria-label={t('service.suppliesUsed')}
                     options={[
                       ...(supply == null ? [{ value: String(row.supply_id), label: `#${row.supply_id}` }] : []),
-                      ...rowOptions.map((s) => ({ value: String(s.id), label: s.name })),
+                      ...rowOptions.map((s) => ({ value: String(s.id), label: supplyOptionLabel(s) })),
                     ]}
                   />
                 </div>
