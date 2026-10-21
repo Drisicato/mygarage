@@ -109,6 +109,8 @@ async def supplies_snapshot(db: AsyncSession, vin: str) -> list[dict[str, Any]]:
         "id",
         "name",
         "part_number",
+        "brand",
+        "part_source",
         "barcode",
         "category",
         "unit_type",

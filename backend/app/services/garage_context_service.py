@@ -268,6 +268,8 @@ async def build_garage_context(
             {
                 "name": s.name,
                 "part_number": s.part_number,
+                "brand": s.brand,
+                "part_source": s.part_source,
                 "category": s.category,
                 "vin_scoped": bool(s.vehicle_links),
                 "notes": (s.notes or "")[:200] or None,

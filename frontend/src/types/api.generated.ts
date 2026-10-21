@@ -17221,6 +17221,8 @@ export interface components {
              * @description UPC/EAN/QR product barcode
              */
             barcode?: string | null;
+            /** Brand */
+            brand?: string | null;
             /** Category */
             category?: string | null;
             /** Name */
@@ -17229,6 +17231,11 @@ export interface components {
             notes?: string | null;
             /** Part Number */
             part_number?: string | null;
+            /**
+             * Part Source
+             * @description oem or aftermarket; null = not recorded
+             */
+            part_source?: ("oem" | "aftermarket") | null;
             /**
              * Unit Type
              * @description volume (stored L) or count
@@ -17407,6 +17414,8 @@ export interface components {
              * @description UPC/EAN/QR product barcode
              */
             barcode?: string | null;
+            /** Brand */
+            brand?: string | null;
             /** Category */
             category?: string | null;
             /**
@@ -17441,6 +17450,11 @@ export interface components {
             /** Part Number */
             part_number?: string | null;
             /**
+             * Part Source
+             * @description oem or aftermarket; null = not recorded
+             */
+            part_source?: ("oem" | "aftermarket") | null;
+            /**
              * Unit Type
              * @description volume (stored L) or count
              * @enum {string}
@@ -17466,6 +17480,8 @@ export interface components {
         SupplyUpdate: {
             /** Barcode */
             barcode?: string | null;
+            /** Brand */
+            brand?: string | null;
             /** Category */
             category?: string | null;
             /**
@@ -17479,6 +17495,11 @@ export interface components {
             notes?: string | null;
             /** Part Number */
             part_number?: string | null;
+            /**
+             * Part Source
+             * @description oem or aftermarket; null clears it
+             */
+            part_source?: ("oem" | "aftermarket") | null;
             /**
              * Vins
              * @description Replaces the linked vehicles; omitted keeps them, [] or null = all vehicles

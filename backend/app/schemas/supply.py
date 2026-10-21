@@ -21,12 +21,16 @@ from app.schemas._nullability import reject_null
 from app.utils.lenient_vocab import LenientVocab, lenient_reader
 
 SupplyUnitType = Literal["volume", "count"]
+SupplyPartSource = Literal["oem", "aftermarket"]
 SupplyVolumeUnit = Literal["mL", "L", "fl_oz_us", "fl_oz_uk", "qt_us", "qt_uk", "gal_us", "gal_uk"]
 
 # Responses only: the column has no CHECK, so an odd stored token reads as null
 # (the legacy binary pick) instead of 500ing the list.
 LenientSupplyVolumeUnit = Annotated[
     SupplyVolumeUnit | None, BeforeValidator(lenient_reader(SupplyVolumeUnit)), LenientVocab(None)
+]
+LenientSupplyPartSource = Annotated[
+    SupplyPartSource | None, BeforeValidator(lenient_reader(SupplyPartSource)), LenientVocab(None)
 ]
 
 #: A VIN as a supply's vehicle link carries it: trimmed and upper-cased.
@@ -51,6 +55,10 @@ class SupplyBase(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=120)
     part_number: str | None = Field(None, max_length=60)
+    brand: str | None = Field(None, max_length=60)
+    part_source: SupplyPartSource | None = Field(
+        None, description="oem or aftermarket; null = not recorded"
+    )
     barcode: str | None = Field(None, max_length=64, description="UPC/EAN/QR product barcode")
     category: str | None = Field(None, max_length=40)
     unit_type: SupplyUnitType = Field(..., description="volume (stored L) or count")
@@ -84,6 +92,10 @@ class SupplyUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=120)
     part_number: str | None = Field(None, max_length=60)
+    brand: str | None = Field(None, max_length=60)
+    part_source: SupplyPartSource | None = Field(
+        None, description="oem or aftermarket; null clears it"
+    )
     barcode: str | None = Field(None, max_length=64)
     category: str | None = Field(None, max_length=40)
     vins: list[SupplyVin] | None = Field(
@@ -108,6 +120,10 @@ class SupplyResponse(SupplyBase):
     # still reads instead of 500ing (test_response_contract).
     name: str
     part_number: str | None = None
+    brand: str | None = None
+    part_source: LenientSupplyPartSource = Field(
+        None, description="oem or aftermarket; null = not recorded"
+    )
     barcode: str | None = Field(None, description="UPC/EAN/QR product barcode")
     category: str | None = None
     vins: list[str] = Field(

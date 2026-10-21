@@ -107,20 +107,23 @@ class TestSuppliesCsv:
         vin = test_vehicle["vin"]
         tag = uuid.uuid4().hex[:8]
         body = (
-            "Name,Part Number,Barcode,Category,Unit,Shared,On Hand,Total Cost,Notes\n"
-            f"Oil {tag},OIL-{tag},,Fluids,qt_us,no,5,30.00,synthetic\n"
-            f"Filter {tag},FLT-{tag},,Filters,count,yes,2,,\n"
-            f"Bad {tag},,,,barrels,no,1,,\n"
+            "Name,Part Number,Brand,Part Source,Barcode,Category,Unit,Shared,On Hand,"
+            "Total Cost,Notes\n"
+            f"Oil {tag},OIL-{tag},Mobil 1,Aftermarket,,Fluids,qt_us,no,5,30.00,synthetic\n"
+            f"Filter {tag},FLT-{tag},,,,Filters,count,yes,2,,\n"
+            f"Bad {tag},,,,,,barrels,no,1,,\n"
+            f"Odd source {tag},,,used,,,count,no,1,,\n"
         )
         response = await _upload(client, auth_headers, vin, "supplies/csv", body)
         assert response.status_code == 200, response.text
         data = response.json()
-        assert (data["success_count"], data["error_count"]) == (2, 1)
+        assert (data["success_count"], data["error_count"]) == (2, 2)
 
         oil = (
             await db_session.execute(select(Supply).where(Supply.name == f"Oil {tag}"))
         ).scalar_one()
         assert (oil.unit_type, oil.volume_unit, oil.vins) == ("volume", "qt_us", [vin])
+        assert (oil.brand, oil.part_source) == ("Mobil 1", "aftermarket")
         filter_ = (
             await db_session.execute(select(Supply).where(Supply.name == f"Filter {tag}"))
         ).scalar_one()
@@ -149,6 +152,9 @@ class TestSuppliesCsv:
         assert Decimal(rows[f"Oil {tag}"]["On Hand"]) == pytest.approx(Decimal("5"), abs=0.001)
         assert rows[f"Oil {tag}"]["Shared"] == "no"
         assert rows[f"Oil {tag}"]["Total Cost"] == "30.00"
+        assert rows[f"Oil {tag}"]["Brand"] == "Mobil 1"
+        assert rows[f"Oil {tag}"]["Part Source"] == "aftermarket"
+        assert rows[f"Filter {tag}"]["Part Source"] == ""
         assert rows[f"Filter {tag}"]["Shared"] == "yes"
 
 

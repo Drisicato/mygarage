@@ -821,6 +821,8 @@ async def export_notes_csv(
 SUPPLY_CSV_HEADERS = [
     "Name",
     "Part Number",
+    "Brand",
+    "Part Source",
     "Barcode",
     "Category",
     "Unit",
@@ -869,6 +871,8 @@ async def export_supplies_csv(
             [
                 supply.name,
                 supply.part_number or "",
+                supply.brand or "",
+                supply.part_source or "",
                 supply.barcode or "",
                 supply.category or "",
                 unit,

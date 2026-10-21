@@ -27,7 +27,7 @@ import {
   type SupplyFilters, type SupplyGroup,
 } from '@/utils/supplyListView'
 import { readSuppliesView, rememberSuppliesView, type SuppliesViewPrefs } from '@/utils/suppliesViewStore'
-import { makeSupplySchema, SUPPLY_UNIT_TYPES, type SupplyFormData } from '@/schemas/supplies'
+import { makeSupplySchema, SUPPLY_PART_SOURCES, SUPPLY_UNIT_TYPES, type SupplyFormData } from '@/schemas/supplies'
 import {
   Select, Field, Input, Textarea, Checkbox, Button, SearchField, Chip, Dropdown, DataTable,
   type DropdownItem, type DataTableColumn,
@@ -95,6 +95,11 @@ export default function Supplies() {
   }
   const supplyVehiclesLabel = (supply: Supply): string =>
     isSharedSupply(supply) ? t('supplies.sharedVehicle') : supply.vins.map(vehicleLabelFor).join(', ')
+  // "Motorcraft · OEM", or whichever of the two is recorded.
+  const partMakerLabel = (supply: Supply): string =>
+    [supply.brand, supply.part_source && t(`supplies.partSources.${supply.part_source}`)]
+      .filter(Boolean)
+      .join(' · ')
 
   const categories = useMemo(() => canonicalCategories(supplies), [supplies])
   const vins = useMemo(
@@ -256,6 +261,7 @@ export default function Supplies() {
           <div>
             <div className="font-medium text-garage-text">{s.name}</div>
             {s.part_number && <div className="text-xs text-garage-text-muted">{s.part_number}</div>}
+            {partMakerLabel(s) && <div className="text-xs text-garage-text-muted">{partMakerLabel(s)}</div>}
           </div>
         </div>
       ),
@@ -522,6 +528,10 @@ export default function Supplies() {
                               <div className="text-garage-text-muted">{supply.part_number}</div>
                             )}
 
+                            {partMakerLabel(supply) && (
+                              <div className="text-garage-text-muted">{partMakerLabel(supply)}</div>
+                            )}
+
                             <div className="text-garage-text-muted text-xs">
                               {supplyVehiclesLabel(supply)}
                             </div>
@@ -661,6 +671,8 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
       unit_type: supply?.unit_type || 'volume',
       volume_unit: initialUnit,
       part_number: supply?.part_number || '',
+      brand: supply?.brand || '',
+      part_source: supply?.part_source || '',
       barcode: supply?.barcode || '',
       category: supply?.category || '',
       notes: supply?.notes || '',
@@ -723,6 +735,8 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
         const payload: SupplyUpdate = {
           name: data.name,
           part_number: data.part_number || null,
+          brand: data.brand || null,
+          part_source: data.part_source || null,
           barcode: data.barcode || null,
           category: data.category || null,
           notes: data.notes || null,
@@ -738,6 +752,8 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
           unit_type: data.unit_type,
           ...(data.unit_type === 'volume' ? { volume_unit: data.volume_unit } : {}),
           part_number: data.part_number || undefined,
+          brand: data.brand || undefined,
+          part_source: data.part_source || undefined,
           barcode: data.barcode || undefined,
           category: data.category || undefined,
           notes: data.notes || undefined,
@@ -758,6 +774,8 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
         'unit_type',
         'volume_unit',
         'part_number',
+        'brand',
+        'part_source',
         'category',
         'notes',
         'vins',
@@ -886,6 +904,25 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
                 <option key={c} value={c} />
               ))}
             </datalist>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field id="brand" label={t('supplies.brand')} error={errors.brand}>
+            <Input id="brand" type="text" {...register('brand')} invalid={!!errors.brand} disabled={isSubmitting} />
+          </Field>
+
+          <Field id="part_source" label={t('supplies.partSource')} error={errors.part_source}>
+            <Select
+              id="part_source"
+              {...register('part_source')}
+              disabled={isSubmitting}
+              invalid={!!errors.part_source}
+              options={[
+                { value: '', label: t('supplies.partSourceNotSet') },
+                ...SUPPLY_PART_SOURCES.map((source) => ({ value: source, label: t(`supplies.partSources.${source}`) })),
+              ]}
+            />
           </Field>
         </div>
 

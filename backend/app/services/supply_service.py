@@ -123,6 +123,8 @@ class SupplyService:
             id=supply.id,
             name=supply.name,
             part_number=supply.part_number,
+            brand=supply.brand,
+            part_source=supply.part_source,
             barcode=supply.barcode,
             category=supply.category,
             unit_type=supply.unit_type,
@@ -210,6 +212,8 @@ class SupplyService:
         supply = Supply(
             name=data.name,
             part_number=data.part_number,
+            brand=data.brand,
+            part_source=data.part_source,
             barcode=data.barcode,
             category=data.category,
             unit_type=data.unit_type,

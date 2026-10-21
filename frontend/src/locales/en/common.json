@@ -169,6 +169,13 @@
       "qt_uk": "UK quarts (qt)"
     },
     "partNumber": "Part Number",
+    "brand": "Brand",
+    "partSource": "OEM / Aftermarket",
+    "partSourceNotSet": "Not set",
+    "partSources": {
+      "oem": "OEM",
+      "aftermarket": "Aftermarket"
+    },
     "image": "Product image",
     "imageAlt": "Image of {{name}}",
     "imageChoose": "Choose image",
@@ -560,6 +567,7 @@
       "nameTooLong": "Name too long",
       "unitTypeRequired": "Unit type is required",
       "partNumberTooLong": "Part number too long",
+      "brandTooLong": "Brand too long",
       "barcodeTooLong": "Barcode too long (max 64 characters)",
       "categoryTooLong": "Category too long",
       "notesTooLong": "Notes too long"

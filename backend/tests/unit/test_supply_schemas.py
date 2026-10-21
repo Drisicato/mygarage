@@ -113,9 +113,27 @@ def test_supply_response_reads_an_unknown_stored_token_as_null():
         on_hand=Decimal("1.000"),
         is_negative=False,
         created_at=datetime(2026, 1, 1),
+        vins=[],
         volume_unit="pt_us",
     )
     assert r.volume_unit is None
+
+
+def test_supply_part_source_is_oem_or_aftermarket():
+    with pytest.raises(ValidationError):
+        SupplyCreate(name="Filter", unit_type="count", part_source="used")
+    r = SupplyResponse(
+        id=1,
+        name="Filter",
+        unit_type="count",
+        is_active=True,
+        on_hand=Decimal("1"),
+        is_negative=False,
+        created_at=datetime(2026, 1, 1),
+        vins=[],
+        part_source="used",
+    )
+    assert r.part_source is None
 
 
 def test_supply_usage_response_reads_leniently_too():

@@ -71,6 +71,8 @@ def test_076_create_all_matches_migration(engine_for_migration):
     _load("129_add_supply_image").upgrade(mig_engine)
     # 133 moves supplies.vin into supply_vehicles; the old column stays, unmapped.
     _load("133_add_supply_vehicles").upgrade(mig_engine)
+    # 134 adds supplies.brand and supplies.part_source.
+    _load("134_add_supply_brand_part_source").upgrade(mig_engine)
     mig = inspect(mig_engine)
     unmapped_leftovers = {"supplies": {"vin"}}
 

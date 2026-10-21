@@ -149,3 +149,4 @@ migrations must swallow their own operational errors.
 | `131_add_warranty_documents` | Create warranty_documents for files attached to warranty records. |
 | `132_add_vehicle_inspections` | Create the vehicle inspection tables: inspections, checklist items, wheel corners, photos. |
 | `133_add_supply_vehicles` | Share a supply with several vehicles: supply_vehicles replaces supplies.vin. |
+| `134_add_supply_brand_part_source` | **FATAL** — Add supplies.brand and supplies.part_source (OEM or aftermarket). |

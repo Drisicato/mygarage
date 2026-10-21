@@ -119,6 +119,19 @@ async def test_patch_sets_and_clears_the_unit(db_session):
     assert cleared.volume_unit is None
 
 
+async def test_brand_and_part_source_are_set_and_cleared(db_session):
+    svc = SupplyService(db_session)
+    created = await svc.create_supply(
+        SupplyCreate(name="Oil filter", unit_type="count", brand="Motorcraft", part_source="oem"),
+        None,
+    )
+    assert (created.brand, created.part_source) == ("Motorcraft", "oem")
+    updated = await svc.update_supply(created.id, SupplyUpdate(part_source="aftermarket"), None)
+    assert (updated.brand, updated.part_source) == ("Motorcraft", "aftermarket")
+    cleared = await svc.update_supply(created.id, SupplyUpdate(brand=None, part_source=None), None)
+    assert (cleared.brand, cleared.part_source) == (None, None)
+
+
 async def test_patch_unit_onto_a_count_supply_is_422(db_session):
     svc = SupplyService(db_session)
     s = await _make_supply(db_session, unit_type="count")

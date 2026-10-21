@@ -1763,6 +1763,9 @@ async def import_supplies_csv(
             if len(name) > 120:
                 raise _RowError("Name is longer than 120 characters")
             part_number = (row.get("Part Number") or "").strip()[:60] or None
+            part_source = (row.get("Part Source") or "").strip().lower() or None
+            if part_source not in (None, "oem", "aftermarket"):
+                raise _RowError("Part Source must be oem or aftermarket")
             unit = (row.get("Unit") or "").strip() or "count"
             if unit not in SUPPLY_UNITS:
                 raise _RowError(f"Unit must be one of {', '.join(SUPPLY_UNITS)}")
@@ -1782,6 +1785,8 @@ async def import_supplies_csv(
                 supply = Supply(
                     name=name,
                     part_number=part_number,
+                    brand=(row.get("Brand") or "").strip()[:60] or None,
+                    part_source=part_source,
                     barcode=(row.get("Barcode") or "").strip()[:64] or None,
                     category=(row.get("Category") or "").strip()[:40] or None,
                     unit_type="count" if unit == "count" else "volume",

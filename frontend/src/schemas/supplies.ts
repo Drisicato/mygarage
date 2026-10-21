@@ -12,6 +12,7 @@ import { makeVinSchema } from './shared'
  */
 
 export const SUPPLY_UNIT_TYPES = ['volume', 'count'] as const
+export const SUPPLY_PART_SOURCES = ['oem', 'aftermarket'] as const
 
 export const makeSupplySchema = (t: TFunction) =>
   z.object({
@@ -24,6 +25,9 @@ export const makeSupplySchema = (t: TFunction) =>
     }),
     volume_unit: z.enum(SUPPLY_VOLUME_UNITS).optional(),
     part_number: z.string().max(60, t('common:validation.supply.partNumberTooLong')).optional(),
+    brand: z.string().max(60, t('common:validation.supply.brandTooLong')).optional(),
+    // '' = not recorded.
+    part_source: z.union([z.enum(SUPPLY_PART_SOURCES), z.literal('')]).optional(),
     barcode: z.string().max(64, t('common:validation.supply.barcodeTooLong')).optional(),
     category: z.string().max(40, t('common:validation.supply.categoryTooLong')).optional(),
     notes: z.string().max(5000, t('common:validation.supply.notesTooLong')).optional(),

@@ -22094,6 +22094,18 @@
             "description": "UPC/EAN/QR product barcode",
             "title": "Barcode"
           },
+          "brand": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
           "category": {
             "anyOf": [
               {
@@ -22135,6 +22147,22 @@
               }
             ],
             "title": "Part Number"
+          },
+          "part_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "oem",
+                  "aftermarket"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "oem or aftermarket; null = not recorded",
+            "title": "Part Source"
           },
           "unit_type": {
             "description": "volume (stored L) or count",
@@ -22695,6 +22723,17 @@
             "description": "UPC/EAN/QR product barcode",
             "title": "Barcode"
           },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
           "category": {
             "anyOf": [
               {
@@ -22761,6 +22800,22 @@
               }
             ],
             "title": "Part Number"
+          },
+          "part_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "oem",
+                  "aftermarket"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "oem or aftermarket; null = not recorded",
+            "title": "Part Source"
           },
           "unit_type": {
             "description": "volume (stored L) or count",
@@ -22842,6 +22897,18 @@
             ],
             "title": "Barcode"
           },
+          "brand": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
           "category": {
             "anyOf": [
               {
@@ -22902,6 +22969,22 @@
               }
             ],
             "title": "Part Number"
+          },
+          "part_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "oem",
+                  "aftermarket"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "oem or aftermarket; null clears it",
+            "title": "Part Source"
           },
           "vins": {
             "anyOf": [
