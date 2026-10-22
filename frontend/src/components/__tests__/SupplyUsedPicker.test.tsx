@@ -63,4 +63,18 @@ describe('SupplyUsedPicker', () => {
     const labels = within(screen.getByRole('combobox')).getAllByRole('option').map((o) => o.textContent)
     expect(labels).toContain('Water Pump')
   })
+
+  it("shows the row's supply on hand beside the quantity", () => {
+    render(
+      <SupplyUsedPicker
+        value={[{ supply_id: 1, quantity: 1 }]}
+        onChange={vi.fn()}
+        vin={VIN}
+        supplies={SUPPLIES}
+        unitsBySupplyId={new Map([[1, 'count']])}
+      />,
+    )
+
+    expect(screen.getByRole('status', { name: 'service.suppliesOnHand' })).toHaveTextContent('3')
+  })
 })

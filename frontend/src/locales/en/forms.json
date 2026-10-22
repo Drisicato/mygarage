@@ -760,6 +760,7 @@
     "suppliesLoadFailed": "Couldn't load supplies. Saving is disabled to avoid losing this visit's recorded supplies — please retry.",
     "suppliesLoading": "Loading supplies…",
     "suppliesNone": "No supplies used for this item.",
+    "suppliesOnHand": "On hand",
     "suppliesQuantity": "Quantity",
     "suppliesRemoveRow": "Remove supply",
     "suppliesUsed": "Supplies Used",

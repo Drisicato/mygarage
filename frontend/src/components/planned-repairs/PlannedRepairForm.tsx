@@ -12,7 +12,7 @@ import VendorSearch from '../VendorSearch'
 import SupplyPartFields, { supplyEstimate } from './SupplyPartFields'
 import { useSupplies } from '../../hooks/queries/useSupplies'
 import { useUnitPreference } from '../../hooks/useUnitPreference'
-import { supplyDisplayUnit, toCanonical, toDisplay, type SupplyUnit } from '../../utils/supplyUnits'
+import { supplyDisplayUnit, toCanonical, toEditableDisplay, type SupplyUnit } from '../../utils/supplyUnits'
 import { Button, Field, IconButton, Input, NumberInput, Select, Textarea } from '../ui'
 import PlannedRepairPhotoField from './PlannedRepairPhotoField'
 import {
@@ -99,7 +99,7 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
           description: p.description,
           cost: costText(p.cost),
           supplyId: p.supply_id ?? null,
-          quantity: p.supply_quantity != null ? String(+toDisplay(Number(p.supply_quantity), unit).toFixed(3)) : '',
+          quantity: p.supply_quantity != null ? String(toEditableDisplay(Number(p.supply_quantity), unit)) : '',
           unit,
         }
       }) ?? [],

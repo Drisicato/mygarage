@@ -8,6 +8,7 @@ import {
   supplyDisplayUnit,
   toCanonical,
   toDisplay,
+  toEditableDisplay,
   unitCostToDisplay,
   type SupplyUnit,
   type SupplyVolumeUnit,
@@ -104,4 +105,32 @@ describe('formatSupplyAmount', () => {
 it('formatSupplyQuantity adds the label, and none for count', () => {
   expect(formatSupplyQuantity(0.003, 'L', 'en-US')).toBe('0.003 L')
   expect(formatSupplyQuantity(4, 'count', 'en-US')).toBe('4')
+})
+
+describe('toEditableDisplay', () => {
+  // What the API sends back after saving `display` in `unit` (Numeric(12, 3) litres).
+  const stored = (display: number, unit: SupplyUnit): number => Number(toCanonical(display, unit).toFixed(3))
+
+  it.each<[number, SupplyUnit]>([
+    [3, 'gal_us'],
+    [3, 'gal_uk'],
+    [1.5, 'gal_us'],
+    [5, 'qt_us'],
+    [0.25, 'qt_us'],
+    [4.4, 'L'],
+    [250, 'mL'],
+  ])('reads a saved %s %s back as typed', (display, unit) => {
+    expect(toEditableDisplay(stored(display, unit), unit)).toBe(display)
+  })
+
+  it('saves back to the same stored amount', () => {
+    for (const canonical of [11.356, 0.001, 0.946, 3.785, 12.345]) {
+      const back = stored(toEditableDisplay(canonical, 'gal_us'), 'gal_us')
+      expect(back).toBe(canonical)
+    }
+  })
+
+  it('leaves counts alone', () => {
+    expect(toEditableDisplay(3, 'count')).toBe(3)
+  })
 })

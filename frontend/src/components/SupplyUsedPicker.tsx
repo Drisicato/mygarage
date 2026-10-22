@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2 } from 'lucide-react'
-import { unitLabel, type SupplyUnit } from '../utils/supplyUnits'
+import { formatSupplyAmount, unitLabel, type SupplyUnit } from '../utils/supplyUnits'
+import { getActiveLocale } from '../constants/i18n'
 import type { SupplyUsedEntry } from '../types/serviceVisit'
 import type { Supply } from '../types/supplies'
 import { supplyFitsVehicle } from '../utils/supplyListView'
@@ -99,7 +100,10 @@ export default function SupplyUsedPicker({
         <div className="space-y-2">
           {value.map((row, rowIndex) => {
             const supply = suppliesById.get(row.supply_id)
-            const quantityUnit = unitLabel(unitsBySupplyId.get(row.supply_id) ?? 'count')
+            const unit = unitsBySupplyId.get(row.supply_id) ?? 'count'
+            const quantityUnit = unitLabel(unit)
+            // Current stock, which on edit already has this visit's saved usage taken out.
+            const onHand = supply ? formatSupplyAmount(Number(supply.on_hand), unit, getActiveLocale()) : ''
             // Row's own select keeps its current supply as an option even if it's
             // archived (not in addableSupplies) or — defensively — also picked by
             // another row (shouldn't happen via handleAddRow, but a hydrated or
@@ -138,6 +142,14 @@ export default function SupplyUsedPicker({
                   />
                   {quantityUnit && <span className="text-xs text-garage-text-muted flex-shrink-0">{quantityUnit}</span>}
                 </div>
+                <output
+                  aria-label={t('service.suppliesOnHand')}
+                  title={t('service.suppliesOnHand')}
+                  className="w-20 flex flex-col items-center justify-center px-2 py-0.5 border border-garage-border rounded-md bg-garage-bg/50 text-garage-text-muted"
+                >
+                  <span className="text-[10px] leading-tight uppercase tracking-wide">{t('service.suppliesOnHand')}</span>
+                  <span className="text-sm text-garage-text tabular-nums truncate max-w-full">{onHand}</span>
+                </output>
                 <button
                   type="button"
                   onClick={() => handleRemoveRow(rowIndex)}

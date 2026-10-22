@@ -28,7 +28,7 @@ import {
   formatSupplyQuantity,
   supplyDisplayUnit,
   toCanonical,
-  toDisplay,
+  toEditableDisplay,
   unitCostToDisplay,
   unitLabel,
   type SupplyUnit,
@@ -457,7 +457,7 @@ const supplierLabel = (entry: AddressBookEntry): string =>
 
 /** The quantity box's starting value for a stored purchase, in the supply's display unit. */
 function editableQuantity(canonical: string, unit: SupplyUnit): number {
-  return Number(toDisplay(Number(canonical), unit).toFixed(4))
+  return toEditableDisplay(Number(canonical), unit)
 }
 
 function PurchaseForm({

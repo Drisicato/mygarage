@@ -93,6 +93,26 @@ export function toCanonical(display: number, unit: SupplyUnit): number {
   return display * LITERS_PER_SUPPLY_UNIT[unit]
 }
 
+// The supply ledger stores litres as Numeric(12, 3).
+const STORED_LITRES_PER_STEP = 0.001
+const MAX_EDITABLE_DECIMALS = 6
+
+/**
+ * A stored amount as an input box's starting value: the fewest decimals that
+ * save back to the same stored amount. Storage keeps 0.001 L, so 3 gal saves as
+ * 11.356 L, which reads 2.99994 gal; this gives 3 again, and 3 saves as 11.356.
+ */
+export function toEditableDisplay(canonical: number, unit: SupplyUnit): number {
+  const exact = toDisplay(canonical, unit)
+  if (unit === 'count' || !Number.isFinite(exact)) return exact
+  const stored = Math.round(canonical / STORED_LITRES_PER_STEP)
+  for (let decimals = 0; decimals <= MAX_EDITABLE_DECIMALS; decimals++) {
+    const rounded = Number(exact.toFixed(decimals))
+    if (Math.round(toCanonical(rounded, unit) / STORED_LITRES_PER_STEP) === stored) return rounded
+  }
+  return exact
+}
+
 /** Short label for the unit; empty for count. */
 export function unitLabel(unit: SupplyUnit): string {
   return UNIT_LABELS[unit]

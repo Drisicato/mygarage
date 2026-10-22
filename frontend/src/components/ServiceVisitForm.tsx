@@ -22,7 +22,7 @@ import { useUnitFormat } from '../hooks/useUnitFormat'
 import { useLatestMileage } from '../hooks/useLatestMileage'
 import { canonicalFromUnitField, seedUnitField, type UnitFieldOrigin } from '../utils/unitFormat'
 import { readNumber } from '../utils/decimalSafe'
-import { supplyDisplayUnit, toCanonical, toDisplay, type SupplyUnit } from '../utils/supplyUnits'
+import { supplyDisplayUnit, toCanonical, toEditableDisplay, type SupplyUnit } from '../utils/supplyUnits'
 import { getUsageTracking } from '../utils/usageTracking'
 import api from '../services/api'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
@@ -32,7 +32,7 @@ import { formatCurrency, formatCurrencyZero } from '../utils/formatUtils'
 import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
 import { formatDateForInput } from '@/utils/dateUtils'
 
-// Shared by the edit-hydration effect (canonical -> display, via toDisplay),
+// Shared by the edit-hydration effect (canonical -> display, via toEditableDisplay),
 // the parts estimate and mapSuppliesUsedForSubmit (display -> canonical, via
 // toCanonical): same shape, same "drop what can't be resolved" fallback. A
 // miss here almost never means the supply was hard-deleted (delete_supply only
@@ -254,7 +254,7 @@ export default function ServiceVisitForm({
         const responseItem = visit.line_items.find((li) => li.id === item.id)
         const usages = responseItem?.supply_usages
         if (!usages || usages.length === 0) return item
-        return { ...item, supplies_used: convertSupplyUsages(usages, unitsBySupplyId, toDisplay) }
+        return { ...item, supplies_used: convertSupplyUsages(usages, unitsBySupplyId, toEditableDisplay) }
       }),
     }))
     setEditHydrated(true)

@@ -3,7 +3,7 @@ import { screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { render } from '../../__tests__/test-utils'
 import ServiceVisitForm from '../ServiceVisitForm'
 import { useSupplies } from '../../hooks/queries/useSupplies'
-import { toCanonical, toDisplay } from '../../utils/supplyUnits'
+import { toCanonical, toEditableDisplay } from '../../utils/supplyUnits'
 import { formatCurrency } from '../../utils/formatUtils'
 import type { Supply } from '../../types/supplies'
 import type { ServiceVisit } from '../../types/serviceVisit'
@@ -231,12 +231,13 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
     it('hydrates the picker from supply_usages in DISPLAY units', async () => {
       render(<ServiceVisitForm {...DEFAULT_PROPS} visit={MOCK_VISIT} />)
 
-      const expectedDisplayQty = toDisplay(1, 'qt_us')
+      // Rounded to what storage keeps (1 L reads 1.057 qt, not 1.0566882...).
+      const expectedDisplayQty = toEditableDisplay(1, 'qt_us')
       await waitFor(() => {
         const quantityInput = screen.getByRole('spinbutton', {
           name: 'service.suppliesQuantity',
         }) as HTMLInputElement
-        expect(Number(quantityInput.value)).toBeCloseTo(expectedDisplayQty, 6)
+        expect(Number(quantityInput.value)).toBe(expectedDisplayQty)
       })
     })
 
@@ -258,7 +259,8 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
       const lineItem = body.line_items.find((li) => li.id === 501)
       expect(lineItem?.supplies_used).toHaveLength(1)
       expect(lineItem?.supplies_used[0].supply_id).toBe(1)
-      expect(lineItem?.supplies_used[0].quantity).toBeCloseTo(1, 6)
+      // The rounded display value saves back to the same stored 0.001 L.
+      expect(lineItem?.supplies_used[0].quantity).toBeCloseTo(1, 3)
     })
 
     it('disables Save on edit until supplies load + hydrate (wipe-on-edit load-timing guard)', () => {
@@ -529,7 +531,7 @@ describe('ServiceVisitForm: each supply converts in its own unit', () => {
     await waitFor(() => expect(mockedApiPut).toHaveBeenCalled())
     const used = putLineItem()?.supplies_used ?? []
     expect(used.map((u) => u.supply_id)).toEqual([1, 3])
-    expect(used[0].quantity).toBeCloseTo(1, 9)
+    expect(used[0].quantity).toBeCloseTo(1, 3)
     expect(used[1].quantity).toBeCloseTo(0.35488235475, 9)
   })
 })
