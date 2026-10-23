@@ -324,3 +324,28 @@ describe('Drawer — nested overlay', () => {
     expect(parentClose).not.toHaveBeenCalled()
   })
 })
+
+describe('Drawer — centred placement', () => {
+  it('anchors to the right edge by default', () => {
+    render(<Drawer open onClose={() => {}} title="Side">s</Drawer>)
+    const panel = screen.getByRole('dialog', { name: 'Side' })
+    expect(panel).toHaveAttribute('data-placement', 'right')
+    expect(panel).toHaveClass('right-0', 'h-full')
+  })
+
+  it('centres the panel on screen when placement is center', () => {
+    render(<Drawer open placement="center" onClose={() => {}} title="Centre">c</Drawer>)
+    const panel = screen.getByRole('dialog', { name: 'Centre' })
+    expect(panel).toHaveAttribute('data-placement', 'center')
+    expect(panel).toHaveClass('left-1/2', 'top-1/2', '-translate-x-1/2', '-translate-y-1/2')
+    expect(panel).not.toHaveClass('right-0')
+  })
+
+  it('still closes on Escape and on the backdrop', () => {
+    const onClose = vi.fn()
+    render(<Drawer open placement="center" onClose={onClose} title="Centre">c</Drawer>)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.click(screen.getByTestId('drawer-backdrop'))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+})

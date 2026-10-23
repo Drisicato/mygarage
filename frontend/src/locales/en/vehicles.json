@@ -2306,6 +2306,9 @@
     "moveTo": "Move to {{stage}}",
     "actions": "Actions for {{title}}",
     "draggableCard": "draggable repair",
+    "view": "View",
+    "completedOn": "Completed on",
+    "noParts": "No parts or jobs listed.",
     "status": {
       "planning": "Planning",
       "in_progress": "In Progress",

@@ -1,26 +1,27 @@
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { ArrowRight, Calendar, CheckCircle2, Edit3, Gauge, MoreVertical, Package, Store, Trash2 } from 'lucide-react'
+import {
+  ArrowRight,
+  Calendar,
+  CheckCircle2,
+  Edit3,
+  Eye,
+  Gauge,
+  MoreVertical,
+  Package,
+  Store,
+  Trash2,
+} from 'lucide-react'
 import { Badge, Card, Chip, Dropdown, Mono } from '../ui'
-import type { DropdownItem, Tone } from '../ui'
+import type { DropdownItem } from '../ui'
 import { useUnitFormat } from '../../hooks/useUnitFormat'
 import { useDateLocale } from '../../hooks/useDateLocale'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import { formatDateForDisplay } from '../../utils/dateUtils'
 import { repairPhotoUrl } from '../../utils/plannedRepairPhoto'
-import {
-  REPAIR_STATUSES,
-  type PlannedRepair,
-  type RepairPriority,
-  type RepairStatus,
-} from '../../types/plannedRepair'
-
-const PRIORITY_TONE: Record<RepairPriority, Tone> = {
-  low: 'muted',
-  medium: 'info',
-  high: 'warning',
-  urgent: 'danger',
-}
+import { PRIORITY_TONE } from './priorityTone'
+import { REPAIR_STATUSES, type PlannedRepair, type RepairStatus } from '../../types/plannedRepair'
 
 /** The id dnd-kit tracks a card by, shared with the board's drop handling. */
 export const cardDndId = (id: number) => `repair:${id}`
@@ -30,12 +31,16 @@ const MAX_THUMBS = 3
 
 interface PlannedRepairCardProps {
   repair: PlannedRepair
+  onView: (repair: PlannedRepair) => void
   onEdit: (repair: PlannedRepair) => void
   onDelete: (repair: PlannedRepair) => void
   onMoveTo: (repair: PlannedRepair, status: RepairStatus) => void
 }
 
-export default function PlannedRepairCard({ repair, onEdit, onDelete, onMoveTo }: PlannedRepairCardProps) {
+/** Keeps a click inside the card (menu, thumbnails) from also opening the view. */
+const keepClick = (e: { stopPropagation: () => void }) => e.stopPropagation()
+
+export default function PlannedRepairCard({ repair, onView, onEdit, onDelete, onMoveTo }: PlannedRepairCardProps) {
   const { t } = useTranslation('vehicles')
   const u = useUnitFormat()
   const dateLocale = useDateLocale()
@@ -49,11 +54,27 @@ export default function PlannedRepairCard({ repair, onEdit, onDelete, onMoveTo }
     setDropRef(node)
   }
 
+  // A drag ends with a click on the card under the pointer; that one isn't a
+  // request to view. Cleared on the next press, so a drag that ended outside
+  // the card doesn't swallow a later click.
+  const wasDragged = useRef(false)
+  useEffect(() => {
+    if (isDragging) wasDragged.current = true
+  }, [isDragging])
+  const handleClick = () => {
+    if (wasDragged.current) {
+      wasDragged.current = false
+      return
+    }
+    onView(repair)
+  }
+
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 }
     : undefined
 
   const menuItems: DropdownItem[] = [
+    { id: 'view', label: t('plannedRepairs.view'), icon: Eye, onSelect: () => onView(repair) },
     ...REPAIR_STATUSES.filter((s) => s !== repair.status).map((status) => ({
       id: `move-${status}`,
       label: t('plannedRepairs.moveTo', { stage: t(`plannedRepairs.status.${status}`) }),
@@ -78,12 +99,17 @@ export default function PlannedRepairCard({ repair, onEdit, onDelete, onMoveTo }
       }`}
       {...attributes}
       {...listeners}
+      onPointerDownCapture={() => {
+        wasDragged.current = false
+      }}
+      onClick={handleClick}
       aria-roledescription={t('plannedRepairs.draggableCard')}
+      data-testid={`repair-card-${repair.id}`}
     >
       <Card padding="sm" className="cursor-grab active:cursor-grabbing">
         <div className="flex items-start justify-between gap-2">
           <h4 className="text-sm font-medium text-text break-words min-w-0">{repair.title}</h4>
-          <div onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <div onPointerDown={keepClick} onKeyDown={keepClick} onClick={keepClick}>
             <Dropdown
               label={t('plannedRepairs.actions', { title: repair.title })}
               items={menuItems}
@@ -101,8 +127,9 @@ export default function PlannedRepairCard({ repair, onEdit, onDelete, onMoveTo }
           // The card is a drag handle, so the thumbnails keep their clicks to themselves.
           <div
             className="mt-2 flex gap-1.5"
-            onPointerDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
+            onPointerDown={keepClick}
+            onKeyDown={keepClick}
+            onClick={keepClick}
           >
             {photos.slice(0, MAX_THUMBS).map((photo, index) => (
               <a

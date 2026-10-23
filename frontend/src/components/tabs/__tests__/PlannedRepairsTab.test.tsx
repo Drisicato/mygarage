@@ -4,6 +4,7 @@ import type { PlannedRepair, RepairStatus } from '../../../types/plannedRepair'
 
 interface BoardProps {
   repairs: PlannedRepair[]
+  onView: (repair: PlannedRepair) => void
   onEdit: (repair: PlannedRepair) => void
   onDelete: (repair: PlannedRepair) => void
   onMove: (repair: PlannedRepair, status: RepairStatus, position: number) => void
@@ -12,9 +13,20 @@ interface DialogProps {
   repair: PlannedRepair
   onClose: () => void
 }
+interface ViewProps {
+  repair: PlannedRepair
+  onClose: () => void
+  onEdit: (repair: PlannedRepair) => void
+}
+interface FormProps {
+  repair?: PlannedRepair
+  onClose: () => void
+}
 
 const boardMock = vi.fn<(props: BoardProps) => void>()
 const dialogMock = vi.fn<(props: DialogProps) => void>()
+const viewMock = vi.fn<(props: ViewProps) => void>()
+const formMock = vi.fn<(props: FormProps) => void>()
 const moveMutate = vi.fn()
 const deleteMutate = vi.fn()
 const usePlannedRepairsMock = vi.fn()
@@ -26,7 +38,16 @@ vi.mock('../../planned-repairs/PlannedRepairBoard', () => ({
   },
 }))
 vi.mock('../../planned-repairs/PlannedRepairForm', () => ({
-  default: () => <div>PlannedRepairForm</div>,
+  default: (props: FormProps) => {
+    formMock(props)
+    return <div>PlannedRepairForm</div>
+  },
+}))
+vi.mock('../../planned-repairs/PlannedRepairView', () => ({
+  default: (props: ViewProps) => {
+    viewMock(props)
+    return <div>PlannedRepairView</div>
+  },
 }))
 vi.mock('../../planned-repairs/CompleteRepairDialog', () => ({
   default: (props: DialogProps) => {
@@ -91,5 +112,42 @@ describe('PlannedRepairsTab', () => {
     act(() => onMove(repair({ service_visit_id: 42 }), 'done', 0))
     expect(moveMutate).toHaveBeenCalledWith({ id: 1, status: 'done', position: 0 }, expect.any(Object))
     expect(dialogMock).not.toHaveBeenCalled()
+  })
+
+  it('opens the read-only view when a card is clicked', () => {
+    render(<PlannedRepairsTab vin="V1" />)
+    expect(screen.queryByText('PlannedRepairView')).not.toBeInTheDocument()
+    act(() => boardMock.mock.calls[0][0].onView(repair()))
+    expect(screen.getByText('PlannedRepairView')).toBeInTheDocument()
+    expect(viewMock).toHaveBeenLastCalledWith(expect.objectContaining({ repair: expect.objectContaining({ id: 1 }) }))
+    expect(screen.queryByText('PlannedRepairForm')).not.toBeInTheDocument()
+  })
+
+  it('swaps the view for the form on Edit, and goes back to the view when the form closes', () => {
+    render(<PlannedRepairsTab vin="V1" />)
+    act(() => boardMock.mock.calls[0][0].onView(repair()))
+    act(() => viewMock.mock.lastCall![0].onEdit(repair()))
+    expect(screen.queryByText('PlannedRepairView')).not.toBeInTheDocument()
+    expect(screen.getByText('PlannedRepairForm')).toBeInTheDocument()
+    expect(formMock).toHaveBeenLastCalledWith(expect.objectContaining({ repair: expect.objectContaining({ id: 1 }) }))
+
+    act(() => formMock.mock.lastCall![0].onClose())
+    expect(screen.queryByText('PlannedRepairForm')).not.toBeInTheDocument()
+    expect(screen.getByText('PlannedRepairView')).toBeInTheDocument()
+  })
+
+  it('closes the form without opening the view when editing from the card menu', () => {
+    render(<PlannedRepairsTab vin="V1" />)
+    act(() => boardMock.mock.calls[0][0].onEdit(repair()))
+    act(() => formMock.mock.lastCall![0].onClose())
+    expect(screen.queryByText('PlannedRepairView')).not.toBeInTheDocument()
+  })
+
+  it('drops the view once the repair is gone', () => {
+    const { rerender } = render(<PlannedRepairsTab vin="V1" />)
+    act(() => boardMock.mock.calls[0][0].onView(repair()))
+    usePlannedRepairsMock.mockReturnValue({ data: { repairs: [], total: 0 }, isLoading: false, error: null })
+    rerender(<PlannedRepairsTab vin="V1" />)
+    expect(screen.queryByText('PlannedRepairView')).not.toBeInTheDocument()
   })
 })

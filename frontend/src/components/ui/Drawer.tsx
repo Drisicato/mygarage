@@ -87,8 +87,13 @@ interface DrawerProps {
   /** Renders at +10 (z-drawer-nested*) and isolates Escape to this drawer so a
    *  nested drawer's Esc does not also close its ancestor (design §4.9). */
   nested?: boolean
+  /** `right` slides in from the edge; `center` is a modal that fades and
+   *  scales in, for read-only views. Both keep the trap, Escape and inertness. */
+  placement?: DrawerPlacement
   children: ReactNode
 }
+
+export type DrawerPlacement = 'right' | 'center'
 
 /**
  * Right-anchored side drawer. The app has no side drawer today — every
@@ -120,6 +125,7 @@ export default function Drawer({
   footer,
   closeLabel = 'Close',
   nested = false,
+  placement = 'right',
   children,
 }: DrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -260,6 +266,14 @@ export default function Drawer({
 
   const backdropZ = nested ? 'z-drawer-nested-backdrop' : 'z-drawer-backdrop'
   const panelZ = nested ? 'z-drawer-nested' : 'z-drawer'
+  const panelPlacement =
+    placement === 'center'
+      ? `left-1/2 top-1/2 max-h-[90vh] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border transition-[opacity,scale] ${
+          entered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+        }`
+      : `right-0 top-0 h-full border-l border-border transition-transform ${
+          entered ? 'translate-x-0' : 'translate-x-full'
+        }`
 
   return createPortal(
     <>
@@ -278,9 +292,8 @@ export default function Drawer({
         aria-label={title}
         data-testid="drawer"
         tabIndex={-1}
-        className={`fixed right-0 top-0 ${panelZ} flex h-full flex-col border-l border-border bg-surface shadow-drawer transition-transform duration-(--duration-drawer) ease-standard motion-reduce:transition-none ${
-          entered ? 'translate-x-0' : 'translate-x-full'
-        } ${WIDTH[width]}`}
+        data-placement={placement}
+        className={`fixed ${panelZ} flex flex-col bg-surface shadow-drawer duration-(--duration-drawer) ease-standard motion-reduce:transition-none ${panelPlacement} ${WIDTH[width]}`}
       >
         <header className="sticky top-0 flex items-center justify-between gap-3 border-b border-border bg-surface px-6 py-4">
           <h2 className="flex items-center gap-2 text-base font-bold text-text">

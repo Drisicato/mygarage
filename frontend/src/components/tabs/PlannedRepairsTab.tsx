@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import api from '../../services/api'
 import PlannedRepairBoard from '../planned-repairs/PlannedRepairBoard'
 import PlannedRepairForm from '../planned-repairs/PlannedRepairForm'
+import PlannedRepairView from '../planned-repairs/PlannedRepairView'
 import CompleteRepairDialog from '../planned-repairs/CompleteRepairDialog'
 import { Button, EmptyState } from '../ui'
 import {
@@ -34,6 +35,11 @@ export default function PlannedRepairsTab({ vin }: PlannedRepairsTabProps) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<PlannedRepair | undefined>()
   const [completing, setCompleting] = useState<PlannedRepair | undefined>()
+  // By id, so the view shows the repair as it is now (after an edit or a
+  // move) and goes away if the repair is deleted.
+  const [viewingId, setViewingId] = useState<number | undefined>()
+  // Set while the form is open from the view, so closing it goes back there.
+  const [returnToViewId, setReturnToViewId] = useState<number | undefined>()
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
 
   useEffect(() => {
@@ -57,6 +63,7 @@ export default function PlannedRepairsTab({ vin }: PlannedRepairsTabProps) {
   })
 
   const repairs = data?.repairs ?? []
+  const viewing = viewingId != null ? repairs.find((r) => r.id === viewingId) : undefined
 
   const handleMove = (repair: PlannedRepair, status: RepairStatus, position: number) => {
     // Done means it's in service history. A repair that never logged its
@@ -93,9 +100,19 @@ export default function PlannedRepairsTab({ vin }: PlannedRepairsTabProps) {
     setShowForm(true)
   }
 
+  const editFromView = (repair: PlannedRepair) => {
+    setViewingId(undefined)
+    setReturnToViewId(repair.id)
+    openEdit(repair)
+  }
+
   const closeForm = () => {
     setShowForm(false)
     setEditing(undefined)
+    if (returnToViewId != null) {
+      setViewingId(returnToViewId)
+      setReturnToViewId(undefined)
+    }
   }
 
   if (isLoading) {
@@ -140,8 +157,18 @@ export default function PlannedRepairsTab({ vin }: PlannedRepairsTabProps) {
       ) : (
         <>
           <p className="text-xs text-text-mute">{t('plannedRepairs.boardHint')}</p>
-          <PlannedRepairBoard repairs={repairs} onEdit={openEdit} onDelete={handleDelete} onMove={handleMove} />
+          <PlannedRepairBoard
+            repairs={repairs}
+            onView={(repair) => setViewingId(repair.id)}
+            onEdit={openEdit}
+            onDelete={handleDelete}
+            onMove={handleMove}
+          />
         </>
+      )}
+
+      {viewing && (
+        <PlannedRepairView repair={viewing} onClose={() => setViewingId(undefined)} onEdit={editFromView} />
       )}
 
       {showForm && (

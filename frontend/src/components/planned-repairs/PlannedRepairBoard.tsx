@@ -1,7 +1,8 @@
 /**
  * Three columns, Planning -> In Progress -> Done. Cards drag between and
  * within columns (mouse, touch, or keyboard via dnd-kit's sensors); each
- * card's menu does the same moves without dragging.
+ * card's menu does the same moves without dragging. Clicking a card opens
+ * its read-only view.
  *
  * The board only reports intent. Whether a move into Done needs the
  * completion dialog first is decided by the tab, which owns that dialog.
@@ -40,12 +41,13 @@ const collisionDetection: CollisionDetection = (args) => {
 interface ColumnProps {
   status: RepairStatus
   repairs: PlannedRepair[]
+  onView: (repair: PlannedRepair) => void
   onEdit: (repair: PlannedRepair) => void
   onDelete: (repair: PlannedRepair) => void
   onMoveTo: (repair: PlannedRepair, status: RepairStatus) => void
 }
 
-function Column({ status, repairs, onEdit, onDelete, onMoveTo }: ColumnProps) {
+function Column({ status, repairs, onView, onEdit, onDelete, onMoveTo }: ColumnProps) {
   const { t } = useTranslation('vehicles')
   const { formatCurrency } = useCurrencyPreference()
   const { setNodeRef, isOver } = useDroppable({ id: columnDndId(status) })
@@ -75,6 +77,7 @@ function Column({ status, repairs, onEdit, onDelete, onMoveTo }: ColumnProps) {
             <PlannedRepairCard
               key={repair.id}
               repair={repair}
+              onView={onView}
               onEdit={onEdit}
               onDelete={onDelete}
               onMoveTo={onMoveTo}
@@ -88,13 +91,15 @@ function Column({ status, repairs, onEdit, onDelete, onMoveTo }: ColumnProps) {
 
 interface PlannedRepairBoardProps {
   repairs: PlannedRepair[]
+  /** A click on a card that wasn't the end of a drag. */
+  onView: (repair: PlannedRepair) => void
   onEdit: (repair: PlannedRepair) => void
   onDelete: (repair: PlannedRepair) => void
   /** A move to `status` at `position` (zero-based within that column). */
   onMove: (repair: PlannedRepair, status: RepairStatus, position: number) => void
 }
 
-export default function PlannedRepairBoard({ repairs, onEdit, onDelete, onMove }: PlannedRepairBoardProps) {
+export default function PlannedRepairBoard({ repairs, onView, onEdit, onDelete, onMove }: PlannedRepairBoardProps) {
   const sensors = useSensors(
     // A few pixels of travel before a drag starts, so clicks on a card's
     // menu still register as clicks.
@@ -146,6 +151,7 @@ export default function PlannedRepairBoard({ repairs, onEdit, onDelete, onMove }
             key={status}
             status={status}
             repairs={columns[status]}
+            onView={onView}
             onEdit={onEdit}
             onDelete={onDelete}
             onMoveTo={moveTo}
