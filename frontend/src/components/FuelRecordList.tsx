@@ -21,8 +21,18 @@ import { priceToDisplay } from '../utils/decimalSafe'
 import { getUsageTracking } from '../utils/usageTracking'
 import { useFuelRecords, useDeleteFuelRecord } from '../hooks/queries/useFuelRecords'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
-import { Button, IconButton, Card, Mono, DataTable, Badge, SearchField, EmptyState, Checkbox } from './ui'
+import { applyColumnPrefs, useTableColumnPrefs } from '../hooks/useTableColumnPrefs'
+import { Button, IconButton, Card, Mono, DataTable, Badge, SearchField, EmptyState, Checkbox, ColumnPicker } from './ui'
 import type { DataTableColumn } from './ui'
+
+// Every column the table can show, in its default order, including the ones
+// only some vehicles get. The column picker saves its order against this list,
+// so a column absent for one vehicle keeps its place for the next. Actions
+// isn't here: it always shows, last.
+const FUEL_COLUMN_IDS = [
+  'date', 'mileage', 'volume', 'propane', 'octane', 'price', 'cost',
+  'economy', 'fuelRate', 'fullTank', 'hauling',
+]
 
 interface FuelRecordListProps {
   vin: string
@@ -52,6 +62,7 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
   const { units: accountUnits } = useAccountUnitPreference()
   const u = useUnitFormat()
   const { currencyCode, locale } = useCurrencyPreference()
+  const columnPrefs = useTableColumnPrefs('fuel', FUEL_COLUMN_IDS)
 
   // Phase 3.8 — paginate the fuel-records list. rc1 silently capped
   // at 100 with no indication; surfaced by issue #69. 50 per page is
@@ -140,7 +151,7 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
   // never track octane keep their table width.
   const showOctaneColumn = records.some((r) => r.octane != null)
 
-  const columns: DataTableColumn<FuelRecord>[] = [
+  const dataColumns: DataTableColumn<FuelRecord>[] = [
     { id: 'date', header: t('fuelList.date'), mono: true, render: (r) => formatDate(r.date) },
     ...(tracksDistance ? [{
       id: 'mileage', header: t('fuelList.mileage'), align: 'right' as const, mono: true,
@@ -183,6 +194,8 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
       render: (r) => r.is_hauling
         ? <Badge tone="warning" icon={Truck}>{t('fuelList.towing')}</Badge>
         : <span className="text-sm text-text-mute">-</span> },
+  ]
+  const actionsColumn: DataTableColumn<FuelRecord> =
     { id: 'actions', header: t('fuelList.actions'), align: 'right',
       render: (r) => (
         <div className="flex justify-end gap-2">
@@ -196,8 +209,15 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
             onClick={() => handleDelete(r.id)}
           />
         </div>
-      ) },
+      ) }
+  // The picker lists every column this vehicle has, in the saved order; the
+  // table drops the hidden ones.
+  const orderedColumns = applyColumnPrefs(dataColumns, columnPrefs.order, [])
+  const columns = [
+    ...orderedColumns.filter((c) => !columnPrefs.hidden.includes(c.id)),
+    actionsColumn,
   ]
+  const presentColumnIds = orderedColumns.map((c) => c.id)
 
   if (isLoading) {
     return (
@@ -237,6 +257,19 @@ export default function FuelRecordList({ vin, onAddClick, onEditClick }: FuelRec
               value={searchQuery}
               onChange={setSearchQuery}
               className="flex-1 min-w-[10rem] sm:flex-none sm:w-56"
+            />
+          )}
+          {records.length > 0 && (
+            <ColumnPicker
+              label={t('common:columns.button')}
+              columns={orderedColumns.map(({ id, header }) => ({ id, header }))}
+              hidden={columnPrefs.hidden}
+              onToggle={columnPrefs.toggle}
+              onMove={(id, direction) => columnPrefs.move(id, direction, presentColumnIds)}
+              onReset={columnPrefs.reset}
+              resetLabel={t('common:columns.reset')}
+              moveUpLabel={(column) => t('common:columns.moveUp', { column })}
+              moveDownLabel={(column) => t('common:columns.moveDown', { column })}
             />
           )}
           <Button variant="primary" icon={Plus} onClick={onAddClick}>

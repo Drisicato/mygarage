@@ -65,10 +65,11 @@ vi.mock('react-i18next', () => ({
     // which wraps the summary line and the row errors in one key.
     t: (
       key: string,
-      options?: { unit?: string; value?: string; format?: string; message?: string; errors?: string | number },
+      options?: { unit?: string; value?: string; format?: string; message?: string; errors?: string | number; column?: string },
     ) => {
       if (options?.message !== undefined) return `${key} (${options.message} | ${options.errors})`
-      const echoed = options?.unit ?? options?.value ?? options?.format
+      // `column` for the column picker's move-up/move-down labels.
+      const echoed = options?.unit ?? options?.value ?? options?.format ?? options?.column
       return echoed !== undefined ? `${key} (${echoed})` : key
     },
     i18n: { language: 'en', changeLanguage: () => Promise.resolve() },
@@ -118,6 +119,8 @@ const table = () => screen.getByRole('table', { name: 'fuelList.tableCaption' })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The column picker saves to localStorage; start every test on the defaults.
+  localStorage.clear()
   unitPrefMock.system = 'metric'
   unitPrefMock.units = null
   unitPrefMock.accountUnits = null
@@ -189,6 +192,50 @@ describe('FuelRecordList — row cells scoped to the named table', () => {
     expect(within(table()).getByText('fuelList.partial')).toBeInTheDocument()
     expect(within(table()).queryByText('fuelList.full')).not.toBeInTheDocument()
     expect(within(table()).queryByText('fuelList.towing')).not.toBeInTheDocument()
+  })
+})
+
+describe('FuelRecordList — the column picker', () => {
+  const headers = () => within(table()).getAllByRole('columnheader').map((h) => h.textContent)
+  const openPicker = () => fireEvent.click(screen.getByRole('button', { name: 'common:columns.button' }))
+
+  it('hides a column, keeps Actions last, and remembers the choice after a remount', async () => {
+    const first = render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+    openPicker()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'fuelList.unitPrice' }))
+    expect(within(table()).queryByRole('columnheader', { name: 'fuelList.unitPrice' })).not.toBeInTheDocument()
+    expect(headers().at(-1)).toBe('fuelList.actions')
+    first.unmount()
+
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+    expect(within(table()).queryByRole('columnheader', { name: 'fuelList.unitPrice' })).not.toBeInTheDocument()
+  })
+
+  it('moves a column up one place, and Reset restores the default order', async () => {
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+    const before = headers()
+    const cost = before.indexOf('fuelList.totalCost')
+    openPicker()
+    fireEvent.click(screen.getByRole('button', { name: 'common:columns.moveUp (fuelList.totalCost)' }))
+    const after = headers()
+    expect(after[cost - 1]).toBe('fuelList.totalCost')
+    expect(after[cost]).toBe(before[cost - 1])
+
+    fireEvent.click(screen.getByRole('button', { name: 'common:columns.reset' }))
+    expect(headers()).toEqual(before)
+  })
+
+  it("won't hide the last visible column", async () => {
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+    openPicker()
+    const boxes = within(screen.getByRole('dialog', { name: 'common:columns.button' })).getAllByRole('checkbox')
+    boxes.slice(1).forEach((b) => fireEvent.click(b))
+    expect(boxes[0]).toBeDisabled()
+    expect(headers()).toEqual(['fuelList.date', 'fuelList.actions'])
   })
 })
 

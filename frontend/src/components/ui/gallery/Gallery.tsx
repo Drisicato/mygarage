@@ -12,6 +12,7 @@ import {
   CardHeader,
   Checkbox,
   Chip,
+  ColumnPicker,
   DataTable,
   Drawer,
   Dropdown,
@@ -79,6 +80,8 @@ export default function Gallery() {
   const [toggleOn, setToggleOn] = useState(true)
   const [searchValue, setSearchValue] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [pickerOrder, setPickerOrder] = useState(['date', 'volume', 'cost'])
+  const [pickerHidden, setPickerHidden] = useState<string[]>([])
 
   return (
     <div className="mx-auto max-w-[1320px] px-6 py-10">
@@ -369,6 +372,32 @@ export default function Gallery() {
             { id: 'newest', label: 'Newest First', onSelect: () => {} },
             { id: 'maint', label: 'By Maintenance', onSelect: () => {} },
           ]}
+        />
+      </Section>
+
+      <Section title="ColumnPicker" note="Show, hide and reorder table columns. Stays open while toggling; Escape or outside click closes. The last visible column can't be hidden.">
+        <ColumnPicker
+          label="Columns"
+          columns={pickerOrder.map((id) => ({ id, header: id[0].toUpperCase() + id.slice(1) }))}
+          hidden={pickerHidden}
+          onToggle={(id) =>
+            setPickerHidden((h) => (h.includes(id) ? h.filter((x) => x !== id) : [...h, id]))
+          }
+          onMove={(id, direction) =>
+            setPickerOrder((order) => {
+              const from = order.indexOf(id)
+              const next = [...order]
+              ;[next[from], next[from + direction]] = [next[from + direction], next[from]]
+              return next
+            })
+          }
+          onReset={() => {
+            setPickerOrder(['date', 'volume', 'cost'])
+            setPickerHidden([])
+          }}
+          resetLabel="Reset to default"
+          moveUpLabel={(header) => `Move ${header} up`}
+          moveDownLabel={(header) => `Move ${header} down`}
         />
       </Section>
 
