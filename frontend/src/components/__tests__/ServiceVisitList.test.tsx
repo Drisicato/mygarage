@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { ServiceVisit } from '../../types/serviceVisit'
 import { METRIC_UNITS } from '../../__tests__/factories'
 import { formatDateForDisplay } from '../../utils/dateUtils'
+import { render as renderWithRouter } from '../../__tests__/test-utils'
 
 const useServiceVisitsMock = vi.fn()
 const deleteMutate = vi.fn()
@@ -265,5 +266,89 @@ describe('ServiceVisitList — engine-hours usage tracking (Task 14)', () => {
 
     expect(await screen.findByText(/80,467/)).toBeInTheDocument()
     expect(screen.queryByText(/812\.4/)).not.toBeInTheDocument()
+  })
+})
+
+describe('ServiceVisitList: a service line shows what it cost and opens its detail', () => {
+  // Labor 40.00 + one supply at 9.52. The header's total already includes the
+  // parts (the backend's calculated_total_cost), so both read $49.52.
+  const partsVisit = {
+    ...visit,
+    calculated_total_cost: '49.52',
+    total_cost: '49.52',
+    line_items: [
+      {
+        id: 11,
+        description: 'Oil change',
+        cost: '40.00',
+        is_inspection: false,
+        inspection_result: null,
+        inspection_severity: null,
+        notes: 'copy me please',
+        supply_usages: [
+          { id: 5, supply_id: 42, supply_name: 'Motor Oil', quantity: '4.732', cost_snapshot: '9.52', unit_type: 'volume', volume_unit: 'qt_us', created_at: 'x' },
+        ],
+      },
+    ],
+  } as unknown as ServiceVisit
+
+  beforeEach(() => {
+    useServiceVisitsMock.mockReturnValue({ data: { visits: [partsVisit] }, isLoading: false, error: null })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  // The detail holds a <Link>, so these need the router from test-utils.
+  const openVisit = (): void => {
+    renderWithRouter(<ServiceVisitList {...PROPS} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+  }
+  const detailOpen = (): boolean => document.querySelector('[data-testid="drawer-backdrop"]') !== null
+
+  it('the line total is labor plus parts, with the split underneath', () => {
+    openVisit()
+
+    expect(screen.getAllByText('$49.52')).toHaveLength(2)
+    expect(screen.getByText(/serviceList\.laborCost/)).toBeInTheDocument()
+    expect(screen.getByText(/serviceList\.partsCost/)).toBeInTheDocument()
+  })
+
+  it("clicking the line opens its detail; ending a selection in it doesn't (#179)", () => {
+    openVisit()
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      toString: () => 'copy me',
+    } as unknown as Selection)
+
+    fireEvent.click(screen.getByText('copy me please'))
+    expect(detailOpen()).toBe(false)
+
+    vi.mocked(window.getSelection).mockRestore()
+    fireEvent.click(screen.getByText('copy me please'))
+    expect(detailOpen()).toBe(true)
+  })
+
+  it('the cost breakdown lists the parts, so its rows add up to the total', () => {
+    // Subtotal is labor only; without a parts row, $40 + $3 tax reads as $52.52.
+    useServiceVisitsMock.mockReturnValue({
+      data: { visits: [{ ...partsVisit, tax_amount: '3.00', parts_supplies_cost: '9.52', calculated_total_cost: '52.52' }] },
+      isLoading: false,
+      error: null,
+    })
+    openVisit()
+
+    const partsRow = screen.getByText('serviceList.detail.parts:').parentElement
+    expect(partsRow).toHaveTextContent('$9.52')
+  })
+
+  it('the line keeps a named button for keyboard users', async () => {
+    const user = userEvent.setup()
+    openVisit()
+
+    screen.getByRole('button', { name: 'serviceList.detail.viewDetails' }).focus()
+    await user.keyboard('{Enter}')
+    expect(detailOpen()).toBe(true)
   })
 })

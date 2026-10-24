@@ -909,8 +909,8 @@
     {
       "path": "src/components/ServiceLineItemDetail.tsx",
       "disposition": "audited",
-      "digest": "3a7f781d0a9a8cdcd7c40f56af77a6239144c606dd810a3212d58ad811947aac",
-      "reason": "Read-only panel for one service line (2026-10-18 (service line detail)). The odometer renders through the resolved `u.distance.format` (useUnitFormat), the same read ServiceVisitList makes. Supply quantities render with formatSupplyQuantity in the unit supplyDisplayUnit(usage, system) picks: the stored token wins, and `system` only chooses qt or L for a legacy NULL token, the same reader SupplyHistoryModal keeps. Costs are money (cost_snapshot through formatCurrency); nothing is converted here. Each supply links to /supplies?supply=<id>.",
+      "digest": "9d941ce83753ff3b4c0b40c7e017756c9c78c139c3acafb7ee70c9d00a8c48c7",
+      "reason": "Read-only panel for one service line (2026-10-18 (service line detail)). The odometer renders through the resolved `u.distance.format` (useUnitFormat), the same read ServiceVisitList makes. Supply quantities render with formatSupplyQuantity in the unit supplyDisplayUnit(usage, system) picks: the stored token wins, and `system` only chooses qt or L for a legacy NULL token, the same reader SupplyHistoryModal keeps. Costs are money (cost_snapshot through formatCurrency); nothing is converted here. Each supply links to /supplies?supply=<id>. 2026-10-23 (PR #235 review fixes): the odometer now shows only when the list's tracksDistance says so, and an engine-hours reading joins it under tracksHours: Number(engine_hours).toFixed(1) with the fixed \"hr\" symbol, dimensionless, the same read ServiceVisitList makes. The supply link's name moved to sr-only text; quantities and their units are unchanged.",
       "tests": [
         "components/__tests__/ServiceLineItemDetail.test.tsx"
       ]
@@ -950,8 +950,8 @@
     {
       "path": "src/components/ServiceVisitList.tsx",
       "disposition": "audited",
-      "digest": "a963d86da885e28d68925b798a5ad7940b49d49560474dbc3359149b3fe37d94",
-      "reason": "gate-detectable unit decisions, recorded not asserted clean (plan 3b task 1 ordering). Task 6 migrated its binary distance read sites onto the resolved `units.distance` token (useUnitFormat), so nothing here reads a distance through a system collapsed from volume. 2026-10-02 (selection-and-station-picker G7): the visit header is a clickable row now, with only the chevron as the disclosure button (named by the visit title), so the date, odometer, vendor and total sit outside any button, and a click that ends a text selection doesn't toggle it (#179). The odometer and engine-hours reads moved with their markup unchanged: the same `u.distance.format` call and the same fixed `hr` symbol. 2026-10-02 (selection-and-station-picker G7 fold-in): the chevron button is named by the visit's title then its date (aria-labelledby gains the date element's id), so two visits with the same title sound different. Accessibility wiring only; the odometer and engine-hours reads are untouched. 2026-10-18 (service line detail): a service line opens ServiceLineItemDetail, and its cost shows labor plus the supplies' cost_snapshot (money). The odometer and engine-hours reads are untouched.",
+      "digest": "e5e0a41ea777a44aa9670a9bf8f438eea951b0af6226c615ae44b18ec8539a45",
+      "reason": "gate-detectable unit decisions, recorded not asserted clean (plan 3b task 1 ordering). Task 6 migrated its binary distance read sites onto the resolved `units.distance` token (useUnitFormat), so nothing here reads a distance through a system collapsed from volume. 2026-10-02 (selection-and-station-picker G7): the visit header is a clickable row now, with only the chevron as the disclosure button (named by the visit title), so the date, odometer, vendor and total sit outside any button, and a click that ends a text selection doesn't toggle it (#179). The odometer and engine-hours reads moved with their markup unchanged: the same `u.distance.format` call and the same fixed `hr` symbol. 2026-10-02 (selection-and-station-picker G7 fold-in): the chevron button is named by the visit's title then its date (aria-labelledby gains the date element's id), so two visits with the same title sound different. Accessibility wiring only; the odometer and engine-hours reads are untouched. 2026-10-18 (service line detail): a service line opens ServiceLineItemDetail, and its cost shows labor plus the supplies' cost_snapshot (money). The odometer and engine-hours reads are untouched. 2026-10-23 (PR #235 review fixes): the service line is a ClickableCard instead of a div role=button, and the cost breakdown gains a Parts row from parts_supplies_cost (money, formatCurrency). No quantity, unit or conversion changed.",
       "tests": [
         "components/__tests__/ServiceVisitList.test.tsx",
         "components/__tests__/distanceReadSites.mixedUnits.test.tsx"
@@ -2341,6 +2341,12 @@
       "reason": "no unit behaviour: read in full (2026-09-22). A device-id regex and the device-id max length (20 characters, mirroring the backend's max_length). No quantity. 2026-09-22 (sidecars Task 5): adds SETTINGS_LIMITS (integer bounds of four duration settings, mirrored from the backend schema) and parseWholeInRange. Durations in fixed units; no unit conversion or user-unit quantity."
     },
     {
+      "path": "src/constants/serviceVisit.ts",
+      "disposition": "no unit behaviour",
+      "digest": "27fd80dc372fd8d8fded23686405bb61381044068022074ce62f509a90a63db1",
+      "reason": "no unit behaviour: NEW 2026-10-23 (PR #235 review fixes). Inspection-result translation keys and service category chip tones, moved out of ServiceVisitList so the service line detail shares them. Read in full; no quantity, unit or conversion. 2026-10-23 (review): docblock now says the i18n gate can't follow the map and names the test that checks it. Comment only; no quantity, unit or conversion."
+    },
+    {
       "path": "src/constants/tollSystems.ts",
       "disposition": "no unit behaviour",
       "digest": "f432904aff626c0bc0500494531a489ecc7db9604f77778ce43ba3e75bff65bd",
@@ -2870,8 +2876,8 @@
     {
       "path": "src/pages/Supplies.tsx",
       "disposition": "audited",
-      "digest": "063350443e33e231b91c39cc99eadac37d7db8d46fb34875546021e939e6ba84",
-      "reason": "Per-supply token design (#191 Part B): the page and its supply form resolve one SupplyUnit per supply. On-hand renders through formatSupplyQuantity in the active locale and unit cost through unitCostToDisplay, so both share the unit the label shows. supplyDisplayUnit is the one binary reader left, for the NULL legacy token only; the page uses it to resolve a row's unit and the form uses it for the edit default. A new supply's default comes from the NEW_SUPPLY_UNIT lookup keyed on units.volume (the resolved token), not on `system`. The unit picker offers the account's flavour of each unit. Earlier: the average unit cost passes fractionDigits so it keeps its decimals in every currency (money-fits B7 fix 1); search, filters, sort, grouping, list view and quick actions are display composition only (#191 page tools). 2026-10-18 (service line detail): a `?supply=<id>` link opens that supply's history, widening the list to archived supplies once if needed. Navigation only; no quantity or unit read changed.",
+      "digest": "8003572735d2339aab39005e1cf0e452d81bf7b7827d1f940007575867dcd064",
+      "reason": "Per-supply token design (#191 Part B): the page and its supply form resolve one SupplyUnit per supply. On-hand renders through formatSupplyQuantity in the active locale and unit cost through unitCostToDisplay, so both share the unit the label shows. supplyDisplayUnit is the one binary reader left, for the NULL legacy token only; the page uses it to resolve a row's unit and the form uses it for the edit default. A new supply's default comes from the NEW_SUPPLY_UNIT lookup keyed on units.volume (the resolved token), not on `system`. The unit picker offers the account's flavour of each unit. Earlier: the average unit cost passes fractionDigits so it keeps its decimals in every currency (money-fits B7 fix 1); search, filters, sort, grouping, list view and quick actions are display composition only (#191 page tools). 2026-10-18 (service line detail): a `?supply=<id>` link opens that supply's history, widening the list to archived supplies once if needed. Navigation only; no quantity or unit read changed. 2026-10-23 (PR #235 review fixes): the ?supply= deep-link effect re-arms, drops a malformed id and resets Show archived after a dead link. Navigation state only; no quantity, unit or conversion changed.",
       "tests": [
         "pages/__tests__/Supplies.test.tsx",
         "utils/__tests__/supplyUnits.test.ts"

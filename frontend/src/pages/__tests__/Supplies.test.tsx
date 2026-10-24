@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, within, waitFor } from '../../__tests__/test-utils'
+import { render, screen, fireEvent, within, waitFor, act } from '../../__tests__/test-utils'
 import type { Supply } from '../../types/supplies'
 import { presetUnitsFor, type UnitSet } from '../../types/units'
 import { setActiveLocale } from '../../constants/i18n'
@@ -451,12 +451,53 @@ describe('Supplies page deep link', () => {
     expect(useSuppliesMock).toHaveBeenLastCalledWith(true)
   })
 
-  it('an unknown supply id opens nothing', async () => {
+  it('an unknown supply id opens nothing and leaves Show archived off', async () => {
     window.history.replaceState(null, '', '/supplies?supply=999')
     render(<Supplies />)
 
     await waitFor(() => expect(window.location.search).toBe(''))
     expect(screen.queryByText('supplies.history.title')).not.toBeInTheDocument()
+    // It widened to archived to look; a dead link mustn't leave that on.
+    expect(useSuppliesMock).toHaveBeenLastCalledWith(false)
+  })
+
+  it('a malformed id is dropped from the URL and opens nothing', async () => {
+    window.history.replaceState(null, '', '/supplies?supply=abc')
+    render(<Supplies />)
+
+    await waitFor(() => expect(window.location.search).toBe(''))
+    expect(screen.queryByText('supplies.history.title')).not.toBeInTheDocument()
+    expect(useSuppliesMock).not.toHaveBeenCalledWith(true)
+  })
+
+  it('StrictMode opens the history once', async () => {
+    window.history.replaceState(null, '', '/supplies?supply=1')
+    render(
+      <StrictMode>
+        <Supplies />
+      </StrictMode>,
+    )
+
+    expect(await screen.findByText('supplies.history.title')).toBeInTheDocument()
+    await waitFor(() => expect(window.location.search).toBe(''))
+    expect(screen.getAllByText('supplies.history.title')).toHaveLength(1)
+  })
+
+  it('the same link followed again while the page stays mounted reopens it', async () => {
+    window.history.replaceState(null, '', '/supplies?supply=1')
+    render(<Supplies />)
+    expect(await screen.findByText('supplies.history.title')).toBeInTheDocument()
+    await waitFor(() => expect(window.location.search).toBe(''))
+
+    fireEvent.click(screen.getByRole('button', { name: 'common:close' }))
+    await waitFor(() => expect(screen.queryByText('supplies.history.title')).not.toBeInTheDocument())
+
+    act(() => {
+      window.history.pushState(null, '', '/supplies?supply=1')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(await screen.findByText('supplies.history.title')).toBeInTheDocument()
+    await waitFor(() => expect(window.location.search).toBe(''))
   })
 })
 

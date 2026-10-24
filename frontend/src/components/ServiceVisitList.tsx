@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useId, type KeyboardEvent } from 'react'
+import { useState, useMemo, useCallback, useEffect, useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatDateForDisplay } from '../utils/dateUtils'
 import { formatCurrency } from '../utils/formatUtils'
@@ -30,42 +30,15 @@ import { withBase } from '../utils/basePath'
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import { getUsageTracking } from '../utils/usageTracking'
 import { useServiceVisits, useDeleteServiceVisit } from '../hooks/queries/useServiceVisits'
-import { Button, Card, IconButton, Chip, Mono, SearchField, EmptyState } from './ui'
+import { Button, IconButton, Chip, Mono, SearchField, EmptyState } from './ui'
 import ServiceLineItemDetail from './ServiceLineItemDetail'
-import { cameFromNestedControl } from './ClickableCard'
+import ClickableCard, { cameFromNestedControl } from './ClickableCard'
 import { isSelectingText } from '../utils/textSelection'
-import type { Tone } from './ui'
-
-/**
- * Backend inspection result -> translation key.
- *
- * Domain verified against the `check_inspection_result` CHECK constraint in
- * backend/app/models/service_line_item.py ('passed' | 'failed' |
- * 'needs_attention'). Keys are explicit literals, never built by
- * interpolation, so scripts/validate-i18n-usage.ts can resolve them
- * statically. Unmapped values fall back to INSPECTION_RESULT_FALLBACK_KEY
- * rather than rendering blank.
- *
- * Deliberately reuses the same keys as the InspectionResult picker rather than
- * minting a parallel set: it is the same vocabulary for the same field, and
- * separate keys would let the picker and this badge drift apart per language.
- */
-const INSPECTION_RESULT_KEYS: Record<string, string> = {
-  passed: 'inspectionResult.resultPassed',
-  failed: 'inspectionResult.resultFailed',
-  needs_attention: 'inspectionResult.resultNeedsAttention',
-}
-const INSPECTION_RESULT_FALLBACK_KEY = 'inspectionResult.resultUnknown'
-
-// SDQ-B2: off-accent semantic tones, label always shown (colour never sole channel).
-const SERVICE_CATEGORY_TONE: Record<string, Tone> = {
-  Inspection: 'info',
-  Collision: 'danger',
-  Detailing: 'success',
-  Maintenance: 'default',
-  Upgrades: 'muted',
-}
-const getServiceCategoryTone = (category?: string): Tone => SERVICE_CATEGORY_TONE[category ?? ''] ?? 'default'
+import {
+  INSPECTION_RESULT_KEYS,
+  INSPECTION_RESULT_FALLBACK_KEY,
+  getServiceCategoryTone,
+} from '../constants/serviceVisit'
 
 interface ServiceVisitListProps {
   vin: string
@@ -230,25 +203,17 @@ export default function ServiceVisitList({
 
   const renderLineItem = (visit: ServiceVisit, item: ServiceLineItem, index: number) => {
     const laborCost = item.cost ? Number(item.cost) : 0
-    const partsCost = (item.supply_usages ?? []).reduce((sum, u) => sum + Number(u.cost_snapshot ?? 0), 0)
+    const partsCost = (item.supply_usages ?? []).reduce((sum, usage) => sum + Number(usage.cost_snapshot ?? 0), 0)
     const lineTotal = laborCost + partsCost
     const fmt = (n: number) => formatCurrency(n, { currencyCode, locale })
     return (
-      <div
+      <ClickableCard
         key={item.id || index}
-        role="button"
-        tabIndex={0}
-        aria-label={t('serviceList.detail.viewDetails', { name: item.description })}
-        onClick={() => setDetail({ visit, item })}
-        onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            setDetail({ visit, item })
-          }
-        }}
-        className="cursor-pointer rounded-card ui-focus-ring"
+        padding="sm"
+        label={t('serviceList.detail.viewDetails', { name: item.description })}
+        onActivate={() => setDetail({ visit, item })}
+        className="flex items-start gap-3 bg-surface-2/50 hover:bg-surface-2"
       >
-      <Card padding="sm" className="flex items-start gap-3 bg-surface-2/50 hover:bg-surface-2">
         <div className="flex-shrink-0 mt-0.5">
           {item.is_inspection
             ? <Clipboard aria-hidden="true" className="w-4 h-4 text-info" />
@@ -279,8 +244,7 @@ export default function ServiceVisitList({
             </p>
           )}
         </div>
-      </Card>
-      </div>
+      </ClickableCard>
     )
   }
 
@@ -509,6 +473,12 @@ export default function ServiceVisitList({
                             <span>{t('serviceList.subtotal')}:</span>
                             <Mono size="sm">{formatCurrency(visit.subtotal, { currencyCode, locale })}</Mono>
                           </div>
+                          {Number(visit.parts_supplies_cost) > 0 && (
+                            <div className="flex justify-between text-text-mute">
+                              <span>{t('serviceList.detail.parts')}:</span>
+                              <Mono size="sm">{formatCurrency(visit.parts_supplies_cost, { currencyCode, locale })}</Mono>
+                            </div>
+                          )}
                           {visit.tax_amount && (
                             <div className="flex justify-between text-text-mute">
                               <span>{t('serviceList.tax')}:</span>
@@ -555,7 +525,13 @@ export default function ServiceVisitList({
       )}
 
       {detail && (
-        <ServiceLineItemDetail visit={detail.visit} item={detail.item} onClose={() => setDetail(null)} />
+        <ServiceLineItemDetail
+          visit={detail.visit}
+          item={detail.item}
+          tracksDistance={tracksDistance}
+          tracksHours={tracksHours}
+          onClose={() => setDetail(null)}
+        />
       )}
     </div>
   )

@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { Calendar, ExternalLink, Gauge, Store } from 'lucide-react'
@@ -10,21 +11,29 @@ import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
 import { useUnitPreference } from '../hooks/useUnitPreference'
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import { supplyDisplayUnit, formatSupplyQuantity } from '../utils/supplyUnits'
-
-const INSPECTION_RESULT_KEYS: Record<string, string> = {
-  passed: 'inspectionResult.resultPassed',
-  failed: 'inspectionResult.resultFailed',
-  needs_attention: 'inspectionResult.resultNeedsAttention',
-}
+import {
+  INSPECTION_RESULT_KEYS,
+  INSPECTION_RESULT_FALLBACK_KEY,
+  getServiceCategoryTone,
+} from '../constants/serviceVisit'
 
 interface ServiceLineItemDetailProps {
   visit: ServiceVisit
   item: ServiceLineItem
+  /** The vehicle's usage tracking, as the list resolved it, so both show the same readings. */
+  tracksDistance: boolean
+  tracksHours: boolean
   onClose: () => void
 }
 
 /** Read-only view of one service on a visit: what was done, what it cost, what was used. */
-export default function ServiceLineItemDetail({ visit, item, onClose }: ServiceLineItemDetailProps) {
+export default function ServiceLineItemDetail({
+  visit,
+  item,
+  tracksDistance,
+  tracksHours,
+  onClose,
+}: ServiceLineItemDetailProps): ReactElement {
   const { t } = useTranslation('vehicles')
   const { currencyCode, locale } = useCurrencyPreference()
   const { system } = useUnitPreference()
@@ -52,10 +61,17 @@ export default function ServiceLineItemDetail({ visit, item, onClose }: ServiceL
             <Calendar aria-hidden="true" className="w-4 h-4" />
             <Mono size="sm">{formatDateForDisplay(visit.date)}</Mono>
           </span>
-          {visit.odometer_km != null && (
+          {tracksDistance && visit.odometer_km != null && (
             <span className="flex items-center gap-1.5">
               <Gauge aria-hidden="true" className="w-4 h-4" />
               <Mono size="sm">{u.distance.format(parseFloat(String(visit.odometer_km)))}</Mono>
+            </span>
+          )}
+          {/* Same fixed "hr" symbol as the service list's engine-hours reading. */}
+          {tracksHours && visit.engine_hours != null && (
+            <span className="flex items-center gap-1.5">
+              <Gauge aria-hidden="true" className="w-4 h-4" />
+              <Mono size="sm">{Number(visit.engine_hours).toFixed(1)} hr</Mono>
             </span>
           )}
           {visit.vendor && (
@@ -64,10 +80,10 @@ export default function ServiceLineItemDetail({ visit, item, onClose }: ServiceL
               {visit.vendor.name}
             </span>
           )}
-          {item.category && <Chip tone="default">{item.category}</Chip>}
+          {item.category && <Chip tone={getServiceCategoryTone(item.category)}>{item.category}</Chip>}
           {item.is_inspection && item.inspection_result && (
             <Chip tone="info">
-              {t(INSPECTION_RESULT_KEYS[item.inspection_result] ?? 'inspectionResult.resultUnknown')}
+              {t(INSPECTION_RESULT_KEYS[item.inspection_result] ?? INSPECTION_RESULT_FALLBACK_KEY)}
             </Chip>
           )}
         </div>
@@ -100,11 +116,13 @@ export default function ServiceLineItemDetail({ visit, item, onClose }: ServiceL
                 <li key={usage.id}>
                   <Link
                     to={`/supplies?supply=${usage.supply_id}`}
-                    aria-label={t('serviceList.detail.openSupply', { name: usage.supply_name })}
                     className="group flex items-center justify-between gap-3 rounded-md bg-surface-2/50 px-3 py-2 text-sm transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary"
                   >
                     <span className="flex min-w-0 items-center gap-1.5 text-text group-hover:text-primary">
-                      <span className="truncate">{usage.supply_name}</span>
+                      {/* The link's name is this sentence plus the quantity and cost below,
+                          not an aria-label, which would hide those two from a screen reader. */}
+                      <span className="sr-only">{t('serviceList.detail.openSupply', { name: usage.supply_name })}</span>
+                      <span aria-hidden="true" className="truncate">{usage.supply_name}</span>
                       <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
                     </span>
                     <span className="flex flex-shrink-0 items-center gap-3 text-text-mute">
