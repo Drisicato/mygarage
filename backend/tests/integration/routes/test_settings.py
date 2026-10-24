@@ -451,8 +451,9 @@ class TestSystemInfoDatabasePath:
 class TestSensitiveSettingMasking:
     """Sensitive settings are masked on read and preserved on write.
 
-    The stored value is plaintext; the protection is that it never leaves the
-    API in a response. Writes accept the mask placeholder as "keep what's
+    The value is encrypted at rest (the model's job, pinned in
+    tests/integration/test_settings_secrets_at_rest.py) and also never leaves
+    the API in a response. Writes accept the mask placeholder as "keep what's
     stored", so a form can round-trip a masked value without clobbering it.
     """
 
@@ -844,9 +845,15 @@ _PROVIDER_KEYS = (f"{_PROVIDER}_enabled", f"{_PROVIDER}_api_key", f"{_PROVIDER}_
 
 
 async def _stored_or_none(db_session, key: str) -> str | None:
-    """The stored value, or None when there is no row at all."""
-    result = await db_session.execute(select(Setting.value).where(Setting.key == key))
-    row = result.one_or_none()
+    """The stored value, decrypted, or None when there is no row at all.
+
+    Reloaded from the database, but through the model: the API key is a secret,
+    so the raw column holds its ciphertext.
+    """
+    result = await db_session.execute(
+        select(Setting).where(Setting.key == key).execution_options(populate_existing=True)
+    )
+    row = result.scalar_one_or_none()
     return None if row is None else row.value
 
 
@@ -861,17 +868,18 @@ async def provider_rows(db_session) -> AsyncIterator[None]:
     rows = (
         await db_session.execute(select(Setting).where(Setting.key.in_(_PROVIDER_KEYS)))
     ).scalars()
-    saved = [(r.key, r.value, r.category, r.description, r.encrypted) for r in rows]
+    # The raw stored form, so an unreadable secret's ciphertext survives (R2-10).
+    saved = [(r.key, r.stored_value, r.category, r.description, r.encrypted) for r in rows]
     await db_session.execute(delete(Setting).where(Setting.key.in_(_PROVIDER_KEYS)))
     await db_session.commit()
     yield
     await db_session.rollback()
     await db_session.execute(delete(Setting).where(Setting.key.in_(_PROVIDER_KEYS)))
-    for key, value, category, description, encrypted in saved:
+    for key, stored_value, category, description, encrypted in saved:
         db_session.add(
             Setting(
                 key=key,
-                value=value,
+                stored_value=stored_value,
                 category=category,
                 description=description,
                 encrypted=encrypted,
@@ -962,12 +970,13 @@ class TestPOIProviderBodies:
 
 
 async def _committed_provider_rows(test_sessionmaker) -> dict[str, str | None]:
-    """The test provider's rows as another connection sees them: committed only."""
+    """The test provider's rows as another connection sees them: committed only.
+
+    Read through the model, so the secret API key comes back decrypted.
+    """
     async with test_sessionmaker() as fresh:
-        result = await fresh.execute(
-            select(Setting.key, Setting.value).where(Setting.key.in_(_PROVIDER_KEYS))
-        )
-        return {row.key: row.value for row in result}
+        result = await fresh.execute(select(Setting).where(Setting.key.in_(_PROVIDER_KEYS)))
+        return {row.key: row.value for row in result.scalars()}
 
 
 @pytest.mark.integration
@@ -1022,7 +1031,7 @@ class TestPOIProviderPersistence:
         assert await _committed_provider_rows(test_sessionmaker) == {}
 
 
-# Long enough to mask, so the list has a real prefix in it.
+# Longer than the 8 characters the list used to show, so a prefix would be visible.
 _LISTED_KEY = "fsq-list-key-0123456789"
 
 
@@ -1058,12 +1067,14 @@ class TestPOIProviderListIsAdminOnly:
     async def test_an_admin_gets_the_masked_key(
         self, client: AsyncClient, set_auth_mode, auth_headers
     ):
-        """Control, passes before the gate too. The admin drawer shows the prefix."""
+        """Control, passes before the gate too. The admin sees the key as configured, masked
+        as the placeholder: the 8-character prefix is gone (I4)."""
         await set_auth_mode("local")
         response = await client.get("/api/settings/poi-providers", headers=auth_headers)
         assert response.status_code == 200, response.text
         listed = {p["name"]: p for p in response.json()["providers"]}
-        assert listed[_PROVIDER]["api_key_masked"] == f"{_LISTED_KEY[:8]}***"
+        assert listed[_PROVIDER]["api_key_masked"] == "********"
+        assert _LISTED_KEY[:8] not in response.text
 
     async def test_none_mode_stays_open(self, client: AsyncClient, set_auth_mode):
         """Control, passes before the gate too. With no login, everyone runs the instance."""
