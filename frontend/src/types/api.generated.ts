@@ -3892,6 +3892,7 @@ export interface paths {
          *     - theme: UI theme preference
          *     - family_friends_enabled: garage section feature flag
          *     - nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility
+         *     - the other feature flags and unit defaults every user's UI reads
          *
          *     Security: This endpoint is intentionally public to allow frontend
          *     initialization before login. All sensitive settings are excluded.
@@ -3940,6 +3941,33 @@ export interface paths {
          * @description Get system information and statistics (admin only).
          */
         get: operations["get_system_info_api_settings_system_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/upload-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Upload Limits
+         * @description The upload limits in force, read-only (admin only).
+         *
+         *     Read from the configs the upload validators use, so it reports what an
+         *     upload is actually checked against. The sizes are set by
+         *     `MYGARAGE_MAX_UPLOAD_SIZE_MB` and `MYGARAGE_MAX_DOCUMENT_SIZE_MB`. Each
+         *     kind's file types come from the server's configuration, not from
+         *     Settings: defaults in code, which the environment can override within
+         *     what the MIME and content checks accept.
+         */
+        get: operations["get_upload_limits_api_settings_upload_limits_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8186,7 +8214,8 @@ export interface paths {
          * @description Test window sticker extraction without saving.
          *
          *     Returns detailed extraction results including raw text,
-         *     parsed data, validation warnings, and debug information.
+         *     parsed data, validation warnings, and debug information. A 409 when
+         *     window stickers or their OCR are switched off.
          */
         post: operations["test_window_sticker_extraction_api_vehicles__vin__window_sticker_test_post"];
         delete?: never;
@@ -8212,6 +8241,11 @@ export interface paths {
          *     sticker already on file, the old sticker's fields are cleared first. A scan
          *     that read nothing changes no field and says so in `scan_read_nothing`.
          *     Extracted data can be edited via the PATCH endpoint.
+         *
+         *     With `window_sticker_enabled` off this is a 409. With
+         *     `window_sticker_ocr_enabled` off the file is stored without a scan: no
+         *     field is filled or cleared, the scan metadata empties, and the response
+         *     says so in `ocr_skipped`.
          */
         post: operations["upload_window_sticker_api_vehicles__vin__window_sticker_upload_post"];
         delete?: never;
@@ -19476,6 +19510,52 @@ export interface components {
             volume: "L" | "gal_us" | "gal_uk";
         };
         /**
+         * UploadKindLimits
+         * @description What one kind of upload accepts, as its validator checks it.
+         */
+        UploadKindLimits: {
+            /**
+             * Extensions
+             * @description The file extensions accepted, sorted, without the leading dot.
+             */
+            extensions: string[];
+            /**
+             * Max Size Bytes
+             * @description The largest file accepted, in bytes.
+             */
+            max_size_bytes: number;
+        };
+        /**
+         * UploadLimitsResponse
+         * @description The upload limits in force, for the Settings Files tab (read-only).
+         *
+         *     The sizes come from `MYGARAGE_MAX_UPLOAD_SIZE_MB` (photos and attachments)
+         *     and `MYGARAGE_MAX_DOCUMENT_SIZE_MB` (documents). Each kind's file types
+         *     come from the server's configuration, not from Settings: defaults in code,
+         *     which the environment can override within what the MIME and content
+         *     checks accept.
+         */
+        UploadLimitsResponse: {
+            attachments: components["schemas"]["UploadKindLimits"];
+            documents: components["schemas"]["UploadKindLimits"];
+            photos: components["schemas"]["UploadKindLimits"];
+            storage: components["schemas"]["UploadStorageDirs"];
+        };
+        /**
+         * UploadStorageDirs
+         * @description Where uploads are stored on the server.
+         */
+        UploadStorageDirs: {
+            /** Attachments Dir */
+            attachments_dir: string;
+            /** Data Dir */
+            data_dir: string;
+            /** Documents Dir */
+            documents_dir: string;
+            /** Photos Dir */
+            photos_dir: string;
+        };
+        /**
          * UserCreate
          * @description Schema for creating a new user.
          */
@@ -22348,6 +22428,11 @@ export interface components {
             msrp_options: string | null;
             /** Msrp Total */
             msrp_total: string | null;
+            /**
+             * Ocr Skipped
+             * @default false
+             */
+            ocr_skipped: boolean;
             /** Optional Equipment */
             optional_equipment: {
                 [key: string]: unknown;
@@ -28139,6 +28224,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemInfoResponse"];
+                };
+            };
+        };
+    };
+    get_upload_limits_api_settings_upload_limits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadLimitsResponse"];
                 };
             };
         };

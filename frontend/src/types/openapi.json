@@ -27530,6 +27530,84 @@
         "title": "UnitSet",
         "type": "object"
       },
+      "UploadKindLimits": {
+        "description": "What one kind of upload accepts, as its validator checks it.",
+        "properties": {
+          "extensions": {
+            "description": "The file extensions accepted, sorted, without the leading dot.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Extensions",
+            "type": "array"
+          },
+          "max_size_bytes": {
+            "description": "The largest file accepted, in bytes.",
+            "title": "Max Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_size_bytes",
+          "extensions"
+        ],
+        "title": "UploadKindLimits",
+        "type": "object"
+      },
+      "UploadLimitsResponse": {
+        "description": "The upload limits in force, for the Settings Files tab (read-only).\n\nThe sizes come from `MYGARAGE_MAX_UPLOAD_SIZE_MB` (photos and attachments)\nand `MYGARAGE_MAX_DOCUMENT_SIZE_MB` (documents). Each kind's file types\ncome from the server's configuration, not from Settings: defaults in code,\nwhich the environment can override within what the MIME and content\nchecks accept.",
+        "properties": {
+          "attachments": {
+            "$ref": "#/components/schemas/UploadKindLimits"
+          },
+          "documents": {
+            "$ref": "#/components/schemas/UploadKindLimits"
+          },
+          "photos": {
+            "$ref": "#/components/schemas/UploadKindLimits"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/UploadStorageDirs"
+          }
+        },
+        "required": [
+          "photos",
+          "attachments",
+          "documents",
+          "storage"
+        ],
+        "title": "UploadLimitsResponse",
+        "type": "object"
+      },
+      "UploadStorageDirs": {
+        "description": "Where uploads are stored on the server.",
+        "properties": {
+          "attachments_dir": {
+            "title": "Attachments Dir",
+            "type": "string"
+          },
+          "data_dir": {
+            "title": "Data Dir",
+            "type": "string"
+          },
+          "documents_dir": {
+            "title": "Documents Dir",
+            "type": "string"
+          },
+          "photos_dir": {
+            "title": "Photos Dir",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_dir",
+          "photos_dir",
+          "attachments_dir",
+          "documents_dir"
+        ],
+        "title": "UploadStorageDirs",
+        "type": "object"
+      },
       "UserCreate": {
         "description": "Schema for creating a new user.",
         "properties": {
@@ -35402,6 +35480,11 @@
               }
             ],
             "title": "Msrp Total"
+          },
+          "ocr_skipped": {
+            "default": false,
+            "title": "Ocr Skipped",
+            "type": "boolean"
           },
           "optional_equipment": {
             "anyOf": [
@@ -44636,7 +44719,7 @@
     },
     "/api/settings/public": {
       "get": {
-        "description": "Get public settings (no authentication required).\n\nReturns only non-sensitive settings required for frontend initialization:\n- auth_mode: Authentication mode (local/oidc)\n- app_name: Application name\n- theme: UI theme preference\n- family_friends_enabled: garage section feature flag\n- nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility\n\nSecurity: This endpoint is intentionally public to allow frontend\ninitialization before login. All sensitive settings are excluded.",
+        "description": "Get public settings (no authentication required).\n\nReturns only non-sensitive settings required for frontend initialization:\n- auth_mode: Authentication mode (local/oidc)\n- app_name: Application name\n- theme: UI theme preference\n- family_friends_enabled: garage section feature flag\n- nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility\n- the other feature flags and unit defaults every user's UI reads\n\nSecurity: This endpoint is intentionally public to allow frontend\ninitialization before login. All sensitive settings are excluded.",
         "operationId": "get_public_settings_api_settings_public_get",
         "responses": {
           "200": {
@@ -44705,6 +44788,33 @@
           }
         ],
         "summary": "Get System Info",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
+    "/api/settings/upload-limits": {
+      "get": {
+        "description": "The upload limits in force, read-only (admin only).\n\nRead from the configs the upload validators use, so it reports what an\nupload is actually checked against. The sizes are set by\n`MYGARAGE_MAX_UPLOAD_SIZE_MB` and `MYGARAGE_MAX_DOCUMENT_SIZE_MB`. Each\nkind's file types come from the server's configuration, not from\nSettings: defaults in code, which the environment can override within\nwhat the MIME and content checks accept.",
+        "operationId": "get_upload_limits_api_settings_upload_limits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadLimitsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Upload Limits",
         "tags": [
           "Settings"
         ]
@@ -58683,7 +58793,7 @@
     },
     "/api/vehicles/{vin}/window-sticker/test": {
       "post": {
-        "description": "Test window sticker extraction without saving.\n\nReturns detailed extraction results including raw text,\nparsed data, validation warnings, and debug information.",
+        "description": "Test window sticker extraction without saving.\n\nReturns detailed extraction results including raw text,\nparsed data, validation warnings, and debug information. A 409 when\nwindow stickers or their OCR are switched off.",
         "operationId": "test_window_sticker_extraction_api_vehicles__vin__window_sticker_test_post",
         "parameters": [
           {
@@ -58759,7 +58869,7 @@
     },
     "/api/vehicles/{vin}/window-sticker/upload": {
       "post": {
-        "description": "Upload a window sticker file and extract data using OCR.\n\nThe scan fills only the sticker fields that are empty. With `replace` and a\nsticker already on file, the old sticker's fields are cleared first. A scan\nthat read nothing changes no field and says so in `scan_read_nothing`.\nExtracted data can be edited via the PATCH endpoint.",
+        "description": "Upload a window sticker file and extract data using OCR.\n\nThe scan fills only the sticker fields that are empty. With `replace` and a\nsticker already on file, the old sticker's fields are cleared first. A scan\nthat read nothing changes no field and says so in `scan_read_nothing`.\nExtracted data can be edited via the PATCH endpoint.\n\nWith `window_sticker_enabled` off this is a 409. With\n`window_sticker_ocr_enabled` off the file is stored without a scan: no\nfield is filled or cleared, the scan metadata empties, and the response\nsays so in `ocr_skipped`.",
         "operationId": "upload_window_sticker_api_vehicles__vin__window_sticker_upload_post",
         "parameters": [
           {
