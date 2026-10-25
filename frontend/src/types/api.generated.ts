@@ -922,6 +922,9 @@ export interface paths {
          * Create Settings Backup
          * @description Create a new backup of all settings.
          *
+         *     Secret settings are written as their stored ciphertext. 503 while one is
+         *     still stored as plaintext and can't be encrypted first.
+         *
          *     Args:
          *         db: Database session
          *
@@ -948,7 +951,12 @@ export interface paths {
          * Create Full Backup
          * @description Create a full backup including database and all uploaded files.
          *
-         *     This may take several minutes depending on the size of your data.
+         *     This may take several minutes depending on the size of your data. 503 while
+         *     a secret setting is still stored as plaintext and can't be encrypted first:
+         *     the archive copies the database.
+         *
+         *     Args:
+         *         db: Database session, for the preflight only
          *
          *     Returns:
          *         Metadata about the created backup file
@@ -1049,7 +1057,12 @@ export interface paths {
          * @description Restore a settings backup now, or stage a full backup for the next start.
          *
          *     Either way a safety backup comes first. A full restore is SQLite only and finishes when MyGarage
-         *     restarts.
+         *     restarts. 503 while a secret setting is still stored as plaintext and can't be encrypted first,
+         *     since the safety backup would copy it.
+         *
+         *     A settings restore that skipped secret keys (ciphertext no key in the keyring opens, or
+         *     plaintext with no keyring to encrypt it) lists them in `details.skipped_secret_keys` and names
+         *     them in `warning`; those keys keep their current values.
          *
          *     Args:
          *         filename: Name of the backup file to restore from
@@ -3884,6 +3897,29 @@ export interface paths {
          *     initialization before login. All sensitive settings are excluded.
          */
         get: operations["get_public_settings_api_settings_public_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/secrets/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Secrets Status
+         * @description Whether the keyring is usable, and which secrets can't be decrypted (admin only).
+         *
+         *     Computed live, so the Settings banner reflects a key fixed or a secret
+         *     re-entered since the last start. Names setting keys only.
+         */
+        get: operations["get_secrets_status_api_settings_secrets_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13811,6 +13847,12 @@ export interface components {
              */
             has_password: boolean;
             /**
+             * Password Unreadable
+             * @description True when a password is stored but can't be decrypted with the current settings key; re-enter it. has_password stays true.
+             * @default false
+             */
+            password_unreadable: boolean;
+            /**
              * Topic Prefix
              * @description Topic prefix for subscriptions
              * @default wican
@@ -14391,6 +14433,80 @@ export interface components {
              * @default
              */
             client_secret: string;
+            /**
+             * Email Claim
+             * @default email
+             */
+            email_claim: string;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Full Name Claim
+             * @default name
+             */
+            full_name_claim: string;
+            /**
+             * Issuer Url
+             * @default
+             */
+            issuer_url: string;
+            /**
+             * Provider Name
+             * @default
+             */
+            provider_name: string;
+            /**
+             * Redirect Uri
+             * @default
+             */
+            redirect_uri: string;
+            /**
+             * Scopes
+             * @default openid profile email
+             */
+            scopes: string;
+            /**
+             * Username Claim
+             * @default preferred_username
+             */
+            username_claim: string;
+        };
+        /**
+         * OIDCAdminConfigResponse
+         * @description The admin GET's shape: the PUT body plus what only a read can report.
+         *
+         *     A separate model, so the PUT body doesn't accept `client_secret_unreadable`.
+         */
+        OIDCAdminConfigResponse: {
+            /**
+             * Admin Group
+             * @default
+             */
+            admin_group: string;
+            /**
+             * Auto Create Users
+             * @default true
+             */
+            auto_create_users: boolean;
+            /**
+             * Client Id
+             * @default
+             */
+            client_id: string;
+            /**
+             * Client Secret
+             * @default
+             */
+            client_secret: string;
+            /**
+             * Client Secret Unreadable
+             * @description True when a client secret is stored but can't be decrypted with the current settings key. `client_secret` still shows the placeholder; saving it keeps the stored value. Re-enter the secret to replace it.
+             * @default false
+             */
+            client_secret_unreadable: boolean;
             /**
              * Email Claim
              * @default email
@@ -16196,6 +16312,26 @@ export interface components {
             seasons: components["schemas"]["SeasonalAnalysis"][];
         };
         /**
+         * SecretsStatusResponse
+         * @description Whether the secret settings can be read, for the Settings page banner.
+         *
+         *     Computed live on each request, not from the startup sweep. Names setting
+         *     keys only, never values.
+         */
+        SecretsStatusResponse: {
+            /**
+             * Keyring
+             * @description 'unavailable' when no usable settings encryption key is configured: secret settings can't be saved, and encrypted ones can't be read.
+             * @enum {string}
+             */
+            keyring: "ok" | "unavailable";
+            /**
+             * Unreadable Keys
+             * @description Secret setting keys, sorted, whose stored value can't be decrypted with the current keyring. Each reads as unset until its key is restored or it is re-entered.
+             */
+            unreadable_keys: string[];
+        };
+        /**
          * ServiceHistoryItem
          * @description Service history timeline item.
          */
@@ -16767,7 +16903,7 @@ export interface components {
             description?: string | null;
             /**
              * Encrypted
-             * @description Whether the value is sensitive and therefore masked as '********' in API responses. Values are NOT encrypted at rest.
+             * @description Whether the value is a secret: encrypted at rest and masked as '********' in API responses.
              * @default false
              */
             encrypted: boolean;
@@ -16805,12 +16941,18 @@ export interface components {
             description?: string | null;
             /**
              * Encrypted
-             * @description Whether the value is sensitive and therefore masked as '********' in API responses. Values are NOT encrypted at rest.
+             * @description Whether the value is a secret: encrypted at rest and masked as '********' in API responses.
              * @default false
              */
             encrypted: boolean;
             /** Key */
             key: string;
+            /**
+             * Unreadable
+             * @description True for a secret that is configured but can't be decrypted with the current settings key. Its value shows as '********'; saving that placeholder keeps the stored value, so restoring the right key recovers it. Re-enter the secret to replace it.
+             * @default false
+             */
+            unreadable: boolean;
             /**
              * Updated At
              * Format: date-time
@@ -23139,7 +23281,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OIDCAdminConfig"];
+                    "application/json": components["schemas"]["OIDCAdminConfigResponse"];
                 };
             };
         };
@@ -27957,6 +28099,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsListResponse"];
+                };
+            };
+        };
+    };
+    get_secrets_status_api_settings_secrets_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretsStatusResponse"];
                 };
             };
         };

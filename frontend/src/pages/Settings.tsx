@@ -10,6 +10,7 @@ import SettingsImportExportTab from '../components/tabs/SettingsImportExportTab'
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext'
 import { useCanManageInstance } from '../hooks/useCanManageInstance'
 import SubTabNav from '../components/SubTabNav'
+import SecretsStatusBanner from '../components/settings/SecretsStatusBanner'
 
 type TabType = 'system' | 'files' | 'integrations' | 'notifications' | 'importExport' | 'backup'
 
@@ -48,6 +49,10 @@ function SettingsContent() {
           </div>
         </div>
       </div>
+
+      {/* Unreadable secrets or no usable key. Its endpoint is admin-only, so a
+          non-admin doesn't mount it: no request, no 403. */}
+      {canManageInstance && <SecretsStatusBanner />}
 
       {/* Tabs — same responsive pattern as vehicle sub-tabs (icon-only on mobile) */}
       <SubTabNav

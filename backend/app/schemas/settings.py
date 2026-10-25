@@ -1,7 +1,7 @@
 """Settings Pydantic schemas for validation and serialization."""
 
 import datetime as dt
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -17,8 +17,8 @@ class SettingBase(BaseModel):
     encrypted: bool = Field(
         False,
         description=(
-            "Whether the value is sensitive and therefore masked as '********' in "
-            "API responses. Values are NOT encrypted at rest."
+            "Whether the value is a secret: encrypted at rest and masked as "
+            "'********' in API responses."
         ),
     )
 
@@ -47,6 +47,15 @@ class SettingResponse(SettingBase):
     """Schema for setting response."""
 
     key: str
+    unreadable: bool = Field(
+        False,
+        description=(
+            "True for a secret that is configured but can't be decrypted with the "
+            "current settings key. Its value shows as '********'; saving that "
+            "placeholder keeps the stored value, so restoring the right key "
+            "recovers it. Re-enter the secret to replace it."
+        ),
+    )
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -102,3 +111,26 @@ class SystemInfoResponse(BaseModel):
     total_vehicles: int
     database_size_mb: float
     uptime_seconds: float
+
+
+class SecretsStatusResponse(BaseModel):
+    """Whether the secret settings can be read, for the Settings page banner.
+
+    Computed live on each request, not from the startup sweep. Names setting
+    keys only, never values.
+    """
+
+    keyring: Literal["ok", "unavailable"] = Field(
+        ...,
+        description=(
+            "'unavailable' when no usable settings encryption key is configured: secret "
+            "settings can't be saved, and encrypted ones can't be read."
+        ),
+    )
+    unreadable_keys: list[str] = Field(
+        ...,
+        description=(
+            "Secret setting keys, sorted, whose stored value can't be decrypted with the "
+            "current keyring. Each reads as unset until its key is restored or it is re-entered."
+        ),
+    )

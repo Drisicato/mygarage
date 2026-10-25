@@ -81,8 +81,13 @@ from app.services.livelink_sources.presets.sensors import (
 )
 from app.services.livelink_sources.registry import default_registry
 from app.services.mqtt_subscriber import mqtt_subscriber
+from app.services.oidc import MASKED_SECRET_PLACEHOLDER
 from app.services.sd_backfill_service import SdBackfillService
-from app.services.settings_service import SettingsService
+from app.services.settings_service import (
+    SecretUnreadableError,
+    SettingsService,
+    reenter_message,
+)
 from app.services.telemetry_service import TelemetryService
 from app.tasks.livelink_tasks import get_mqtt_status as get_subscriber_status
 from app.utils.datetime_utils import utc_now
@@ -877,7 +882,10 @@ async def get_mqtt_settings(
         broker_host=broker_host.value if broker_host else "",
         broker_port=int(broker_port.value) if broker_port and broker_port.value else 1883,
         username=username.value if username else "",
-        has_password=bool(password and password.value),
+        # From the stored form, not the decrypted value: a password that can't
+        # be decrypted reads as None but is still configured (D3a).
+        has_password=bool(password and password.stored_value),
+        password_unreadable=bool(password and password.unreadable),
         topic_prefix=topic_prefix.value if topic_prefix and topic_prefix.value else "wican",
         use_tls=use_tls,
     )
@@ -905,7 +913,9 @@ async def update_mqtt_settings(
         await SettingsService.set(db, "livelink_mqtt_broker_port", str(updates.broker_port))
     if updates.username is not None:
         await SettingsService.set(db, "livelink_mqtt_username", updates.username)
-    if updates.password is not None:
+    # The placeholder means "keep the stored password": write nothing (D3a), so
+    # one that can't be decrypted survives for the right settings key to open.
+    if updates.password is not None and updates.password != MASKED_SECRET_PLACEHOLDER:
         await SettingsService.set(
             db,
             "livelink_mqtt_password",
@@ -977,7 +987,6 @@ async def test_mqtt_connection(
     broker_host = await SettingsService.get(db, "livelink_mqtt_broker_host")
     broker_port = await SettingsService.get(db, "livelink_mqtt_broker_port")
     username = await SettingsService.get(db, "livelink_mqtt_username")
-    password = await SettingsService.get(db, "livelink_mqtt_password")
     use_tls = await SettingsService.get_bool(db, "livelink_mqtt_use_tls", default=False)
 
     if not broker_host or not broker_host.value:
@@ -990,6 +999,17 @@ async def test_mqtt_connection(
     host = broker_host.value
     port = int(broker_port.value) if broker_port and broker_port.value else 1883
     broker = f"{host}:{port}"
+
+    try:
+        # Optional: no password connects anonymously, so an unreadable one must
+        # stop with advice in the 200 envelope the drawer shows (R2-1).
+        password = await SettingsService.get_secret(db, "livelink_mqtt_password")
+    except SecretUnreadableError:
+        return MQTTTestResult(
+            success=False,
+            message=reenter_message("MQTT password"),
+            broker=broker,
+        )
 
     try:
         import asyncio
@@ -1008,7 +1028,7 @@ async def test_mqtt_connection(
                 hostname=host,
                 port=port,
                 username=username.value if username and username.value else None,
-                password=password.value if password and password.value else None,
+                password=password or None,
                 tls_context=tls_context,
             ):
                 pass  # Connection successful
