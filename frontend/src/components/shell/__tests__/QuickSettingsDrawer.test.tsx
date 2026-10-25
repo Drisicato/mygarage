@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ACCENT_KEYS } from '../../../constants/accents'
 
@@ -8,6 +8,7 @@ import { ACCENT_KEYS } from '../../../constants/accents'
 // them; api + sonner are mocked so we can assert the persistence boundary.
 const h = vi.hoisted(() => ({
   setAccent: vi.fn(),
+  setTheme: vi.fn(),
   refreshUser: vi.fn(),
     refreshPublicSettings: vi.fn(),
     householdTimeZone: null,
@@ -15,11 +16,15 @@ const h = vi.hoisted(() => ({
   navigate: vi.fn(),
   put: vi.fn(),
   toastError: vi.fn(),
-  state: { accent: 'blue', authed: true, authMode: 'local' },
+  state: { accent: 'blue', theme: 'dark', authed: true, authMode: 'local' },
 }))
 
 vi.mock('../../../contexts/AccentContext', () => ({
   useAccent: () => ({ accent: h.state.accent, setAccent: h.setAccent }),
+}))
+// The account write behind setTheme is useThemePreference's own test.
+vi.mock('../../../hooks/useThemePreference', () => ({
+  useThemePreference: () => ({ theme: h.state.theme, setTheme: h.setTheme, toggleTheme: vi.fn() }),
 }))
 vi.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -57,6 +62,7 @@ function openDrawer() {
 beforeEach(() => {
   vi.clearAllMocks()
   h.state.accent = 'blue'
+  h.state.theme = 'dark'
   h.state.authed = true
   h.state.authMode = 'local'
   h.put.mockResolvedValue({})
@@ -139,6 +145,25 @@ describe('QuickSettingsDrawer', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'accents.green' }))
     await waitFor(() => expect(h.toastError).toHaveBeenCalledWith('accentError'))
     expect(h.setAccent.mock.calls).toStrictEqual([['green']])
+  })
+
+  it('offers light, dark and dark grey, with the current theme pressed', async () => {
+    h.state.theme = 'grey'
+    openDrawer()
+    const group = await screen.findByRole('group', { name: 'theme' })
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toStrictEqual([
+      'themes.light',
+      'themes.dark',
+      'themes.grey',
+    ])
+    expect(within(group).getByRole('button', { name: 'themes.grey' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(group).getByRole('button', { name: 'themes.dark' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('applies the picked theme with the exact key', async () => {
+    openDrawer()
+    fireEvent.click(await screen.findByRole('button', { name: 'themes.grey' }))
+    expect(h.setTheme.mock.calls).toStrictEqual([['grey']])
   })
 
   it('shows a logout row that logs out and routes to /login when authed', async () => {

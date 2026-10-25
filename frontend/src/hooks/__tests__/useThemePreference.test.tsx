@@ -7,11 +7,16 @@ const h = vi.hoisted(() => ({
     refreshPublicSettings: vi.fn(),
     householdTimeZone: null,
   put: vi.fn(),
-  state: { theme: 'dark' as 'dark' | 'light', authed: true, authMode: 'local' as string },
+  state: {
+    theme: 'dark' as 'dark' | 'light' | 'grey',
+    darkTheme: 'dark' as 'dark' | 'grey',
+    authed: true,
+    authMode: 'local' as string,
+  },
 }))
 
 vi.mock('../../contexts/ThemeContext', () => ({
-  useTheme: () => ({ theme: h.state.theme, setTheme: h.setTheme }),
+  useTheme: () => ({ theme: h.state.theme, darkTheme: h.state.darkTheme, setTheme: h.setTheme }),
 }))
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -26,7 +31,7 @@ import { useThemePreference } from '../useThemePreference'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  h.state = { theme: 'dark', authed: true, authMode: 'local' }
+  h.state = { theme: 'dark', darkTheme: 'dark', authed: true, authMode: 'local' }
   h.put.mockResolvedValue({})
 })
 
@@ -46,6 +51,25 @@ describe('useThemePreference', () => {
     act(() => result.current.toggleTheme())
     expect(h.setTheme.mock.calls).toStrictEqual([['light']])
     await waitFor(() => expect(h.put.mock.calls).toStrictEqual([['/auth/me', { theme: 'light' }]]))
+  })
+
+  it('toggle from grey goes to light, and from light back to the last dark theme', async () => {
+    h.state.theme = 'grey'
+    h.state.darkTheme = 'grey'
+    const { result, rerender } = renderHook(() => useThemePreference())
+    act(() => result.current.toggleTheme())
+    expect(h.setTheme.mock.calls).toStrictEqual([['light']])
+
+    h.state.theme = 'light'
+    rerender()
+    act(() => result.current.toggleTheme())
+    expect(h.setTheme.mock.calls).toStrictEqual([['light'], ['grey']])
+    await waitFor(() =>
+      expect(h.put.mock.calls).toStrictEqual([
+        ['/auth/me', { theme: 'light' }],
+        ['/auth/me', { theme: 'grey' }],
+      ]),
+    )
   })
 
   it('does NOT persist when unauthenticated (local-only path)', () => {

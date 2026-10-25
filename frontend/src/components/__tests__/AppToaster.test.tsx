@@ -8,7 +8,11 @@ vi.mock('sonner', () => ({
   Toaster: (props: Record<string, unknown>) => { captured = props; return null },
   useSonner: () => ({ toasts: liveToasts }),
 }))
-vi.mock('../../contexts/ThemeContext')
+// Real helpers (themeTone), stubbed hook.
+vi.mock('../../contexts/ThemeContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../contexts/ThemeContext')>()),
+  useTheme: vi.fn(),
+}))
 
 import AppToaster from '../AppToaster'
 import Drawer from '../ui/Drawer'
@@ -16,7 +20,7 @@ import Drawer from '../ui/Drawer'
 describe('AppToaster', () => {
   beforeEach(() => {
     liveToasts = []
-    vi.spyOn(ThemeContext, 'useTheme').mockReturnValue({ theme: 'dark', toggleTheme: vi.fn(), setTheme: vi.fn() })
+    vi.spyOn(ThemeContext, 'useTheme').mockReturnValue({ theme: 'dark', darkTheme: 'dark', toggleTheme: vi.fn(), setTheme: vi.fn() })
   })
 
   it('tracks the app theme, drops richColors, and maps status classNames', () => {

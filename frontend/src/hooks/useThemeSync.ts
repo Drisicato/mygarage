@@ -17,7 +17,7 @@
  */
 import { useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useTheme } from '../contexts/ThemeContext'
+import { isTheme, useTheme } from '../contexts/ThemeContext'
 
 export function useThemeSync(): void {
   const { user } = useAuth()
@@ -25,7 +25,7 @@ export function useThemeSync(): void {
 
   useEffect(() => {
     const dbTheme = user?.theme
-    if (dbTheme === 'light' || dbTheme === 'dark') {
+    if (isTheme(dbTheme)) {
       setTheme(dbTheme)
     }
   }, [user?.theme, setTheme])

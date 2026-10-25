@@ -35,7 +35,7 @@ export default function RightCluster() {
     <div className="flex items-center gap-2">
       <NavSearch placeholder={t('search')} className="max-nav:hidden w-[150px]" />
       <IconButton
-        icon={theme === 'dark' ? Sun : Moon}
+        icon={theme === 'light' ? Moon : Sun}
         label={t('themeToggle')}
         variant="surface"
         onClick={toggleTheme}

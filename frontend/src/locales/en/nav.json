@@ -14,6 +14,12 @@
   "themeToggle": "Toggle theme",
   "allSettings": "All settings",
   "appearance": "Appearance",
+  "theme": "Theme",
+  "themes": {
+    "light": "Light",
+    "dark": "Dark",
+    "grey": "Dark grey"
+  },
   "accent": "Accent",
   "accentError": "Couldn't save your accent",
   "accents": {

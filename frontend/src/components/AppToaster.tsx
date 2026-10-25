@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Toaster, useSonner } from 'sonner'
-import { useTheme } from '../contexts/ThemeContext'
+import { themeTone, useTheme } from '../contexts/ThemeContext'
 import { useAnyDrawerOpen } from './ui/openDrawers'
 
 type Corner = 'top-left' | 'bottom-left'
@@ -47,7 +47,7 @@ export default function AppToaster() {
       position={position}
       offset={{ bottom: 'calc(24px + var(--toast-lift))' }}
       mobileOffset={{ bottom: 'calc(16px + var(--toast-lift))' }}
-      theme={theme}
+      theme={themeTone(theme)}
       toastOptions={{
         classNames: {
           error: 'bg-danger text-on-status border-danger',

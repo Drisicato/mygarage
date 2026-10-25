@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useLayoutEffect, useState, useCallback } from 'react'
-import { useTheme } from './ThemeContext'
+import { themeTone, useTheme } from './ThemeContext'
 import {
   ACCENT_KEYS,
   DEFAULT_ACCENT,
@@ -55,7 +55,8 @@ export const AccentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [])
 
-  // Re-apply on accent change AND on theme change: --accent-fg differs per theme.
+  // Re-apply on accent change AND on theme change: --accent-fg differs between
+  // light and the dark themes (dark and grey share the dark foreground).
   // useLayoutEffect (not useEffect) so the custom properties are on
   // document.documentElement BEFORE the browser's first paint. With a plain
   // useEffect the initial state (read synchronously from localStorage) is
@@ -63,7 +64,7 @@ export const AccentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // static default accent, and any paint sampled in that window (e.g. the P0
   // foundation e2e probe) resolves *-primary utilities against the old accent.
   useLayoutEffect(() => {
-    apply(accent, theme)
+    apply(accent, themeTone(theme))
   }, [accent, theme, apply])
 
   const setAccent = useCallback((next: AccentKey) => {

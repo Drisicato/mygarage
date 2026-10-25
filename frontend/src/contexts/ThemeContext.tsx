@@ -1,17 +1,43 @@
 import React, { createContext, useContext, useState, useLayoutEffect, useCallback } from 'react';
 
-type Theme = 'light' | 'dark';
+/** 'grey' is a dark theme: it carries the `dark` class too, so every dark rule
+ *  and `classList.contains('dark')` check still applies, and html.grey only
+ *  re-points the surface tokens. Mirrors SUPPORTED_THEMES in
+ *  backend/app/constants/theme.py; keep the two in sync. */
+export type Theme = 'light' | 'dark' | 'grey';
+export type DarkTheme = Exclude<Theme, 'light'>;
+
+export const THEMES: readonly Theme[] = ['light', 'dark', 'grey'];
+
+export function isTheme(value: unknown): value is Theme {
+  return THEMES.includes(value as Theme);
+}
+
+/** The light/dark family a theme belongs to (accent foreground, icons). */
+export function themeTone(theme: Theme): 'light' | 'dark' {
+  return theme === 'light' ? 'light' : 'dark';
+}
 
 /** Opaque form of --color-nav per theme (design §4.4 / §4.10). The browser
  *  status bar wants a solid colour; jsdom cannot resolve the @theme rgba(), so
  *  these are pinned constants matching the static index.html value (#0b0e13). */
 const NAV_THEME_COLOR: Record<Theme, string> = {
   dark: '#0b0e13',
+  grey: '#25262a',
   light: '#ffffff',
+};
+
+/** Every class applyTheme may set, so switching removes the previous one. */
+const THEME_CLASSES: Record<Theme, string[]> = {
+  light: ['light'],
+  dark: ['dark'],
+  grey: ['dark', 'grey'],
 };
 
 interface ThemeContextType {
   theme: Theme;
+  /** The dark theme the light/dark toggle returns to: the last one picked. */
+  darkTheme: DarkTheme;
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
 }
@@ -36,7 +62,15 @@ interface ThemeProviderProps {
 function readStoredTheme(): Theme {
   try {
     const stored = localStorage.getItem('theme');
-    return stored === 'light' || stored === 'dark' ? stored : 'dark';
+    return isTheme(stored) ? stored : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+function readStoredDarkTheme(): DarkTheme {
+  try {
+    return localStorage.getItem('darkTheme') === 'grey' ? 'grey' : 'dark';
   } catch {
     return 'dark';
   }
@@ -49,16 +83,15 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   // AuthProvider) and handles only the local apply + localStorage. The account
   // write (PUT /auth/me) lives in useThemePreference at the toggle sites.
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
+  const [darkTheme, setDarkTheme] = useState<DarkTheme>(() => {
+    const seed = readStoredTheme();
+    return seed === 'light' ? readStoredDarkTheme() : seed;
+  });
 
   const applyTheme = useCallback((newTheme: Theme) => {
     const html = document.documentElement;
-    if (newTheme === 'light') {
-      html.classList.add('light');
-      html.classList.remove('dark');
-    } else {
-      html.classList.add('dark');
-      html.classList.remove('light');
-    }
+    html.classList.remove('light', 'dark', 'grey');
+    html.classList.add(...THEME_CLASSES[newTheme]);
     // theme-color tracks the app bar (--color-nav), not the accent (§4.10).
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
@@ -76,14 +109,18 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const setTheme = useCallback((newTheme: Theme) => {
     setThemeState(newTheme);
     localStorage.setItem('theme', newTheme);
+    if (newTheme !== 'light') {
+      setDarkTheme(newTheme);
+      localStorage.setItem('darkTheme', newTheme);
+    }
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
-  }, [theme, setTheme]);
+    setTheme(theme === 'light' ? darkTheme : 'light');
+  }, [theme, darkTheme, setTheme]);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
+    <ThemeContext.Provider value={{ theme, darkTheme, toggleTheme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );

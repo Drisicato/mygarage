@@ -14,10 +14,8 @@
  */
 import { useCallback } from 'react'
 import api from '../services/api'
-import { useTheme } from '../contexts/ThemeContext'
+import { useTheme, type Theme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
-
-type Theme = 'light' | 'dark'
 
 interface ThemePreference {
   theme: Theme
@@ -26,7 +24,7 @@ interface ThemePreference {
 }
 
 export function useThemePreference(): ThemePreference {
-  const { theme, setTheme } = useTheme()
+  const { theme, darkTheme, setTheme } = useTheme()
   const { isAuthenticated, authMode, refreshUser } = useAuth()
 
   const persist = useCallback(
@@ -51,8 +49,8 @@ export function useThemePreference(): ThemePreference {
   )
 
   const toggleThemePreference = useCallback((): void => {
-    setThemePreference(theme === 'dark' ? 'light' : 'dark')
-  }, [theme, setThemePreference])
+    setThemePreference(theme === 'light' ? darkTheme : 'light')
+  }, [theme, darkTheme, setThemePreference])
 
   return { theme, setTheme: setThemePreference, toggleTheme: toggleThemePreference }
 }

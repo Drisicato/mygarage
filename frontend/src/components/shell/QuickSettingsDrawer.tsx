@@ -6,8 +6,11 @@ import { toast } from 'sonner'
 import { Drawer, IconButton } from '../ui'
 import { useAccent } from '../../contexts/AccentContext'
 import { useAuth } from '../../contexts/AuthContext'
+import { THEMES } from '../../contexts/ThemeContext'
+import { useThemePreference } from '../../hooks/useThemePreference'
 import { ACCENTS, ACCENT_KEYS, type AccentKey } from '../../constants/accents'
 import api from '../../services/api'
+import { segmentClass } from '../settings/choiceStyles'
 
 // Loaded on the drawer's first open (a closed Drawer mounts no children), so
 // its unit code stays out of the main bundle.
@@ -26,12 +29,14 @@ const ROW =
  * selectors.ts:14 is defined but never called, and every spec reaches Settings
  * via page.goto('/settings'), so the gear being a button breaks nothing.
  *
- * Content: the Appearance accent picker (per-account; see below), then this
+ * Content: the Appearance theme (Light / Dark / Dark grey) and accent pickers
+ * (both per-account; see below), then this
  * person's own display preferences (units, time format, language, currency),
  * + an About row (Jamey's decision — About lives here) + a one-tap "All
  * settings" link + a logout row (auth-enabled + signed-in only). Settings >
- * System keeps only what applies to the whole instance. The dark/light theme is a
- * standalone toggle in RightCluster, not duplicated here. The gear is reachable
+ * System keeps only what applies to the whole instance. RightCluster's sun/moon
+ * button is the one-tap shortcut: it flips between Light and the last dark
+ * theme picked here. The gear is reachable
  * on every viewport (RightCluster no longer hides it below md), so phone users
  * reach the accent picker and logout here — the standalone logout button in
  * RightCluster is a desktop-only shortcut.
@@ -40,6 +45,7 @@ export default function QuickSettingsDrawer({ className = '' }: QuickSettingsDra
   const { t } = useTranslation('nav')
   const [open, setOpen] = useState(false)
   const { accent, setAccent } = useAccent()
+  const { theme, setTheme } = useThemePreference()
   const { isAuthenticated, refreshUser, logout, authMode } = useAuth()
   const navigate = useNavigate()
 
@@ -82,9 +88,22 @@ export default function QuickSettingsDrawer({ className = '' }: QuickSettingsDra
         closeLabel={t('common:close')}
       >
         <div className="flex flex-col gap-4">
-          {/* Appearance — per-account accent picker */}
+          {/* Appearance — per-account theme and accent pickers */}
           <div>
             <div className="ui-eyebrow mb-2">{t('appearance')}</div>
+            <div className="mb-3 flex gap-2" role="group" aria-label={t('theme')}>
+              {THEMES.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={theme === key}
+                  onClick={() => setTheme(key)}
+                  className={segmentClass(theme === key, false)}
+                >
+                  {t(`themes.${key}`)}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap gap-2" role="group" aria-label={t('accent')}>
               {ACCENT_KEYS.map((key) => (
                 <button

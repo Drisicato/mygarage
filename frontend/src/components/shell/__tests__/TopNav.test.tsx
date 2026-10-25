@@ -13,7 +13,7 @@ vi.mock('../../../contexts/AccentContext', () => ({
 }))
 
 function setup() {
-  vi.spyOn(ThemeContext, 'useTheme').mockReturnValue({ theme: 'dark', toggleTheme: vi.fn(), setTheme: vi.fn() })
+  vi.spyOn(ThemeContext, 'useTheme').mockReturnValue({ theme: 'dark', darkTheme: 'dark', toggleTheme: vi.fn(), setTheme: vi.fn() })
   vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
     user: null, isAuthenticated: false, isAdmin: false, logout: vi.fn(), authMode: 'none',
   } as unknown as ReturnType<typeof AuthContext.useAuth>)

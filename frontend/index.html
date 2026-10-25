@@ -35,8 +35,10 @@
           };
           var d = document.documentElement;
           var theme = localStorage.getItem('theme');
-          if (theme !== 'light' && theme !== 'dark') theme = 'dark';
-          d.classList.add(theme);
+          if (theme !== 'light' && theme !== 'dark' && theme !== 'grey') theme = 'dark';
+          // grey is a dark theme: it keeps the dark class (see ThemeContext).
+          if (theme === 'grey') d.classList.add('dark', 'grey');
+          else d.classList.add(theme);
 
           var key = localStorage.getItem('accent');
           var r = A[key] || A.blue;

@@ -14,6 +14,7 @@ function ThemeConsumer() {
       <button onClick={toggleTheme}>Toggle</button>
       <button onClick={() => setTheme('light')}>Set Light</button>
       <button onClick={() => setTheme('dark')}>Set Dark</button>
+      <button onClick={() => setTheme('grey')}>Set Grey</button>
     </div>
   )
 }
@@ -29,7 +30,7 @@ function renderProvider() {
 describe('ThemeContext', () => {
   beforeEach(() => {
     localStorage.clear()
-    document.documentElement.classList.remove('light', 'dark')
+    document.documentElement.classList.remove('light', 'dark', 'grey')
 
     let meta = document.querySelector('meta[name="theme-color"]')
     if (!meta) {
@@ -106,5 +107,58 @@ describe('ThemeContext', () => {
       screen.getByText('Toggle').click()
     })
     expect(meta()).toBe('#ffffff')
+  })
+
+  it('grey keeps the dark class, so dark-theme rules still apply', () => {
+    renderProvider()
+    const classes = document.documentElement.classList
+
+    act(() => {
+      screen.getByText('Set Grey').click()
+    })
+    expect(classes.contains('dark')).toBe(true)
+    expect(classes.contains('grey')).toBe(true)
+    expect(localStorage.getItem('theme')).toBe('grey')
+    expect(document.querySelector('meta[name="theme-color"]')!.getAttribute('content')).toBe('#25262a')
+
+    act(() => {
+      screen.getByText('Set Light').click()
+    })
+    expect(classes.contains('light')).toBe(true)
+    expect(classes.contains('dark')).toBe(false)
+    expect(classes.contains('grey')).toBe(false)
+  })
+
+  it('toggle returns from light to the last dark theme picked', () => {
+    renderProvider()
+
+    act(() => {
+      screen.getByText('Set Grey').click()
+    })
+    act(() => {
+      screen.getByText('Toggle').click()
+    })
+    expect(screen.getByTestId('theme-value')).toHaveTextContent('light')
+    act(() => {
+      screen.getByText('Toggle').click()
+    })
+    expect(screen.getByTestId('theme-value')).toHaveTextContent('grey')
+  })
+
+  it('remembers the dark theme across reloads while light is showing', () => {
+    localStorage.setItem('theme', 'light')
+    localStorage.setItem('darkTheme', 'grey')
+    renderProvider()
+
+    act(() => {
+      screen.getByText('Toggle').click()
+    })
+    expect(screen.getByTestId('theme-value')).toHaveTextContent('grey')
+  })
+
+  it('seeds from a stored grey theme', () => {
+    localStorage.setItem('theme', 'grey')
+    renderProvider()
+    expect(screen.getByTestId('theme-value')).toHaveTextContent('grey')
   })
 })

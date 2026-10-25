@@ -5,7 +5,10 @@ const setTheme = vi.fn()
 let user: { theme?: string | null } | null = null
 
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user }) }))
-vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ setTheme }) }))
+vi.mock('../../contexts/ThemeContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../contexts/ThemeContext')>()),
+  useTheme: () => ({ setTheme }),
+}))
 
 import { useThemeSync } from '../useThemeSync'
 
@@ -27,7 +30,13 @@ describe('useThemeSync', () => {
     expect(setTheme).not.toHaveBeenCalled()
   })
 
-  it('ignores a theme outside the light/dark set', () => {
+  it('applies a saved grey theme', () => {
+    user = { theme: 'grey' }
+    renderHook(() => useThemeSync())
+    expect(setTheme.mock.calls).toStrictEqual([['grey']])
+  })
+
+  it('ignores a theme outside the supported set', () => {
     user = { theme: 'solarized' }
     renderHook(() => useThemeSync())
     expect(setTheme).not.toHaveBeenCalled()

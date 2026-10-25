@@ -277,6 +277,27 @@
     --color-toggle-track-off: #64748b;
   }
 
+  /* Dark grey theme — a neutral charcoal instead of the blue-black. The html
+   * element carries `dark grey` (ThemeContext), so this only re-points the
+   * surface and text tokens; everything else is the dark theme's. Text on
+   * --color-surface measures: text 12.4:1, mute 5.7:1, faint 4.7:1. */
+  html.grey {
+    --color-bg:          #1e1f22;
+    --color-nav:         rgba(37, 38, 42, .92);
+    --color-surface:     #26272b;
+    --color-surface-2:   #2e3035;
+    --color-surface-3:   #2a2b30;
+    --color-border:      rgba(255, 255, 255, .1);
+    --color-border-soft: rgba(255, 255, 255, .07);
+    --color-hair:        rgba(255, 255, 255, .08);
+    --color-text-mid:    #b0b5bd;
+    --color-text-mute:   #9aa0a9;
+    --color-text-faint:  #8b9099;
+    --color-photo-a:     #313338;
+    --color-photo-b:     #2b2d31;
+    --color-toggle-track-off: #656b75;
+  }
+
   /* Better touch targets for mobile */
   button, a, input, select, textarea {
     -webkit-tap-highlight-color: transparent;

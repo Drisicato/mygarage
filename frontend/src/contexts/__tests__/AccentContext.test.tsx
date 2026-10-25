@@ -4,9 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { AccentProvider, useAccent } from '../AccentContext'
 import { ACCENTS } from '../../constants/accents'
 
-const themeState = vi.hoisted(() => ({ theme: 'dark' as 'light' | 'dark' }))
+const themeState = vi.hoisted(() => ({ theme: 'dark' as 'light' | 'dark' | 'grey' }))
 
-vi.mock('../ThemeContext', () => ({
+vi.mock('../ThemeContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../ThemeContext')>()),
   useTheme: () => ({ theme: themeState.theme, toggleTheme: () => {}, setTheme: () => {} }),
 }))
 
@@ -70,6 +71,12 @@ describe('AccentProvider', () => {
     themeState.theme = 'light'
     rerender(<AccentProvider><Probe /></AccentProvider>)
     expect(document.documentElement.style.getPropertyValue('--accent-fg')).toBe(ACCENTS.blue.fgLight)
+  })
+
+  it('gives the grey theme the dark accent foreground', () => {
+    themeState.theme = 'grey'
+    render(<AccentProvider><Probe /></AccentProvider>)
+    expect(document.documentElement.style.getPropertyValue('--accent-fg')).toBe(ACCENTS.blue.fgDark)
   })
 
   it('throws outside a provider', () => {

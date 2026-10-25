@@ -97,7 +97,7 @@ export default function Gallery() {
           <button
             type="button"
             className={`${TOGGLE_BUTTON_BASE} border-border`}
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
           >
             Theme: {theme}
           </button>

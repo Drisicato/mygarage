@@ -155,7 +155,7 @@ class UserSelfUpdate(BaseModel):
     currency_code: str | None = Field(None, max_length=3)
     # UI theme accent
     accent_color: str | None = Field(None, max_length=20)
-    # UI light/dark theme
+    # UI theme (light, dark or grey)
     theme: str | None = Field(None, max_length=10)
     # The order the dashboard opens in
     dashboard_sort: str | None = Field(None, max_length=16)
@@ -203,7 +203,7 @@ class UserSelfUpdate(BaseModel):
     @field_validator("theme")
     @classmethod
     def validate_theme(cls, v: Any) -> Any:
-        """Validate theme against the light/dark allowlist."""
+        """Validate theme against SUPPORTED_THEMES (light, dark, grey)."""
         if v is not None and v not in SUPPORTED_THEMES:
             raise ValueError(f"Unsupported theme: {v}. Supported: {sorted(SUPPORTED_THEMES)}")
         return v
@@ -314,7 +314,7 @@ class AdminUserUpdate(BaseModel):
     currency_code: str | None = Field(None, max_length=3)
     # UI theme accent
     accent_color: str | None = Field(None, max_length=20)
-    # UI light/dark theme
+    # UI theme (light, dark or grey)
     theme: str | None = Field(None, max_length=10)
     # Family/relationship fields
     relationship: RelationshipType = None
@@ -365,7 +365,7 @@ class AdminUserUpdate(BaseModel):
     @field_validator("theme")
     @classmethod
     def validate_theme(cls, v: Any) -> Any:
-        """Validate theme against the light/dark allowlist."""
+        """Validate theme against SUPPORTED_THEMES (light, dark, grey)."""
         if v is not None and v not in SUPPORTED_THEMES:
             raise ValueError(f"Unsupported theme: {v}. Supported: {sorted(SUPPORTED_THEMES)}")
         return v

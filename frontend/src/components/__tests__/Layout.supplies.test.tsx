@@ -22,6 +22,7 @@ function setup(initialPath = '/supplies') {
   } as unknown as ReturnType<typeof AuthContext.useAuth>)
   vi.spyOn(ThemeContext, 'useTheme').mockReturnValue({
     theme: 'dark',
+    darkTheme: 'dark',
     toggleTheme: vi.fn(),
     setTheme: vi.fn(),
   })
