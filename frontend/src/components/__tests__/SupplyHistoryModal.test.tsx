@@ -165,6 +165,35 @@ describe('SupplyHistoryModal', () => {
     expect(dialogText).toContain('3.50 L')
   })
 
+  it('shows the part: its image, part number, brand, source and notes', () => {
+    render(
+      <SupplyHistoryModal
+        supply={{ ...mockSupply, has_image: true, brand: 'Motorcraft', part_source: 'oem', notes: 'Full synthetic' }}
+        onClose={vi.fn()}
+      />,
+    )
+    const dialog = screen.getByRole('dialog')
+
+    expect(dialog.querySelector('img[src*="/api/supplies/1/image"]')).not.toBeNull()
+    const dialogText = dialog.textContent ?? ''
+    expect(dialogText).toContain('MO-530')
+    expect(dialogText).toContain('Motorcraft')
+    expect(dialogText).toContain('supplies.partSources.oem')
+    expect(dialogText).toContain('Fluids')
+    expect(dialogText).toContain('Full synthetic')
+  })
+
+  it("shows a purchase's own part number on its row", () => {
+    useSupplyHistoryMock.mockReturnValue({
+      data: { supply_id: 1, on_hand: '5.000', avg_unit_cost: '5.00', entries: [{ ...mockEntries[0], part_number: 'FL-500S' }] },
+      isLoading: false,
+      error: null,
+    })
+    render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
+
+    expect(screen.getByRole('dialog').textContent).toContain('FL-500S')
+  })
+
   it('labels a job-tied usage as a job and a standalone usage as an adjustment', () => {
     render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
 

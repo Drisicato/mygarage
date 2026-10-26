@@ -34,6 +34,7 @@ import {
   type SupplyUnit,
 } from '@/utils/supplyUnits'
 import { formatDateForDisplay, formatDateForInput } from '@/utils/dateUtils'
+import { supplyImageUrl } from '@/utils/supplyImage'
 import { FormError } from '@/components/FormError'
 import FormModalWrapper from '@/components/FormModalWrapper'
 import CurrencyInput from '@/components/common/CurrencyInput'
@@ -99,6 +100,8 @@ export default function SupplyHistoryModal({ supply, onClose, initialForm }: Sup
       icon={History}
     >
       <div className="p-6 space-y-6">
+        <SupplyDetails supply={supply} />
+
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-garage-bg border border-garage-border rounded-lg p-3">
             <div className="text-xs text-garage-text-muted">{t('supplies.onHand')}</div>
@@ -167,6 +170,55 @@ export default function SupplyHistoryModal({ supply, onClose, initialForm }: Sup
         )}
       </div>
     </FormModalWrapper>
+  )
+}
+
+/** The part itself: its image and whatever identifies it, so the ledger isn't read blind. */
+function SupplyDetails({ supply }: { supply: Supply }) {
+  const { t } = useTranslation('common')
+  const details = [
+    { label: t('supplies.partNumber'), value: supply.part_number },
+    { label: t('supplies.brand'), value: supply.brand },
+    { label: t('supplies.partSource'), value: supply.part_source && t(`supplies.partSources.${supply.part_source}`) },
+    { label: t('supplies.category'), value: supply.category },
+    { label: t('supplies.barcode'), value: supply.barcode, mono: true },
+  ].filter((detail) => detail.value)
+
+  if (!supply.has_image && details.length === 0 && !supply.notes) return null
+
+  const imageUrl = supplyImageUrl(supply.id, supply.updated_at)
+  return (
+    <div className="flex flex-col sm:flex-row gap-4 bg-garage-bg border border-garage-border rounded-lg p-3">
+      {supply.has_image && (
+        <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 self-center sm:self-start">
+          <img
+            src={imageUrl}
+            alt={t('supplies.imageAlt', { name: supply.name })}
+            className="h-32 w-32 rounded border border-garage-border bg-garage-surface object-contain"
+          />
+        </a>
+      )}
+      <div className="flex-1 min-w-0 space-y-2">
+        {details.length > 0 && (
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+            {details.map((detail) => (
+              <div key={detail.label} className="min-w-0">
+                <dt className="text-xs text-garage-text-muted">{detail.label}</dt>
+                <dd className={`text-sm text-garage-text break-words ${detail.mono ? 'font-mono' : ''}`}>
+                  {detail.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {supply.notes && (
+          <div>
+            <div className="text-xs text-garage-text-muted">{t('notes')}</div>
+            <p className="text-sm text-garage-text whitespace-pre-line break-words">{supply.notes}</p>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -266,6 +318,12 @@ function PurchaseRow({ entry, supply, unit }: LedgerRowProps) {
           {t('supplies.history.balance')}: {formatQuantity(entry.running_balance, unit)}
           {' · '}
           {formatCurrency(entry.cost)}
+          {entry.part_number && (
+            <>
+              {' · '}
+              {t('supplies.partNumber')}: {entry.part_number}
+            </>
+          )}
         </div>
       </div>
 
