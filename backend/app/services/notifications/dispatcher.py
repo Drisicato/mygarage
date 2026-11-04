@@ -338,36 +338,6 @@ class NotificationDispatcher:
             url=url,
         )
 
-    async def notify_service_due(
-        self,
-        vehicle_name: str,
-        service_type: str,
-        days_until_due: int,
-        url: str | None = None,
-    ) -> dict[str, bool]:
-        """Send notification about upcoming service."""
-        return await self.dispatch(
-            event_type="service_due",
-            title=f"Service Due: {vehicle_name}",
-            message=f"{service_type} is due in {days_until_due} day(s) for {vehicle_name}.",
-            url=url,
-        )
-
-    async def notify_service_overdue(
-        self,
-        vehicle_name: str,
-        service_type: str,
-        days_overdue: int,
-        url: str | None = None,
-    ) -> dict[str, bool]:
-        """Send notification about overdue service."""
-        return await self.dispatch(
-            event_type="service_overdue",
-            title=f"Service Overdue: {vehicle_name}",
-            message=f"{service_type} is {days_overdue} day(s) overdue for {vehicle_name}. Please schedule service soon.",
-            url=url,
-        )
-
     async def notify_insurance_expiring(
         self,
         vehicle_name: str,
@@ -451,14 +421,26 @@ class NotificationDispatcher:
         vehicle_name: str | None = None,
         offline_minutes: int | None = None,
         url: str | None = None,
+        *,
+        drive_session: bool = True,
     ) -> dict[str, bool]:
-        """Send notification when LiveLink device goes offline."""
+        """Send notification when LiveLink device goes offline.
+
+        `drive_session=False` is for a source without DRIVE_SESSION (a tank
+        sensor): there's no vehicle battery to blame, so the hint is about
+        the device itself.
+        """
         vehicle_info = f" for {vehicle_name}" if vehicle_name else ""
         duration_info = f" for {offline_minutes} minutes" if offline_minutes else ""
+        hint = (
+            "Check vehicle battery and WiFi connectivity."
+            if drive_session
+            else "Check the device and its network connection."
+        )
         return await self.dispatch(
             event_type="livelink_device_offline",
             title=f"LiveLink Device Offline{vehicle_info}",
-            message=f"Device {device_id}{vehicle_info} has been offline{duration_info}. Check vehicle battery and WiFi connectivity.",
+            message=f"Device {device_id}{vehicle_info} has been offline{duration_info}. {hint}",
             url=url,
         )
 
@@ -471,18 +453,35 @@ class NotificationDispatcher:
         threshold_value: float,
         unit: str | None = None,
         url: str | None = None,
+        *,
+        ctx: RenderContext,
+        quantity: str | None = None,
     ) -> dict[str, bool]:
         """Send notification when telemetry value crosses a threshold.
 
         `band` is the line crossed: "high", "low", or "critical" (the urgent
         line below "low", as on a propane tank).
+
+        With a `quantity` (a `UnitSet` field), `value` and `threshold_value`
+        are canonical metric and both render in `ctx`'s unit for it. Without
+        one they print as stored, with the parameter's own `unit`. The caller
+        picks the quantity (`livelink_alerts.alert_quantity`) and resolves
+        `ctx`, as the odometer-milestone alert's does.
         """
-        unit_str = f" {unit}" if unit else ""
+        if quantity is not None:
+            # str() first: Decimal(106.1) would carry the float's binary tail.
+            shown = format_quantity(Decimal(str(value)), ctx, quantity)
+            line = format_quantity(Decimal(str(threshold_value)), ctx, quantity)
+        else:
+            unit_str = f" {unit}" if unit else ""
+            shown = f"{value:.1f}{unit_str}"
+            line = f"{threshold_value:.1f}{unit_str}"
         direction = _THRESHOLD_DIRECTION[band]
         return await self.dispatch(
             event_type="livelink_threshold_alert",
             title=f"Threshold Alert: {vehicle_name}",
-            message=f"{parameter_name} {direction} ({value:.1f}{unit_str} vs threshold {threshold_value:.1f}{unit_str}).",
+            # No outer parentheses: show-both puts its counterpart in its own.
+            message=f"{parameter_name} {direction}: {shown} vs threshold {line}.",
             url=url,
         )
 
@@ -506,7 +505,7 @@ class NotificationDispatcher:
     async def notify_def_low(
         self,
         vehicle_name: str,
-        vin: str,
+        identifier: str | None,
         percent: Decimal,
         remaining_liters: Decimal,
         as_of_date: date,
@@ -534,7 +533,8 @@ class NotificationDispatcher:
             event_type="def_low",
             title=f"DEF Low: {vehicle_name}",
             message=(
-                f"DEF level for {vehicle_name} ({vin}) is at {percent:.1f}% "
+                f"DEF level for {vehicle_name}{f' ({identifier})' if identifier else ''} "
+                f"is at {percent:.1f}% "
                 f"({format_forced_volume_pair(remaining_liters, ctx)} remaining), "
                 f"as of {as_of_date.isoformat()}."
             ),

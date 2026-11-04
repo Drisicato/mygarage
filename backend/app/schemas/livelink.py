@@ -51,6 +51,19 @@ class LiveLinkDeviceCreate(LiveLinkDeviceBase):
     git_version: str | None = Field(None, description="Git version tag (e.g., v4.45p)")
 
 
+def _label_or_none(value: object) -> object:
+    """A device name, stripped; blank is no name.
+
+    Runs before max_length, so padding can't push a 100-character name over
+    the column. Stored as blanks a name beat the device id fallback, so the
+    device showed up nameless. Shared by create and update so the two can't
+    drift apart again (H-F3).
+    """
+    if not isinstance(value, str):
+        return value
+    return value.strip() or None
+
+
 #: A device id an operator types must be safe as a single URL path segment.
 #: Every per-device admin route embeds it (`/devices/{device_id}/readings`), so
 #: `rv/gw` routes elsewhere, `gw#1` is cut at the fragment and `""` produces
@@ -75,8 +88,18 @@ class LiveLinkDeviceManualCreate(BaseModel):
 
     device_id: str = Field(..., max_length=20, pattern=DEVICE_ID_PATTERN)
     kind: str = Field(..., max_length=20)
-    label: str | None = Field(None, max_length=100)
+    label: str | None = Field(
+        None,
+        max_length=100,
+        description="User-friendly device name, stored stripped. Blank is no name.",
+    )
     vin: str | None = Field(None, min_length=17, max_length=17)
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _label_is_stripped(cls, value: object) -> object:
+        """Same rule as LiveLinkDeviceUpdate.label."""
+        return _label_or_none(value)
 
     @field_validator("kind")
     @classmethod
@@ -150,9 +173,8 @@ class LiveLinkDeviceUpdate(BaseModel):
     @field_validator("label", mode="before")
     @classmethod
     def _label_is_stripped(cls, value: object) -> object:
-        """Strip before max_length counts it. The name is stored stripped, so
-        padding shouldn't push a 100-character name over the column."""
-        return value.strip() if isinstance(value, str) else value
+        """Stripped, blank to None (`_label_or_none`)."""
+        return _label_or_none(value)
 
 
 class LiveLinkDeviceResponse(LiveLinkDeviceBase):
@@ -207,6 +229,19 @@ class LiveLinkDeviceResponse(LiveLinkDeviceBase):
     movement_unreadable: bool = Field(
         False, description="Device reports telemetry but nothing recognisable as movement"
     )
+    #: Computed per response like `movement_unreadable`, and for the same
+    #: reason every handler returning this schema must answer it.
+    online: bool = Field(
+        False,
+        description=(
+            "Whether the device is reporting now, by the integrations card's "
+            "rule: a device whose device_status is 'online' counts as online "
+            "until the offline sweep flips it, one that never reports a status "
+            "(Torque) keeps 'unknown' and counts as online while it has reported "
+            "within the offline timeout, and a disabled device is never online. "
+            "Read this, not device_status."
+        ),
+    )
     created_at: datetime
     updated_at: datetime | None
 
@@ -218,7 +253,9 @@ class LiveLinkDeviceListResponse(BaseModel):
 
     devices: list[LiveLinkDeviceResponse]
     total: int
-    online_count: int = Field(0, description="Number of devices currently online")
+    online_count: int = Field(
+        0, description="Number of devices currently online, by each device's `online`"
+    )
 
 
 # =============================================================================
@@ -272,17 +309,31 @@ class LiveLinkParameterUpdate(BaseModel):
     icon: str | None = Field(None, description="Icon identifier for frontend")
     # The three alert lines: an explicit null switches a line off, an omitted
     # field leaves it as it is. Not NaN or infinity: NaN is a line no value
-    # ever crosses.
+    # ever crosses. Lines are compared in the stored unit, so they're in it too.
     warning_min: float | None = Field(
-        None, description="Alert if value drops below", allow_inf_nan=False
+        None,
+        description=(
+            "Alert if value drops below, in the reading's canonical metric unit "
+            "(°C, km/h, kPa, km); a raw-unit reading in its own unit"
+        ),
+        allow_inf_nan=False,
     )
     critical_min: float | None = Field(
         None,
-        description="Urgent alert if value drops below; must sit under warning_min",
+        description=(
+            "Urgent alert if value drops below; must sit under warning_min. In the "
+            "reading's canonical metric unit (°C, km/h, kPa, km); a raw-unit "
+            "reading in its own unit"
+        ),
         allow_inf_nan=False,
     )
     warning_max: float | None = Field(
-        None, description="Alert if value exceeds", allow_inf_nan=False
+        None,
+        description=(
+            "Alert if value exceeds, in the reading's canonical metric unit "
+            "(°C, km/h, kPa, km); a raw-unit reading in its own unit"
+        ),
+        allow_inf_nan=False,
     )
     display_order: int | None = Field(None, description="Gauge display order", ge=0)
     show_on_dashboard: bool | None = Field(None, description="Show in live gauges")
@@ -492,9 +543,11 @@ class DeviceReadingsResponse(BaseModel):
     online: bool = Field(
         False,
         description=(
-            "Whether the device is reporting now: the integrations card's own "
-            "rule, so a device with no status topic counts as online while it "
-            "has reported within the offline timeout."
+            "Whether the device is reporting now, by the integrations card's "
+            "rule: a device whose device_status is 'online' counts as online "
+            "until the offline sweep flips it, one that never reports a status "
+            "(Torque) keeps 'unknown' and counts as online while it has reported "
+            "within the offline timeout, and a disabled device is never online."
         ),
     )
     readings: list[DeviceReading]

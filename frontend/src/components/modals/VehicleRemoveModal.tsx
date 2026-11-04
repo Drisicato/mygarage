@@ -17,6 +17,7 @@ import { NumberInput, Select } from '@/components/ui'
 import { moneyTextError } from '@/schemas/shared'
 import { parseOptionalDecimal } from '@/utils/decimalInput'
 import type { Vehicle } from '@/types/vehicle'
+import { identifierLabel, identifierValue } from '../../utils/vehicleIdentifier'
 
 interface VehicleRemoveModalProps {
   isOpen: boolean
@@ -126,7 +127,7 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
             <>
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-primary/10 rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-primary" />
+                  <AlertTriangle className="w-6 h-6 text-(--accent-fg)" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-garage-text">{t('modal.removeVehicle')}</h2>
@@ -143,7 +144,7 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
                   <strong>{t('modal.vehicle')}:</strong> {vehicle.year} {vehicle.make} {vehicle.model}
                 </p>
                 <p className="text-sm text-garage-text-muted font-mono text-xs mt-1">
-                  <strong>{t('modal.remove.vin')}:</strong> {vehicle.vin}
+                  <strong>{identifierLabel(vehicle, t)}:</strong> {identifierValue(vehicle) ?? '-'}
                 </p>
               </div>
 
@@ -296,11 +297,11 @@ export default function VehicleRemoveModal({ isOpen, onClose, vehicle, onConfirm
                     type="checkbox"
                     checked={visible}
                     onChange={(e) => setVisible(e.target.checked)}
-                    className="w-4 h-4 text-primary bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2"
+                    className="w-4 h-4 accent-(--accent-solid) bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2"
                   />
                   <div className="flex items-center gap-2">
                     {visible ? (
-                      <Eye className="w-4 h-4 text-primary" />
+                      <Eye className="w-4 h-4 text-(--accent-fg)" />
                     ) : (
                       <EyeOff className="w-4 h-4 text-garage-text-muted" />
                     )}

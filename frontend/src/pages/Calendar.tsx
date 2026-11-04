@@ -22,6 +22,7 @@ import { formatDateForDisplay } from '../utils/dateUtils'
 import { withBase } from '../utils/basePath'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { isSelectingText } from '../utils/textSelection'
+import { identifierValue, vinForDisplay } from '../utils/vehicleIdentifier'
 import { cameFromNestedControl } from '../components/ClickableCard'
 import { todayInHousehold } from '@/constants/i18n'
 import { useAuth } from '@/contexts/AuthContext'
@@ -245,18 +246,30 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
     calendarControls.setLocale(dateLocale)
   }, [calendarControls, dateLocale])
 
+  // What each event's vehicle is identified by: its VIN, or the serial / HIN a
+  // vehicle without one has (#226). Never the generated key.
+  const identifierByKey = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.vin, identifierValue(vehicle)])),
+    [vehicles]
+  )
+
   // Phase 3: Filter events by search query
   const filteredEvents = useMemo(() => {
     if (!searchQuery.trim()) return events
 
     const query = searchQuery.toLowerCase()
-    return events.filter(e =>
-      e.title.toLowerCase().includes(query) ||
-      e.description?.toLowerCase().includes(query) ||
-      e.vehicle_nickname?.toLowerCase().includes(query) ||
-      e.vehicle_vin.toLowerCase().includes(query)
-    )
-  }, [events, searchQuery])
+    return events.filter(e => {
+      const identifier = identifierByKey.has(e.vehicle_vin)
+        ? identifierByKey.get(e.vehicle_vin)
+        : vinForDisplay(e.vehicle_vin)
+      return (
+        e.title.toLowerCase().includes(query) ||
+        e.description?.toLowerCase().includes(query) ||
+        e.vehicle_nickname?.toLowerCase().includes(query) ||
+        (identifier?.toLowerCase().includes(query) ?? false)
+      )
+    })
+  }, [events, searchQuery, identifierByKey])
 
   // Sync filtered events into Schedule-X events service
   useEffect(() => {
@@ -431,6 +444,17 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
     )
   }
 
+  // A low-tread reminder's tread against its minimum, in the account's tread
+  // unit (D7a). Null for every other event.
+  const treadLine = (event: CalendarEvent): string | null => {
+    if (event.tread_depth_mm == null || event.tread_threshold_mm == null) return null
+    const u = formatFor(event.vehicle_distance_unit)
+    return t('calendar.misc.treadLine', {
+      tread: u.tread.format(Number(event.tread_depth_mm)),
+      minimum: u.tread.format(Number(event.tread_threshold_mm)),
+    })
+  }
+
   // Get days until/since event
   const getDaysUntil = (dateStr: string): string => {
     // Both sides at local midnight of their calendar dates: whole-day
@@ -486,10 +510,10 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
 
           <div className="bg-garage-surface border border-primary rounded-lg p-4">
             <div className="flex items-center gap-2 mb-2">
-              <Clock className="w-5 h-5 text-primary" />
-              <span className="text-sm text-primary">{t('calendar.next30Days')}</span>
+              <Clock className="w-5 h-5 text-(--accent-fg)" />
+              <span className="text-sm text-(--accent-fg)">{t('calendar.next30Days')}</span>
             </div>
-            <p className="text-2xl font-bold text-primary">{summary.upcoming_30_days}</p>
+            <p className="text-2xl font-bold text-(--accent-fg)">{summary.upcoming_30_days}</p>
           </div>
         </div>
 
@@ -497,7 +521,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
         <div className="bg-garage-surface border border-garage-border rounded-lg p-4 mb-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Filter className="w-5 h-5 text-primary" />
+              <Filter className="w-5 h-5 text-(--accent-fg)" />
               <h2 className="text-lg font-semibold text-garage-text">{t('calendar.filtersActions')}</h2>
             </div>
 
@@ -719,7 +743,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                       {bulkMode && (
                         <div className="flex items-center pt-1">
                           {selectedEvents.includes(event.id) ? (
-                            <CheckSquare className="w-5 h-5 text-primary" />
+                            <CheckSquare className="w-5 h-5 text-(--accent-fg)" />
                           ) : (
                             <Square className="w-5 h-5 text-garage-text-muted" />
                           )}
@@ -728,7 +752,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
 
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          {event.is_recurring && <RotateCw className="w-3 h-3 text-primary" />}
+                          {event.is_recurring && <RotateCw className="w-3 h-3 text-(--accent-fg)" />}
                           {/* Phase 3: Estimated badge */}
                           {event.is_estimated && (
                             <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-amber-500/20 text-amber-500">
@@ -763,10 +787,12 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                               <span className={`text-xs px-1.5 py-0.5 rounded ${
                                 event.status === 'overdue' ? 'bg-danger/20 text-danger' :
                                 event.status === 'due_soon' ? 'bg-warning/20 text-warning' :
+                                event.status === 'snoozed' ? 'bg-garage-bg text-garage-text-muted' :
                                 event.status === 'never_performed' ? 'bg-purple-500/20 text-purple-400' :
                                 'bg-success/20 text-success'
                               }`}>
                                 {event.status === 'due_soon' ? t('calendar.misc.statusDueSoon') :
+                                 event.status === 'snoozed' ? t('calendar.misc.statusSnoozed') :
                                  event.status === 'never_performed' ? t('calendar.misc.statusNeverDone') :
                                  event.status === 'overdue' ? t('calendar.overdue') : t('calendar.misc.statusOnTrack')}
                               </span>
@@ -796,6 +822,9 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                             })()}
                           </div>
                         )}
+                        {treadLine(event) && (
+                          <p className="text-xs text-garage-text-muted mt-1">{treadLine(event)}</p>
+                        )}
                       </div>
 
                       {!bulkMode && (
@@ -807,7 +836,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                               className="p-1 hover:bg-primary/20 rounded transition-colors"
                               title={t('calendar.misc.viewNotes')}
                             >
-                              <MessageCircle className="w-4 h-4 text-primary" />
+                              <MessageCircle className="w-4 h-4 text-(--accent-fg)" />
                             </button>
                           )}
                           {/* Quick complete button */}
@@ -851,7 +880,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
               <span className="text-sm text-garage-text">{t('serviceList.title')}</span>
             </div>
             <div className="flex items-center gap-2">
-              <RotateCw className="w-4 h-4 text-primary" />
+              <RotateCw className="w-4 h-4 text-(--accent-fg)" />
               <span className="text-sm text-garage-text">{t('calendar.misc.legendRecurring')}</span>
             </div>
             {/* Phase 3: New legend items */}
@@ -863,7 +892,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
               <span className="text-sm text-garage-text">{t('calendar.misc.legendEstimated')}</span>
             </div>
             <div className="flex items-center gap-2">
-              <MessageCircle className="w-4 h-4 text-primary" />
+              <MessageCircle className="w-4 h-4 text-(--accent-fg)" />
               <span className="text-sm text-garage-text">{t('calendar.misc.legendHasNotes')}</span>
             </div>
           </div>
@@ -899,7 +928,7 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                         {t(EVENT_TYPE_KEYS[selectedEventForNotes.type] ?? EVENT_TYPE_FALLBACK_KEY)}
                       </span>
                       {selectedEventForNotes.is_recurring && (
-                        <RotateCw className="w-3 h-3 text-primary" />
+                        <RotateCw className="w-3 h-3 text-(--accent-fg)" />
                       )}
                       {selectedEventForNotes.is_estimated && (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-amber-500/20 text-amber-500">
@@ -922,6 +951,9 @@ function CalendarInner({ householdTimeZone }: { householdTimeZone: string | null
                           ),
                         })}
                       </p>
+                    )}
+                    {treadLine(selectedEventForNotes) && (
+                      <p className="text-sm text-garage-text-muted mt-2">{treadLine(selectedEventForNotes)}</p>
                     )}
                   </div>
                 </div>

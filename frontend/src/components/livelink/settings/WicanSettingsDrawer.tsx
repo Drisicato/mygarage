@@ -157,12 +157,22 @@ export default function WicanSettingsDrawer({ open, tab, onClose, onChanged }: P
   const savePrefix = async (): Promise<void> => {
     const next = prefix.trim()
     if (!next || !mqttSettings) return
+    // Switched off, the subscriber still runs in its "disabled" wait, and the
+    // PUT stops it rather than restarting it.
+    const restarts =
+      mqttSettings.enabled && mqttStatus?.running === true && next !== mqttSettings.topic_prefix
     setSavingPrefix(true)
     try {
+      // The PUT restarts a running subscriber itself when the prefix changes,
+      // so there's nothing to restart from here; just re-read where it got to.
       setMqttSettings(await livelinkService.updateMQTTSettings({ topic_prefix: next }))
-      if (mqttStatus?.running) {
-        setMqttStatus(await livelinkService.restartMQTTSubscriber())
+      if (restarts) {
         toast.success(t('modal.mqttRestarted'))
+        // The save already worked, so a failed re-read just keeps the old status.
+        void livelinkService
+          .getMQTTStatus()
+          .then(setMqttStatus)
+          .catch(() => undefined)
       } else {
         toast.success(t('modal.mqttSettingsSaved'))
       }
@@ -228,13 +238,13 @@ export default function WicanSettingsDrawer({ open, tab, onClose, onChanged }: P
         </div>
       ) : !settings || !devices ? (
         <div className="flex items-center justify-center py-12">
-          <RefreshCw aria-hidden="true" className="w-8 h-8 text-primary animate-spin" />
+          <RefreshCw aria-hidden="true" className="w-8 h-8 text-(--accent-fg) animate-spin" />
         </div>
       ) : (
         <div className="space-y-6">
           <section className="bg-garage-bg rounded-lg border border-garage-border p-4">
             <div className="flex items-center gap-2 mb-4">
-              <Link2 aria-hidden="true" className="w-5 h-5 text-primary" />
+              <Link2 aria-hidden="true" className="w-5 h-5 text-(--accent-fg)" />
               <h3 className="text-lg font-semibold text-garage-text">{t('modal.connection')}</h3>
             </div>
             <div className="space-y-4">
@@ -249,11 +259,12 @@ export default function WicanSettingsDrawer({ open, tab, onClose, onChanged }: P
                     className="flex-1 px-3 py-2 bg-garage-surface border border-garage-border rounded-lg text-garage-text font-mono text-xs"
                   />
                   <button
-                    onClick={() => void copyToClipboard(settings.ingestion_url ?? '', t('modal.livelink.urlLabel'))}
+                    type="button"
+                    onClick={() => void copyToClipboard(settings.ingestion_url ?? '', t('modal.ingestionUrl'))}
                     className="px-3 py-2 bg-garage-surface border border-garage-border rounded-lg text-garage-text hover:bg-garage-bg"
-                    aria-label={t('modal.livelink.urlLabel')}
+                    aria-label={t('modal.copyValue', { label: t('modal.ingestionUrl') })}
                   >
-                    <Copy className="w-4 h-4" />
+                    <Copy aria-hidden="true" className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -271,16 +282,22 @@ export default function WicanSettingsDrawer({ open, tab, onClose, onChanged }: P
                         className="flex-1 px-3 py-2 bg-garage-surface border border-garage-border rounded-lg text-garage-text font-mono text-xs"
                       />
                       <button
+                        type="button"
                         onClick={() => setShowToken(!showToken)}
+                        aria-label={t(showToken ? 'modal.hideValue' : 'modal.showValue', {
+                          label: t('modal.globalApiToken'),
+                        })}
                         className="px-3 py-2 bg-garage-surface border border-garage-border rounded-lg text-garage-text hover:bg-garage-bg"
                       >
-                        {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        {showToken ? <EyeOff aria-hidden="true" className="w-4 h-4" /> : <Eye aria-hidden="true" className="w-4 h-4" />}
                       </button>
                       <button
-                        onClick={() => void copyToClipboard(newToken, t('modal.livelink.tokenLabel'))}
+                        type="button"
+                        onClick={() => void copyToClipboard(newToken, t('modal.globalApiToken'))}
+                        aria-label={t('modal.copyValue', { label: t('modal.globalApiToken') })}
                         className="px-3 py-2 bg-garage-surface border border-garage-border rounded-lg text-garage-text hover:bg-garage-bg"
                       >
-                        <Copy className="w-4 h-4" />
+                        <Copy aria-hidden="true" className="w-4 h-4" />
                       </button>
                     </div>
                     <div className="p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
@@ -341,7 +358,7 @@ export default function WicanSettingsDrawer({ open, tab, onClose, onChanged }: P
 
           <section className="bg-garage-bg rounded-lg border border-garage-border p-4">
             <div className="flex items-center gap-2 mb-4">
-              <Cpu aria-hidden="true" className="w-5 h-5 text-primary" />
+              <Cpu aria-hidden="true" className="w-5 h-5 text-(--accent-fg)" />
               <h3 className="text-lg font-semibold text-garage-text">{t('modal.devices')}</h3>
             </div>
             <NoMovementSignalNotice devices={devices} />
@@ -363,7 +380,7 @@ export default function WicanSettingsDrawer({ open, tab, onClose, onChanged }: P
 
           <section className="bg-garage-bg rounded-lg border border-garage-border p-4">
             <div className="flex items-center gap-2 mb-4">
-              <Settings aria-hidden="true" className="w-5 h-5 text-primary" />
+              <Settings aria-hidden="true" className="w-5 h-5 text-(--accent-fg)" />
               <h3 className="text-lg font-semibold text-garage-text">{t('modal.livelink.firmwareUpdates')}</h3>
             </div>
             <div className="space-y-4">

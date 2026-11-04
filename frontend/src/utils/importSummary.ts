@@ -8,35 +8,98 @@ export type ImportSectionResult = {
 }
 
 /**
- * The toast text for a vehicle JSON import: a heading, then one line per
- * section the response carries, in the order the backend imports them.
+ * The section buckets the JSON import returns, in the order it imports them.
+ * vehicle_json.py's _JSON_RESULT_BUCKETS lists them in that order too; keep the two in step by hand.
  */
-export function buildImportSummary(
-  result: Record<string, ImportSectionResult | undefined>,
-  t: TFunction,
-): string {
-  // Qualified keys: this runs outside a component, so there's no bound namespace.
-  const sections: Array<[string, ImportSectionResult | undefined]> = [
-    [t('vehicles:detail.misc.importServiceRecords'), result.service_records],
-    [t('vehicles:detail.misc.importFuelRecords'), result.fuel_records],
-    [t('vehicles:defList.title'), result.def_records],
-    [t('vehicles:detail.misc.importOdometerRecords'), result.odometer_records],
-    [t('vehicles:hoursList.title'), result.hours_records],
-    [t('vehicles:detail.misc.importMaintenanceRecords'), result.reminders],
-    [t('vehicles:noteList.title'), result.notes],
-    [t('vehicles:insuranceList.title'), result.insurance_policies],
-  ]
+export const SECTIONS = [
+  ['supplies', 'vehicles:detail.misc.supplies'],
+  ['service_records', 'vehicles:detail.misc.importServiceRecords'],
+  ['fuel_records', 'vehicles:detail.misc.importFuelRecords'],
+  ['def_records', 'vehicles:defList.title'],
+  ['odometer_records', 'vehicles:detail.misc.importOdometerRecords'],
+  ['hours_records', 'vehicles:hoursList.title'],
+  ['reminders', 'vehicles:reminderList.title'],
+  ['notes', 'vehicles:noteList.title'],
+  ['insurance_policies', 'vehicles:insuranceList.title'],
+  ['financing_records', 'vehicles:financingList.title'],
+  ['tax_records', 'vehicles:taxList.title'],
+  ['toll_tags', 'vehicles:tollTagList.title'],
+  ['toll_transactions', 'vehicles:tollList.title'],
+  ['warranties', 'vehicles:warrantyList.title'],
+  ['spot_rentals', 'vehicles:spotRentalList.title'],
+  ['maintenance_rules', 'vehicles:detail.misc.importMaintenanceRules'],
+  ['recalls', 'vehicles:recallList.title'],
+  ['dtcs', 'vehicles:detail.misc.importDtcs'],
+  ['tire_sets', 'vehicles:tireList.setsTitle'],
+  ['tires', 'vehicles:tireList.title'],
+  ['brake_axles', 'vehicles:detail.misc.importBrakeAxles'],
+  ['brake_jobs', 'vehicles:detail.misc.importBrakeJobs'],
+  ['brake_measurements', 'vehicles:detail.misc.importBrakeMeasurements'],
+] as const
 
+type SectionKey = (typeof SECTIONS)[number][0]
+
+/** The JSON import response: a bucket per section, then the rows' messages. */
+export type ImportJsonResult = Partial<Record<SectionKey, ImportSectionResult>> & {
+  errors?: string[]
+  warnings?: string[]
+}
+
+/** How many of each list the toast shows before it says how many more. */
+const LISTED = 5
+
+/** How long an import toast stays up when it lists errors or warnings. */
+export const IMPORT_LIST_TOAST_MS = 10_000
+
+/** An import toast's duration: longer while it lists errors or warnings, else sonner's default. */
+export function importToastDuration(errors?: readonly string[], warnings?: readonly string[]): number | undefined {
+  return (errors?.length ?? 0) > 0 || (warnings?.length ?? 0) > 0 ? IMPORT_LIST_TOAST_MS : undefined
+}
+
+/**
+ * Whether the JSON import refused a row. Reads the errors list, as
+ * importToastDuration does, so a bucket this table doesn't list still counts.
+ */
+export function hasRowErrors(result: ImportJsonResult): boolean {
+  return (result.errors?.length ?? 0) > 0
+}
+
+/**
+ * Up to LISTED messages, then how many more there are. One a line by default;
+ * the CSV toasts pass ', ' since their text is one sentence.
+ */
+export function listMessages(messages: readonly string[], t: TFunction, separator = '\n'): string {
+  const shown = messages.slice(0, LISTED).join(separator)
+  const rest = messages.length - LISTED
+  return rest > 0 ? `${shown}${separator}${t('vehicles:detail.misc.importMoreCount', { count: rest })}` : shown
+}
+
+/**
+ * The toast text for a vehicle JSON import: a heading, one line per section
+ * the response carries, then the first errors and warnings (N-3, J2).
+ * It's built from \n lines, so the caller has to render it pre-line.
+ */
+export function buildImportSummary(result: ImportJsonResult, t: TFunction): string {
+  // Qualified keys: this runs outside a component, so there's no bound namespace.
   let message = `${t('vehicles:detail.misc.importSummaryHeading')}\n`
-  for (const [label, section] of sections) {
+  for (const [key, label] of SECTIONS) {
+    const section = result[key]
     if (!section) continue
-    message += `\n${label}: ✓ ${t('vehicles:detail.misc.importedCount', { count: section.success_count })}`
+    message += `\n${t(label)}: ✓ ${t('vehicles:detail.misc.importedCount', { count: section.success_count })}`
     if (section.skipped_count > 0) {
       message += `, ○ ${t('vehicles:detail.misc.skippedCount', { count: section.skipped_count })}`
     }
     if (section.error_count > 0) {
       message += `, ✗ ${t('vehicles:detail.misc.errorCount', { count: section.error_count })}`
     }
+  }
+  // Backend strings go in verbatim, never through t().
+  const lists: Array<[string, string[] | undefined]> = [
+    [t('vehicles:detail.misc.importErrorsHeading'), result.errors],
+    [t('vehicles:detail.misc.importWarningsHeading'), result.warnings],
+  ]
+  for (const [heading, messages] of lists) {
+    if (messages && messages.length > 0) message += `\n\n${heading}\n${listMessages(messages, t)}`
   }
   return message
 }

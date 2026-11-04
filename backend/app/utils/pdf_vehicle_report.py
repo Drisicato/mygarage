@@ -10,6 +10,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any
+from xml.sax.saxutils import escape
 
 from reportlab.lib.units import inch
 from reportlab.platypus import (
@@ -57,7 +58,11 @@ from app.utils.pdf_styles import (
     register_fonts,
 )
 from app.utils.render_context import RenderContext
-from app.utils.unit_derived import format_cost_per_distance, format_fuel_rate
+from app.utils.unit_derived import (
+    cost_per_distance_unit_label,
+    format_cost_per_distance,
+    format_fuel_rate,
+)
 from app.utils.unit_formatting import format_quantity, format_rate
 
 logger = logging.getLogger(__name__)
@@ -265,7 +270,7 @@ def _build_hours_history_table(
             [
                 Paragraph(_format_date(_parse_date(point.get("date"))), cell_style),
                 Paragraph(format_hours(engine_hours), amt_style),
-                Paragraph(str(source), cell_style),
+                Paragraph(escape(str(source)), cell_style),
             ]
         )
 
@@ -285,7 +290,8 @@ def _reminder_due_text(reminder: dict[str, Any], render_context: RenderContext) 
     hours-targeted reminder from ever silently falling back to a mileage
     figure). ``due_hours`` is dimensionless (R6) and stays in ``hr``;
     ``due_mileage_km`` is canonical km and renders in ``render_context``'s
-    distance unit.
+    distance unit. A low-tread reminder adds its tread and minimum in the
+    context's tread unit, when both are set (D7a).
     """
     parts: list[str] = []
     due_date = _parse_date(reminder.get("due_date"))
@@ -298,6 +304,13 @@ def _reminder_due_text(reminder: dict[str, Any], render_context: RenderContext) 
         parts.append(format_hours(due_hours))
     elif due_mileage_km is not None:
         parts.append(format_quantity(due_mileage_km, render_context, "distance"))
+
+    tread_depth_mm = _safe_decimal(reminder.get("tread_depth_mm"))
+    tread_threshold_mm = _safe_decimal(reminder.get("tread_threshold_mm"))
+    if tread_depth_mm is not None and tread_threshold_mm is not None:
+        depth = format_quantity(tread_depth_mm, render_context, "tread")
+        minimum = format_quantity(tread_threshold_mm, render_context, "tread")
+        parts.append(f"Tread {depth}, min {minimum}")
 
     return " · ".join(parts) if parts else "N/A"
 
@@ -317,9 +330,9 @@ def _build_reminders_table(
     for reminder in reminders_data:
         rows.append(
             [
-                Paragraph(str(reminder.get("title", "")), cell_style),
-                Paragraph(str(reminder.get("reminder_type", "")).title(), cell_style),
-                Paragraph(_reminder_due_text(reminder, render_context), cell_style),
+                Paragraph(escape(str(reminder.get("title") or "")), cell_style),
+                Paragraph(escape(str(reminder.get("reminder_type") or "").title()), cell_style),
+                Paragraph(escape(_reminder_due_text(reminder, render_context)), cell_style),
             ]
         )
 
@@ -439,7 +452,7 @@ def generate_vehicle_analytics_pdf(
     story.append(
         make_vehicle_banner(
             vehicle_name=analytics_data.get("vehicle_name", "Unknown Vehicle"),
-            vin=analytics_data.get("vin", ""),
+            vin=analytics_data.get("identifier_text") or "",
             # The key is always there, so a .get default wouldn't catch a null type.
             vehicle_type=analytics_data.get("vehicle_type") or "Unknown",
             days_owned=_safe_int(analytics_data.get("days_owned")),
@@ -465,16 +478,10 @@ def generate_vehicle_analytics_pdf(
             "color": "blue",
         },
         {
-            # Not "Cost Per km": the value string names its own denominator
-            # (D4c pairs a km reader with "/100 km" and a mile reader with
-            # "/1,000 mi"), so a label hardcoding one unit would contradict
-            # the number underneath it for every imperial reader.
-            "label": "Cost Per Distance",
-            "value": (
-                format_cost_per_distance(cost_per_km, rate_ctx, currency_code, locale)
-                if cost_per_km
-                else "N/A"
-            ),
+            # Same as the screen: the scale is in the label, the value is just
+            # money. A $0 rate prints $0.00, only a missing one is N/A.
+            "label": f"Cost Per {cost_per_distance_unit_label(rate_ctx)}",
+            "value": format_cost_per_distance(cost_per_km, rate_ctx, currency_code, locale),
             "sub_html": _trend_badge_html(trend_dir),
             "color": "green",
         },
@@ -600,7 +607,7 @@ def generate_vehicle_analytics_pdf(
         for svc in service_breakdown:
             table_rows.append(
                 [
-                    Paragraph(str(svc.get("service_type", "")), cell_style),
+                    Paragraph(escape(str(svc.get("service_type") or "")), cell_style),
                     Paragraph(str(svc.get("count", 0)), cell_style),
                     Paragraph(
                         format_currency_compact(svc.get("total_cost", 0), currency_code, locale),
@@ -757,7 +764,7 @@ def generate_vehicle_analytics_pdf(
         story.append(Spacer(1, 8))
         assumptions = str(projection.get("assumptions", ""))
         if assumptions:
-            story.append(Paragraph(assumptions, styles["ProjectionLabel"]))
+            story.append(Paragraph(escape(assumptions), styles["ProjectionLabel"]))
 
     # Build PDF
     doc.build(story)

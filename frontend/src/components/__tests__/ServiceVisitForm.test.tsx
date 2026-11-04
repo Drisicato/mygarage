@@ -19,13 +19,16 @@ vi.mock('../../services/api', () => ({
 // ServiceVisitForm.mixedUnits.test.tsx.
 vi.mock('../../hooks/useUnitPreference', async () => {
   const { IMPERIAL_UNITS } = await import('@/__tests__/factories')
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({
+    system: 'imperial',
+    showBoth: false,
+    units: IMPERIAL_UNITS,
+    gallonStandard: 'us',
+  })
   return {
-    useUnitPreference: () => ({
-      system: 'imperial',
-      showBoth: false,
-      units: IMPERIAL_UNITS,
-      gallonStandard: 'us',
-    }),
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
   }
 })
 
@@ -39,8 +42,9 @@ vi.mock('../../hooks/useCurrencyPreference', () => ({
 }))
 
 // Mock components that make additional API calls or are complex to render
+// Keeps the id it's handed, so the label's htmlFor can be checked against it.
 vi.mock('../VendorSearch', () => ({
-  default: () => <div data-testid="vendor-search" />,
+  default: ({ id }: { id?: string }) => <input data-testid="vendor-search" id={id} />,
 }))
 vi.mock('../LineItemEditor', () => ({
   default: () => <div data-testid="line-item-editor" />,
@@ -106,5 +110,13 @@ describe('ServiceVisitForm – household date default (plan 4.7)', () => {
       setHouseholdTimeZone(null)
       vi.useRealTimers()
     }
+  })
+})
+
+describe('ServiceVisitForm vendor label (G-4)', () => {
+  it('the vendor box is named by its label', () => {
+    // The label had no htmlFor and VendorSearch took no id.
+    render(<ServiceVisitForm {...DEFAULT_PROPS} />)
+    expect(screen.getByLabelText('service.vendorShop')).toBe(screen.getByTestId('vendor-search'))
   })
 })

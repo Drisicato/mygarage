@@ -36,9 +36,9 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import RelationshipProperty
 
 import app.models as models
+from tests._importer_source import importer_files
 
 EXPORT = Path("app/routes/export.py")
-IMPORT = Path("app/routes/import_data.py")
 
 
 def _mapped(name: str) -> type | None:
@@ -129,11 +129,29 @@ def _iterations(fn: ast.AST):
     """
     for node in ast.walk(fn):
         if isinstance(node, ast.For):
-            yield node.target, node.iter, node.body
+            yield *_unenumerated(node.target, node.iter), node.body
         elif isinstance(node, ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp):
             elts = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
             for gen in node.generators:
-                yield gen.target, gen.iter, elts + list(gen.ifs)
+                yield *_unenumerated(gen.target, gen.iter), elts + list(gen.ifs)
+
+
+def _unenumerated(target: ast.expr, iterable: ast.expr) -> tuple[ast.expr, ast.expr]:
+    """`for number, visit in enumerate(visits)` binds `visit` as `for visit in visits` would.
+
+    The service CSV numbers its visits that way; read as a tuple target, every
+    read on the visit and on its line items went unchecked.
+    """
+    if (
+        isinstance(target, ast.Tuple)
+        and len(target.elts) == 2
+        and isinstance(iterable, ast.Call)
+        and isinstance(iterable.func, ast.Name)
+        and iterable.func.id == "enumerate"
+        and iterable.args
+    ):
+        return target.elts[1], iterable.args[0]
+    return target, iterable
 
 
 def export_attribute_reads() -> list[tuple[str, type, str]]:
@@ -185,24 +203,25 @@ def export_attribute_reads() -> list[tuple[str, type, str]]:
     return reads
 
 
-def import_constructions() -> list[tuple[int, type, list[str]]]:
-    """Every `Model(...)` built by the importer, with its keyword names."""
-    tree = ast.parse(IMPORT.read_text())
-    built: list[tuple[int, type, list[str]]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            continue
-        cls = _mapped(node.func.id)
-        if cls is None:
-            continue
-        built.append((node.lineno, cls, [kw.arg for kw in node.keywords if kw.arg]))
+def import_constructions() -> list[tuple[str, type, list[str]]]:
+    """Every `Model(...)` built by the importer, as `file:line`, with its keyword names."""
+    built: list[tuple[str, type, list[str]]] = []
+    for path in importer_files():
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            cls = _mapped(node.func.id)
+            if cls is None:
+                continue
+            where = f"{path.name}:{node.lineno}"
+            built.append((where, cls, [kw.arg for kw in node.keywords if kw.arg]))
     return built
 
 
 def test_every_import_construction_uses_real_attributes():
     offenders = [
-        f"{IMPORT.name}:{line} {cls.__name__} {sorted(set(kwargs) - _attrs(cls))}"
-        for line, cls, kwargs in import_constructions()
+        f"{where} {cls.__name__} {sorted(set(kwargs) - _attrs(cls))}"
+        for where, cls, kwargs in import_constructions()
         if set(kwargs) - _attrs(cls)
     ]
     assert offenders == [], (
@@ -219,9 +238,11 @@ def test_every_export_read_is_a_real_attribute():
     #: the defect this guards.
     # `hasattr`, not the mapper set. The export defect is an AttributeError at
     # request time, so a hybrid property or a plain `@property` on the model is
-    # a perfectly good read even though it is not a mapped column.
-    # `ServiceVisit.calculated_total_cost` is exactly that, and a mapper-only
-    # check calls it broken.
+    # a perfectly good read even though it is not a mapped column. The walker
+    # resolves one hop, so it reaches no `@property` today (it never gets to
+    # `InsurancePolicy`); `hasattr` is kept so that a read like
+    # `InsurancePolicy.fields`, a property the JSON backup reads for a policy's
+    # named fields, isn't called broken if the walker ever resolves it.
     offenders = sorted(
         {
             f"{fn}: {cls.__name__}.{attr}"
@@ -267,6 +288,10 @@ class TestTheEnumeratorsFindWhatTheyClaimTo:
             (cls.__name__, tuple(sorted(kwargs))) for _l, cls, kwargs in import_constructions()
         }
         assert any(cls == "WarrantyRecord" for cls, _ in built), built
+
+    def test_the_import_walker_sees_every_construction(self):
+        # 33 is the count on 32b15b50, so a walk that drops a module comes up short.
+        assert len(import_constructions()) >= 33
 
     @pytest.mark.parametrize("cls_name", ["WarrantyRecord", "InsurancePolicy", "TaxRecord"])
     def test_the_three_repaired_importers_are_still_walked(self, cls_name: str):

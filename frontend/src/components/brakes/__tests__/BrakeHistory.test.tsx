@@ -21,8 +21,9 @@ vi.mock('../../../hooks/queries/useHoursRecords', () => ({
   useNearestHours: () => ({ data: undefined, isSuccess: false }),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-vi.mock('../../../hooks/useUnitPreference', () => ({
-  useUnitPreference: () => ({
+vi.mock('../../../hooks/useUnitPreference', () => {
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({
     system: 'metric',
     showBoth: false,
     gallonStandard: 'us',
@@ -39,8 +40,12 @@ vi.mock('../../../hooks/useUnitPreference', () => ({
       tread: 'mm',
       secondary_gallon: 'us',
     },
-  }),
-}))
+  })
+  return {
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
+  }
+})
 
 import BrakeHistoryDrawer from '../BrakeHistoryDrawer'
 import { JobEditor, MeasurementEditor } from '../BrakeEditors'
@@ -168,6 +173,22 @@ describe('MeasurementEditor', () => {
       inner_pad_mm: 2.5,
       outer_pad_mm: null,
     })
+  })
+
+  it('a blank wire figure seeds a blank field and saves as null, not 0', () => {
+    render(
+      <MeasurementEditor
+        vin={VIN}
+        overview={OVERVIEW}
+        measurement={{ ...OLD_PADS, outer_pad_mm: '' }}
+        brakeType="disc"
+        open
+        onClose={vi.fn()}
+      />
+    )
+    expect((document.getElementById('brake-measurement-edit-outer_pad_mm') as HTMLInputElement).value).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: 'common:save' }))
+    expect(updateMeasurementMock.mock.calls[0][0]).toMatchObject({ id: 10, inner_pad_mm: 2.5, outer_pad_mm: null })
   })
 })
 

@@ -95,15 +95,13 @@ class HoursEconomyTrend(BaseModel):
     is better, mirroring the L/100km convention — less fuel burned per hour
     of engine operation).
 
-    The hours mirror of :class:`FuelEconomyTrend`. ``average_l_per_hr`` /
-    ``average_cost_per_hr`` are the canonical vehicle-level averages from
-    :func:`app.services.fuel_service.calculate_average_hours_economy`
-    (``exclude_hauling=True``) — this is where ``average_l_per_100km`` lives
-    on the distance side, so the two hours averages live in the equivalent
-    place here. ``best``/``worst``/``recent``/``trend`` come from the trend's
-    own full-tank-endpoint pass (``exclude_hauling=False``), matching the
-    distance trend's internal convention. All are ``None`` for a vehicle with
-    no ``engine_hours``-bearing fuel records (pure-distance vehicle).
+    The hours mirror of :class:`FuelEconomyTrend`. Every figure, the two
+    averages included, comes from the tanks the trend plots, towing tanks too.
+    Unlike the distance side, which drops implausible tanks before plotting and
+    averaging, there's no plausibility filter here: every scored tank counts.
+    The vehicle card and dashboard averages leave hauling out, so they can
+    differ. All are ``None`` for a vehicle with no ``engine_hours``-bearing fuel
+    records (pure-distance vehicle).
     """
 
     average_l_per_hr: Decimal | None = None
@@ -205,6 +203,8 @@ class CostAnalysis(BaseModel):
     fuel_count: int = 0
     def_count: int = 0
     months_tracked: int = 0
+    # Odometer span cost_per_km divides by; ownership statistics reuse it.
+    km_driven: Decimal | None = None
     cost_per_km: Decimal | None = None
 
     # Rolling averages
@@ -253,6 +253,59 @@ class FuelEfficiencyAlert(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OwnershipStatistics(BaseModel):
+    """At-a-glance ownership statistics (Overall / Fuel-Ups / Services & Expenses).
+
+    Metric canonical, like the rest of analytics: distances in km, volumes in
+    litres, money per km / per litre. The client converts to the reader's units.
+    Money is in the account currency, like the rest of analytics. Insurance is
+    accrued over each policy's elapsed days (cost to date), or, in the
+    `statistics_as_paid` copy, counted in full for each billing period that has
+    begun.
+    """
+
+    # Overall
+    total_running_cost: Decimal = Field(default=Decimal("0.00"))  # all-in, no purchase
+    purchase_price: Decimal | None = None
+    sold_price: Decimal | None = None
+    total_ownership_cost: Decimal | None = None  # all-in + purchase - sold
+    days_owned: int | None = None
+    km_driven: Decimal | None = None
+    km_per_day: Decimal | None = None
+    running_cost_per_day: Decimal | None = None
+    running_cost_per_km: Decimal | None = None
+    ownership_cost_per_day: Decimal | None = None
+    ownership_cost_per_km: Decimal | None = None
+
+    # Fuel-ups
+    fuel_count: int = 0
+    avg_l_per_100km: Decimal | None = None
+    best_l_per_100km: Decimal | None = None
+    worst_l_per_100km: Decimal | None = None
+    recent_l_per_100km: Decimal | None = None
+    avg_price_per_liter: Decimal | None = None
+    min_price_per_liter: Decimal | None = None
+    max_price_per_liter: Decimal | None = None
+    last_price_per_liter: Decimal | None = None
+    fuel_total_cost: Decimal = Field(default=Decimal("0.00"))
+    fuel_total_liters: Decimal | None = None
+    fuel_cost_per_km: Decimal | None = None
+    fuel_cost_per_day: Decimal | None = None
+    km_per_currency_unit: Decimal | None = None
+    avg_cost_per_fillup: Decimal | None = None
+    avg_liters_per_fillup: Decimal | None = None
+    avg_km_per_fillup: Decimal | None = None
+    avg_days_per_fillup: Decimal | None = None
+    liters_per_day: Decimal | None = None
+
+    # Services & expenses (everything that is not fuel)
+    expenses_total_cost: Decimal = Field(default=Decimal("0.00"))
+    expenses_cost_per_day: Decimal | None = None
+    expenses_cost_per_km: Decimal | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class VehicleAnalytics(BaseModel):
     """Complete vehicle analytics."""
 
@@ -287,6 +340,11 @@ class VehicleAnalytics(BaseModel):
     total_km_driven: Decimal | None = None
     average_km_per_month: Decimal | None = None
     days_owned: int | None = None
+
+    # Ownership statistics block (motorized vehicles; None otherwise)
+    statistics: OwnershipStatistics | None = None
+    # Same block with insurance counted in full for each term that has started
+    statistics_as_paid: OwnershipStatistics | None = None
 
     # Fifth Wheel / RV Specific (optional)
     propane_analysis: dict[str, Any] | None = None  # For fifth wheels with propane tracking
@@ -364,6 +422,7 @@ class GarageMonthlyTrend(BaseModel):
     def_cost: Decimal = Field(default=Decimal("0.00"))
     insurance: Decimal = Field(default=Decimal("0.00"))
     financing: Decimal = Field(default=Decimal("0.00"))
+    # Service + fuel + DEF, the page's Total. Insurance and financing sit beside it.
     total: Decimal = Field(default=Decimal("0.00"))
 
     model_config = {"from_attributes": True}
@@ -496,8 +555,9 @@ class TireReadiness(BaseModel):
     #: at-or-below-minimum safety case).
     can_project: int = 0
     #: `distance_status` is `complete`. A partial history counts as a prompt,
-    #: not as an answer, even though it does report its measurable part.
-    can_report_distance: int = 0
+    #: not as an answer, even though it does report its measurable part. On an
+    #: hours vehicle that's hours on the tire, hence usage.
+    can_report_usage: int = 0
     #: Below `min_tread_mm` today. Surfaced as an action rather than a chart.
     under_minimum: int = 0
 
@@ -506,8 +566,9 @@ class TireReadiness(BaseModel):
     #: needs no second reading to answer the question, and counting it here
     #: too would double it against `can_project`). One reading is a point.
     needs_second_reading: int = 0
-    #: Two readings, but one of the newest pair carries no odometer.
-    needs_reading_odometer: int = 0
+    #: Two readings, but one of the newest pair carries no odometer (no hour
+    #: meter on an hours vehicle).
+    needs_reading_usage: int = 0
     #: `min_tread_mm` is null, so nothing can be projected against it. There is
     #: no 2.0 fallback: that is a column default applied at insert.
     needs_minimum_tread: int = 0

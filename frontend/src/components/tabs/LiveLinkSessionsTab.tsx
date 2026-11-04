@@ -23,6 +23,7 @@ import { useUnitFormat } from '@/hooks/useUnitFormat'
 import { useTimeFormat } from '@/hooks/useTimeFormat'
 import { formatAPITimestamp, formatTime } from '@/utils/parseAPITimestamp'
 import { formatAtPrecision } from '@/utils/unitFormat'
+import { formatDuration } from '@/utils/durationFormat'
 
 /** RPM is a whole number, matching the LiveLink gauge's own classification. */
 const RPM_PRECISION = 0
@@ -93,14 +94,6 @@ export default function LiveLinkSessionsTab({ vin }: LiveLinkSessionsTabProps) {
     fetchSessions()
   }, [fetchSessions])
 
-  const formatDuration = (seconds: number | null | undefined) => {
-    if (seconds == null) return '--'
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    if (hours > 0) return `${hours}h ${minutes}m`
-    return `${minutes}m`
-  }
-
   // ★ `distance_km`, `start_odometer` and `end_odometer` are canonical
   // kilometres, and the unverified marker these used to carry has been retired.
   // It existed because `session_service.py::_get_current_odometer` stamped a
@@ -112,10 +105,11 @@ export default function LiveLinkSessionsTab({ vin }: LiveLinkSessionsTabProps) {
   //
   // Sessions recorded before that fix were converted in place by
   // `backend/tools/fix_session_odometer_units.py`. Raw telemetry in
-  // `vehicle_telemetry_latest` is NOT converted and is still device-native, so
-  // `classifyTelemetryParam` keeps marking a bare-PID odometer unverified on
-  // the Live tab. That difference is deliberate: it is a claim about a stored
-  // column, not about every odometer-shaped number in the product.
+  // `vehicle_telemetry_latest` is only km where storage converted it, so on
+  // the Live tab `classifyTelemetryParam` goes by the parameter row's unit
+  // instead: a distance when it says km, a plain number when it doesn't. That
+  // difference is deliberate: this is a claim about a stored column, not
+  // about every odometer-shaped number in the product.
   const formatDistance = (value: number | null | undefined): string =>
     value == null ? '--' : u.distance.format(value)
 
@@ -156,7 +150,7 @@ export default function LiveLinkSessionsTab({ vin }: LiveLinkSessionsTabProps) {
             <button
               type="button"
               onClick={() => setIncludeStationary(true)}
-              className="text-sm font-medium text-primary hover:underline"
+              className="text-sm font-medium text-(--accent-fg) hover:underline"
             >
               {t('livelink.sessions.showStationary')}
             </button>
@@ -178,7 +172,7 @@ export default function LiveLinkSessionsTab({ vin }: LiveLinkSessionsTabProps) {
           <button
             type="button"
             onClick={() => setIncludeStationary((shown) => !shown)}
-            className="text-sm font-medium text-primary hover:underline"
+            className="text-sm font-medium text-(--accent-fg) hover:underline"
           >
             {includeStationary
               ? t('livelink.sessions.hideStationary')
@@ -194,7 +188,6 @@ export default function LiveLinkSessionsTab({ vin }: LiveLinkSessionsTabProps) {
           session={session}
           isExpanded={expandedSession === session.id}
           onToggle={() => toggleExpanded(session.id)}
-          formatDuration={formatDuration}
           formatDistance={formatDistance}
           formatSpeed={formatSpeed}
           formatTemp={formatTemp}
@@ -209,7 +202,6 @@ function SessionCard({
   session,
   isExpanded,
   onToggle,
-  formatDuration,
   formatDistance,
   formatSpeed,
   formatTemp,
@@ -217,7 +209,6 @@ function SessionCard({
   session: DriveSession
   isExpanded: boolean
   onToggle: () => void
-  formatDuration: (s: number | null | undefined) => string
   formatDistance: (value: number | null | undefined) => string
   formatSpeed: (kmh: number | null | undefined) => string
   formatTemp: (c: number | null | undefined) => string

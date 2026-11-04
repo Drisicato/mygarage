@@ -20,7 +20,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
 )
@@ -28,6 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
 
 if TYPE_CHECKING:
     from app.models.reminder import Reminder
@@ -62,10 +62,18 @@ class MaintenanceRule(Base):
     )
     maintenance_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    interval_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    interval_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2), nullable=True)
     interval_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
     interval_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    interval_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    interval_hours: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 1), nullable=True)
+    # Days before the due date from which the work may be done (#211, migration
+    # 145): the window a periodic technical inspection opens ahead of its
+    # deadline. Informational: the due date and the due-soon status do not
+    # move, the UI shows "can be done from" and the scheduler notifies once
+    # when the window opens. NULL means no window.
+    lead_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 'pack', 'manual', 'service', or 'inspection' for the rule the country
+    # profile engine keeps up to date (`inspection_schedule_service`).
     source: Mapped[str] = mapped_column(String(20), nullable=False)
     source_pack_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_pack_key: Mapped[str | None] = mapped_column(String(64), nullable=True)

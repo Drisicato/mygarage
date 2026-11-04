@@ -20,10 +20,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.settings import Setting
 from app.services import restore_staging
+from app.services.auth_settings import (
+    AUTH_KEYS,
+    AuthSettingsConflictError,
+    ensure_sso_mode_usable,
+    lock_auth_settings,
+)
 from app.services.oidc.config import OIDC_REDIRECT_URI_KEY, checked_redirect_uri
 from app.services.oidc.tokens import MASKED_SECRET_PLACEHOLDER
 from app.services.setting_rules import canonical_setting_value, check_setting_value
 from app.services.settings_service import SettingsService
+from app.utils.backup_names import backup_stamp
+from app.utils.datetime_utils import utc_from_timestamp
 from app.utils.default_unit_prefs import (
     DEFAULT_UNIT_PREFS_KEY,
     validate_default_unit_prefs_value,
@@ -39,6 +47,11 @@ logger = logging.getLogger(__name__)
 #: ciphertext; 2.0 (3.9.0 and older) carried plaintext. The restore takes both,
 #: and tells them apart per value, not by this field.
 SETTINGS_BACKUP_VERSION = "2.1"
+
+RESTORE_SSO_REFUSED_DETAIL = (
+    "This backup would leave sign-in set to SSO with SSO off or missing its issuer URL "
+    "or client ID, so nothing was restored."
+)
 
 #: What the restore did with one secret setting from the file.
 type _SecretRestore = Literal["restored", "placeholder", "skipped"]
@@ -206,7 +219,7 @@ class BackupService:
                     return {
                         "path": str(self.database_path),
                         "size_mb": round(stat.st_size / 1024 / 1024, 2),
-                        "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "last_modified": utc_from_timestamp(stat.st_mtime).isoformat(),
                         "exists": True,
                     }
                 return {
@@ -257,7 +270,7 @@ class BackupService:
                             "type": "settings",
                             "size_mb": round(stat.st_size / 1024 / 1024, 4),
                             "size_bytes": stat.st_size,
-                            "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "created": utc_from_timestamp(stat.st_mtime).isoformat(),
                             "is_safety": "safety" in backup_file.name.lower(),
                         }
                     )
@@ -272,7 +285,7 @@ class BackupService:
                             "type": "full",
                             "size_mb": round(stat.st_size / 1024 / 1024, 2),
                             "size_bytes": stat.st_size,
-                            "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "created": utc_from_timestamp(stat.st_mtime).isoformat(),
                             "is_safety": "safety" in backup_file.name.lower(),
                         }
                     )
@@ -306,13 +319,11 @@ class BackupService:
             "settings": _settings_backup_rows(settings),
         }
 
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-        filename = f"mygarage-settings-{timestamp}.json"
+        filename = f"mygarage-settings-{backup_stamp()}.json"
         backup_path = self.backup_dir / filename
 
-        # Write backup file
-        with open(backup_path, "w") as f:
+        # "x", so a name that's somehow taken fails instead of overwriting a backup.
+        with open(backup_path, "x") as f:
             json.dump(backup_data, f, indent=2)
 
         logger.info("Created settings backup: %s", filename)
@@ -324,7 +335,7 @@ class BackupService:
             "filename": filename,
             "type": "settings",
             "size_mb": round(stat.st_size / 1024 / 1024, 4),
-            "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "created": utc_from_timestamp(stat.st_mtime).isoformat(),
         }
 
     async def create_full_backup(self) -> dict[str, Any]:
@@ -338,9 +349,7 @@ class BackupService:
         """
         self.ensure_backup_dir()
 
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-        filename = f"mygarage-full-{timestamp}.tar.gz"
+        filename = f"mygarage-full-{backup_stamp()}.tar.gz"
         backup_path = self.backup_dir / filename
 
         logger.info("Creating full backup: %s", filename)
@@ -350,7 +359,8 @@ class BackupService:
         # `settings.key` would make every secret in the archive readable to whoever holds
         # it, and `secret.key` would let them forge sessions. A same-host restore needs
         # neither; a new host needs `settings.key` copied over, or the secrets re-entered.
-        with tarfile.open(backup_path, "w:gz") as tar:
+        # "x" for the same reason as the settings backup: never overwrite one.
+        with tarfile.open(backup_path, "x:gz") as tar:
             if self.is_sqlite:
                 # SQLite: archive a consistent Online-Backup-API snapshot, not
                 # the live file. The snapshot is self-contained, so no -wal or
@@ -399,7 +409,7 @@ class BackupService:
             "filename": filename,
             "type": "full",
             "size_mb": round(stat.st_size / 1024 / 1024, 2),
-            "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "created": utc_from_timestamp(stat.st_mtime).isoformat(),
         }
 
     async def restore_settings_backup(
@@ -419,6 +429,14 @@ class BackupService:
         Secret settings are restored per value, whatever the file's version or
         `encrypted` flag says; see `_restore_secret`. Call the backup preflight
         (`ensure_secrets_encrypted`) first, so the safety backup holds no plaintext.
+
+        Takes the sign-in settings lock before its first read, so `db` must not be
+        inside a transaction. When the file touched a sign-in key and the result
+        would be SSO mode without usable SSO, it rolls back, deletes the safety
+        backup it wrote, and raises.
+
+        Raises:
+            AuthSettingsConflictError: The restore would leave SSO mode unusable.
         """
         # A name in the backup folder, as download and delete take it: `../` can't reach past it.
         backup_path = self.validate_filename(filename)
@@ -426,11 +444,29 @@ class BackupService:
         if not backup_path.exists():
             raise FileNotFoundError(f"Backup file not found: {backup_path.name}")
 
+        # Read and checked before the safety backup, so a bad file leaves no stray copy.
+        with open(backup_path) as f:
+            backup_data = json.load(f)
+
+        if not isinstance(backup_data, dict):
+            raise ValueError("Invalid backup file structure: not a JSON object")
+
+        if "settings" not in backup_data:
+            raise ValueError("Invalid backup file structure: missing 'settings' key")
+
+        if not isinstance(backup_data["settings"], list):
+            raise ValueError("Invalid backup file format: 'settings' must be a list")
+
+        # Before the safety backup's read, so it copies what the restore replaces.
+        await lock_auth_settings(db)
+
         # Create safety backup first if requested
         safety_filename = None
+        safety_path: Path | None = None
         if create_safety:
-            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            safety_filename = f"mygarage-settings-safety-{timestamp}.json"
+            # The suffix keeps two restores in one second apart, so a refused one
+            # can only ever delete its own copy.
+            safety_filename = f"mygarage-settings-safety-{backup_stamp()}.json"
 
             # Get current settings for safety backup
             current_settings = await SettingsService.get_all(db)
@@ -443,25 +479,15 @@ class BackupService:
             }
 
             safety_path = self.backup_dir / safety_filename
-            with open(safety_path, "w") as f:
+            with open(safety_path, "x") as f:
                 json.dump(safety_data, f, indent=2)
 
             logger.info("Created safety backup: %s", safety_filename)
 
-        # Read and validate backup file
-        with open(backup_path) as f:
-            backup_data = json.load(f)
-
-        # Validate backup structure
-        if "settings" not in backup_data:
-            raise ValueError("Invalid backup file structure: missing 'settings' key")
-
-        if not isinstance(backup_data["settings"], list):
-            raise ValueError("Invalid backup file format: 'settings' must be a list")
-
         # Restore settings
         restored_count = 0
         skipped_secret_keys: list[str] = []
+        touched_sign_in = False
         for setting_data in backup_data["settings"]:
             try:
                 key = setting_data.get("key")
@@ -582,10 +608,35 @@ class BackupService:
                     encrypted=setting_data.get("encrypted"),
                 )
                 restored_count += 1
+                touched_sign_in = touched_sign_in or key in AUTH_KEYS
 
             except Exception as e:
                 logger.error("Error restoring setting %s: %s", setting_data.get("key"), e)
                 # Continue with other settings
+
+        # Only when the file touched a sign-in key: an instance already in a bad
+        # state still restores a file that leaves those alone (F1-1).
+        if touched_sign_in:
+            await db.flush()
+            try:
+                await ensure_sso_mode_usable(db, {})
+            except AuthSettingsConflictError as exc:
+                await db.rollback()
+                # Nothing changed, so the safety copy is a stray (R12).
+                if safety_path is not None:
+                    try:
+                        safety_path.unlink(missing_ok=True)
+                    except OSError as unlink_error:
+                        logger.warning(
+                            "Couldn't remove the unused safety backup %s: %s",
+                            safety_filename,
+                            unlink_error,
+                        )
+                logger.warning(
+                    "Refused settings restore from %s: it would leave SSO mode unusable",
+                    sanitize_for_log(filename),
+                )
+                raise AuthSettingsConflictError(RESTORE_SSO_REFUSED_DETAIL) from exc
 
         await db.commit()
 
@@ -758,8 +809,7 @@ class BackupService:
         with restore_staging.restore_lock(self.data_dir):
             safety_filename = None
             if create_safety:
-                timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-                safety_filename = f"mygarage-full-safety-{timestamp}.tar.gz"
+                safety_filename = f"mygarage-full-safety-{backup_stamp()}.tar.gz"
                 try:
                     self._write_safety_archive(self.backup_dir / safety_filename)
                 except sqlite3.Error as exc:
@@ -808,7 +858,7 @@ class BackupService:
                         tar.add(dir_path, arcname=dir_name)
             restore_staging.publish_file(partial, archive)
         except BaseException:
-            # A request's archive is named by the second, so each failed one would leave
+            # Every request's archive gets its own name, so each failed one would leave
             # another .partial behind that nothing lists or cleans up. The cleanup never
             # hides the real error.
             with contextlib.suppress(OSError):

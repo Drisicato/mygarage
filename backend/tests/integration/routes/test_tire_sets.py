@@ -31,6 +31,7 @@ from app.models.vehicle import Vehicle
 from app.services.odometer_service import latest_odometer_km_and_date
 from app.services.tire_service import ODOMETER_SOURCE_SET
 from app.utils.odometer_sync import auto_sync_marker
+from tests.integration.routes._low_tread import fail_the_second_sync, low_tread_rows
 
 TODAY = date(2026, 4, 1)
 
@@ -429,13 +430,14 @@ class TestFittingASet:
         assert len(periods) == 1, periods
         assert periods[0]["dismounted_on"] is None
 
-    async def test_fitting_it_again_lower_the_same_day_corrects_the_reading(
+    async def test_fitting_it_again_lower_the_same_day_lowers_only_its_row(
         self, client: AsyncClient, auth_headers, vehicle, db_session
     ):
-        """A refit is one event, so a lower figure is the user fixing a typo (#224).
+        """A refit lower the same day lowers the set's own row and nothing else (S2-02).
 
-        The second fit moves nothing and only publishes. The period editor
-        can't reach the set's row, so a refit is how the user fixes it.
+        The second fit moves nothing, so the tire's period still says 50,200,
+        and that bound gets published once the set's row drops below it. The
+        fit's figure is corrected through the period editor instead (F5-2).
         """
         winter = await _set(client, auth_headers, vehicle, "Winter")
         tire = await _mount(
@@ -462,17 +464,31 @@ class TestFittingASet:
                 json={"mounted_on": TODAY.isoformat(), "odometer_km": km},
             )
             assert fitted.status_code == 200, fitted.text
+        listed = next(t for t in fitted.json()["tires"] if t["id"] == tire["id"])
+        period_id = next(p["id"] for p in listed["mount_periods"] if p["dismounted_on"] is None)
+        mount_marker = auto_sync_marker("tire_mount", period_id)
 
-        rows = (
-            await db_session.execute(
+        async def today() -> set[tuple[Decimal, str | None]]:
+            db_session.expire_all()
+            rows = await db_session.execute(
                 select(OdometerRecord.odometer_km, OdometerRecord.notes).where(
                     OdometerRecord.vin == vehicle, OdometerRecord.date == TODAY
                 )
             )
-        ).all()
-        assert [tuple(row) for row in rows] == [
-            (Decimal("50100"), auto_sync_marker(ODOMETER_SOURCE_SET, winter["id"]))
-        ]
+            return {(row[0], row[1]) for row in rows.all()}
+
+        set_marker = auto_sync_marker(ODOMETER_SOURCE_SET, winter["id"])
+        assert await today() == {(Decimal("50100"), set_marker), (Decimal("50200"), mount_marker)}
+        assert await latest_odometer_km_and_date(db_session, vehicle) == (Decimal("50200"), TODAY)
+
+        corrected = await client.put(
+            f"/api/vehicles/{vehicle}/tires/{tire['id']}/mount-periods/{period_id}",
+            headers=auth_headers,
+            json={"mounted_odometer_km": "50100"},
+        )
+        assert corrected.status_code == 200, corrected.text
+        # The set's row already reads 50,100, so the corrected bound needs no row of its own.
+        assert await today() == {(Decimal("50100"), set_marker)}
         assert await latest_odometer_km_and_date(db_session, vehicle) == (Decimal("50100"), TODAY)
 
     async def test_the_most_recently_recorded_corner_wins(
@@ -600,3 +616,112 @@ class TestFittingASet:
         by_id = {t["id"]: t for t in fitted.json()["tires"]}
         assert by_id[keeper["id"]]["position"] == "FL"
         assert goner["id"] not in by_id
+
+
+async def _worn_swap(client: AsyncClient, headers, vin: str) -> tuple[dict, dict, dict]:
+    """A winter set of one, worn down in storage, and the worn summer tire it displaces.
+
+    The winter tire's tread drops below its minimum while it is stored, so
+    it has no reminder going into the fit; the summer tire on its corner does.
+    """
+    winter = await _set(client, headers, vin, "Winter")
+    stored = await _mount(
+        client,
+        headers,
+        vin,
+        "FL",
+        brand="Nokian",
+        min_tread_mm="2.0",
+        mounted_on="2026-01-05",
+        mounted_odometer_km="10000",
+    )
+    await _assign(client, headers, vin, stored["id"], winter["id"])
+    dismounted = await client.post(
+        f"/api/vehicles/{vin}/tires/{stored['id']}/dismount",
+        headers=headers,
+        json={"dismounted_on": "2026-03-01", "dismounted_odometer_km": "16000"},
+    )
+    assert dismounted.status_code == 200, dismounted.text
+    worn = await client.put(
+        f"/api/vehicles/{vin}/tires/{stored['id']}", headers=headers, json={"tread_depth_mm": "1.5"}
+    )
+    assert worn.status_code == 200, worn.text
+    displaced = await _mount(
+        client,
+        headers,
+        vin,
+        "FL",
+        brand="Michelin",
+        tread_depth_mm="1.0",
+        min_tread_mm="3.0",
+        mounted_on="2026-03-01",
+        mounted_odometer_km="16000",
+    )
+    return winter, stored, displaced
+
+
+@pytest.mark.asyncio
+class TestTheFitMovesTheLowTreadReminders:
+    """D3a, F-1: the fit runs the low-tread sync for every tire it moves, in its own commit."""
+
+    async def test_the_displaced_one_is_dismissed_and_the_fitted_one_raises_one(
+        self, client: AsyncClient, auth_headers, vehicle, db_session
+    ):
+        winter, stored, displaced = await _worn_swap(client, auth_headers, vehicle)
+        assert [(r.tire_id, r.status) for r in await low_tread_rows(db_session, vehicle)] == [
+            (displaced["id"], "pending")
+        ]
+
+        fitted = await client.post(
+            f"/api/vehicles/{vehicle}/tire-sets/{winter['id']}/mount",
+            headers=auth_headers,
+            json={"mounted_on": TODAY.isoformat(), "odometer_km": "24000"},
+        )
+        assert fitted.status_code == 200, fitted.text
+
+        rows = {r.tire_id: r for r in await low_tread_rows(db_session, vehicle)}
+        assert rows.keys() == {displaced["id"], stored["id"]}
+        assert rows[displaced["id"]].status == "dismissed"
+        assert (rows[stored["id"]].status, rows[stored["id"]].title) == (
+            "pending",
+            "Tire tread low (FL)",
+        )
+
+    async def test_a_failing_sync_rolls_back_the_whole_fit(
+        self, client: AsyncClient, auth_headers, vehicle, db_session, monkeypatch
+    ):
+        """The displaced tire's sync has dismissed its reminder when the fitted one's raises."""
+        winter, stored, displaced = await _worn_swap(client, auth_headers, vehicle)
+        calls = fail_the_second_sync(monkeypatch)
+
+        with pytest.raises(RuntimeError, match="sync failed"):
+            await client.post(
+                f"/api/vehicles/{vehicle}/tire-sets/{winter['id']}/mount",
+                headers=auth_headers,
+                json={"mounted_on": TODAY.isoformat(), "odometer_km": "24000"},
+            )
+
+        # Order pinned: the displaced sync runs first, so the rollback has something to undo.
+        assert calls == [displaced["id"], stored["id"]]
+        db_session.expire_all()
+        placed = {
+            t.id: t.position
+            for t in (await db_session.execute(select(Tire).where(Tire.vin == vehicle))).scalars()
+        }
+        assert placed == {stored["id"]: None, displaced["id"]: "FL"}
+        open_periods = (
+            (
+                await db_session.execute(
+                    select(TireMountPeriod).where(
+                        TireMountPeriod.tire_id.in_([stored["id"], displaced["id"]]),
+                        TireMountPeriod.dismounted_on.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [p.tire_id for p in open_periods] == [displaced["id"]]
+        assert [(r.tire_id, r.status) for r in await low_tread_rows(db_session, vehicle)] == [
+            (displaced["id"], "pending")
+        ]

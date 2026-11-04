@@ -25,7 +25,6 @@ from app.services import maintenance_service
 from app.services.service_visit_service import ServiceVisitService
 from app.services.supply_service import SupplyService
 from app.services.vehicle_lock import lock_vehicle_for_write
-from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.path_validation import validate_path_within_base
 from app.utils.photo_encoding import PHOTO_MAX_SIDE  # noqa: F401 (re-exported)
@@ -306,7 +305,6 @@ class PlannedRepairService:
 
         visit_id = repair.service_visit_id
         await self.db.commit()
-        await invalidate_cache_for_vehicle(vin)
         logger.info(
             "Completed planned repair %s for %s (visit %s)",
             repair_id,

@@ -34,7 +34,13 @@ async def _warranty(client: AsyncClient, headers, vin: str) -> int:
 
 
 async def _upload(
-    client: AsyncClient, headers, vin: str, warranty_id: int, name="contract.pdf", data=PDF, mime="application/pdf"
+    client: AsyncClient,
+    headers,
+    vin: str,
+    warranty_id: int,
+    name="contract.pdf",
+    data=PDF,
+    mime="application/pdf",
 ):
     return await client.post(
         f"{_base(vin)}/{warranty_id}/documents",
@@ -125,12 +131,20 @@ class TestWarrantyDocuments:
         vin = test_vehicle["vin"]
         warranty_id = await _warranty(client, auth_headers, vin)
         response = await _upload(
-            client, auth_headers, vin, warranty_id, "run.exe", b"MZ\x90\x00", "application/x-msdownload"
+            client,
+            auth_headers,
+            vin,
+            warranty_id,
+            "run.exe",
+            b"MZ\x90\x00",
+            "application/x-msdownload",
         )
         assert response.status_code == 400
         assert not _stored(vin, warranty_id)
 
-    async def test_document_limit(self, client: AsyncClient, auth_headers, test_vehicle, monkeypatch):
+    async def test_document_limit(
+        self, client: AsyncClient, auth_headers, test_vehicle, monkeypatch
+    ):
         monkeypatch.setattr(warranty_service, "MAX_DOCUMENTS_PER_WARRANTY", 2)
         vin = test_vehicle["vin"]
         warranty_id = await _warranty(client, auth_headers, vin)

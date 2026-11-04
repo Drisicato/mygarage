@@ -249,7 +249,9 @@ class WarrantyService:
         upload = await FileUploadService.upload_file(
             file, DOCUMENT_UPLOAD_CONFIG, subdirectory=f"{vin}/warranties/{warranty_id}"
         )
-        relative = str(Path(upload.file_path).resolve().relative_to(settings.documents_dir.resolve()))
+        relative = str(
+            Path(upload.file_path).resolve().relative_to(settings.documents_dir.resolve())
+        )
         document = WarrantyDocument(
             warranty_id=warranty_id,
             file_path=relative,

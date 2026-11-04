@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { ReactElement } from 'react'
-import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Copy } from 'lucide-react'
+import { Copy, Key } from 'lucide-react'
 
+import { Button, Drawer } from '@/components/ui'
 import { livelinkService } from '@/services/livelinkService'
 import type {
   BackfillResultResponse,
@@ -15,7 +15,7 @@ import type {
 } from '@/types/livelink'
 import type { SourceInfo } from '@/types/livelinkTopicMap'
 import type { Vehicle } from '@/types/vehicle'
-import { getErrorMessage } from '@/utils/httpErrorHandler'
+import { getActionErrorMessage } from '@/utils/httpErrorHandler'
 import DeviceRow from './DeviceRow'
 
 /**
@@ -45,6 +45,7 @@ export default function DeviceTable({
   onChanged,
 }: Props): ReactElement {
   const { t } = useTranslation('forms')
+  const tokenId = useId()
   const [sources, setSources] = useState<Record<string, SourceInfo>>({})
   const [deviceTokenModal, setDeviceTokenModal] = useState<{
     deviceId: string
@@ -74,17 +75,21 @@ export default function DeviceTable({
     }
   }
 
-  const handleUpdateDevice = async (deviceId: string, update: LiveLinkDeviceUpdate): Promise<void> => {
+  /** False when the server refused it, so the row can put its value back. */
+  const handleUpdateDevice = async (deviceId: string, update: LiveLinkDeviceUpdate): Promise<boolean> => {
     try {
       await livelinkService.updateDevice(deviceId, update)
       toast.success(t('modal.deviceUpdated'))
       onChanged()
+      return true
     } catch (error) {
       console.error('Failed to update device:', error)
-      // The server refuses an odometer-unit change once readings depend on it,
-      // and says why and what to run. A generic failure toast would throw that
-      // away and leave the setting looking merely broken.
-      toast.error(getErrorMessage(error, t('modal.failedToUpdateDevice')))
+      // The server says why it refused: a 409 once readings depend on the
+      // odometer unit, a 403 for an unlinked device a non-admin can't manage.
+      // A generic toast would throw that away and leave the setting looking
+      // merely broken.
+      toast.error(getActionErrorMessage(error, t('modal.livelink.updateDeviceAction')))
+      return false
     }
   }
 
@@ -166,7 +171,8 @@ export default function DeviceTable({
       onChanged()
     } catch (error) {
       console.error('Failed to save SD config:', error)
-      toast.error(t('modal.livelink.failedToSaveSdConfig'))
+      // A kind with no SD card is a 422 that says so.
+      toast.error(getActionErrorMessage(error, t('modal.livelink.saveSdConfigAction')))
     }
   }
 
@@ -185,7 +191,8 @@ export default function DeviceTable({
       return result
     } catch (error) {
       console.error('Failed to trigger SD backfill:', error)
-      toast.error(t('modal.livelink.sdBackfillFailed'))
+      // 422 for a kind with no SD card, 409 with LiveLink off: both say why.
+      toast.error(getActionErrorMessage(error, t('modal.livelink.sdBackfillAction')))
       return null
     }
   }
@@ -215,7 +222,7 @@ export default function DeviceTable({
                 showFirmware={showFirmware}
                 deviceFirmware={deviceFirmware.find((d) => d.device_id === device.device_id)}
                 mqttConnected={mqttConnected}
-                onUpdate={(id, update) => void handleUpdateDevice(id, update)}
+                onUpdate={handleUpdateDevice}
                 onDelete={(id) => void handleDeleteDevice(id)}
                 onGenerateToken={(id) => void handleGenerateDeviceToken(id)}
                 onRevokeToken={(id) => void handleRevokeDeviceToken(id)}
@@ -230,52 +237,59 @@ export default function DeviceTable({
         </table>
       </div>
 
-      {/* Device Token dialog, portalled to <body> so it escapes the drawer's
-          root-level inert and the panel's transform, staying a centred modal
-          on top of the drawer. */}
-      {deviceTokenModal &&
-        createPortal(
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-drawer-nested">
-            <div className="bg-garage-surface rounded-lg border border-garage-border p-6 max-w-lg w-full mx-4">
-              <h3 className="text-lg font-semibold text-garage-text mb-4">
-                {t('modal.livelink.deviceTokenGenerated')}
-              </h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-garage-text-muted mb-2">
-                    {t('modal.livelink.tokenForDevice', { deviceId: deviceTokenModal.deviceId })}
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={deviceTokenModal.token ?? ''}
-                      className="flex-1 px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text font-mono text-sm"
-                    />
-                    <button
-                      onClick={() => void copyToClipboard(deviceTokenModal.token ?? '', t('modal.livelink.tokenLabel'))}
-                      className="px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text hover:bg-garage-surface"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                  <p className="text-sm text-yellow-500">
-                    <strong>{t('modal.livelink.saveTokenNowLabel')}</strong>{' '}
-                    {t('modal.livelink.saveTokenNowDesc')}
-                  </p>
-                </div>
-                <div className="flex justify-end">
-                  <button onClick={() => setDeviceTokenModal(null)} className="btn btn-primary rounded-lg">
-                    {t('modal.livelink.done')}
-                  </button>
-                </div>
+      {/* Always opened from inside a settings drawer, so it has to be a nested
+          Drawer: anything else sits under the inert root and can't be used. */}
+      {deviceTokenModal ? (
+        <Drawer
+          open
+          nested
+          width="sm"
+          icon={Key}
+          onClose={() => setDeviceTokenModal(null)}
+          title={t('modal.livelink.deviceTokenGenerated')}
+          closeLabel={t('common:close')}
+          footer={
+            <Button onClick={() => setDeviceTokenModal(null)}>{t('modal.livelink.done')}</Button>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label htmlFor={tokenId} className="block text-sm text-garage-text-muted mb-2">
+                {t('modal.livelink.tokenForDevice', { deviceId: deviceTokenModal.deviceId })}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id={tokenId}
+                  type="text"
+                  readOnly
+                  value={deviceTokenModal.token ?? ''}
+                  className="flex-1 px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text font-mono text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    void copyToClipboard(
+                      deviceTokenModal.token ?? '',
+                      t('modal.livelink.tokenForDevice', { deviceId: deviceTokenModal.deviceId }),
+                    )
+                  }
+                  aria-label={t('modal.copyValue', {
+                    label: t('modal.livelink.tokenForDevice', { deviceId: deviceTokenModal.deviceId }),
+                  })}
+                  className="px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text hover:bg-garage-surface"
+                >
+                  <Copy aria-hidden="true" className="w-4 h-4" />
+                </button>
               </div>
             </div>
-          </div>,
-          document.body,
-        )}
+            <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <p className="text-sm text-yellow-500">
+                <strong>{t('modal.livelink.saveTokenNowLabel')}</strong> {t('modal.livelink.saveTokenNowDesc')}
+              </p>
+            </div>
+          </div>
+        </Drawer>
+      ) : null}
     </>
   )
 }

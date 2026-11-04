@@ -11,12 +11,13 @@
  *
  * A pending row says where it stands (#192): a status chip and stripe when
  * overdue or due soon, and a bar from its start to due with what's left, all
- * computed by the server.
+ * computed by the server. A row with two targets says what's left on both,
+ * the bar's first (D4a).
  */
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Bell, Plus, Check, X, Edit, Trash2, Clock, Gauge, Zap, Timer, Package, PackagePlus, Repeat, GitMerge } from 'lucide-react'
+import { Bell, Plus, Check, X, Edit, Trash2, Clock, Gauge, Zap, Timer, Package, PackagePlus, Repeat, GitMerge, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   useReminders,
@@ -30,7 +31,7 @@ import { useLatestMileage } from '../hooks/useLatestMileage'
 import { useLatestHours } from '../hooks/useLatestHours'
 import { formatDateForDisplay } from '../utils/dateUtils'
 import { useDateLocale } from '../hooks/useDateLocale'
-import ReminderForm from './ReminderForm'
+import ReminderForm, { REMINDER_TYPE_DEFS } from './ReminderForm'
 import CompleteReminderDialog from './CompleteReminderDialog'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import ApplyPackDialog from './ApplyPackDialog'
@@ -40,17 +41,18 @@ import ReconcileDuplicatesDialog from './ReconcileDuplicatesDialog'
 import SnoozeReminderDialog from './SnoozeReminderDialog'
 import { describeRecurrence } from './RecurrenceFields'
 import { todayInHousehold } from '../constants/i18n'
-import type { DuplicateGroup, Reminder, ReminderStatus } from '../types/reminder'
+import type { DuplicateGroup, Reminder, ReminderStatus, ReminderType } from '../types/reminder'
 import type { Vehicle } from '../types/vehicle'
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import { useReminderRemaining } from '../hooks/useReminderRemaining'
 import { getUsageTracking } from '../utils/usageTracking'
-import { Button, IconButton, Card, Chip, Mono, EmptyState, ProgressMeter, Select } from './ui'
+import { packDisplayName } from '../utils/reminderPacks'
+import { Button, IconButton, Card, Chip, Mono, EmptyState, ProgressMeter, Select, type ProgressMeterTone } from './ui'
 import { meterTone, reminderBar, type DueStatus } from '../utils/reminderProgress'
-import api from '../services/api'
 
 interface ReminderListProps {
-  vin: string
+  /** The parent already holds it (G5a-10). */
+  vehicle: Vehicle
 }
 
 const STATUS_TABS: { id: ReminderStatus | 'all'; labelKey: string }[] = [
@@ -69,16 +71,30 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
 
 
 /**
+ * How each status looks, in one place (RD-8): the bar's fill, which is also
+ * the chip's tone, and for the two that need attention a row stripe and a
+ * chip.
+ *
  * A left stripe rather than a recoloured border: Card's base sets
  * `border-border`, and two utilities on one property resolve by stylesheet
  * order, not class order. `border-left-color` is its own property.
  */
-const ROW_STRIPE: Partial<Record<DueStatus, string>> = {
-  overdue: 'border-l-4 border-l-danger',
-  due_soon: 'border-l-4 border-l-warning',
+const STATUS_STYLE: Record<DueStatus, { tone: Exclude<ProgressMeterTone, 'caution'>; stripe?: string; labelKey?: string }> = {
+  overdue: { tone: 'danger', stripe: 'border-l-4 border-l-danger', labelKey: 'reminderList.statusOverdue' },
+  due_soon: { tone: 'warning', stripe: 'border-l-4 border-l-warning', labelKey: 'reminderList.statusDueSoon' },
+  on_track: { tone: 'accent' },
+  snoozed: { tone: 'muted' },
 }
 
-export default function ReminderList({ vin }: ReminderListProps) {
+/** What's left is read in this order after the bar's own dimension (D4a). */
+const REMAINING_ORDER = ['date', 'distance', 'hours'] as const
+
+/** The form's label for a stored type, or undefined for one it doesn't offer (D6a). */
+const typeLabelKey = (type: string): string | undefined =>
+  Object.hasOwn(REMINDER_TYPE_DEFS, type) ? REMINDER_TYPE_DEFS[type as ReminderType].labelKey : undefined
+
+export default function ReminderList({ vehicle }: ReminderListProps) {
+  const vin = vehicle.vin
   const { t } = useTranslation('vehicles')
   const { t: tForms } = useTranslation('forms')
   const dateLocale = useDateLocale()
@@ -99,28 +115,12 @@ export default function ReminderList({ vin }: ReminderListProps) {
   const [renamingPack, setRenamingPack] = useState<{ id: string; name: string } | undefined>()
   const [reviewingGroup, setReviewingGroup] = useState<DuplicateGroup | undefined>()
   const [snoozing, setSnoozing] = useState<Reminder | undefined>()
-  const [vehicle, setVehicle] = useState<Vehicle | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void api
-      .get(`/vehicles/${vin}`)
-      .then((res) => {
-        if (!cancelled) setVehicle(res.data ?? null)
-      })
-      .catch(() => {
-        if (!cancelled) setVehicle(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [vin])
 
   const { tracksDistance, tracksHours } = getUsageTracking({
-    usage_unit: vehicle?.usage_unit,
-    secondary_usage_enabled: vehicle?.secondary_usage_enabled,
+    usage_unit: vehicle.usage_unit,
+    secondary_usage_enabled: vehicle.secondary_usage_enabled,
   })
-  const { data: packs = [] } = useReminderPacks(vehicle?.vehicle_type ?? null)
+  const { data: packs = [] } = useReminderPacks(vehicle.vehicle_type)
   const deletePackMutation = useDeletePack()
 
   const formatDate = (dateStr: string | null | undefined): string => {
@@ -181,7 +181,7 @@ export default function ReminderList({ vin }: ReminderListProps) {
   const openPackPreview = () => {
     const pack = packs.find((p) => p.id === selectedPack)
     if (!pack) return
-    setPreviewingPack({ id: pack.id, name: pack.name })
+    setPreviewingPack({ id: pack.id, name: packDisplayName(pack, t) })
   }
 
   const anchorText = (reminder: Reminder): string | null => {
@@ -197,6 +197,37 @@ export default function ReminderList({ vin }: ReminderListProps) {
     }
     return t('reminderList.lastDone', { date: formatDate(reminder.anchor_date), reading: reading ?? '' })
   }
+
+  // #211 — a reminder the country-profile inspection engine keeps: where its
+  // date comes from, and the window before the due date it may be done in.
+  const isAutomaticInspection = (reminder: Reminder): boolean =>
+    reminder.source === 'inspection' || reminder.rule?.source === 'inspection'
+
+  const automaticInspectionHint = (reminder: Reminder): string => {
+    const months = reminder.rule?.interval_months ?? null
+    if (reminder.anchor_kind === 'baseline') return t('reminderList.inspectionFromRegistration')
+    if (months != null && months <= 3) return t('reminderList.inspectionRetest')
+    return t('reminderList.inspectionFromLast')
+  }
+
+  const windowOpensOn = (reminder: Reminder): string | null => {
+    const leadDays = reminder.rule?.lead_days
+    if (!leadDays || !reminder.due_date || reminder.status !== 'pending') return null
+    const opens = new Date(`${reminder.due_date}T00:00:00`)
+    opens.setDate(opens.getDate() - leadDays)
+    const iso = `${opens.getFullYear()}-${String(opens.getMonth() + 1).padStart(2, '0')}-${String(opens.getDate()).padStart(2, '0')}`
+    return t('reminderList.inspectionWindowOpen', { date: formatDate(iso) })
+  }
+
+  /** The bar's dimension first, then each other set one, date, distance, hours (D4a). */
+  const remainingParts = (reminder: Reminder, lead: Reminder['progress_basis']): string[] => {
+    const first = REMAINING_ORDER.find((basis) => basis === lead)
+    const order = first ? [first, ...REMAINING_ORDER.filter((basis) => basis !== first)] : REMAINING_ORDER
+    return order.map((basis) => remainingText(reminder, basis)).filter((part): part is string => part !== null)
+  }
+
+  // The groups are pending reminders only, so a closed row is never in one.
+  const duplicateIds = new Set(duplicateGroups.flatMap((group) => group.reminder_ids))
 
   const rulesById = new Map<number, Reminder>()
   for (const r of reminders) rulesById.set(r.id, r)
@@ -241,7 +272,7 @@ export default function ReminderList({ vin }: ReminderListProps) {
                   // have your own.
                   ...packs.map((p) => ({
                     value: p.id,
-                    label: p.is_custom ? `${p.name} (${t('packList.saved')})` : p.name,
+                    label: p.is_custom ? `${p.name} (${t('packList.saved')})` : packDisplayName(p, t),
                   })),
                 ]}
               />
@@ -344,29 +375,35 @@ export default function ReminderList({ vin }: ReminderListProps) {
               (km) => u.distance.format(km),
               (key, options) => tForms(key, options),
             )
-            const isDuplicate = (reminder.duplicate_of?.length ?? 0) > 0
+            const isDuplicate = duplicateIds.has(reminder.id)
             const anchor = anchorText(reminder)
             // Only a pending row says where it stands; a closed one keeps its history look.
             const status = reminder.status === 'pending' ? reminder.due_status ?? null : null
             const { share: barShare, basis: barBasis } = reminderBar(reminder)
-            const remaining = status ? remainingText(reminder, barBasis) : null
+            const style = status ? STATUS_STYLE[status] : undefined
+            const remaining = status ? remainingParts(reminder, barBasis).join(' · ') || null : null
+            const typeKey = typeLabelKey(reminder.reminder_type)
             const supersededBy = reminder.superseded_by_id != null ? rulesById.get(reminder.superseded_by_id) : undefined
             return (
-              <Card key={reminder.id} padding="sm" className={status ? ROW_STRIPE[status] ?? '' : ''}>
+              <Card key={reminder.id} padding="sm" className={style?.stripe ?? ''}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 flex-1 min-w-0">
                     <TypeIcon aria-hidden="true" className="w-5 h-5 text-(--accent-fg) mt-0.5 shrink-0" />
                     <div className="min-w-0">
                       <h4 className="text-sm font-medium text-text">{reminder.title}</h4>
                       <div className="flex flex-wrap gap-2 mt-1 items-center">
-                        {status === 'overdue' && <Chip tone="danger">{t('reminderList.statusOverdue')}</Chip>}
-                        {status === 'due_soon' && <Chip tone="warning">{t('reminderList.statusDueSoon')}</Chip>}
-                        <Chip>{reminder.reminder_type}</Chip>
+                        {style?.labelKey && <Chip tone={style.tone}>{t(style.labelKey)}</Chip>}
+                        {typeKey && <Chip>{tForms(typeKey)}</Chip>}
                         {recurrence && reminder.rule?.is_active && (
                           <Chip tone="accent">
                             <Repeat aria-hidden="true" className="w-3 h-3" />
                             {t('reminderList.every', { interval: recurrence })}
                           </Chip>
+                        )}
+                        {isAutomaticInspection(reminder) && (
+                          <span title={automaticInspectionHint(reminder)}>
+                            <Chip tone="accent" icon={ShieldCheck}>{t('reminderList.automaticInspection')}</Chip>
+                          </span>
                         )}
                         {isDuplicate && reminder.status === 'pending' && (
                           <Chip tone="warning">{t('reminderList.possibleDuplicate')}</Chip>
@@ -430,6 +467,9 @@ export default function ReminderList({ vin }: ReminderListProps) {
                             })}
                           </p>
                         )}
+                      {windowOpensOn(reminder) && (
+                        <p className="text-xs text-text-mute mt-1">{windowOpensOn(reminder)}</p>
+                      )}
                       {reminder.notes && (
                         <p className="text-xs text-text-mute mt-1 truncate">{reminder.notes}</p>
                       )}
@@ -505,7 +545,7 @@ export default function ReminderList({ vin }: ReminderListProps) {
       {savingPack && (
         <SavePackDialog
           vin={vin}
-          vehicleType={vehicle?.vehicle_type}
+          vehicleType={vehicle.vehicle_type}
           existingPack={savingPack === true ? undefined : savingPack}
           onClose={() => setSavingPack(false)}
           onSaved={() => setSavingPack(false)}

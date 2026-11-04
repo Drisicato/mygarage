@@ -14,15 +14,16 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
+    inspect,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import NO_VALUE, Mapped, mapped_column, relationship, validates
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
 
 if TYPE_CHECKING:
     from app.models.maintenance_rule import MaintenanceRule
@@ -45,9 +46,9 @@ class Reminder(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     reminder_type: Mapped[str] = mapped_column(String(10), nullable=False)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    due_mileage_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    due_mileage_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2), nullable=True)
     # Hours target for reminder_type='hours' (hour-metered vehicles). Migration 083.
-    due_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    due_hours: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 1), nullable=True)
     # Which tire this reminder is about, for tire-sourced reminders (097).
     # Part of a COMPOSITE FK to `tires (id, vin)` declared in __table_args__,
     # so a reminder cannot name a tire belonging to a different vehicle.
@@ -64,8 +65,8 @@ class Reminder(Base):
     # Canonical tread figures on a low-tread reminder. The sync sets them when it
     # raises the reminder and keeps them current while it's pending, and the
     # notification renders them in the reader's units.
-    tread_depth_mm: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
-    tread_threshold_mm: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    tread_depth_mm: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2), nullable=True)
+    tread_threshold_mm: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -94,18 +95,20 @@ class Reminder(Base):
     # first service.
     anchor_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)
     anchor_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    anchor_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    anchor_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    anchor_odometer_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2), nullable=True)
+    anchor_hours: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 1), nullable=True)
     # What an unanchored reminder counts from: the readings when it was made
     # (migration 129). Not an anchor, so adoption and reconcile never read them.
-    start_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    start_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    start_odometer_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2), nullable=True)
+    start_hours: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 1), nullable=True)
     # How and when it was closed. `completed_line_item_id` is the work that
     # closed it, which the successor then counts from.
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    completed_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    completed_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    completed_odometer_km: Mapped[Decimal | None] = mapped_column(
+        ScaledNumeric(10, 2), nullable=True
+    )
+    completed_hours: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 1), nullable=True)
     completed_line_item_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("service_line_items.id", ondelete="SET NULL"), nullable=True
     )
@@ -138,6 +141,35 @@ class Reminder(Base):
         "Reminder", remote_side=[id], foreign_keys=[superseded_by_id]
     )
 
+    @validates("due_date", "due_mileage_km", "due_hours")
+    def _rearm_heads_up(self, key: str, value: date | Decimal | None) -> date | Decimal | None:
+        """Clear ``last_notified_at`` when a due value changes, so the new target
+        gets its own due-soon heads-up (the notifier sends one per stamp).
+
+        Runs on every attribute write, whoever writes, and never on load. A bulk
+        ``UPDATE`` of these columns skips it and has to clear the stamp itself.
+        A new object is left alone, so a stamp passed to the constructor stays
+        whatever the kwarg order. The current value is read from what's loaded,
+        never through the attribute, which would lazy-load an expired one (and
+        raise under async). Not loaded, it clears without comparing: an extra
+        heads-up beats a missed one. Both sides are compared as they'd be
+        stored, so 55000, 55000.00 and 55000.004 are the same target.
+        """
+        state = inspect(self)
+        if state.transient:
+            return value
+        current = state.attrs[key].loaded_value
+        if current is NO_VALUE:
+            self.last_notified_at = None
+            return value
+        column_type = self.__table__.c[key].type
+        if isinstance(column_type, ScaledNumeric):
+            if column_type.rounded(current) != column_type.rounded(value):
+                self.last_notified_at = None
+        elif current != value:
+            self.last_notified_at = None
+        return value
+
     __table_args__ = (
         # Declared in the TABLE-level form on purpose: SQLAlchemy's SQLite
         # reflection parses `ON DELETE` only out of this form, so an inline
@@ -169,5 +201,17 @@ class Reminder(Base):
             unique=True,
             sqlite_where=text("status = 'pending'"),
             postgresql_where=text("status = 'pending'"),
+        ),
+        # One live low-tread reminder per tire (migration 140). Manual and rule
+        # reminders have no source or tire, so they're never caught by it.
+        Index(
+            "uq_reminder_source_tire_live",
+            "source",
+            "tire_id",
+            unique=True,
+            sqlite_where=text("source IS NOT NULL AND tire_id IS NOT NULL AND status = 'pending'"),
+            postgresql_where=text(
+                "source IS NOT NULL AND tire_id IS NOT NULL AND status = 'pending'"
+            ),
         ),
     )

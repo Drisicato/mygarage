@@ -35,13 +35,9 @@ async def _reset_webhook_settings(db_session):
     The suite shares one database with no per-test rollback, so leaving these
     set changes the behaviour of every test that runs afterwards. Cleared before
     as well as after, so a prior failure cannot leak into the next test either.
-    The rate limit is reset too: every request here comes from one address, so
-    enough tests would otherwise run the module into its own 429.
     """
-    from app.routes.webhooks import limiter
 
     async def _clear():
-        limiter.reset()
         for key in ("webhook_ingest_token",):
             result = await db_session.execute(select(Setting).where(Setting.key == key))
             setting = result.scalar_one_or_none()
@@ -353,16 +349,6 @@ class TestWebhookIngest:
 class TestEvFuelAndThirdPartyImport:
     """EV charge-session create + Fuelio/Tesla CSV import endpoints."""
 
-    @pytest.fixture(autouse=True)
-    def _reset_import_rate_limit(self):
-        from app.routes.import_data import limiter as import_limiter
-
-        storage = import_limiter._storage
-        storage.storage.clear()
-        storage.expirations.clear()
-        if hasattr(storage, "events"):
-            storage.events.clear()
-
     async def test_create_ev_charge_session(self, client: AsyncClient, auth_headers, test_vehicle):
         response = await client.post(
             f"/api/vehicles/{test_vehicle['vin']}/fuel",
@@ -473,3 +459,56 @@ class TestWebhookCsrfExemption:
             assert any(route.path.startswith(p) for p in CSRFProtectionMiddleware.EXEMPT_PATHS), (
                 f"{route.path} is not covered by any CSRF exempt prefix"
             )
+
+
+class TestWebhooksReachEquipment:
+    """#226: a tractor has no VIN; a webhook names it by its serial."""
+
+    async def test_fuel_by_serial_through_the_vehicle_field(
+        self, client: AsyncClient, auth_headers: dict[str, str], db_session
+    ):
+        from sqlalchemy import delete
+
+        from app.models.fuel import FuelRecord
+        from app.models.vehicle import Vehicle
+
+        await _set_setting(db_session, "webhook_ingest_token", "secret-webhook")
+        created = await client.post(
+            "/api/vehicles",
+            headers=auth_headers,
+            json={
+                "nickname": "Webhook Kubota",
+                "vehicle_type": "Tractor",
+                "usage_unit": "hours",
+                "identifier_type": "serial",
+                "identifier": "BX23S-WEBHOOK-0001",
+            },
+        )
+        assert created.status_code == 201, created.text
+        key = created.json()["vin"]
+        try:
+            # Longer than 17, so it could never fit the old `vin` field.
+            response = await client.post(
+                "/api/v1/webhooks/fuel",
+                json={"vehicle": "bx23s-webhook-0001", "liters": "8"},
+                headers={"X-Webhook-Token": "secret-webhook"},
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["vin"] == key
+            stored = (
+                (await db_session.execute(select(FuelRecord.liters).where(FuelRecord.vin == key)))
+                .scalars()
+                .all()
+            )
+            assert [str(v) for v in stored] == ["8.000"]
+            missing = await client.post(
+                "/api/v1/webhooks/fuel",
+                json={"liters": "8"},
+                headers={"X-Webhook-Token": "secret-webhook"},
+            )
+            assert missing.status_code == 422
+        finally:
+            await db_session.rollback()
+            await db_session.execute(delete(FuelRecord).where(FuelRecord.vin == key))
+            await db_session.execute(delete(Vehicle).where(Vehicle.vin == key))
+            await db_session.commit()

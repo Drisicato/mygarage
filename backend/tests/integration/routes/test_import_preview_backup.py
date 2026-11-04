@@ -18,17 +18,6 @@ from app.models.supply import Supply, SupplyPurchase
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-@pytest.fixture(autouse=True)
-def _reset_import_rate_limit():
-    from app.routes.export import limiter as export_limiter
-    from app.routes.import_data import limiter
-
-    for each in (limiter, export_limiter):
-        storage = each._storage
-        storage.storage.clear()
-        storage.expirations.clear()
-
-
 async def _upload(client, headers, vin, route, body, **form):
     return await client.post(
         f"/api/import/vehicles/{vin}/{route}",

@@ -3,12 +3,34 @@
 import importlib.util
 import inspect as python_inspect
 import logging
+from collections.abc import Container
 from pathlib import Path
 from types import ModuleType
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import Connection, create_engine, text
+
+from app.utils.pg_session import create_utc_engine
 
 logger = logging.getLogger(__name__)
+
+#: The PG timestamp repair. Rows written before it have to stay in the server's
+#: zone so it converts them right, so sync sessions pin to UTC only once it's
+#: stamped. On PG it's also the line before which no migration failure is
+#: shrugged off. A renumber at merge has to update this too.
+TIMESTAMP_REPAIR_STEM = "134_pg_timestamp_repair_utc"
+
+
+def pins_sessions(dialect_name: str, applied: Container[str]) -> bool:
+    """Whether sync sessions on this database should be pinned to UTC.
+
+    The runner and the maintenance tools share this rule. Only PostgreSQL has a
+    session zone, and only once the timestamp repair is stamped.
+
+    Args:
+        dialect_name: The engine's dialect name, e.g. ``"postgresql"``.
+        applied: The stems recorded in ``schema_migrations``.
+    """
+    return dialect_name == "postgresql" and TIMESTAMP_REPAIR_STEM in applied
 
 
 class MigrationRunner:
@@ -25,7 +47,32 @@ class MigrationRunner:
         self.database_url = database_url
         self.migrations_dir = Path(migrations_dir)
         # Bound values stay out of error messages, so a failed migration logs no setting value.
+        # Unpinned until the timestamp repair is stamped; see _pin_once_repaired.
         self.engine = create_engine(database_url, hide_parameters=True)
+        self.pinned = False
+
+    def _pin_once_repaired(self, applied: set[str]) -> None:
+        """Swap in a UTC-pinned engine once the timestamp repair is stamped.
+
+        A fresh engine, not a listener on this one: a connection already in the
+        pool never sees a new listener and would keep the server's zone.
+
+        A failed swap is fatal whatever migration it follows. Past the repair
+        nothing else stops startup, so the run would end here and the app would
+        boot with the rest never run.
+        """
+        if self.pinned or not pins_sessions(self.engine.dialect.name, applied):
+            return
+        try:
+            unpinned = self.engine
+            self.engine = create_utc_engine(self.database_url, hide_parameters=True)
+            unpinned.dispose()
+        except Exception as e:
+            logger.error("Couldn't pin migration sessions to UTC, so startup stops: %s", e)
+            e.__migration_fatal__ = True  # type: ignore[attr-defined]
+            raise
+        self.pinned = True
+        logger.info("Timestamp repair is applied; migration sessions now run in UTC")
 
     def _ensure_migration_tracking_table(self) -> None:
         """Create schema_migrations table if it doesn't exist."""
@@ -75,11 +122,16 @@ class MigrationRunner:
             name: Migration name (without .py extension)
         """
         with self.engine.begin() as conn:
+            self._insert_stamps(conn, [name])
+            logger.debug("Marked migration '%s' as applied", name)
+
+    def _insert_stamps(self, conn: Connection, names: list[str]) -> None:
+        """Record migrations as applied on the caller's connection, in its transaction."""
+        for name in names:
             conn.execute(
                 text("INSERT INTO schema_migrations (migration_name) VALUES (:name)"),
                 {"name": name},
             )
-            logger.debug("Marked migration '%s' as applied", name)
 
     def _discover_migrations(self) -> list[tuple[str, Path]]:
         """
@@ -159,6 +211,23 @@ class MigrationRunner:
         else:
             module.upgrade()
 
+    def _takes_conn(self, module: ModuleType) -> bool:
+        """Whether the migration's upgrade() asks for a ``conn`` (the atomic path)."""
+        upgrade = getattr(module, "upgrade", None)
+        return upgrade is not None and "conn" in python_inspect.signature(upgrade).parameters
+
+    def _run_upgrade_with_stamp(self, name: str, module: ModuleType) -> None:
+        """Run an ``upgrade(conn)`` migration and stamp it in ONE transaction.
+
+        With a separate stamp, a crash in between reruns the migration next
+        boot, and a data rewrite like the timestamp repair would shift every
+        row twice. Here the data and the stamp commit or roll back together.
+        """
+        logger.info("Running migration: %s (stamped in the same transaction)", name)
+        with self.engine.begin() as conn:
+            module.upgrade(conn=conn)
+            self._insert_stamps(conn, [name])
+
     def _mark_migrations_applied(self, names: list[str]) -> None:
         """Record several migrations as applied in ONE transaction (atomic).
 
@@ -170,11 +239,74 @@ class MigrationRunner:
         if not names:
             return
         with self.engine.begin() as conn:
-            for name in names:
-                conn.execute(
-                    text("INSERT INTO schema_migrations (migration_name) VALUES (:name)"),
-                    {"name": name},
+            self._insert_stamps(conn, names)
+
+    def _apply_migration(
+        self, name: str, module: ModuleType, applied: set[str], discovered_stems: set[str]
+    ) -> bool:
+        """Run and stamp one loaded migration, honoring REPLACES. Grows ``applied``.
+
+        Returns:
+            True if the migration's upgrade() ran (a fully-migrated squash is
+            stamped without running; a partial one is deferred).
+        """
+        replaces = self._get_replaces(module)
+
+        atomic = self._takes_conn(module)
+        if atomic and replaces:
+            raise TypeError(
+                f"Migration {name}: an upgrade(conn) migration can't declare REPLACES; "
+                "the squash path stamps several stems"
+            )
+
+        if not replaces:
+            if atomic:
+                self._run_upgrade_with_stamp(name, module)
+            else:
+                self._run_upgrade(name, module)
+                self._mark_migration_applied(name)
+            applied.add(name)
+            return True
+
+        # Squash / baseline migration. Warn on unknown stems; classify
+        # against real (file-backed) replaced stems only.
+        for stem in replaces:
+            if stem not in discovered_stems:
+                logger.warning(
+                    "Squash migration %s: REPLACES entry '%s' matches no migration file; ignoring",
+                    name,
+                    stem,
                 )
+        known = {stem for stem in replaces if stem in discovered_stems}
+        known_applied = known & applied
+
+        if not known_applied:
+            # Fresh: run baseline, then atomically stamp it + all replaced stems.
+            self._run_upgrade(name, module)
+            to_stamp = [name] + [s for s in sorted(known) if s not in applied]
+            self._mark_migrations_applied(to_stamp)
+            applied.update(to_stamp)
+            logger.info(
+                "Squash migration %s: fresh install, collapsed %s replaced migration(s)",
+                name,
+                len(known),
+            )
+            return True
+        if known <= applied:
+            # Fully-migrated: record the collapse without running the baseline.
+            self._mark_migration_applied(name)
+            applied.add(name)
+            logger.info(
+                "Squash migration %s: history already applied, marked without running",
+                name,
+            )
+            return False
+        # Partial: defer; remaining individuals run this pass, baseline converges next boot.
+        logger.info(
+            "Squash migration %s: partial history, deferring (applying remaining individual migrations)",
+            name,
+        )
+        return False
 
     def run_pending_migrations(self) -> None:
         """Run all pending migrations, honoring squash (REPLACES) migrations.
@@ -192,17 +324,27 @@ class MigrationRunner:
           ``M`` stamps on a later run once ``known ⊆ A``.
 
         A REPLACES entry matching no discovered file is warned and ignored. A
-        migration with no REPLACES runs and is stamped exactly as before.
+        migration with no REPLACES runs and is stamped exactly as before, unless
+        its ``upgrade`` takes a ``conn``: then it runs on that connection and is
+        stamped in the same transaction (an ``upgrade(conn)`` can't declare
+        REPLACES).
+
+        On PostgreSQL the runner's sessions keep the server's zone until
+        ``TIMESTAMP_REPAIR_STEM`` is stamped, then a new UTC-pinned engine takes
+        over. That's checked at the start and after every migration.
 
         Each migration's module load, upgrade(), and tracking-table writes run
         inside ONE try/except: on the first failure the runner logs, annotates
         the exception with ``__migration_fatal__`` (from the loaded module's
-        FATAL flag, or False if it failed to load), and re-raises — stopping the
-        chain without marking the failed migration applied.
+        FATAL flag, or False if it failed to load; always True on PostgreSQL
+        while the timestamp repair is unstamped, and when the UTC pin swap
+        fails), and re-raises, stopping the chain without marking the failed
+        migration applied. A swap that fails at the start is annotated too.
         """
         self._ensure_migration_tracking_table()
 
         applied = self._get_applied_migrations()  # mutable: grows as we stamp
+        self._pin_once_repaired(applied)
         all_migrations = self._discover_migrations()
         discovered_stems = {name for name, _ in all_migrations}
         pending = [(name, path) for name, path in all_migrations if name not in applied]
@@ -222,61 +364,29 @@ class MigrationRunner:
             module = None
             try:
                 module = self._load_module(name, path)
-                replaces = self._get_replaces(module)
-
-                if not replaces:
-                    self._run_upgrade(name, module)
-                    self._mark_migration_applied(name)
-                    applied.add(name)
+                if self._apply_migration(name, module, applied, discovered_stems):
                     ran += 1
-                    continue
-
-                # Squash / baseline migration. Warn on unknown stems; classify
-                # against real (file-backed) replaced stems only.
-                for stem in replaces:
-                    if stem not in discovered_stems:
-                        logger.warning(
-                            "Squash migration %s: REPLACES entry '%s' matches no migration file; ignoring",
-                            name,
-                            stem,
-                        )
-                known = {stem for stem in replaces if stem in discovered_stems}
-                known_applied = known & applied
-
-                if not known_applied:
-                    # Fresh: run baseline, then atomically stamp it + all replaced stems.
-                    self._run_upgrade(name, module)
-                    to_stamp = [name] + [s for s in sorted(known) if s not in applied]
-                    self._mark_migrations_applied(to_stamp)
-                    applied.update(to_stamp)
-                    ran += 1
-                    logger.info(
-                        "Squash migration %s: fresh install — collapsed %s replaced migration(s)",
-                        name,
-                        len(known),
-                    )
-                elif known <= applied:
-                    # Fully-migrated: record the collapse without running the baseline.
-                    self._mark_migration_applied(name)
-                    applied.add(name)
-                    logger.info(
-                        "Squash migration %s: history already applied — marked without running",
-                        name,
-                    )
-                else:
-                    # Partial: defer; remaining individuals run this pass, baseline converges next boot.
-                    logger.info(
-                        "Squash migration %s: partial history — deferring (applying remaining individual migrations)",
-                        name,
-                    )
-                    continue
+                self._pin_once_repaired(applied)
             except Exception as e:
                 logger.error("Migration '%s' failed: %s", name, e)
+                fatal = bool(getattr(module, "FATAL", False)) if module is not None else False
+                if getattr(e, "__migration_fatal__", False) is True:
+                    fatal = True  # a failed pin swap marks itself
+                if (
+                    self.engine.dialect.name == "postgresql"
+                    and TIMESTAMP_REPAIR_STEM not in applied
+                ):
+                    # The app pins to UTC, so booting with the repair pending would
+                    # write UTC rows the repair later shifts. Stop instead.
+                    fatal = True
+                    logger.error(
+                        "The PostgreSQL timestamp repair (%s) hasn't run yet, so this "
+                        "failure stops startup",
+                        TIMESTAMP_REPAIR_STEM,
+                    )
                 logger.error("Stopping migration run - fix errors and restart")
                 try:
-                    e.__migration_fatal__ = (  # type: ignore[attr-defined]
-                        bool(getattr(module, "FATAL", False)) if module is not None else False
-                    )
+                    e.__migration_fatal__ = fatal  # type: ignore[attr-defined]
                 except Exception:
                     pass
                 raise
@@ -296,4 +406,9 @@ def run_migrations(database_url: str, migrations_dir: Path) -> None:
         >>> run_migrations('sqlite:////data/mygarage.db', Path('/app/migrations'))
     """
     runner = MigrationRunner(database_url, migrations_dir)
-    runner.run_pending_migrations()
+    try:
+        runner.run_pending_migrations()
+    finally:
+        # Whichever engine it ended on (the pinned one after a swap) still
+        # holds a pooled connection, and nothing uses it after this.
+        runner.engine.dispose()

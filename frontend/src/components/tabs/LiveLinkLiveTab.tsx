@@ -24,6 +24,7 @@ import { useTimeFormat } from '@/hooks/useTimeFormat'
 import { convertTelemetryValue, getParamDisplayName } from '@/utils/telemetryUnits'
 import type { UnitFormat } from '@/utils/unitFormat'
 import { formatTime } from '@/utils/parseAPITimestamp'
+import { formatDuration } from '@/utils/durationFormat'
 import { tankContent } from '@/utils/sensorReadings'
 import TankCard from '../livelink/TankCard'
 import { Card, Mono, EmptyState } from '../ui'
@@ -100,9 +101,8 @@ export default function LiveLinkLiveTab({ vin }: LiveLinkLiveTabProps) {
   // whether the source is reachable.
   const tracksDriving = status?.capabilities?.includes('drive_session') ?? false
 
-  // `online` is the server's reachability rule, not `device_status`: a sensor
-  // with no status topic (Mopeka) never leaves 'unknown' and read raw showed
-  // the RV offline while its readings arrived.
+  // `online` is the server's reachability rule, not `device_status`: Torque
+  // never leaves 'unknown', and a disabled device freezes at its last status.
   const getStatusColor = (online: boolean, ecuStatus: string) => {
     if (!online) return 'danger'
     if (!tracksDriving) return 'success'
@@ -115,16 +115,6 @@ export default function LiveLinkLiveTab({ vin }: LiveLinkLiveTabProps) {
     if (!tracksDriving) return t('livelink.statusConnected')
     if (ecuStatus === 'online') return t('livelink.vehicleRunning')
     return t('livelink.statusVehicleParked')
-  }
-
-  const formatDuration = (seconds: number | null | undefined) => {
-    if (seconds == null) return '--'
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-    if (hours > 0) return `${hours}h ${minutes}m`
-    if (minutes > 0) return `${minutes}m ${secs}s`
-    return `${secs}s`
   }
 
   if (loading) {
@@ -196,7 +186,7 @@ export default function LiveLinkLiveTab({ vin }: LiveLinkLiveTabProps) {
             <div className="flex items-center gap-1 text-success">
               <Activity aria-hidden="true" className="w-4 h-4" />
               <span className="text-sm">
-                {t('livelink.session')}: {formatDuration(status.session_duration_seconds)}
+                {t('livelink.session')}: {formatDuration(status.session_duration_seconds, { seconds: true })}
               </span>
             </div>
           )}

@@ -1,42 +1,58 @@
 import csv
 import io
 import json
-from datetime import datetime
-from typing import Any
+from collections.abc import Sequence
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Mapper, selectinload
 
 from app.config import settings
 from app.constants.units import IMPERIAL_PRESET, METRIC_PRESET, UnitSet
 from app.database import get_db
 from app.models import (
     DEFRecord,
+    FinancingRecord,
     FuelRecord,
     HoursRecord,
     InsurancePolicy,
     InsurancePolicyVehicle,
     Note,
     OdometerRecord,
+    ServiceLineItem,
     ServiceVisit,
+    SpotRental,
     TaxRecord,
+    TollTag,
+    TollTransaction,
     WarrantyRecord,
 )
+from app.models.address_book import AddressBookEntry
+from app.models.brake import BrakeAxle, BrakeJob, BrakeMeasurement
+from app.models.maintenance_rule import MaintenanceRule
+from app.models.recall import Recall
+from app.models.reminder import Reminder
+from app.models.supply import Supply, SupplyPurchase, SupplyUsage, SupplyVehicle
+from app.models.tire import Tire, TireMountPeriod, TireReading, TireSet
 from app.models.user import User
 from app.models.vehicle import Vehicle
-from app.services.auth import get_vehicle_or_403, require_auth
+from app.models.vehicle_dtc import VehicleDTC
+from app.services.auth import get_vehicle_or_403, require_auth, visible_vehicles_filter
 from app.services.fuel_service import resolve_station_names
-from app.services.service_visit_service import service_visit_cost_load_options
-from app.utils.csv_emission import apply_unit_set, marker_for
+from app.utils.csv_emission import BasisPrice, apply_unit_set, marker_for
 from app.utils.csv_safe import sanitize_csv_row
 from app.utils.insurance_coverages import coverage_text
 from app.utils.insurance_shares import effective_shares
 from app.utils.render_context import render_context_for_request
+from app.utils.vehicle_key import export_basename
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -81,8 +97,37 @@ limiter = Limiter(key_func=get_remote_address)
 #   catalogue, migration 108) in place of the `coverage_limits` text box. The
 #   CSV keeps its `Coverage Limits` column, now rendered from those rows and
 #   read back through the same parser, so its shape and version are unchanged.
-CSV_SCHEMA_VERSION = "7"
-JSON_SCHEMA_VERSION = "8"
+# - CSV "8": the service CSV numbers each visit in a `Visit` column, splits
+#   `Notes` into `Item Notes` and `Visit Notes`, and adds `Tax`,
+#   `Shop Supplies`, `Misc Fees` and `Insurance Claim` (J6). Rows sharing a
+#   number import as one visit; an older file groups by date, odometer,
+#   vendor and category. The fuel CSV adds Propane Volume, Tank Size, Tank
+#   Quantity, kWh and Price Basis, and writes a price that isn't per volume by
+#   its basis (B3-3, K9). The other CSVs keep their shape.
+# - JSON "9": every section writes every column (R1): `service_visits` with
+#   nested `line_items` replaces `service_records`, the fuel, DEF, odometer
+#   and hours rows carry the rest of their columns, the vehicle is written
+#   whole, and `financing_records`, `tax_records`, `toll_tags`,
+#   `toll_transactions`, `warranties` and `spot_rentals` are new. The
+#   importer still reads v2 to v8, and a section a file lacks is empty.
+#   Batch 3b adds `maintenance_rules` (each rule with its nested
+#   `reminders`), `manual_reminders` (every status; `reminders` stays the
+#   v2 list), `recalls`, `dtcs`, `tire_sets` and `tires` (each tire with
+#   its nested `mount_periods` and `readings`), `brake_axles`, `brake_jobs`,
+#   `brake_measurements` and `supplies` (each pinned supply with its nested
+#   `purchases`, standalone `usages` and `used_elsewhere`, its uses on
+#   another vehicle's visits; a line item carries its own `supply_usages`)
+#   to v9 without a bump: a 3a file simply has none.
+# - The European additions (#211) ride CSV "8" / JSON "9" without a bump,
+#   since they ship in the same release: a `Fuel Grade` column / `fuel_grade`
+#   key, the EN 16942 pump label of a fill-up (migration 144), and a
+#   `No-Claims Class` column / `no_claims_class` key on a vehicle's insurance
+#   row, the bonus-malus coefficient or class it is rated at (migration 149),
+#   and an `Octane Scale` column / `octane_scale` key, the RON or AKI scale a
+#   fill-up's octane was read on (migration 151). Same additive treatment as
+#   the #164 grade columns: an older file imports with NULLs.
+CSV_SCHEMA_VERSION = "8"
+JSON_SCHEMA_VERSION = "9"
 EXPORT_UNITS = "metric"
 
 
@@ -163,6 +208,308 @@ def build_csv(headers: list[str], rows: list[list[Any]], units: UnitSet) -> io.S
     return generate_csv_stream(headers, rows, unit_system=marker_for(units))
 
 
+def _money_cell(value: Decimal | None) -> str:
+    """A money cell: two places, blank only when there's no amount."""
+    return f"{value:.2f}" if value is not None else ""
+
+
+def _json_value(value: Any) -> Any:
+    """A column value for the JSON backup: Decimal as a number, dates as ISO text."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return value
+
+
+def _json_quantity(value: Decimal | None) -> str | None:
+    """A supply quantity as decimal text. The column holds 25 digits and a float about 16."""
+    return format(value, "f") if value is not None else None
+
+
+def _json_columns(row: Any, exclude: frozenset[str]) -> dict[str, Any]:
+    """Every column of `row` but `exclude`, in model order (R1).
+
+    A column added to the model is exported by default; the JSON coverage test
+    fails until it is named there as exported or excluded.
+    """
+    mapper: Mapper[Any] = sa_inspect(type(row))
+    return {
+        column.key: _json_value(getattr(row, column.key))
+        for column in mapper.columns
+        if column.key not in exclude
+    }
+
+
+#: Left out of every section: the row's key, its vehicle (the file is the
+#: vehicle's) and the bookkeeping timestamps.
+_ALWAYS_EXCLUDED = frozenset({"id", "vin", "created_at", "updated_at"})
+#: The vendor travels by name; the total is recomputed from the items and fees.
+_SERVICE_VISIT_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"vendor_id", "total_cost"}
+#: The visit is the parent; the inspection link travels as an index in the visit.
+_LINE_ITEM_JSON_EXCLUDE = frozenset({"id", "visit_id", "triggered_by_inspection_id", "created_at"})
+#: Every fuel column travels; the station and driver links go with their names.
+_FUEL_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: The fill-up that wrote a synced DEF row is a fuel row on this instance.
+_DEF_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"origin_fuel_record_id"}
+#: The fill-up that owned the reading here; an imported reading is never owned (R4).
+_ODOMETER_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"fuel_record_id"}
+#: The same for the fill-up or visit an hours reading was synced from.
+_HOURS_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"fuel_record_id", "service_visit_id"}
+#: The owner here (the import targets a vehicle that exists), the photo and
+#: sticker files (full backup only, J4), the legacy hours cache (the hours
+#: history carries the readings) and two notification markers.
+_VEHICLE_JSON_EXCLUDE = frozenset(
+    {
+        "user_id",
+        "main_photo",
+        "window_sticker_file_path",
+        "window_sticker_uploaded_at",
+        "current_hours",
+        "last_milestone_notified_km",
+        "def_low_notified_at",
+        "created_at",
+        "updated_at",
+    }
+)
+_NOTE_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: The lender travels by name, like a service visit's vendor.
+_FINANCING_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"vendor_id"}
+_TAX_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+_TOLL_TAG_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: The tag travels as its place in this file's toll_tags.
+_TOLL_TRANSACTION_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"toll_tag_id"}
+#: Notification marker.
+_WARRANTY_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"last_notified_at"}
+_SPOT_RENTAL_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: The rental is the parent.
+_BILLING_JSON_EXCLUDE = frozenset({"id", "spot_rental_id", "created_at"})
+#: Every recall column travels; the resolution and notes are the user's.
+_RECALL_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: device_id travels as text: it has no FK and every DTC list reads by vin (K11).
+_DTC_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+_RULE_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: A reminder keeps its `created_at` (K5).
+_REMINDER_JSON_EXCLUDE = frozenset(
+    {
+        "id",
+        "vin",
+        "updated_at",
+        "rule_id",  # the rule is the parent, or there's none
+        "line_item_id",  # line items here; a service anchor imports as a completion (S8)
+        "completed_line_item_id",  # as above
+        "superseded_by_id",  # another reminder here
+        "last_notified_at",  # notification marker
+        "tire_id",  # sync-owned reminders don't travel (J1)
+        "source",  # as above
+        "tread_depth_mm",  # as above
+        "tread_threshold_mm",  # as above
+    }
+)
+_TIRE_SET_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: The set travels as its place in this file's tire_sets.
+_TIRE_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"set_id"}
+#: The tire is the parent.
+_MOUNT_PERIOD_JSON_EXCLUDE = frozenset({"id", "tire_id", "created_at"})
+#: The tire is the parent. The period link is unused since 140, so it stays home (D2).
+_TIRE_READING_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"tire_id", "mount_period_id"}
+_BRAKE_AXLE_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+_BRAKE_JOB_JSON_EXCLUDE = _ALWAYS_EXCLUDED
+#: The job travels as its place in this file's brake_jobs.
+_BRAKE_MEASUREMENT_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"brake_job_id"}
+#: Pinned to this vehicle by being in the file; who made it is a user here.
+_SUPPLY_JSON_EXCLUDE = _ALWAYS_EXCLUDED | {"created_by_user_id", "image_path"}
+#: The supply is the parent; the supplier travels by name, like a vendor.
+_SUPPLY_PURCHASE_JSON_EXCLUDE = frozenset({"id", "supply_id", "supplier_id", "created_at"})
+#: A standalone usage keeps its `created_at`: it's the only date it has.
+_SUPPLY_ADJUSTMENT_JSON_EXCLUDE = frozenset({"id", "supply_id", "service_line_item_id"})
+#: The line item is the parent, and its visit dates the usage.
+_LINE_ITEM_USAGE_JSON_EXCLUDE = frozenset({"id", "supply_id", "service_line_item_id", "created_at"})
+#: What the service CSV exports read off a visit.
+_SERVICE_VISIT_EXPORT_LOADS = (
+    selectinload(ServiceVisit.line_items),
+    selectinload(ServiceVisit.vendor),
+)
+#: The JSON backup also writes what each line item used, naming the supply.
+_SERVICE_VISIT_JSON_LOADS = (
+    selectinload(ServiceVisit.line_items)
+    .selectinload(ServiceLineItem.supply_usages)
+    .selectinload(SupplyUsage.supply),
+    selectinload(ServiceVisit.vendor),
+)
+
+
+async def _driver_usernames(db: AsyncSession, records: Sequence[FuelRecord]) -> dict[int, str]:
+    """Each linked driver's username by user id, in one query, so a restore can check the link."""
+    ids = {r.driver_user_id for r in records if r.driver_user_id}
+    if not ids:
+        return {}
+    rows = await db.execute(select(User.id, User.username).where(User.id.in_(ids)))
+    return {user_id: username for user_id, username in rows.all()}
+
+
+def _rule_reminder_json(
+    reminder: Reminder,
+    rule: MaintenanceRule,
+    work: dict[int, tuple[ServiceLineItem, ServiceVisit]],
+) -> dict[str, Any]:
+    """One of a rule's reminders, a done one as its rule counts it now.
+
+    A completion that wrote or linked a line item counts from that visit as it
+    is now, and not at all once the item is retyped away. The link stays home,
+    so the visit's date, readings and type go in place of the stale snapshot (K1).
+    """
+    row = _json_columns(reminder, _REMINDER_JSON_EXCLUDE)
+    found = (
+        work.get(reminder.completed_line_item_id)
+        if reminder.status == "done" and reminder.completed_line_item_id is not None
+        else None
+    )
+    if found is None:
+        return row
+    item, visit = found
+    row["completed_date"] = _json_value(visit.date)
+    row["completed_odometer_km"] = _json_value(visit.odometer_km)
+    row["completed_hours"] = _json_value(visit.engine_hours)
+    # The reminder's own type is checked first, so it wins when it already rules this out.
+    own = reminder.maintenance_type
+    ruled_out = (
+        own is not None and rule.maintenance_type is not None and own != rule.maintenance_type
+    )
+    if not ruled_out and item.maintenance_type is not None:
+        row["maintenance_type"] = item.maintenance_type
+    return row
+
+
+def _tire_json(tire: Tire, set_index: dict[int, int]) -> dict[str, Any]:
+    """A tire with its periods and readings; its set travels as a place in this file (R6).
+
+    Periods and readings go out by id, so every export of the same rows reads the
+    same. The relationship sorts periods by `mounted_on`, which ties (S2).
+    """
+    periods: list[TireMountPeriod] = sorted(tire.mount_periods, key=lambda p: p.id)
+    readings: list[TireReading] = sorted(tire.readings, key=lambda r: r.id)
+    return {
+        **_json_columns(tire, _TIRE_JSON_EXCLUDE),
+        "set_index": set_index.get(tire.set_id) if tire.set_id is not None else None,
+        "mount_periods": [_json_columns(p, _MOUNT_PERIOD_JSON_EXCLUDE) for p in periods],
+        "readings": [_json_columns(r, _TIRE_READING_JSON_EXCLUDE) for r in readings],
+    }
+
+
+def _line_items_json(
+    visit: ServiceVisit, supply_index: dict[int, int], readable_vins: set[str]
+) -> list[dict[str, Any]]:
+    """A visit's line items; an inspection link is the linked item's index here."""
+    position = {item.id: index for index, item in enumerate(visit.line_items)}
+    return [
+        {
+            **_json_columns(item, _LINE_ITEM_JSON_EXCLUDE),
+            # A link outside the visit has no index here, so it drops.
+            "triggered_by_inspection": position.get(item.triggered_by_inspection_id),
+            "supply_usages": [
+                _line_item_usage_json(u, supply_index, readable_vins)
+                for u in sorted(item.supply_usages, key=lambda u: u.id)
+            ],
+        }
+        for item in visit.line_items
+    ]
+
+
+def _line_item_usage_json(
+    usage: SupplyUsage, supply_index: dict[int, int], readable_vins: set[str]
+) -> dict[str, Any]:
+    """What a line item used. A supply in this file goes by its index, any other by its name key.
+
+    One kept for another vehicle you can read also names that vehicle, so a
+    shared supply with the same key can't take its use on restore.
+    """
+    supply = usage.supply
+    index = supply_index.get(supply.id)
+    if index is not None:
+        ref: dict[str, Any] = {"index": index}
+    else:
+        ref = {
+            "name": supply.name,
+            "part_number": supply.part_number,
+            "unit_type": supply.unit_type,
+            "volume_unit": supply.volume_unit,
+        }
+        # A supply linked to several vehicles names the first one you can read.
+        owner = next((v for v in supply.vins if v in readable_vins), None)
+        if owner is not None:
+            ref["vin"] = owner
+    return {
+        **_json_columns(usage, _LINE_ITEM_USAGE_JSON_EXCLUDE),
+        "quantity": _json_quantity(usage.quantity),
+        "supply": ref,
+    }
+
+
+def _used_elsewhere_json(usage: SupplyUsage, readable_vins: set[str]) -> dict[str, Any]:
+    """A use of this supply on another vehicle's visit, named by that visit, not copied.
+
+    The visit's date goes out as written, so no zone can move it a day.
+    """
+    line_item = cast(ServiceLineItem, usage.line_item)
+    # Can't read that vehicle? Then you get how much was used and nothing about it.
+    if line_item.visit.vin not in readable_vins:
+        return {"quantity": _json_quantity(usage.quantity)}
+    return {
+        "vin": line_item.visit.vin,
+        "date": line_item.visit.date.isoformat(),
+        "description": line_item.description,
+        # The item's place in its visit and its cost, so a twin with the same
+        # description that day isn't taken for it.
+        "item_index": [i.id for i in line_item.visit.line_items].index(line_item.id),
+        "item_cost": _json_value(line_item.cost),
+        "quantity": _json_quantity(usage.quantity),
+        "unit_cost_snapshot": _json_value(usage.unit_cost_snapshot),
+        "cost_snapshot": _json_value(usage.cost_snapshot),
+    }
+
+
+def _supply_json(
+    supply: Supply, vin: str, supplier_names: dict[int, str], readable_vins: set[str]
+) -> dict[str, Any]:
+    """A pinned supply and its whole ledger, each entry once.
+
+    A usage on this vehicle's visit goes under its line item, and a standalone
+    one comes along here. One on another vehicle's visit goes in
+    `used_elsewhere`, so a restore can find it there instead of counting it twice.
+    """
+    purchases: list[SupplyPurchase] = sorted(supply.purchases, key=lambda p: p.id)
+    usages: list[SupplyUsage] = sorted(supply.usages, key=lambda u: u.id)
+    standalone = [
+        {
+            **_json_columns(usage, _SUPPLY_ADJUSTMENT_JSON_EXCLUDE),
+            "quantity": _json_quantity(usage.quantity),
+        }
+        for usage in usages
+        if usage.line_item is None
+    ]
+    used_elsewhere = [
+        _used_elsewhere_json(usage, readable_vins)
+        for usage in usages
+        if usage.line_item is not None and usage.line_item.visit.vin != vin
+    ]
+    return {
+        **_json_columns(supply, _SUPPLY_JSON_EXCLUDE),
+        "purchases": [
+            {
+                **_json_columns(p, _SUPPLY_PURCHASE_JSON_EXCLUDE),
+                "quantity": _json_quantity(p.quantity),
+                "supplier_name": supplier_names.get(p.supplier_id)
+                if p.supplier_id is not None
+                else None,
+            }
+            for p in purchases
+        ],
+        "usages": standalone,
+        "used_elsewhere": used_elsewhere,
+    }
+
+
 @router.get("/vehicles/{vin}/service/csv")
 @limiter.limit(settings.rate_limit_exports)
 async def export_service_records_csv(
@@ -180,19 +527,22 @@ async def export_service_records_csv(
     # Verify vehicle exists and user has access
     vehicle = await get_vehicle_or_403(vin, current_user, db)
 
-    # Get all service visits with line items (+ supply usages) and vendor.
-    # service_visit_cost_load_options: this route only reads
-    # calculated_total_cost (needs cost_snapshot), never a usage's Supply row.
+    # Every service visit with its line items and vendor. The rows carry each
+    # item's own cost and the visit's fees, not the supply-inclusive total, so
+    # supply usages aren't loaded.
     result = await db.execute(
         select(ServiceVisit)
         .where(ServiceVisit.vin == vin)
-        .options(*service_visit_cost_load_options())
+        .options(*_SERVICE_VISIT_EXPORT_LOADS)
         .order_by(ServiceVisit.date.desc())
     )
     visits = result.scalars().all()
 
-    # Generate CSV — one row per line item for backward-compatible format
+    # One row per line item, numbered by visit (J6): rows sharing a `Visit`
+    # number import as one visit. A visit with no items is one row with the
+    # item's cells blank.
     headers = [
+        "Visit",
         "Date",
         "Category",
         "Description",
@@ -200,42 +550,43 @@ async def export_service_records_csv(
         "Engine Hours",
         "Cost",
         "Vendor",
-        "Notes",
+        "Item Notes",
+        "Tax",
+        "Shop Supplies",
+        "Misc Fees",
+        "Insurance Claim",
+        "Visit Notes",
     ]
 
-    rows = []
-    for visit in visits:
+    rows: list[list[Any]] = []
+    for number, visit in enumerate(visits, start=1):
         vendor_name = visit.vendor.name if visit.vendor else ""
         # engine_hours: hour-metered vehicles (ATVs, side-by-sides, equipment).
         # Dimensionless — no unit conversion. `is not None` (not `or ""`) so a
         # genuine 0.0 reading isn't dropped, matching fuel's outside_temp_c/
         # obc_l_per_100km convention.
         engine_hours = f"{visit.engine_hours:.1f}" if visit.engine_hours is not None else ""
-        if visit.line_items:
-            for item in visit.line_items:
-                rows.append(
-                    [
-                        visit.date.isoformat() if visit.date else "",
-                        visit.service_category or "",
-                        item.description or "",
-                        visit.odometer_km or None,
-                        engine_hours,
-                        f"{item.cost:.2f}" if item.cost else "",
-                        vendor_name,
-                        item.notes or visit.notes or "",
-                    ]
-                )
-        else:
-            # Visit with no line items — single row with visit-level data
+        # Description, Cost and Item Notes; blank on a visit with no items.
+        item_cells = [
+            [item.description, _money_cell(item.cost), item.notes or ""]
+            for item in visit.line_items
+        ] or [["", "", ""]]
+        for description, cost, item_notes in item_cells:
             rows.append(
                 [
-                    visit.date.isoformat() if visit.date else "",
+                    str(number),
+                    visit.date.isoformat(),
                     visit.service_category or "",
-                    "",
-                    visit.odometer_km or None,
+                    description,
+                    visit.odometer_km,  # canonical Decimal or None; build_csv converts it
                     engine_hours,
-                    f"{visit.calculated_total_cost:.2f}" if visit.calculated_total_cost else "",
+                    cost,
                     vendor_name,
+                    item_notes,
+                    _money_cell(visit.tax_amount),
+                    _money_cell(visit.shop_supplies),
+                    _money_cell(visit.misc_fees),
+                    visit.insurance_claim_number or "",
                     visit.notes or "",
                 ]
             )
@@ -245,7 +596,7 @@ async def export_service_records_csv(
     )
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_service_records_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_service_records_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -280,6 +631,9 @@ async def export_fuel_records_csv(
     # picked from the address book — issue #108 in CSV form. "Station ID" still
     # carries the FK, so the round-trip keeps its fidelity.
     station_names = await resolve_station_names(db, list(records))
+    # "Driver" carries a linked driver's username the same way (T-5), so a
+    # restore can tell whether this instance has that user.
+    driver_usernames = await _driver_usernames(db, records)
 
     # Generate CSV.
     # NOTE: column set extended for v2.27.0-rc2 (#69 issue follow-up).
@@ -292,7 +646,12 @@ async def export_fuel_records_csv(
         "Odometer (km)",
         "Engine Hours",
         "Liters",
+        "Propane Volume (L)",
+        "Tank Size (kg)",
+        "Tank Quantity",
+        "kWh",
         "Price Per Liter",
+        "Price Basis",
         "Rebate",
         "Total Cost",
         "Full Tank",
@@ -300,7 +659,9 @@ async def export_fuel_records_csv(
         "Is Hauling",
         "Fuel Type Used",
         "Octane",
+        "Octane Scale",
         "Diesel Grade",
+        "Fuel Grade",
         "Station ID",
         "Station",
         "Driver ID",
@@ -329,17 +690,23 @@ async def export_fuel_records_csv(
                 # `Decimal`: `csv_emission` owns both the conversion and the
                 # per-column decimal places, so a cell's precision cannot
                 # differ between the metric and non-metric spellings of the
-                # same column. `or None` keeps the pre-v6 behaviour of
-                # blanking a falsy reading.
-                record.odometer_km or None,
+                # same column.
+                record.odometer_km,
                 # Dimensionless — no unit conversion. `is not None` (not `or ""`)
                 # so a genuine 0.0 reading isn't dropped, matching outside_temp_c
                 # / obc_l_per_100km below.
                 f"{record.engine_hours:.1f}" if record.engine_hours is not None else "",
-                record.liters or None,
-                record.price_per_unit or None,
-                f"{record.rebate:.2f}" if record.rebate else "",
-                f"{record.cost:.2f}" if record.cost else "",
+                record.liters,
+                record.propane_liters,
+                record.tank_size_kg,
+                record.tank_quantity if record.tank_quantity is not None else "",
+                f"{record.kwh:.3f}" if record.kwh is not None else "",
+                # The price goes out by its basis, so a per-kg or per-kWh price
+                # isn't scaled like a per-litre one (K9).
+                BasisPrice(record.price_per_unit, record.price_basis),
+                record.price_basis or "",
+                _money_cell(record.rebate),
+                _money_cell(record.cost),
                 "Yes" if record.is_full_tank else "No",
                 "Yes" if record.missed_fillup else "No",
                 "Yes" if record.is_hauling else "No",
@@ -347,11 +714,13 @@ async def export_fuel_records_csv(
                 # Dimensionless grade fields (#164) — an octane is an int label,
                 # not a unit-bearing quantity, so no csv_emission conversion.
                 record.octane if record.octane is not None else "",
+                record.octane_scale or "",
                 record.diesel_grade or "",
+                record.fuel_grade or "",
                 record.station_address_book_id or "",
                 station_names.get(record.id) or "",
                 record.driver_user_id or "",
-                record.driver_name_freetext or "",
+                driver_usernames.get(record.driver_user_id) or record.driver_name_freetext or "",
                 record.payment_method or "",
                 record.trip_type or "",
                 # Unit-bearing, and `is not None` rather than truthy: a
@@ -360,7 +729,7 @@ async def export_fuel_records_csv(
                 record.outside_temp_c,
                 record.obc_l_per_100km,
                 record.obc_avg_speed_kmh,
-                record.obc_trip_duration_s or "",
+                record.obc_trip_duration_s if record.obc_trip_duration_s is not None else "",
                 f"{record.soc_start_pct:.1f}" if record.soc_start_pct is not None else "",
                 f"{record.soc_end_pct:.1f}" if record.soc_end_pct is not None else "",
                 record.charge_level or "",
@@ -375,7 +744,7 @@ async def export_fuel_records_csv(
     )
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_fuel_records_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_fuel_records_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -422,11 +791,11 @@ async def export_def_records_csv(
         rows.append(
             [
                 record.date.isoformat() if record.date else "",
-                record.odometer_km or None,
-                record.liters or None,
-                record.price_per_unit or None,
-                f"{record.cost:.2f}" if record.cost else "",
-                f"{record.fill_level:.2f}" if record.fill_level else "",
+                record.odometer_km,
+                record.liters,
+                record.price_per_unit,
+                _money_cell(record.cost),
+                f"{record.fill_level:.2f}" if record.fill_level is not None else "",
                 record.source or "",
                 record.brand or "",
                 record.notes or "",
@@ -437,7 +806,7 @@ async def export_def_records_csv(
         headers, rows, await resolve_export_units(units, current_user, db, vehicle=vehicle)
     )
 
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_def_records_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_def_records_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -479,7 +848,7 @@ async def export_odometer_records_csv(
         rows.append(
             [
                 record.date.isoformat() if record.date else "",
-                record.odometer_km or None,
+                record.odometer_km,
                 record.notes or "",
             ]
         )
@@ -489,7 +858,9 @@ async def export_odometer_records_csv(
     )
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_odometer_records_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = (
+        f"{export_basename(vehicle)}_odometer_records_{datetime.now().strftime('%Y%m%d')}.csv"
+    )
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -545,7 +916,7 @@ async def export_hours_records_csv(
     output = generate_csv_stream(headers, rows)
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_hours_records_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_hours_records_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -617,7 +988,7 @@ async def export_warranties_csv(
     )
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_warranties_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_warranties_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -684,6 +1055,7 @@ async def export_insurance_csv(
         "Premium",
         "Premium Frequency",
         "Deductible",
+        "No-Claims Class",
         "Coverage Limits",
         "Notes",
     ]
@@ -704,6 +1076,7 @@ async def export_insurance_csv(
                 f"{share:.2f}" if share is not None else "",
                 policy.premium_frequency or "",
                 f"{link.deductible:.2f}" if link.deductible is not None else "",
+                link.no_claims_class or "",
                 coverage_text(link.coverages),
                 link.notes or "",
             ]
@@ -712,7 +1085,7 @@ async def export_insurance_csv(
     output = generate_csv_stream(headers, rows)
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_insurance_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_insurance_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -754,7 +1127,7 @@ async def export_tax_records_csv(
             [
                 record.date.isoformat() if record.date else "",
                 record.tax_type or "",
-                f"{record.amount:.2f}" if record.amount else "",
+                _money_cell(record.amount),
                 record.renewal_date.isoformat() if record.renewal_date else "",
                 record.notes or "",
             ]
@@ -763,7 +1136,7 @@ async def export_tax_records_csv(
     output = generate_csv_stream(headers, rows)
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_tax_records_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_tax_records_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -808,7 +1181,7 @@ async def export_notes_csv(
     output = generate_csv_stream(headers, rows)
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_notes_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = f"{export_basename(vehicle)}_notes_{datetime.now().strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -895,20 +1268,22 @@ async def export_supplies_csv(
     )
 
 
-async def build_vehicle_export(db: AsyncSession, vehicle: Vehicle) -> dict[str, Any]:
+async def build_vehicle_export(
+    db: AsyncSession, vehicle: Vehicle, current_user: User | None
+) -> dict[str, Any]:
     """The vehicle and its records as the JSON export holds them.
 
     Shared by the download route and the backup an import takes before it
-    writes, so the two can never drift apart. Access is the caller's to check.
+    writes, so the two can never drift apart. Access is the caller's to check;
+    `current_user` only narrows which other vehicles a supply's uses may name.
     """
     vin = vehicle.vin
-    # Get all related records. service_visit_cost_load_options: this route
-    # only reads calculated_total_cost (needs cost_snapshot), never a usage's
-    # Supply row.
+    # Get all related records. A visit carries its line items, what each used
+    # and its vendor name.
     service_result = await db.execute(
         select(ServiceVisit)
         .where(ServiceVisit.vin == vin)
-        .options(*service_visit_cost_load_options())
+        .options(*_SERVICE_VISIT_JSON_LOADS)
         .order_by(ServiceVisit.date.desc())
     )
     service_visits = service_result.scalars().all()
@@ -917,6 +1292,8 @@ async def build_vehicle_export(db: AsyncSession, vehicle: Vehicle) -> dict[str, 
         select(FuelRecord).where(FuelRecord.vin == vin).order_by(FuelRecord.date.desc())
     )
     fuel_records = fuel_result.scalars().all()
+    station_names = await resolve_station_names(db, list(fuel_records))
+    driver_usernames = await _driver_usernames(db, fuel_records)
 
     odometer_result = await db.execute(
         select(OdometerRecord)
@@ -946,95 +1323,259 @@ async def build_vehicle_export(db: AsyncSession, vehicle: Vehicle) -> dict[str, 
     )
     def_records = def_result.scalars().all()
 
+    financing_result = await db.execute(
+        select(FinancingRecord)
+        .where(FinancingRecord.vin == vin)
+        .options(selectinload(FinancingRecord.vendor))
+        .order_by(FinancingRecord.date.desc(), FinancingRecord.id)
+    )
+    financing = financing_result.scalars().all()
+
+    tax_result = await db.execute(
+        select(TaxRecord).where(TaxRecord.vin == vin).order_by(TaxRecord.date.desc(), TaxRecord.id)
+    )
+    taxes = tax_result.scalars().all()
+
+    toll_tag_result = await db.execute(
+        select(TollTag).where(TollTag.vin == vin).order_by(TollTag.id)
+    )
+    toll_tags = toll_tag_result.scalars().all()
+
+    recalls = (
+        (await db.execute(select(Recall).where(Recall.vin == vin).order_by(Recall.id)))
+        .scalars()
+        .all()
+    )
+
+    dtcs = (
+        (await db.execute(select(VehicleDTC).where(VehicleDTC.vin == vin).order_by(VehicleDTC.id)))
+        .scalars()
+        .all()
+    )
+
+    toll_result = await db.execute(
+        select(TollTransaction)
+        .where(TollTransaction.vin == vin)
+        .order_by(TollTransaction.date.desc(), TollTransaction.id)
+    )
+    toll_transactions = toll_result.scalars().all()
+
+    warranty_result = await db.execute(
+        select(WarrantyRecord)
+        .where(WarrantyRecord.vin == vin)
+        .order_by(WarrantyRecord.start_date.desc(), WarrantyRecord.id)
+    )
+    warranties = warranty_result.scalars().all()
+
+    rental_result = await db.execute(
+        select(SpotRental)
+        .where(SpotRental.vin == vin)
+        .options(selectinload(SpotRental.billings))
+        .order_by(SpotRental.check_in_date.desc(), SpotRental.id)
+    )
+    spot_rentals = rental_result.scalars().all()
+
+    rules = (
+        (
+            await db.execute(
+                select(MaintenanceRule)
+                .where(MaintenanceRule.vin == vin)
+                .order_by(MaintenanceRule.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Every status travels under its rule: a done one is what the next counts from (K1).
+    rule_reminders: dict[int, list[Reminder]] = {}
+    for reminder in (
+        (
+            await db.execute(
+                select(Reminder)
+                .where(Reminder.vin == vin, Reminder.rule_id.isnot(None))
+                .order_by(Reminder.id)
+            )
+        )
+        .scalars()
+        .all()
+    ):
+        # The query filters NULL out.
+        rule_reminders.setdefault(cast(int, reminder.rule_id), []).append(reminder)
+    # The live work behind each done reminder, as `_latest_completion` reads it.
+    completed_ids = {
+        r.completed_line_item_id
+        for reminders in rule_reminders.values()
+        for r in reminders
+        if r.status == "done" and r.completed_line_item_id is not None
+    }
+    completed_work = {
+        item.id: (item, visit)
+        for item, visit in (
+            await db.execute(
+                select(ServiceLineItem, ServiceVisit)
+                .join(ServiceVisit, ServiceLineItem.visit_id == ServiceVisit.id)
+                .where(ServiceLineItem.id.in_(completed_ids), ServiceVisit.vin == vin)
+            )
+        ).all()
+    }
+
+    # The reminders a person made, every status. Sync-owned ones stay home (J1).
+    manual_reminders = (
+        (
+            await db.execute(
+                select(Reminder)
+                .where(Reminder.vin == vin, Reminder.rule_id.is_(None), Reminder.source.is_(None))
+                .order_by(Reminder.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    tire_set_result = await db.execute(
+        select(TireSet).where(TireSet.vin == vin).order_by(TireSet.id)
+    )
+    tire_sets = tire_set_result.scalars().all()
+
+    tire_result = await db.execute(
+        select(Tire)
+        .where(Tire.vin == vin)
+        .options(selectinload(Tire.mount_periods), selectinload(Tire.readings))
+        .order_by(Tire.id)
+    )
+    tires = tire_result.scalars().all()
+    # A tire names its set by the set's place in `tire_sets` (R6).
+    set_index = {tire_set.id: index for index, tire_set in enumerate(tire_sets)}
+
+    brake_axles = (
+        (await db.execute(select(BrakeAxle).where(BrakeAxle.vin == vin).order_by(BrakeAxle.id)))
+        .scalars()
+        .all()
+    )
+    brake_jobs = (
+        (await db.execute(select(BrakeJob).where(BrakeJob.vin == vin).order_by(BrakeJob.id)))
+        .scalars()
+        .all()
+    )
+    brake_measurements = (
+        (
+            await db.execute(
+                select(BrakeMeasurement)
+                .where(BrakeMeasurement.vin == vin)
+                .order_by(BrakeMeasurement.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # A measurement names the job that wrote it by the job's place in
+    # `brake_jobs` (R6). The reminder marks stay home: they key on measurement
+    # ids, which a restore doesn't keep (N-5).
+    job_index = {job.id: index for index, job in enumerate(brake_jobs)}
+    # A transaction names its tag by the tag's place in `toll_tags` (R6).
+    tag_index = {tag.id: index for index, tag in enumerate(toll_tags)}
+
+    pinned_supplies = (
+        (
+            await db.execute(
+                select(Supply)
+                .where(Supply.vehicle_links.any(SupplyVehicle.vin == vin))
+                .options(
+                    selectinload(Supply.purchases),
+                    selectinload(Supply.usages)
+                    .selectinload(SupplyUsage.line_item)
+                    .selectinload(ServiceLineItem.visit)
+                    .selectinload(ServiceVisit.line_items),
+                )
+                .order_by(Supply.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # A line item names a pinned supply by its place in `supplies`.
+    supply_index = {supply.id: index for index, supply in enumerate(pinned_supplies)}
+    # The other vehicles a pinned supply was used on, narrowed to the ones this
+    # user can read, by the same rule as get_vehicle_or_403.
+    other_vins = {
+        u.line_item.visit.vin
+        for s in pinned_supplies
+        for u in s.usages
+        if u.line_item is not None and u.line_item.visit.vin != vin
+    } | {
+        # And the ones whose pinned supply this vehicle's visits used.
+        other
+        for v in service_visits
+        for i in v.line_items
+        for u in i.supply_usages
+        if not u.supply.usable_on(vin)
+        for other in u.supply.vins
+    }
+    scope = visible_vehicles_filter(current_user)
+    readable_vins: set[str] = (
+        set(
+            (
+                await db.execute(
+                    select(Vehicle.vin).where(
+                        Vehicle.vin.in_(other_vins), *([scope] if scope is not None else [])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if other_vins
+        else set()
+    )
+    supplier_ids = {
+        p.supplier_id for s in pinned_supplies for p in s.purchases if p.supplier_id is not None
+    }
+    supplier_names: dict[int, str] = (
+        {
+            entry_id: name
+            for entry_id, name in (
+                await db.execute(
+                    select(AddressBookEntry.id, AddressBookEntry.business_name).where(
+                        AddressBookEntry.id.in_(supplier_ids)
+                    )
+                )
+            ).all()
+        }
+        if supplier_ids
+        else {}
+    )
+
     # Build export data
     export_data = {
         "export_version": JSON_SCHEMA_VERSION,
         "units": EXPORT_UNITS,
         "export_date": datetime.now().isoformat(),
-        "vehicle": {
-            "vin": vehicle.vin,
-            "year": vehicle.year,
-            "make": vehicle.make,
-            "model": vehicle.model,
-            "trim": vehicle.trim,
-            "color": vehicle.color,
-            "license_plate": vehicle.license_plate,
-            "purchase_date": vehicle.purchase_date.isoformat() if vehicle.purchase_date else None,
-            "purchase_price": float(vehicle.purchase_price) if vehicle.purchase_price else None,
-        },
-        # Keep "service_records" key for backward-compatible JSON re-import
-        "service_records": [
+        # Read-only on import: the backup restores into a vehicle that exists (J4).
+        "vehicle": _json_columns(vehicle, _VEHICLE_JSON_EXCLUDE),
+        "service_visits": [
             {
-                "date": v.date.isoformat() if v.date else None,
-                "service_category": v.service_category,
-                "service_type": v.line_items[0].description if v.line_items else None,
-                "odometer_km": float(v.odometer_km) if v.odometer_km is not None else None,
-                "cost": float(v.calculated_total_cost) if v.calculated_total_cost else None,
+                **_json_columns(v, _SERVICE_VISIT_JSON_EXCLUDE),
                 "vendor_name": v.vendor.name if v.vendor else None,
-                "notes": v.notes,
+                "line_items": _line_items_json(v, supply_index, readable_vins),
             }
             for v in service_visits
         ],
+        # The station and driver ids go with their names, so a restore keeps a
+        # link only where this instance has the same entry or user (R6).
         "fuel_records": [
             {
-                "date": r.date.isoformat() if r.date else None,
-                "odometer_km": float(r.odometer_km) if r.odometer_km is not None else None,
-                "liters": float(r.liters) if r.liters else None,
-                "price_per_unit": float(r.price_per_unit) if r.price_per_unit else None,
-                # Round-trips so a restored backup still knows what the price is
-                # measured against; without it the import had to guess (#128).
-                "price_basis": r.price_basis,
-                "rebate": float(r.rebate) if r.rebate else None,
-                "cost": float(r.cost) if r.cost else None,
-                "is_full_tank": r.is_full_tank,
-                "missed_fillup": r.missed_fillup,
-                "is_hauling": r.is_hauling,
-                "fuel_type_used": r.fuel_type_used,
-                "octane": r.octane,
-                "diesel_grade": r.diesel_grade,
-                "notes": r.notes,
+                **_json_columns(r, _FUEL_JSON_EXCLUDE),
+                "station_name": station_names.get(r.id),
+                "driver_username": driver_usernames.get(r.driver_user_id)
+                if r.driver_user_id
+                else None,
             }
             for r in fuel_records
         ],
-        "def_records": [
-            {
-                "date": r.date.isoformat() if r.date else None,
-                "odometer_km": float(r.odometer_km) if r.odometer_km is not None else None,
-                "liters": float(r.liters) if r.liters else None,
-                "price_per_unit": float(r.price_per_unit) if r.price_per_unit else None,
-                "cost": float(r.cost) if r.cost else None,
-                "fill_level": float(r.fill_level) if r.fill_level else None,
-                "source": r.source,
-                "brand": r.brand,
-                "notes": r.notes,
-            }
-            for r in def_records
-        ],
-        "odometer_records": [
-            {
-                "date": r.date.isoformat() if r.date else None,
-                "reading": float(r.odometer_km) if r.odometer_km is not None else None,
-                "notes": r.notes,
-            }
-            for r in odometer_records
-        ],
-        "hours_records": [
-            {
-                "date": r.date.isoformat() if r.date else None,
-                "engine_hours": float(r.engine_hours) if r.engine_hours is not None else None,
-                "notes": r.notes,
-                "source": r.source,
-            }
-            for r in hours_records
-        ],
-        "notes": [
-            {
-                "date": n.date.isoformat() if n.date else None,
-                "title": n.title,
-                "content": n.content,
-            }
-            for n in notes
-        ],
+        "def_records": [_json_columns(r, _DEF_JSON_EXCLUDE) for r in def_records],
+        "odometer_records": [_json_columns(r, _ODOMETER_JSON_EXCLUDE) for r in odometer_records],
+        "hours_records": [_json_columns(r, _HOURS_JSON_EXCLUDE) for r in hours_records],
+        "notes": [_json_columns(n, _NOTE_JSON_EXCLUDE) for n in notes],
         # This vehicle's place on each household policy. `premium_share` is the
         # EFFECTIVE share, so a restore reproduces what this vehicle cost even
         # when the other vehicles on the policy are not part of the backup.
@@ -1050,6 +1591,7 @@ async def build_vehicle_export(db: AsyncSession, vehicle: Vehicle) -> dict[str, 
                 "policy_type": link.policy_type,
                 "premium_share": _insurance_share(link),
                 "deductible": float(link.deductible) if link.deductible is not None else None,
+                "no_claims_class": link.no_claims_class,
                 "coverages": [
                     {
                         "coverage_key": c.coverage_key,
@@ -1072,6 +1614,58 @@ async def build_vehicle_export(db: AsyncSession, vehicle: Vehicle) -> dict[str, 
             }
             for link in insurance_links
         ],
+        "financing_records": [
+            {
+                **_json_columns(f, _FINANCING_JSON_EXCLUDE),
+                "vendor_name": f.vendor.name if f.vendor else None,
+            }
+            for f in financing
+        ],
+        "tax_records": [_json_columns(t, _TAX_JSON_EXCLUDE) for t in taxes],
+        "toll_tags": [_json_columns(t, _TOLL_TAG_JSON_EXCLUDE) for t in toll_tags],
+        "toll_transactions": [
+            {
+                **_json_columns(t, _TOLL_TRANSACTION_JSON_EXCLUDE),
+                "toll_tag_index": tag_index.get(t.toll_tag_id),
+            }
+            for t in toll_transactions
+        ],
+        "warranties": [_json_columns(w, _WARRANTY_JSON_EXCLUDE) for w in warranties],
+        # A rental carries its bills; a bill's rental is the one it's under (R6).
+        "spot_rentals": [
+            {
+                **_json_columns(r, _SPOT_RENTAL_JSON_EXCLUDE),
+                "billings": [_json_columns(b, _BILLING_JSON_EXCLUDE) for b in r.billings],
+            }
+            for r in spot_rentals
+        ],
+        "supplies": [_supply_json(s, vin, supplier_names, readable_vins) for s in pinned_supplies],
+        "maintenance_rules": [
+            {
+                **_json_columns(rule, _RULE_JSON_EXCLUDE),
+                "reminders": [
+                    _rule_reminder_json(r, rule, completed_work)
+                    for r in rule_reminders.get(rule.id, [])
+                ],
+            }
+            for rule in rules
+        ],
+        "manual_reminders": [_json_columns(r, _REMINDER_JSON_EXCLUDE) for r in manual_reminders],
+        "recalls": [_json_columns(r, _RECALL_JSON_EXCLUDE) for r in recalls],
+        "dtcs": [_json_columns(d, _DTC_JSON_EXCLUDE) for d in dtcs],
+        "tire_sets": [_json_columns(s, _TIRE_SET_JSON_EXCLUDE) for s in tire_sets],
+        "tires": [_tire_json(t, set_index) for t in tires],
+        "brake_axles": [_json_columns(a, _BRAKE_AXLE_JSON_EXCLUDE) for a in brake_axles],
+        "brake_jobs": [_json_columns(j, _BRAKE_JOB_JSON_EXCLUDE) for j in brake_jobs],
+        "brake_measurements": [
+            {
+                **_json_columns(m, _BRAKE_MEASUREMENT_JSON_EXCLUDE),
+                "brake_job_index": job_index.get(m.brake_job_id)
+                if m.brake_job_id is not None
+                else None,
+            }
+            for m in brake_measurements
+        ],
     }
     return export_data
 
@@ -1088,10 +1682,10 @@ async def export_vehicle_json(
     # Verify vehicle exists and user has access
     vehicle = await get_vehicle_or_403(vin, current_user, db)
 
-    export_data = await build_vehicle_export(db, vehicle)
+    export_data = await build_vehicle_export(db, vehicle, current_user)
 
     # Generate filename
-    filename = f"{vehicle.year}_{vehicle.make}_{vehicle.model}_complete_data_{datetime.now().strftime('%Y%m%d')}.json"
+    filename = f"{export_basename(vehicle)}_complete_data_{datetime.now().strftime('%Y%m%d')}.json"
 
     # Convert to JSON string
     json_str = json.dumps(export_data, indent=2)

@@ -14,7 +14,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -23,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
 
 if TYPE_CHECKING:
     from app.models.planned_repair import PlannedRepair
@@ -41,10 +41,10 @@ class VehicleInspection(Base):
         String(17), ForeignKey("vehicles.vin", ondelete="CASCADE"), nullable=False
     )
     date: Mapped[dt.date] = mapped_column(Date, nullable=False)
-    odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    odometer_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2))
     inspector: Mapped[str | None] = mapped_column(String(100))
-    tire_pressure_front_kpa: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
-    tire_pressure_rear_kpa: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    tire_pressure_front_kpa: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 1))
+    tire_pressure_rear_kpa: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 1))
     notes_interior: Mapped[str | None] = mapped_column(Text)
     notes_under_hood: Mapped[str | None] = mapped_column(Text)
     notes_under_vehicle: Mapped[str | None] = mapped_column(Text)
@@ -123,9 +123,9 @@ class VehicleInspectionCorner(Base):
     )
     position: Mapped[str] = mapped_column(String(2), nullable=False)
     tread_status: Mapped[str] = mapped_column(String(15), nullable=False, default="not_inspected")
-    tread_depth_mm: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))
+    tread_depth_mm: Mapped[Decimal | None] = mapped_column(ScaledNumeric(4, 1))
     brake_status: Mapped[str] = mapped_column(String(15), nullable=False, default="not_inspected")
-    brake_pad_mm: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))
+    brake_pad_mm: Mapped[Decimal | None] = mapped_column(ScaledNumeric(4, 1))
     #: Planned repairs created from a red tire or brake pad on this wheel.
     tread_repair_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("planned_repairs.id", ondelete="SET NULL")

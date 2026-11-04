@@ -1,17 +1,34 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Info, FileText, Gauge, Shield, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import FormModalWrapper from '../FormModalWrapper'
-import { Button, Field, Input, Textarea } from '../ui'
+import { Button, Field, Input, NumberInput, Select, Textarea } from '../ui'
 import vehicleService from '../../services/vehicleService'
+import { countryOptions } from '../../constants/countries'
+import { useDateLocale } from '../../hooks/useDateLocale'
 import { str, emptyToNull } from '../../utils/formUtils'
 import type { Vehicle, VehicleUpdate } from '../../types/vehicle'
+import { getActiveLocale } from '../../constants/i18n'
+import { parseDecimalInput } from '../../utils/decimalInput'
+import { INVALID_NUMBER } from '../../schemas/shared'
+import { makeVehicleWholeNumberFields } from '../../schemas/vehicle'
+import { parseApiError } from '../../utils/httpErrorHandler'
+import { IDENTIFIER_TYPES, identifierTypeLabel, isSyntheticKey } from '../../utils/vehicleIdentifier'
 
 /** The four Overview info cards that open this shared editor sidecar. */
 export type VehicleCardKey = 'basic' | 'details' | 'powertrain' | 'warranty'
 
-type FieldKind = 'text' | 'number' | 'multiline'
+type FieldKind = 'text' | 'number' | 'multiline' | 'date' | 'country' | 'identifierType' | 'identifier'
+
+/** A key shaped like a VIN: the only kind that can switch (back) to type `vin` (#226). */
+const VIN_SHAPE = /^[A-HJ-NPR-Z0-9]{17}$/
+
+/** Identifier types that carry no identifier value of their own. */
+const NO_IDENTIFIER_VALUE = ['vin', 'none']
+
+/** The number fields here, each checked by the edit form's own rule. */
+type WholeNumberKey = keyof ReturnType<typeof makeVehicleWholeNumberFields>
 
 interface FieldSpec {
   /** Vehicle column — present on both the update and response schemas. */
@@ -22,8 +39,6 @@ interface FieldSpec {
   /** Seed fallback order (first non-empty wins). Defaults to `[key]`. Used so
    *  "Exterior color" seeds from the sticker field, then the legacy `color`. */
   seedKeys?: (keyof Vehicle)[]
-  min?: string
-  max?: string
 }
 
 interface CardConfig {
@@ -40,10 +55,15 @@ function getCardConfig(card: VehicleCardKey): CardConfig {
         titleKey: 'detail.basicInformation',
         icon: Info,
         fields: [
-          { key: 'year', label: 'edit.year', kind: 'number', min: '1900', max: '2100' },
+          // What identifies it (#226). The key never changes; only the label does.
+          { key: 'identifier_type', label: 'identifier.typeLabel', kind: 'identifierType' },
+          { key: 'identifier', label: 'identifier.valueLabel', kind: 'identifier' },
+          { key: 'year', label: 'edit.year', kind: 'number' },
           { key: 'make', label: 'edit.make', kind: 'text' },
           { key: 'model', label: 'edit.model', kind: 'text' },
           { key: 'license_plate', label: 'edit.licensePlate', kind: 'text' },
+          { key: 'registration_country', label: 'edit.registrationCountry', kind: 'country' },
+          { key: 'first_registration_date', label: 'edit.firstRegistrationDate', kind: 'date' },
           {
             key: 'exterior_color',
             label: 'detail.misc.exteriorColor',
@@ -66,6 +86,14 @@ function getCardConfig(card: VehicleCardKey): CardConfig {
           { key: 'gvwr_class', label: 'detail.misc.gvwrClass', kind: 'text' },
           { key: 'wheel_specs', label: 'detail.misc.wheels', kind: 'text' },
           { key: 'tire_specs', label: 'detail.misc.tires', kind: 'text' },
+          // #211 — the other fields of an EU registration certificate.
+          { key: 'euro_emission_class', label: 'edit.euroClass', kind: 'text' },
+          { key: 'fiscal_power', label: 'edit.fiscalPower', kind: 'number' },
+          { key: 'co2_g_km', label: 'edit.co2', kind: 'number' },
+          { key: 'power_kw', label: 'edit.powerKw', kind: 'number' },
+          { key: 'eu_category', label: 'edit.euCategory', kind: 'text' },
+          { key: 'national_category', label: 'edit.nationalCategory', kind: 'text' },
+          { key: 'lez_class', label: 'edit.lezClass', kind: 'text' },
         ],
       }
     case 'powertrain':
@@ -111,7 +139,7 @@ function seedForm(config: CardConfig, v: Vehicle): Record<string, string> {
         break
       }
     }
-    out[f.key] = value
+    out[f.key] = f.kind === 'identifierType' ? value || 'vin' : value
   }
   return out
 }
@@ -151,8 +179,15 @@ export default function VehicleFieldsDrawer({
   onUpdated,
 }: VehicleFieldsDrawerProps) {
   const { t } = useTranslation('vehicles')
+  const locale = useDateLocale()
+  const countryChoices = useMemo(
+    () => [{ value: '', label: t('edit.registrationCountryNone') }, ...countryOptions(locale)],
+    [locale, t]
+  )
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const wholeNumbers = useMemo(() => makeVehicleWholeNumberFields(t), [t])
   // Snapshot of the seeded values, so save can send only the fields the user
   // actually changed (a true partial PUT). Load-bearing for the exterior-color
   // duality: `exterior_color` seeds from the legacy `color`, so an untouched
@@ -162,6 +197,21 @@ export default function VehicleFieldsDrawer({
   const initialRef = useRef<Record<string, string>>({})
 
   const config = card ? getCardConfig(card) : null
+  // A generated key (or anything not shaped like a VIN) can't become a VIN:
+  // that would rewrite the key under every table. The server refuses it too.
+  const canBeVin = !isSyntheticKey(vehicle.vin) && VIN_SHAPE.test(vehicle.vin)
+  const identifierChoices = useMemo(
+    () =>
+      IDENTIFIER_TYPES.map((kind) => ({
+        value: kind,
+        label: identifierTypeLabel(kind, t),
+        disabled: kind === 'vin' && !canBeVin,
+      })),
+    [t, canBeVin],
+  )
+  const identifierType = form.identifier_type ?? 'vin'
+  const showsField = (f: FieldSpec): boolean =>
+    f.kind !== 'identifier' || !NO_IDENTIFIER_VALUE.includes(identifierType)
 
   useEffect(() => {
     // Reseed from the vehicle each time the drawer opens on a card. Save closes
@@ -169,6 +219,7 @@ export default function VehicleFieldsDrawer({
     if (open && config) {
       const seeded = seedForm(config, vehicle)
       setForm(seeded)
+      setErrors({})
       initialRef.current = seeded
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,12 +235,34 @@ export default function VehicleFieldsDrawer({
     // Dirty-diff: only changed fields go in the payload; unchanged ones are
     // omitted and left untouched server-side (exclude_unset).
     const payload: Record<string, string | number | null> = {}
+    const found: Record<string, string> = {}
     for (const f of config.fields) {
       const current = form[f.key] ?? ''
+      // VIN and "none" carry no identifier: the server clears it itself.
+      if (!showsField(f)) continue
+      if (f.kind === 'identifier' && current.trim() === '') {
+        // Required whenever it's shown, changed or not (a type switch needs one).
+        found[f.key] = t('identifier.required')
+        continue
+      }
       if (current === (initialRef.current[f.key] ?? '')) continue
-      const raw = current.trim()
-      payload[f.key] = f.kind === 'number' ? (raw === '' ? null : Number(raw)) : emptyToNull(current)
+      if (f.kind === 'identifier') {
+        payload[f.key] = current.trim()
+        continue
+      }
+      if (f.kind !== 'number') {
+        payload[f.key] = emptyToNull(current)
+        continue
+      }
+      // Read in the user's language, then the edit form's own year/doors/cylinders rule.
+      const parsed = parseDecimalInput(current, getActiveLocale())
+      const typed = parsed.kind === 'value' ? parsed.value : parsed.kind === 'invalid' ? INVALID_NUMBER : null
+      const checked = wholeNumbers[f.key as WholeNumberKey].safeParse(typed)
+      if (checked.success) payload[f.key] = checked.data ?? null
+      else found[f.key] = checked.error.issues[0]?.message ?? ''
     }
+    setErrors(found)
+    if (Object.keys(found).length > 0) return
     // This field IS the overview's colour (`exterior_color || color`), so a
     // clear has to take the legacy `color` with it or that comes straight back.
     // The sticker review doesn't do this: there a clear means the OCR was wrong.
@@ -205,8 +278,10 @@ export default function VehicleFieldsDrawer({
       const updated = await vehicleService.update(vin, payload as VehicleUpdate)
       onUpdated(updated)
       onClose()
-    } catch {
-      toast.error(t('detail.cardEdit.saveError'))
+    } catch (err) {
+      // A refused identifier change says why (a Q-keyed vehicle can't take a VIN).
+      const parsed = parseApiError(err)
+      toast.error(parsed.status === 422 && parsed.detail ? parsed.detail : t('detail.cardEdit.saveError'))
     } finally {
       setSaving(false)
     }
@@ -227,23 +302,33 @@ export default function VehicleFieldsDrawer({
     >
       {config && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {config.fields.map((f) => {
+          {config.fields.filter(showsField).map((f) => {
             const id = `vfd_${f.key}`
             const value = form[f.key] ?? ''
+            const hint = f.kind === 'identifierType' && !canBeVin ? t('identifier.cannotAddVin') : undefined
             return (
               <div key={f.key} className={f.kind === 'multiline' ? 'sm:col-span-2' : ''}>
-                <Field id={id} label={t(f.label)}>
-                  {f.kind === 'multiline' ? (
-                    <Textarea id={id} rows={2} value={value} onChange={set(f.key)} />
-                  ) : (
+                <Field id={id} label={t(f.label)} error={errors[f.key]} hint={hint}>
+                  {f.kind === 'identifierType' ? (
+                    <Select id={id} value={value} onChange={set(f.key)} options={identifierChoices} />
+                  ) : f.kind === 'identifier' ? (
                     <Input
                       id={id}
-                      type={f.kind === 'number' ? 'number' : 'text'}
-                      min={f.min}
-                      max={f.max}
+                      type="text"
+                      maxLength={64}
                       value={value}
                       onChange={set(f.key)}
+                      placeholder={t('identifier.valuePlaceholder')}
+                      invalid={!!errors[f.key]}
                     />
+                  ) : f.kind === 'multiline' ? (
+                    <Textarea id={id} rows={2} value={value} onChange={set(f.key)} />
+                  ) : f.kind === 'number' ? (
+                    <NumberInput id={id} value={value} onChange={set(f.key)} invalid={!!errors[f.key]} />
+                  ) : f.kind === 'country' ? (
+                    <Select id={id} value={value} onChange={set(f.key)} options={countryChoices} />
+                  ) : (
+                    <Input id={id} type={f.kind === 'date' ? 'date' : 'text'} value={value} onChange={set(f.key)} />
                   )}
                 </Field>
               </div>

@@ -36,15 +36,6 @@ def _unique_repairs() -> tuple[str, str]:
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_import_rate_limit():
-    from app.routes.import_data import limiter
-
-    storage = limiter._storage
-    storage.storage.clear()
-    storage.expirations.clear()
-
-
 def _url(vin: str) -> str:
     return f"/api/import/vehicles/{vin}/lubelogger"
 

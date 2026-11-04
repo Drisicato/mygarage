@@ -23,7 +23,6 @@ from app.models import (
     FuelRecord,
     InsurancePolicy,
     OdometerRecord,
-    Recall,
     ServiceVisit,
     User,
     Vehicle,
@@ -46,16 +45,15 @@ from app.utils.household_time import (
     load_household_zone,
 )
 from app.utils.logging_utils import sanitize_for_log
+from app.utils.notification_cooldown import in_cooldown
 from app.utils.render_context import render_context_for_vehicle, render_context_for_vehicle_row
 from app.utils.unit_adapters import adapter_for
 from app.utils.usage_tracking import tracks_distance
+from app.utils.vehicle_key import identifier_text
 
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
-
-# Notification dedup cooldown (24 hours)
-NOTIFICATION_COOLDOWN = timedelta(hours=24)
 
 
 async def _get_setting(db: AsyncSession, key: str, default: str = "") -> str:
@@ -67,7 +65,7 @@ async def _get_setting(db: AsyncSession, key: str, default: str = "") -> str:
 async def reset_daily_limits() -> None:
     """Reset daily API limits for providers (TomTom, Yelp).
 
-    Runs daily at midnight UTC.
+    Runs daily at midnight.
     """
     async with AsyncSessionLocal() as db:
         await load_household_zone(db)
@@ -82,7 +80,7 @@ async def reset_daily_limits() -> None:
 async def reset_monthly_limits() -> None:
     """Reset monthly API limits for providers (Google Places, Foursquare).
 
-    Runs on the 1st of each month at midnight UTC.
+    Runs on the 1st of each month at midnight.
     """
     async with AsyncSessionLocal() as db:
         await load_household_zone(db)
@@ -97,8 +95,8 @@ async def reset_monthly_limits() -> None:
 async def check_expiring_documents() -> None:
     """Check for expiring insurance and warranties and send notifications.
 
-    Runs daily at 9 AM UTC. Reads notify_insurance_days and notify_warranty_days
-    settings. Uses 24-hour cooldown to prevent duplicate notifications.
+    Runs daily at 9 AM. Reads notify_insurance_days and notify_warranty_days
+    settings. `in_cooldown` keeps it to one notification a day.
     """
     async with AsyncSessionLocal() as db:
         await load_household_zone(db)
@@ -143,10 +141,7 @@ async def check_expiring_documents() -> None:
             for policy in insurance_result.scalars().unique().all():
                 if policy.id in renewed:
                     continue
-                if (
-                    policy.last_notified_at
-                    and (now - policy.last_notified_at) < NOTIFICATION_COOLDOWN
-                ):
+                if in_cooldown(policy.last_notified_at, now):
                     continue
 
                 covered = [vehicles_dict.get(link.vin) for link in policy.vehicle_links]
@@ -182,10 +177,7 @@ async def check_expiring_documents() -> None:
             )
             for warranty in warranty_result.scalars().all():
                 # Dedup check
-                if (
-                    warranty.last_notified_at
-                    and (now - warranty.last_notified_at) < NOTIFICATION_COOLDOWN
-                ):
+                if in_cooldown(warranty.last_notified_at, now):
                     continue
 
                 if not warranty.end_date:
@@ -195,7 +187,7 @@ async def check_expiring_documents() -> None:
                 vehicle_name = (
                     vehicle.nickname or f"{vehicle.year} {vehicle.make} {vehicle.model}"
                     if vehicle
-                    else warranty.vin
+                    else "a vehicle"
                 )
                 days_until = (warranty.end_date - today).days
 
@@ -217,7 +209,7 @@ async def check_expiring_documents() -> None:
 async def check_odometer_milestones() -> None:
     """Check for odometer milestones and send notifications.
 
-    Runs daily at 10 AM UTC. Skips a vehicle with no odometer (#217). Checks
+    Runs daily at 10 AM. Skips a vehicle with no odometer (#217). Checks
     each vehicle's latest odometer_km against milestone boundaries: every
     10,000 of the distance unit the vehicle renders in (its own odometer unit,
     else its owner's, else the instance default; #172). Uses
@@ -340,7 +332,7 @@ async def _get_def_low_threshold_percent(db: AsyncSession) -> int:
 async def check_def_levels() -> None:
     """Check DEF (Diesel Exhaust Fluid) levels and send low-level notifications.
 
-    Runs daily at 11 AM UTC. For each non-archived, diesel-capable vehicle
+    Runs daily at 11 AM. For each non-archived, diesel-capable vehicle
     with a configured DEF tank capacity, reads the latest fill_level (a 0-1
     fraction) and compares it against notify_def_low_threshold_percent.
 
@@ -404,7 +396,9 @@ async def check_def_levels() -> None:
                             ctx = await render_context_for_vehicle(db, vehicle.vin)
                             dispatch_results = await dispatcher.notify_def_low(
                                 vehicle_name=vehicle_name,
-                                vin=vehicle.vin,
+                                # The VIN, or the serial a tractor has instead;
+                                # never a generated key (#226).
+                                identifier=identifier_text(vehicle),
                                 percent=percent,
                                 remaining_liters=remaining_liters,
                                 as_of_date=record_date,
@@ -478,30 +472,34 @@ async def _recall_check_interval_days(db: AsyncSession) -> int:
     return days
 
 
-async def _recall_check_due(db: AsyncSession, now: datetime) -> bool:
-    """Whether the scheduled recall check should query NHTSA at `now`.
+async def _recall_check_due(db: AsyncSession, now: datetime, stamp_key: str) -> bool:
+    """Whether the recall source whose last check is `stamp_key` is due at `now`.
 
-    Due when nhtsa_last_check is blank, doesn't parse as an ISO timestamp
+    Each source keeps its own stamp (`nhtsa_last_check`,
+    `rappelconso_last_check`), so one source's outage keeps only that source
+    due. Due when the stamp is blank, doesn't parse as an ISO timestamp
     (naive is read as UTC), falls outside the calendar once converted to UTC
     (an aware stamp at year 1 or 9999), lies more than RECALL_CHECK_SLACK
     after `now` (a wrong clock at one run, or a restored backup), or is at
     least the interval, less RECALL_CHECK_SLACK, before `now`.
     """
-    raw = (await _get_setting(db, "nhtsa_last_check")).strip()
+    raw = (await _get_setting(db, stamp_key)).strip()
     if not raw:
         return True
     try:
         last = to_naive_utc(datetime.fromisoformat(raw))
     except ValueError, OverflowError:
         logger.warning(
-            "nhtsa_last_check %s is not a usable timestamp; checking recalls now",
+            "%s %s is not a usable timestamp; checking recalls now",
+            stamp_key,
             sanitize_for_log(raw),
         )
         return True
     now = to_naive_utc(now)
     if last - now > RECALL_CHECK_SLACK:
         logger.warning(
-            "nhtsa_last_check %s is in the future; checking recalls now",
+            "%s %s is in the future; checking recalls now",
+            stamp_key,
             sanitize_for_log(raw),
         )
         return True
@@ -510,36 +508,73 @@ async def _recall_check_due(db: AsyncSession, now: datetime) -> bool:
 
 
 async def check_recalls_all_vehicles() -> None:
-    """Auto-check NHTSA recalls for all vehicles when the interval is due.
+    """Auto-check recalls for all vehicles, each source when its interval is due.
 
-    Runs daily at 2 AM UTC. Skips when nhtsa_enabled or nhtsa_auto_check is
-    off, or when nhtsa_recall_check_interval days (less an hour) haven't
-    passed since nhtsa_last_check. Otherwise queries NHTSA for each vehicle,
-    inserts new recalls, and sends notifications for newly discovered ones.
+    Runs daily at 2 AM UTC. A source is asked when it is switched on (NHTSA
+    needs nhtsa_enabled and nhtsa_auto_check, RappelConso its own switch) and
+    nhtsa_recall_check_interval days (less an hour) have passed since its OWN
+    last check (nhtsa_last_check, rappelconso_last_check). The pass skips when
+    no source is due. Otherwise it asks every due source that covers each
+    vehicle's country (NHTSA, RappelConso in France, #211), inserts new
+    recalls, and sends notifications for newly discovered ones.
+    nhtsa_auto_check is NHTSA's alone (F-4): with it off, RappelConso's
+    scheduled checks still run.
 
-    An NHTSA outage for any vehicle leaves nhtsa_last_check unchanged, so the
-    next daily run tries again; the recalls found meanwhile are committed
-    anyway, because they were already announced, and the campaign-number
-    check keeps the retry from storing or announcing them twice. A VIN NHTSA
-    can't resolve to a make, model and year counts as checked.
+    A source's outage for any vehicle leaves its own stamp unchanged, so the
+    next daily run asks that source again and not the other; the recalls
+    found meanwhile are committed anyway, because they were already
+    announced, and the (source, identifier) check keeps the retry from
+    storing or announcing them twice. A VIN NHTSA can't resolve to a make,
+    model and year counts as checked. A source that wasn't asked keeps its
+    stamp.
     """
-    from app.services.nhtsa import NHTSAService, NHTSAUnavailableError
+    from app.services.recall_service import sync_vehicle_recalls
+    from app.services.recalls.base import SOURCE_NHTSA, SOURCE_RAPPELCONSO
+    from app.services.recalls.rappelconso import (
+        ENABLED_SETTING as RAPPELCONSO_ENABLED_SETTING,
+    )
+    from app.services.recalls.rappelconso import (
+        LAST_CHECK_SETTING as RAPPELCONSO_LAST_CHECK_SETTING,
+    )
 
     async with AsyncSessionLocal() as db:
         await load_household_zone(db)
         try:
-            if not await SettingsService.get_bool(db, "nhtsa_enabled", True):
-                logger.info("NHTSA recalls switched off, skipping the scheduled check")
-                return
-            if not await SettingsService.get_bool(db, "nhtsa_auto_check", True):
-                logger.info("NHTSA auto-check disabled, skipping")
+            # nhtsa_enabled still keeps NHTSA from being asked: its provider
+            # checks it (`NHTSARecallProvider.enabled`). nhtsa_auto_check
+            # drops NHTSA from this scheduled pass only (F-4). The pass stops
+            # here only when RappelConso (#211) is off too, so a household
+            # that switched NHTSA off keeps its French recalls.
+            nhtsa_auto = await SettingsService.get_bool(db, "nhtsa_auto_check", True)
+            nhtsa_scheduled = nhtsa_auto and await SettingsService.get_bool(
+                db, "nhtsa_enabled", True
+            )
+            rappelconso_scheduled = await SettingsService.get_bool(
+                db, RAPPELCONSO_ENABLED_SETTING, True
+            )
+            if not nhtsa_scheduled and not rappelconso_scheduled:
+                logger.info("No recall source is checked on a schedule, skipping")
                 return
             now = utc_now()
-            if not await _recall_check_due(db, now):
-                logger.debug("NHTSA recall check not due yet, skipping")
+            # Each source on its own clock: a RappelConso outage keeps
+            # RappelConso due without asking NHTSA again early, and the
+            # other way round.
+            nhtsa_due = nhtsa_scheduled and await _recall_check_due(db, now, "nhtsa_last_check")
+            rappelconso_due = rappelconso_scheduled and await _recall_check_due(
+                db, now, RAPPELCONSO_LAST_CHECK_SETTING
+            )
+            if not nhtsa_due and not rappelconso_due:
+                logger.debug("No recall source is due yet, skipping")
                 return
+            skip = frozenset(
+                source
+                for source, due in (
+                    (SOURCE_NHTSA, nhtsa_due),
+                    (SOURCE_RAPPELCONSO, rappelconso_due),
+                )
+                if not due
+            )
 
-            nhtsa = NHTSAService()
             dispatcher = NotificationDispatcher(db)
 
             # Get all active vehicles
@@ -548,6 +583,7 @@ async def check_recalls_all_vehicles() -> None:
 
             total_new = 0
             outage = False
+            rappelconso_failed = False
 
             for vehicle in vehicles:
                 try:
@@ -555,40 +591,17 @@ async def check_recalls_all_vehicles() -> None:
                         vehicle.nickname or f"{vehicle.year} {vehicle.make} {vehicle.model}"
                     )
 
-                    # Fetch recalls from NHTSA
-                    recalls_data = await nhtsa.get_vehicle_recalls(
-                        vehicle.vin, db, raise_on_error=True
-                    )
-
-                    # Get existing campaign numbers for this vehicle
-                    existing_result = await db.execute(
-                        select(Recall.nhtsa_campaign_number).where(
-                            Recall.vin == vehicle.vin,
-                            Recall.nhtsa_campaign_number.isnot(None),
-                        )
-                    )
-                    existing_campaigns = {r[0] for r in existing_result.fetchall()}
-
-                    # Insert new recalls
-                    new_count = 0
-                    for recall_data in recalls_data:
-                        campaign_num = recall_data.get("nhtsa_campaign_number") or recall_data.get(
-                            "NHTSACampaignNumber"
-                        )
-                        if not campaign_num or campaign_num in existing_campaigns:
-                            continue
-
-                        recall = Recall(
-                            vin=vehicle.vin,
-                            nhtsa_campaign_number=campaign_num,
-                            component=recall_data.get("Component") or recall_data.get("component"),
-                            summary=recall_data.get("Summary") or recall_data.get("summary"),
-                            consequence=recall_data.get("Consequence")
-                            or recall_data.get("consequence"),
-                            remedy=recall_data.get("Remedy") or recall_data.get("remedy"),
-                        )
-                        db.add(recall)
-                        new_count += 1
+                    # Every source that covers the vehicle's country (#211):
+                    # NHTSA where no profile says otherwise, RappelConso in
+                    # France. Stores what is new and commits.
+                    outcome = await sync_vehicle_recalls(db, vehicle, skip=skip)
+                    new_count = outcome.new_count
+                    # A provider's failure is caught in the sync; an NHTSA
+                    # outage still holds nhtsa_last_check back.
+                    if outcome.nhtsa_unavailable:
+                        outage = True
+                    if SOURCE_RAPPELCONSO in outcome.failed:
+                        rappelconso_failed = True
 
                     if new_count > 0:
                         total_new += new_count
@@ -602,13 +615,6 @@ async def check_recalls_all_vehicles() -> None:
                             vehicle_name,
                         )
 
-                except NHTSAUnavailableError as e:
-                    outage = True
-                    logger.warning(
-                        "NHTSA unavailable checking recalls for %s: %s",
-                        vehicle.vin,
-                        str(e),
-                    )
                 except ValueError as e:
                     logger.warning(
                         "Recalls can't be checked for %s: %s",
@@ -629,14 +635,24 @@ async def check_recalls_all_vehicles() -> None:
                 await asyncio.sleep(2)
 
             # The commit always runs: recalls found this pass were announced
-            # already. Only the timestamp waits for a pass NHTSA fully answered.
-            if outage:
-                logger.warning(
-                    "NHTSA recall check incomplete; nhtsa_last_check unchanged, "
-                    "the next run retries"
-                )
-            else:
-                await SettingsService.set(db, "nhtsa_last_check", now.isoformat())
+            # already. Only a source's stamp waits for a pass it fully
+            # answered, and a source this pass didn't ask keeps its stamp.
+            if nhtsa_due:
+                if outage:
+                    logger.warning(
+                        "NHTSA recall check incomplete; nhtsa_last_check unchanged, "
+                        "the next run retries"
+                    )
+                else:
+                    await SettingsService.set(db, "nhtsa_last_check", now.isoformat())
+            if rappelconso_due:
+                if rappelconso_failed:
+                    logger.warning(
+                        "RappelConso recall check incomplete; %s unchanged, the next run retries",
+                        RAPPELCONSO_LAST_CHECK_SETTING,
+                    )
+                else:
+                    await SettingsService.set(db, RAPPELCONSO_LAST_CHECK_SETTING, now.isoformat())
             await db.commit()
 
             logger.info(
@@ -672,6 +688,21 @@ async def check_reminder_notifications() -> None:
         logger.info("Reminder notification check completed")
     except Exception as e:
         logger.error("Reminder notification check failed: %s", str(e))
+
+
+async def sync_inspection_schedules() -> None:
+    """Keep every vehicle's periodic inspection reminder in line with its
+    country profile (#211): what no write hook saw, once a day."""
+    logger.info("Running inspection schedule sync...")
+    try:
+        async with AsyncSessionLocal() as db:
+            await load_household_zone(db)
+            from app.services.inspection_schedule_service import sync_all
+
+            counts = await sync_all(db)
+        logger.info("Inspection schedule sync completed: %s", counts)
+    except Exception as e:
+        logger.error("Inspection schedule sync failed: %s", str(e))
 
 
 async def auto_archive_inactive_vehicles() -> None:
@@ -761,21 +792,21 @@ def start_scheduler() -> None:
 
     Only starts if SCHEDULER_ENABLED=true (explicit opt-in, fail-closed).
 
-    Schedules:
-        - Daily reset at midnight UTC for daily-limited providers
-        - Monthly reset on 1st at midnight UTC for monthly-limited providers
-        - Maintenance notification check at 8 AM UTC (brake reminders raised first)
-        - Document expiration check at 9 AM UTC
-        - Odometer milestone check at 10 AM UTC
-        - DEF level check at 11 AM UTC
+    Schedules (container local time; only the recall check is pinned to UTC):
+        - Daily reset at midnight for daily-limited providers
+        - Monthly reset on 1st at midnight for monthly-limited providers
+        - Maintenance notification check at 8 AM (brake reminders raised first)
+        - Document expiration check at 9 AM
+        - Odometer milestone check at 10 AM
+        - DEF level check at 11 AM
         - NHTSA recall check daily at 2 AM UTC, when its interval is due
         - LiveLink: Session timeout check every minute
         - LiveLink: Device offline check every 5 minutes
         - LiveLink: Pending offline finalization every 15 seconds
-        - LiveLink: Daily summary generation at 1 AM UTC
-        - LiveLink: Firmware check at 3 AM UTC
-        - LiveLink: Telemetry pruning at 4 AM UTC
-        - Auto-archive inactive vehicles at 5 AM UTC
+        - LiveLink: Daily summary generation at 1 AM
+        - LiveLink: Firmware check at 3 AM
+        - LiveLink: Telemetry pruning at 4 AM
+        - Auto-archive inactive vehicles at 5 AM
     """
     if os.environ.get("SCHEDULER_ENABLED", "").lower() != "true":
         logger.warning(
@@ -786,7 +817,7 @@ def start_scheduler() -> None:
 
     logger.info("Scheduler enabled — starting background jobs.")
 
-    # Daily reset at midnight UTC
+    # Daily reset at midnight
     scheduler.add_job(
         reset_daily_limits,
         "cron",
@@ -796,7 +827,7 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # Monthly reset on 1st at midnight UTC
+    # Monthly reset on 1st at midnight
     scheduler.add_job(
         reset_monthly_limits,
         "cron",
@@ -807,7 +838,7 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # Reminder notification check at 8:00 AM UTC
+    # Reminder notification check at 8:00 AM
     scheduler.add_job(
         check_reminder_notifications,
         "cron",
@@ -817,7 +848,7 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # Document expiration check at 9 AM UTC
+    # Document expiration check at 9 AM
     scheduler.add_job(
         check_expiring_documents,
         "cron",
@@ -827,7 +858,7 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # Odometer milestone check at 10 AM UTC
+    # Odometer milestone check at 10 AM
     scheduler.add_job(
         check_odometer_milestones,
         "cron",
@@ -837,7 +868,7 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # DEF level check at 11 AM UTC
+    # DEF level check at 11 AM
     scheduler.add_job(
         check_def_levels,
         "cron",
@@ -849,8 +880,8 @@ def start_scheduler() -> None:
 
     # NHTSA recall check daily at 2 AM UTC; the job itself decides whether
     # nhtsa_recall_check_interval is due. The only job pinned to UTC: the
-    # scheduler has no timezone, so the other jobs' "UTC" is really the
-    # container's local zone. The due check's hour of slack assumes 24 hours
+    # scheduler has no timezone, so the other jobs run on the container's
+    # local zone. The due check's hour of slack assumes 24 hours
     # between ticks, and a local-zone cron puts 23 or 25 between them on DST days.
     scheduler.add_job(
         check_recalls_all_vehicles,
@@ -909,13 +940,24 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # Auto-archive inactive vehicles at 5 AM UTC (no-op when setting is 0)
+    # Auto-archive inactive vehicles at 5 AM (no-op when setting is 0)
     scheduler.add_job(
         auto_archive_inactive_vehicles,
         "cron",
         hour=5,
         minute=0,
         id="auto_archive_inactive_vehicles",
+        replace_existing=True,
+    )
+
+    # Periodic inspection reminders from the country profiles at 6 AM UTC
+    # (#211), before the 8 AM reminder notification check reads them.
+    scheduler.add_job(
+        sync_inspection_schedules,
+        "cron",
+        hour=6,
+        minute=0,
+        id="sync_inspection_schedules",
         replace_existing=True,
     )
 

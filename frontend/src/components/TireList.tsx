@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactElement, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, Gauge, AlertTriangle, Pencil, RotateCw, Layers, Disc, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -24,14 +24,20 @@ import {
   useDeleteTire,
 } from '../hooks/queries/useTires'
 import { useUnitFormat } from '../hooks/useUnitFormat'
+import { useRefuseUnreadableNumbers } from '../hooks/useRefuseUnreadableNumbers'
+import type { LabelledNumberText } from '../utils/decimalInput'
 import {
-  canonicalFromUnitField,
+  canonicalFromTypedUnitField,
   seedUnitField,
+  type QuantityFormat,
   type UnitFieldOrigin,
+  type UnitFormat,
 } from '../utils/unitFormat'
+import { withUnitSession } from '../contexts/UnitSession'
 import { canonicalFromTreadField } from '../utils/treadEntry'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { formatHours, hoursFromField } from '../utils/hoursFormat'
+import { num } from '../utils/wireNumber'
 import {
   Button,
   IconButton,
@@ -42,6 +48,7 @@ import {
   Input,
   Field,
   ListRow,
+  NumberInput,
   Toggle,
 } from './ui'
 import ClickableCard from './ClickableCard'
@@ -189,6 +196,21 @@ function emptyReadingForm(): ReadingFormState {
   }
 }
 
+/**
+ * Hands one drawer the units it opened with (R4). The drawers' state and
+ * handlers stay up in TireList; this only pins what they label and convert
+ * with, so the cards behind them keep repainting live.
+ */
+const PinnedUnits = withUnitSession(function PinnedUnits({
+  children,
+}: {
+  open: boolean
+  children: (u: UnitFormat) => ReactNode
+}): ReactElement {
+  const u = useUnitFormat()
+  return <>{children(u)}</>
+})
+
 interface TireListProps {
   vin: string
   /** Opens the Brakes tab's Log measurements, offered while the wheels are off (#202). */
@@ -263,19 +285,17 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
   const [fitDate, setFitDate] = useState(() => formatDateForInput())
   const addReading = useAddTireReading(vin)
   const remove = useDeleteTire(vin)
-  /* Every unit on this card and in both drawers resolves through `u`, per
+  /* Every unit on the cards resolves through `u`, per
    * quantity. The binary `system` is gone from the file: it is collapsed from
    * VOLUME (spec D8), so a custom user with litres and miles reads 'metric' and
    * a projection formatted from it would render kilometres directly above an
    * odometer field in miles. Two distances, one card, two units, which is the
    * disagreement D2 forbids and the one this file already carried for pressure.
    * Cost of joining: the projection reads "~621 mi" where it read "~621.37 mi",
-   * because distance's declared precision is whole units. */
+   * because distance's declared precision is whole units.
+   * The drawers get theirs from PinnedUnits instead, so this one is the live
+   * card's only. */
   const u = useUnitFormat()
-
-  /** Tire API fields are `number | string | null`; the unit utils take `number | null`. */
-  const num = (v: number | string | null | undefined): number | null =>
-    v === null || v === undefined || v === '' ? null : Number(v)
 
   /** A figure on the tire's own axis: hours on an hours-only vehicle, else the reader's distance unit. */
   const usageText = (tire: Tire, value: number | string): string =>
@@ -292,6 +312,8 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
    * @param position The position to start on.
    * @returns The form state, origins included.
    */
+  // Seeds read the live units at the click that opens the drawer, which is the
+  // same moment its PinnedUnits captures, so seed and submit agree.
   const seedTireForm = (tire: Tire | null, position: TirePosition): TireFormState => {
     const tread = seedUnitField(num(tire?.tread_depth_mm), u.tread)
     const minTread = seedUnitField(num(tire?.min_tread_mm) ?? DEFAULT_MIN_TREAD_MM, u.tread)
@@ -324,6 +346,7 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
   const [addingPeriod, setAddingPeriod] = useState(false)
   const [form, setForm] = useState<TireFormState>(() => seedTireForm(null, 'FL'))
   const [readingForm, setReadingForm] = useState<ReadingFormState>(emptyReadingForm)
+  const refuseUnreadable = useRefuseUnreadableNumbers()
 
   const tires = data?.tires ?? []
   /* Which readings this vehicle takes, from the server that 422s the other one (#217).
@@ -332,9 +355,13 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
   const tracksHours = data?.tracks_hours ?? false
 
   /* Each axis's key only when the vehicle takes it, so a distance vehicle's payloads stay as they were. */
-  const odometerKey = <K extends string>(key: K, value: OdometerFieldValue): Partial<Record<K, number | null>> =>
+  const odometerKey = <K extends string>(
+    key: K,
+    value: OdometerFieldValue,
+    distance: QuantityFormat
+  ): Partial<Record<K, number | null>> =>
     tracksDistance
-      ? ({ [key]: canonicalFromUnitField(value.typed, value.origin, u.distance) } as Record<K, number | null>)
+      ? ({ [key]: canonicalFromTypedUnitField(value.typed, value.origin, distance) } as Record<K, number | null>)
       : {}
   const hoursKey = <K extends string>(key: K, typed: string): Partial<Record<K, number | null>> =>
     tracksHours ? ({ [key]: hoursFromField(typed) } as Record<K, number | null>) : {}
@@ -571,11 +598,19 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
 
   /* One key per field, interpolated with the resolved unit, replacing the pairs
    * of unit-specific keys a ternary used to choose between. `odometerMi` and
-   * `odometerKm` could only ever name two of the vocabulary's units. */
-  const pressureLabel = t('tireList.pressureWithUnit', { unit: u.pressure.label })
-  const odometerLabel = t('tireList.odometerWithUnit', { unit: u.distance.label })
-  const treadLabel = t('tireList.treadWithUnit', { unit: u.tread.label })
-  const minTreadLabel = t('tireList.minTreadWithUnit', { unit: u.tread.label })
+   * `odometerKm` could only ever name two of the vocabulary's units. Built from
+   * the drawer's pinned units, not the list's live ones. */
+  const unitLabels = (pu: UnitFormat) => ({
+    pressure: t('tireList.pressureWithUnit', { unit: pu.pressure.label }),
+    odometer: t('tireList.odometerWithUnit', { unit: pu.distance.label }),
+    tread: t('tireList.treadWithUnit', { unit: pu.tread.label }),
+    minTread: t('tireList.minTreadWithUnit', { unit: pu.tread.label }),
+  })
+  /* A MountEventFields' odometer and hour meter, for the unreadable-text check. Only the ones it shows. */
+  const eventNumbers = (pu: UnitFormat, odometer: OdometerFieldValue, hours: string): LabelledNumberText[] => [
+    [unitLabels(pu).odometer, tracksDistance && odometer.typed],
+    [t('common:engineHours'), tracksHours && hours],
+  ]
 
   /* Add and Edit are deliberately separate intents. The form is one mutable
    * object holding every in-progress field, so reloading it when the position
@@ -671,7 +706,7 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
     setReadingTireId(tire.id)
   }
 
-  const handleSave = () => {
+  const handleSave = (pu: UnitFormat) => {
     // Create-and-mount for a new tire, PUT for an existing one.
     //
     // Before v3.3.0 both were one POST that upserted by position, so the same
@@ -679,6 +714,17 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
     // now a 409, and `position` is not a writable field on a tire at all --
     // where a tire sits changes through mount/dismount, not through its
     // metadata form.
+    const labels = unitLabels(pu)
+    const mounting = editingTireId === null && form.position != null
+    if (
+      refuseUnreadable([
+        [labels.tread, form.tread_depth_mm],
+        [labels.pressure, form.pressure_kpa],
+        [labels.minTread, form.min_tread_mm],
+        ...(mounting ? eventNumbers(pu, form.mounted_odometer_km, form.mounted_hours) : []),
+      ])
+    )
+      return
     const shared = {
       brand: form.brand || null,
       model_name: form.model_name || null,
@@ -687,15 +733,15 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
       tread_depth_mm: canonicalFromTreadField(
         form.tread_depth_mm,
         form.origins.tread_depth_mm,
-        u.tread
+        pu.tread
       ),
-      pressure_kpa: canonicalFromUnitField(
+      pressure_kpa: canonicalFromTypedUnitField(
         form.pressure_kpa,
         form.origins.pressure_kpa,
-        u.pressure
+        pu.pressure
       ),
       min_tread_mm:
-        canonicalFromTreadField(form.min_tread_mm, form.origins.min_tread_mm, u.tread) ??
+        canonicalFromTreadField(form.min_tread_mm, form.origins.min_tread_mm, pu.tread) ??
         DEFAULT_MIN_TREAD_MM,
       notes: form.notes || null,
     }
@@ -742,7 +788,7 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
         position: form.position,
         ...shared,
         mounted_on: form.mounted_on,
-        ...odometerKey('mounted_odometer_km', form.mounted_odometer_km),
+        ...odometerKey('mounted_odometer_km', form.mounted_odometer_km, pu.distance),
         ...hoursKey('mounted_hours', form.mounted_hours),
       },
       handlers
@@ -757,16 +803,17 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
    * the history this release exists to make worth collecting. Delete stays in
    * the edit drawer for a tire entered by mistake.
    */
-  const handleRetire = () => {
+  const handleRetire = (pu: UnitFormat) => {
     if (!retireDate) {
       toast.error(t('tireList.eventDateRequired'))
       return
     }
     if (retireTireId === null) return
+    if (refuseUnreadable(eventNumbers(pu, retireOdometer, retireHours))) return
     retire.mutate(
       {
         tireId: retireTireId,
-        ...odometerKey('dismounted_odometer_km', retireOdometer),
+        ...odometerKey('dismounted_odometer_km', retireOdometer, pu.distance),
         ...hoursKey('dismounted_hours', retireHours),
         dismounted_on: retireDate,
       },
@@ -833,15 +880,16 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
    * history for the corner it was last on, and refuses -- naming the tires --
    * rather than guessing for one that has never been fitted.
    */
-  const handleFitSet = (setId: number) => {
+  const handleFitSet = (setId: number, pu: UnitFormat) => {
     if (!fitDate) {
       toast.error(t('tireList.eventDateRequired'))
       return
     }
+    if (refuseUnreadable(eventNumbers(pu, fitOdometer, fitHours))) return
     mountSet.mutate(
       {
         setId,
-        ...odometerKey('odometer_km', fitOdometer),
+        ...odometerKey('odometer_km', fitOdometer, pu.distance),
         ...hoursKey('engine_hours', fitHours),
         mounted_on: fitDate,
       },
@@ -869,11 +917,12 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
    * since changed. `canRotate` has already established every corner is filled;
    * the guard here is what makes that a type-level fact rather than a promise.
    */
-  const handleRotate = () => {
+  const handleRotate = (pu: UnitFormat) => {
     if (!rotateDate) {
       toast.error(t('tireList.eventDateRequired'))
       return
     }
+    if (refuseUnreadable(eventNumbers(pu, rotateOdometer, rotateHours))) return
     const pattern = ROTATION_PATTERNS[rotatePattern]
     const moves = ROTATION_CORNERS.flatMap((corner) => {
       const tire = tireAt(corner)
@@ -886,7 +935,7 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
     rotate.mutate(
       {
         moves,
-        ...odometerKey('odometer_km', rotateOdometer),
+        ...odometerKey('odometer_km', rotateOdometer, pu.distance),
         ...hoursKey('engine_hours', rotateHours),
         rotated_on: rotateDate,
       },
@@ -920,27 +969,36 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
     })
   }
 
-  const handleReading = (tireId: number) => {
+  const handleReading = (tireId: number, pu: UnitFormat) => {
     if (!readingForm.recorded_at) {
       toast.error(t('tireList.eventDateRequired'))
       return
     }
+    const labels = unitLabels(pu)
+    if (
+      refuseUnreadable([
+        [labels.tread, readingForm.tread_depth_mm],
+        [labels.pressure, readingForm.pressure_kpa],
+        [labels.odometer, tracksDistance && readingForm.odometer_km],
+        [t('common:engineHours'), tracksHours && readingForm.engine_hours],
+      ])
+    )
+      return
     /* Resolved before the guard so the refusal and the payload come from one
      * computation rather than two. It is NOT a behaviour change against the old
-     * truthiness check: `<Input type="number">` hands back an empty string for
-     * text that is not a number, so `null` here means "blank" and nothing else
-     * reaches it. */
+     * truthiness check: unreadable text was refused above, so `null` here means
+     * "blank" and nothing else reaches it. */
     const tread = canonicalFromTreadField(
       readingForm.tread_depth_mm,
       readingForm.origins.tread_depth_mm,
-      u.tread
+      pu.tread
     )
     /* Hoisted out of the payload for the same reason as tread: the guard below
      * and the body must be one computation, not two that can disagree. */
-    const pressure = canonicalFromUnitField(
+    const pressure = canonicalFromTypedUnitField(
       readingForm.pressure_kpa,
       readingForm.origins.pressure_kpa,
-      u.pressure
+      pu.pressure
     )
     /* At least one MEASUREMENT, which is the rule `TireReadingCreate` enforces
      * server-side. Tread alone was required here until #152: the reporter is
@@ -958,10 +1016,10 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
         recorded_at: readingForm.recorded_at,
         ...(tracksDistance
           ? {
-              odometer_km: canonicalFromUnitField(
+              odometer_km: canonicalFromTypedUnitField(
                 readingForm.odometer_km,
                 readingForm.origins.odometer_km,
-                u.distance
+                pu.distance
               ),
             }
           : {}),
@@ -1335,777 +1393,799 @@ export default function TireList({ vin, onLogBrakes }: TireListProps) {
           distance computable at all. A confirm with no field would produce a
           mount period with no bound, which reports "not recorded yet" forever
           -- the exact dead end this release exists to get out of. */}
-      <Drawer
-        open={mountTireId !== null}
-        onClose={() => setMountTireId(null)}
-        title={t('tireList.mountTitle')}
-        icon={Gauge}
-        width="xs"
-        closeLabel={t('common:close')}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setMountTireId(null)}>
-              {t('common:cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={mount.isPending}
-              onClick={() => {
-                if (!mountDate) {
-                  toast.error(t('tireList.eventDateRequired'))
-                  return
-                }
-                if (mountTireId === null) return
-                mount.mutate(
-                  {
-                    tireId: mountTireId,
-                    position: mountPosition,
-                    mounted_on: mountDate,
-                    ...odometerKey('mounted_odometer_km', mountOdometer),
-                    ...hoursKey('mounted_hours', mountHours),
-                  },
-                  {
-                    onSuccess: () => {
-                      toast.success(t('tireList.mounted'))
-                      setMountTireId(null)
-                    },
-                    onError: (err: unknown) =>
-                      toast.error(getActionErrorMessage(err, t('tireList.mountAction'))),
-                  }
-                )
-              }}
-            >
-              {t('tireList.mount')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <Field id="mount-position" label={t('tireList.position')}>
-            <div className="flex flex-wrap gap-2">
-              {freePositions.map((position) => (
-                <Chip
-                  key={position}
-                  selected={mountPosition === position}
-                  onClick={() => setMountPosition(position)}
+      <PinnedUnits open={mountTireId !== null}>
+        {(pu) => (
+          <Drawer
+            open={mountTireId !== null}
+            onClose={() => setMountTireId(null)}
+            title={t('tireList.mountTitle')}
+            icon={Gauge}
+            width="xs"
+            closeLabel={t('common:close')}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setMountTireId(null)}>
+                  {t('common:cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={mount.isPending}
+                  onClick={() => {
+                    if (!mountDate) {
+                      toast.error(t('tireList.eventDateRequired'))
+                      return
+                    }
+                    if (mountTireId === null) return
+                    if (refuseUnreadable(eventNumbers(pu, mountOdometer, mountHours))) return
+                    mount.mutate(
+                      {
+                        tireId: mountTireId,
+                        position: mountPosition,
+                        mounted_on: mountDate,
+                        ...odometerKey('mounted_odometer_km', mountOdometer, pu.distance),
+                        ...hoursKey('mounted_hours', mountHours),
+                      },
+                      {
+                        onSuccess: () => {
+                          toast.success(t('tireList.mounted'))
+                          setMountTireId(null)
+                        },
+                        onError: (err: unknown) =>
+                          toast.error(getActionErrorMessage(err, t('tireList.mountAction'))),
+                      }
+                    )
+                  }}
                 >
-                  {position}
-                </Chip>
-              ))}
-            </div>
-          </Field>
-          <MountEventFields
-            vin={vin}
-            idPrefix="mount"
-            dateLabel={t('tireList.mountedOn')}
-            date={mountDate}
-            onDateChange={setMountDate}
-            odometerLabel={odometerLabel}
-            odometerHint={t('tireList.mountOdometerHint')}
-            odometer={mountOdometer}
-            onOdometerChange={setMountOdometer}
-            tracksDistance={tracksDistance}
-            tracksHours={tracksHours}
-            hours={mountHours}
-            onHoursChange={setMountHours}
-            hoursHint={tracksDistance ? undefined : t('tireList.mountHoursHint')}
-          />
-        </div>
-      </Drawer>
-
-      <Drawer
-        open={dismountTireId !== null}
-        onClose={() => setDismountTireId(null)}
-        title={t('tireList.dismountTitle')}
-        icon={Gauge}
-        width="xs"
-        closeLabel={t('common:close')}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setDismountTireId(null)}>
-              {t('common:cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={dismount.isPending}
-              onClick={() => {
-                if (!dismountDate) {
-                  toast.error(t('tireList.eventDateRequired'))
-                  return
-                }
-                if (dismountTireId === null) return
-                dismount.mutate(
-                  {
-                    tireId: dismountTireId,
-                    ...odometerKey('dismounted_odometer_km', dismountOdometer),
-                    ...hoursKey('dismounted_hours', dismountHours),
-                    dismounted_on: dismountDate,
-                    // Always sent while this drawer is rendered: an empty
-                    // string clears the stored location, an absent key would
-                    // leave it alone. A user who blanks the field means clear.
-                    storage_location: dismountLocation.trim(),
-                  },
-                  {
-                    onSuccess: () => {
-                      toast.success(t('tireList.dismounted'))
-                      setDismountTireId(null)
-                    },
-                    onError: (err: unknown) =>
-                      toast.error(getActionErrorMessage(err, t('tireList.dismountAction'))),
-                  }
-                )
-              }}
-            >
-              {t('tireList.dismount')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-text-mute">{t('tireList.dismountHint')}</p>
-          <MountEventFields
-            vin={vin}
-            idPrefix="dismount"
-            dateLabel={t('tireList.eventDate')}
-            date={dismountDate}
-            onDateChange={setDismountDate}
-            odometerLabel={odometerLabel}
-            odometerHint={t('tireList.mountOdometerHint')}
-            odometer={dismountOdometer}
-            onOdometerChange={setDismountOdometer}
-            tracksDistance={tracksDistance}
-            tracksHours={tracksHours}
-            hours={dismountHours}
-            onHoursChange={setDismountHours}
-            hoursHint={tracksDistance ? undefined : t('tireList.mountHoursHint')}
-          />
-          <Field
-            id="dismount-storage"
-            label={t('tireList.storageLocation')}
-            hint={t('tireList.storageLocationHint')}
+                  {t('tireList.mount')}
+                </Button>
+              </>
+            }
           >
-            <Input
-              id="dismount-storage"
-              value={dismountLocation}
-              onChange={(e) => setDismountLocation(e.target.value)}
-            />
-          </Field>
-        </div>
-      </Drawer>
+            <div className="space-y-4">
+              <Field id="mount-position" label={t('tireList.position')}>
+                <div className="flex flex-wrap gap-2">
+                  {freePositions.map((position) => (
+                    <Chip
+                      key={position}
+                      selected={mountPosition === position}
+                      onClick={() => setMountPosition(position)}
+                    >
+                      {position}
+                    </Chip>
+                  ))}
+                </div>
+              </Field>
+              <MountEventFields
+                vin={vin}
+                idPrefix="mount"
+                dateLabel={t('tireList.mountedOn')}
+                date={mountDate}
+                onDateChange={setMountDate}
+                odometerLabel={unitLabels(pu).odometer}
+                odometerHint={t('tireList.mountOdometerHint')}
+                odometer={mountOdometer}
+                onOdometerChange={setMountOdometer}
+                tracksDistance={tracksDistance}
+                tracksHours={tracksHours}
+                hours={mountHours}
+                onHoursChange={setMountHours}
+                hoursHint={tracksDistance ? undefined : t('tireList.mountHoursHint')}
+              />
+            </div>
+          </Drawer>
+        )}
+      </PinnedUnits>
+
+      <PinnedUnits open={dismountTireId !== null}>
+        {(pu) => (
+          <Drawer
+            open={dismountTireId !== null}
+            onClose={() => setDismountTireId(null)}
+            title={t('tireList.dismountTitle')}
+            icon={Gauge}
+            width="xs"
+            closeLabel={t('common:close')}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setDismountTireId(null)}>
+                  {t('common:cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={dismount.isPending}
+                  onClick={() => {
+                    if (!dismountDate) {
+                      toast.error(t('tireList.eventDateRequired'))
+                      return
+                    }
+                    if (dismountTireId === null) return
+                    if (refuseUnreadable(eventNumbers(pu, dismountOdometer, dismountHours))) return
+                    dismount.mutate(
+                      {
+                        tireId: dismountTireId,
+                        ...odometerKey('dismounted_odometer_km', dismountOdometer, pu.distance),
+                        ...hoursKey('dismounted_hours', dismountHours),
+                        dismounted_on: dismountDate,
+                        // Always sent while this drawer is rendered: an empty
+                        // string clears the stored location, an absent key would
+                        // leave it alone. A user who blanks the field means clear.
+                        storage_location: dismountLocation.trim(),
+                      },
+                      {
+                        onSuccess: () => {
+                          toast.success(t('tireList.dismounted'))
+                          setDismountTireId(null)
+                        },
+                        onError: (err: unknown) =>
+                          toast.error(getActionErrorMessage(err, t('tireList.dismountAction'))),
+                      }
+                    )
+                  }}
+                >
+                  {t('tireList.dismount')}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-text-mute">{t('tireList.dismountHint')}</p>
+              <MountEventFields
+                vin={vin}
+                idPrefix="dismount"
+                dateLabel={t('tireList.eventDate')}
+                date={dismountDate}
+                onDateChange={setDismountDate}
+                odometerLabel={unitLabels(pu).odometer}
+                odometerHint={t('tireList.mountOdometerHint')}
+                odometer={dismountOdometer}
+                onOdometerChange={setDismountOdometer}
+                tracksDistance={tracksDistance}
+                tracksHours={tracksHours}
+                hours={dismountHours}
+                onHoursChange={setDismountHours}
+                hoursHint={tracksDistance ? undefined : t('tireList.mountHoursHint')}
+              />
+              <Field
+                id="dismount-storage"
+                label={t('tireList.storageLocation')}
+                hint={t('tireList.storageLocationHint')}
+              >
+                <Input
+                  id="dismount-storage"
+                  value={dismountLocation}
+                  onChange={(e) => setDismountLocation(e.target.value)}
+                />
+              </Field>
+            </div>
+          </Drawer>
+        )}
+      </PinnedUnits>
 
       {/* Retire is its own drawer for the same reason dismount is: it closes a
           mount period, and a period closed without an odometer is one this
           tire's distance can never be computed from. The hint is the whole
           point of the drawer, though -- it is the only place the app says out
           loud that retiring and deleting are different. */}
-      <Drawer
-        open={retireTireId !== null}
-        onClose={() => setRetireTireId(null)}
-        title={t('tireList.retireTitle')}
-        icon={Gauge}
-        width="xs"
-        closeLabel={t('common:close')}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setRetireTireId(null)}>
-              {t('common:cancel')}
-            </Button>
-            <Button variant="primary" disabled={retire.isPending} onClick={handleRetire}>
-              {t('tireList.retire')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-text-mute">{t('tireList.retireHint')}</p>
-          <MountEventFields
-            vin={vin}
-            idPrefix="retire"
-            dateLabel={t('tireList.eventDate')}
-            date={retireDate}
-            onDateChange={setRetireDate}
-            odometerLabel={odometerLabel}
-            odometerHint={t('tireList.mountOdometerHint')}
-            odometer={retireOdometer}
-            onOdometerChange={setRetireOdometer}
-            tracksDistance={tracksDistance}
-            tracksHours={tracksHours}
-            hours={retireHours}
-            onHoursChange={setRetireHours}
-            hoursHint={tracksDistance ? undefined : t('tireList.mountHoursHint')}
-          />
-        </div>
-      </Drawer>
-
-      <Drawer
-        open={rotateOpen}
-        onClose={() => setRotateOpen(false)}
-        title={t('tireList.rotateTitle')}
-        icon={RotateCw}
-        width="sm"
-        closeLabel={t('common:close')}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setRotateOpen(false)}>
-              {t('common:cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={!canRotate || rotate.isPending}
-              onClick={handleRotate}
-            >
-              {t('tireList.rotate')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-text-mute">{t('tireList.rotateHint')}</p>
-          <div>
-            <span id="rotate-pattern-label" className="mb-1 block text-sm font-medium text-text">
-              {t('tireList.rotatePattern')}
-            </span>
-            {/* Named by drivetrain rather than drawn as a diagram: the user
-                knows what they drive, and a four-arrow diagram is the part of
-                every tire-rotation chart people misread. The resulting moves
-                are shown below in full, so the choice is checkable without
-                trusting the name. */}
-            <div
-              role="group"
-              aria-labelledby="rotate-pattern-label"
-              className="flex flex-wrap gap-2"
-            >
-              {ROTATION_PATTERN_IDS.map((id) => (
-                <Chip
-                  key={id}
-                  selected={rotatePattern === id}
-                  onClick={() => setRotatePattern(id)}
-                >
-                  {rotationPatternLabels[id].name}
-                </Chip>
-              ))}
-            </div>
-            <p className="mt-1 text-sm text-text-mute">{rotationPatternLabels[rotatePattern].desc}</p>
-          </div>
-          <div>
-            <span className="mb-1 block text-sm font-medium text-text">
-              {t('tireList.rotatePreview')}
-            </span>
-            <ul className="space-y-1">
-              {ROTATION_CORNERS.map((corner) => (
-                <ListRow
-                  key={corner}
-                  label={positionLabels[corner]}
-                  value={positionLabels[ROTATION_PATTERNS[rotatePattern][corner]]}
-                />
-              ))}
-            </ul>
-          </div>
-          <MountEventFields
-            vin={vin}
-            idPrefix="rotate"
-            dateLabel={t('tireList.eventDate')}
-            date={rotateDate}
-            onDateChange={setRotateDate}
-            odometerLabel={odometerLabel}
-            odometerHint={t('tireList.rotateOdometerHint')}
-            odometer={rotateOdometer}
-            onOdometerChange={setRotateOdometer}
-            tracksDistance={tracksDistance}
-            tracksHours={tracksHours}
-            hours={rotateHours}
-            onHoursChange={setRotateHours}
-            hoursHint={tracksDistance ? undefined : t('tireList.rotateHoursHint')}
-          />
-        </div>
-      </Drawer>
-
-      <Drawer
-        open={setsOpen}
-        onClose={() => {
-          setSetsOpen(false)
-          setFittingSetId(null)
-          setRenamingSetId(null)
-        }}
-        title={t('tireList.setsTitle')}
-        icon={Layers}
-        width="sm"
-        closeLabel={t('common:close')}
-        footer={
-          <Button variant="ghost" onClick={() => setSetsOpen(false)}>
-            {t('common:close')}
-          </Button>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-text-mute">{t('tireList.setsHint')}</p>
-
-          {tireSets.length === 0 ? (
-            <EmptyState
-              icon={Layers}
-              size="sm"
-              title={t('tireList.setsEmpty')}
-              description={t('tireList.setsEmptyHint')}
-            />
-          ) : (
-            <ul className="space-y-2">
-              {tireSets.map((tireSet) => (
-                <li key={tireSet.id} className="rounded-card border border-border p-3 space-y-2">
-                  {renamingSetId === tireSet.id ? (
-                    <div className="flex items-end gap-2">
-                      <div className="flex-1">
-                        <Field
-                          id={`set-rename-${tireSet.id}`}
-                          label={t('tireList.setName')}
-                          error={renameError ?? undefined}
-                        >
-                          <Input
-                            id={`set-rename-${tireSet.id}`}
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                          />
-                        </Field>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        disabled={updateSet.isPending}
-                        onClick={() => handleRenameSet(tireSet.id)}
-                      >
-                        {t('common:save')}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setRenamingSetId(null)}>
-                        {t('common:cancel')}
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="font-semibold">{tireSet.name}</div>
-                          <div className="text-sm text-text-mute">
-                            {t('tireList.setMembership', {
-                              total: tireSet.tire_ids.length,
-                              mounted: tireSet.mounted_count,
-                            })}
-                          </div>
-                        </div>
-                        <IconButton
-                          icon={Trash2}
-                          label={t('common:delete')}
-                          variant="danger"
-                          size="sm"
-                          disabled={deleteSet.isPending}
-                          onClick={() => handleDeleteSet(tireSet.id)}
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {/* Fitting an empty set is a 409 the user cannot act
-                            on from here, so the control is not offered until
-                            the set has something in it. */}
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={tireSet.tire_ids.length === 0 || mountSet.isPending}
-                          onClick={() => {
-                            setFittingSetId(tireSet.id)
-                            setFitOdometer(EMPTY_ODOMETER)
-                            setFitHours('')
-                            setFitDate(formatDateForInput())
-                          }}
-                        >
-                          {t('tireList.setFit')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setRenamingSetId(tireSet.id)
-                            setRenameValue(tireSet.name)
-                            setRenameError(null)
-                          }}
-                        >
-                          {t('tireList.setRename')}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-
-                  {fittingSetId === tireSet.id && (
-                    <div className="space-y-2 border-t border-border pt-2">
-                      <p className="text-sm text-text-mute">{t('tireList.setFitHint')}</p>
-                      <MountEventFields
-                        vin={vin}
-                        idPrefix={`set-fit-${tireSet.id}`}
-                        dateLabel={t('tireList.eventDate')}
-                        date={fitDate}
-                        onDateChange={setFitDate}
-                        odometerLabel={odometerLabel}
-                        odometer={fitOdometer}
-                        onOdometerChange={setFitOdometer}
-                        tracksDistance={tracksDistance}
-                        tracksHours={tracksHours}
-                        hours={fitHours}
-                        onHoursChange={setFitHours}
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          disabled={mountSet.isPending}
-                          onClick={() => handleFitSet(tireSet.id)}
-                        >
-                          {t('tireList.setFit')}
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setFittingSetId(null)}>
-                          {t('common:cancel')}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="flex items-end gap-2 border-t border-border pt-4">
-            <div className="flex-1">
-              <Field id="new-set-name" label={t('tireList.setName')}>
-                <Input
-                  id="new-set-name"
-                  value={newSetName}
-                  onChange={(e) => setNewSetName(e.target.value)}
-                />
-              </Field>
-            </div>
-            <Button
-              variant="primary"
-              icon={Plus}
-              disabled={createSet.isPending || newSetName.trim() === ''}
-              onClick={handleCreateSet}
-            >
-              {t('tireList.setAdd')}
-            </Button>
-          </div>
-        </div>
-      </Drawer>
-
-      <Drawer
-        open={formOpen}
-        onClose={closeForm}
-        /* Editing names the tire, because position is a tire's whole identity
-           and five otherwise-identical rows are indistinguishable without it.
-           Adding stays the generic "Add Tire": retitling as the position chips
-           are pressed would make a create read like an edit. */
-        title={
-          editingTireId === null
-            ? t('tireList.addTitle')
-            : form.position == null
-              ? t('tireList.editTitleStored')
-              : t('tireList.editTitleNamed', { position: positionLabels[form.position] })
-        }
-        icon={Gauge}
-        width="sm"
-        closeLabel={t('common:close')}
-        footer={
-          <>
-            {/* mr-auto against the footer's justify-end: the destructive action
-                sits hard left, a full footer's width away from Save. */}
-            {editingTireId !== null && (
-              <Button
-                variant="danger"
-                icon={Trash2}
-                className="mr-auto"
-                onClick={handleDelete}
-                disabled={remove.isPending}
-              >
-                {t('common:delete')}
-              </Button>
-            )}
-            <Button variant="ghost" onClick={closeForm}>
-              {t('common:cancel')}
-            </Button>
-            <Button variant="primary" onClick={handleSave} disabled={createAndMount.isPending || updateTire.isPending}>
-              {t('common:save')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          {/* Push toggles rather than a select: five short fixed options, one tap
-              instead of two-plus-a-scroll on mobile, and — the real gain — the
-              occupied slots stay visible instead of silently vanishing from a
-              collapsed menu.
-
-              role="group" + aria-pressed chips, not a radiogroup: Chip is the
-              app's established filter primitive (Address Book categories) and
-              matching it beats hand-rolling a roving-tabindex radiogroup for
-              five buttons. Field is bypassed on purpose — it renders
-              <label htmlFor>, which associates with nothing when the control is
-              a group of buttons, so the label is wired via aria-labelledby. */}
-          <div className="mb-4">
-            <span
-              id="tire-position-label"
-              className="mb-1 block text-sm font-medium text-text"
-            >
-              {t('tireList.position')}
-            </span>
-            <div
-              role="group"
-              aria-labelledby="tire-position-label"
-              className="flex flex-wrap gap-2"
-            >
-              {POSITIONS.map((p) => {
-                const locked = editingTireId !== null
-                const taken = takenPositions.has(p)
-                // Editing locks every chip; adding leaves occupied slots inert.
-                // Chip renders a plain <span> without onClick, so an unavailable
-                // slot is shown as state rather than as a dead-looking button.
-                const selectable = !locked && !taken
-                return (
-                  <Chip
-                    key={p}
-                    tone={taken && !locked ? 'muted' : 'default'}
-                    selected={form.position === p}
-                    onClick={selectable ? () => setForm({ ...form, position: p }) : undefined}
-                  >
-                    {p}
-                  </Chip>
-                )
-              })}
-              {/* Storage is a sixth destination, not a sixth corner. It is the
-                  only way to enter a tire you own but are not fitting today,
-                  which is every second seasonal set, and without it a tire
-                  could only come into the app by being mounted onto a corner
-                  it then had to be dismounted from. */}
-              <Chip
-                selected={form.position == null}
-                onClick={
-                  editingTireId === null ? () => setForm({ ...form, position: null }) : undefined
-                }
-              >
-                {t('tireList.inStorage')}
-              </Chip>
-            </div>
-            {editingTireId === null && form.position == null && (
-              <p className="mt-1 text-sm text-text-mute">{t('tireList.storedHint')}</p>
-            )}
-          </div>
-          {/* A tire added at a corner is born with a mount period, and a
-              period without an odometer is one whose distance can never be
-              worked out. Before v3.4.0 this form sent neither field, which is
-              why every tire added here read "add an odometer to this tire's
-              mount" with no control that could. Hidden on the storage branch
-              and on Edit: a stored tire has no mount to date, and an existing
-              tire's history is edited in its history drawer. */}
-          {editingTireId === null && form.position != null && (
-            <div className="mb-4">
+      <PinnedUnits open={retireTireId !== null}>
+        {(pu) => (
+          <Drawer
+            open={retireTireId !== null}
+            onClose={() => setRetireTireId(null)}
+            title={t('tireList.retireTitle')}
+            icon={Gauge}
+            width="xs"
+            closeLabel={t('common:close')}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setRetireTireId(null)}>
+                  {t('common:cancel')}
+                </Button>
+                <Button variant="primary" disabled={retire.isPending} onClick={() => handleRetire(pu)}>
+                  {t('tireList.retire')}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-text-mute">{t('tireList.retireHint')}</p>
               <MountEventFields
                 vin={vin}
-                idPrefix="tire-mount"
-                dateLabel={t('tireList.mountedOn')}
-                date={form.mounted_on}
-                onDateChange={(next) => setForm({ ...form, mounted_on: next })}
-                odometerLabel={odometerLabel}
+                idPrefix="retire"
+                dateLabel={t('tireList.eventDate')}
+                date={retireDate}
+                onDateChange={setRetireDate}
+                odometerLabel={unitLabels(pu).odometer}
                 odometerHint={t('tireList.mountOdometerHint')}
-                odometer={form.mounted_odometer_km}
-                onOdometerChange={(next) => setForm({ ...form, mounted_odometer_km: next })}
+                odometer={retireOdometer}
+                onOdometerChange={setRetireOdometer}
                 tracksDistance={tracksDistance}
                 tracksHours={tracksHours}
-                hours={form.mounted_hours}
-                onHoursChange={(next) => setForm({ ...form, mounted_hours: next })}
+                hours={retireHours}
+                onHoursChange={setRetireHours}
                 hoursHint={tracksDistance ? undefined : t('tireList.mountHoursHint')}
               />
             </div>
-          )}
-          {(editingTireId !== null || form.position == null) && (
-            <div className="mb-4">
-              <Field
-                id="tire-storage"
-                label={t('tireList.storageLocation')}
-                hint={t('tireList.storageLocationHint')}
-              >
-                <Input
-                  id="tire-storage"
-                  value={form.storage_location}
-                  onChange={(e) => setForm({ ...form, storage_location: e.target.value })}
-                />
-              </Field>
-            </div>
-          )}
-          {/* Membership is editable on an EXISTING tire only, because
-              `POST /tires` forbids a `set_id`. Hidden rather than disabled
-              when adding: a control that cannot be used yet reads as broken,
-              and the tire can be filed the moment it is saved. */}
-          {editingTireId !== null && tireSets.length > 0 && (
-            <div className="mb-4">
-              <span id="tire-set-label" className="mb-1 block text-sm font-medium text-text">
-                {t('tireList.setLabel')}
-              </span>
-              <div role="group" aria-labelledby="tire-set-label" className="flex flex-wrap gap-2">
-                <Chip
-                  selected={form.set_id == null}
-                  onClick={() => setForm({ ...form, set_id: null })}
+          </Drawer>
+        )}
+      </PinnedUnits>
+
+      <PinnedUnits open={rotateOpen}>
+        {(pu) => (
+          <Drawer
+            open={rotateOpen}
+            onClose={() => setRotateOpen(false)}
+            title={t('tireList.rotateTitle')}
+            icon={RotateCw}
+            width="sm"
+            closeLabel={t('common:close')}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setRotateOpen(false)}>
+                  {t('common:cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!canRotate || rotate.isPending}
+                  onClick={() => handleRotate(pu)}
                 >
-                  {t('tireList.setNone')}
-                </Chip>
-                {tireSets.map((tireSet) => (
-                  <Chip
-                    key={tireSet.id}
-                    selected={form.set_id === tireSet.id}
-                    onClick={() => setForm({ ...form, set_id: tireSet.id })}
-                  >
-                    {tireSet.name}
-                  </Chip>
-                ))}
+                  {t('tireList.rotate')}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-text-mute">{t('tireList.rotateHint')}</p>
+              <div>
+                <span id="rotate-pattern-label" className="mb-1 block text-sm font-medium text-text">
+                  {t('tireList.rotatePattern')}
+                </span>
+                {/* Named by drivetrain rather than drawn as a diagram: the user
+                    knows what they drive, and a four-arrow diagram is the part of
+                    every tire-rotation chart people misread. The resulting moves
+                    are shown below in full, so the choice is checkable without
+                    trusting the name. */}
+                <div
+                  role="group"
+                  aria-labelledby="rotate-pattern-label"
+                  className="flex flex-wrap gap-2"
+                >
+                  {ROTATION_PATTERN_IDS.map((id) => (
+                    <Chip
+                      key={id}
+                      selected={rotatePattern === id}
+                      onClick={() => setRotatePattern(id)}
+                    >
+                      {rotationPatternLabels[id].name}
+                    </Chip>
+                  ))}
+                </div>
+                <p className="mt-1 text-sm text-text-mute">{rotationPatternLabels[rotatePattern].desc}</p>
+              </div>
+              <div>
+                <span className="mb-1 block text-sm font-medium text-text">
+                  {t('tireList.rotatePreview')}
+                </span>
+                <ul className="space-y-1">
+                  {ROTATION_CORNERS.map((corner) => (
+                    <ListRow
+                      key={corner}
+                      label={positionLabels[corner]}
+                      value={positionLabels[ROTATION_PATTERNS[rotatePattern][corner]]}
+                    />
+                  ))}
+                </ul>
+              </div>
+              <MountEventFields
+                vin={vin}
+                idPrefix="rotate"
+                dateLabel={t('tireList.eventDate')}
+                date={rotateDate}
+                onDateChange={setRotateDate}
+                odometerLabel={unitLabels(pu).odometer}
+                odometerHint={t('tireList.rotateOdometerHint')}
+                odometer={rotateOdometer}
+                onOdometerChange={setRotateOdometer}
+                tracksDistance={tracksDistance}
+                tracksHours={tracksHours}
+                hours={rotateHours}
+                onHoursChange={setRotateHours}
+                hoursHint={tracksDistance ? undefined : t('tireList.rotateHoursHint')}
+              />
+            </div>
+          </Drawer>
+        )}
+      </PinnedUnits>
+
+      <PinnedUnits open={setsOpen}>
+        {(pu) => (
+          <Drawer
+            open={setsOpen}
+            onClose={() => {
+              setSetsOpen(false)
+              setFittingSetId(null)
+              setRenamingSetId(null)
+            }}
+            title={t('tireList.setsTitle')}
+            icon={Layers}
+            width="sm"
+            closeLabel={t('common:close')}
+            footer={
+              <Button variant="ghost" onClick={() => setSetsOpen(false)}>
+                {t('common:close')}
+              </Button>
+            }
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-text-mute">{t('tireList.setsHint')}</p>
+
+              {tireSets.length === 0 ? (
+                <EmptyState
+                  icon={Layers}
+                  size="sm"
+                  title={t('tireList.setsEmpty')}
+                  description={t('tireList.setsEmptyHint')}
+                />
+              ) : (
+                <ul className="space-y-2">
+                  {tireSets.map((tireSet) => (
+                    <li key={tireSet.id} className="rounded-card border border-border p-3 space-y-2">
+                      {renamingSetId === tireSet.id ? (
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1">
+                            <Field
+                              id={`set-rename-${tireSet.id}`}
+                              label={t('tireList.setName')}
+                              error={renameError ?? undefined}
+                            >
+                              <Input
+                                id={`set-rename-${tireSet.id}`}
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                              />
+                            </Field>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={updateSet.isPending}
+                            onClick={() => handleRenameSet(tireSet.id)}
+                          >
+                            {t('common:save')}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setRenamingSetId(null)}>
+                            {t('common:cancel')}
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="font-semibold">{tireSet.name}</div>
+                              <div className="text-sm text-text-mute">
+                                {t('tireList.setMembership', {
+                                  total: tireSet.tire_ids.length,
+                                  mounted: tireSet.mounted_count,
+                                })}
+                              </div>
+                            </div>
+                            <IconButton
+                              icon={Trash2}
+                              label={t('common:delete')}
+                              variant="danger"
+                              size="sm"
+                              disabled={deleteSet.isPending}
+                              onClick={() => handleDeleteSet(tireSet.id)}
+                            />
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {/* Fitting an empty set is a 409 the user cannot act
+                                on from here, so the control is not offered until
+                                the set has something in it. */}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={tireSet.tire_ids.length === 0 || mountSet.isPending}
+                              onClick={() => {
+                                setFittingSetId(tireSet.id)
+                                setFitOdometer(EMPTY_ODOMETER)
+                                setFitHours('')
+                                setFitDate(formatDateForInput())
+                              }}
+                            >
+                              {t('tireList.setFit')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setRenamingSetId(tireSet.id)
+                                setRenameValue(tireSet.name)
+                                setRenameError(null)
+                              }}
+                            >
+                              {t('tireList.setRename')}
+                            </Button>
+                          </div>
+                        </>
+                      )}
+
+                      {fittingSetId === tireSet.id && (
+                        <div className="space-y-2 border-t border-border pt-2">
+                          <p className="text-sm text-text-mute">{t('tireList.setFitHint')}</p>
+                          <MountEventFields
+                            vin={vin}
+                            idPrefix={`set-fit-${tireSet.id}`}
+                            dateLabel={t('tireList.eventDate')}
+                            date={fitDate}
+                            onDateChange={setFitDate}
+                            odometerLabel={unitLabels(pu).odometer}
+                            odometer={fitOdometer}
+                            onOdometerChange={setFitOdometer}
+                            tracksDistance={tracksDistance}
+                            tracksHours={tracksHours}
+                            hours={fitHours}
+                            onHoursChange={setFitHours}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              disabled={mountSet.isPending}
+                              onClick={() => handleFitSet(tireSet.id, pu)}
+                            >
+                              {t('tireList.setFit')}
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setFittingSetId(null)}>
+                              {t('common:cancel')}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex items-end gap-2 border-t border-border pt-4">
+                <div className="flex-1">
+                  <Field id="new-set-name" label={t('tireList.setName')}>
+                    <Input
+                      id="new-set-name"
+                      value={newSetName}
+                      onChange={(e) => setNewSetName(e.target.value)}
+                    />
+                  </Field>
+                </div>
+                <Button
+                  variant="primary"
+                  icon={Plus}
+                  disabled={createSet.isPending || newSetName.trim() === ''}
+                  onClick={handleCreateSet}
+                >
+                  {t('tireList.setAdd')}
+                </Button>
               </div>
             </div>
-          )}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field id="tire-brand" label={t('tireList.brand')}>
-              <Input
-                id="tire-brand"
-                value={form.brand}
-                onChange={(e) => setForm({ ...form, brand: e.target.value })}
-              />
-            </Field>
-            <Field id="tire-model" label={t('tireList.model')}>
-              <Input
-                id="tire-model"
-                value={form.model_name}
-                onChange={(e) => setForm({ ...form, model_name: e.target.value })}
-              />
-            </Field>
-            <Field id="tire-size" label={t('tireList.size')}>
-              <Input
-                id="tire-size"
-                value={form.size}
-                onChange={(e) => setForm({ ...form, size: e.target.value })}
-              />
-            </Field>
-            <Field id="tire-dot" label={t('tireList.dot')}>
-              <Input
-                id="tire-dot"
-                value={form.dot_code}
-                onChange={(e) => setForm({ ...form, dot_code: e.target.value })}
-              />
-            </Field>
-            <TreadField
-              id="tire-tread"
-              label={treadLabel}
-              value={form.tread_depth_mm}
-              onChange={(next) => setForm((prev) => ({ ...prev, tread_depth_mm: next }))}
-              onConverted={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  origins: { ...prev.origins, tread_depth_mm: seedUnitField(null, u.tread) },
-                }))
-              }
-            />
-            <Field id="tire-pressure" label={pressureLabel}>
-              <Input
-                id="tire-pressure"
-                type="number"
-                step={u.pressure.step}
-                value={form.pressure_kpa}
-                onChange={(e) => setForm({ ...form, pressure_kpa: e.target.value })}
-              />
-            </Field>
-            <TreadField
-              id="tire-min"
-              label={minTreadLabel}
-              value={form.min_tread_mm}
-              onChange={(next) => setForm((prev) => ({ ...prev, min_tread_mm: next }))}
-              onConverted={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  origins: { ...prev.origins, min_tread_mm: seedUnitField(null, u.tread) },
-                }))
-              }
-              gaugeHint={false}
-            />
-          </div>
-        </div>
-      </Drawer>
+          </Drawer>
+        )}
+      </PinnedUnits>
 
-      <Drawer
-        open={readingTire !== null}
-        onClose={() => setReadingTireId(null)}
-        title={t('tireList.readingTitle', {
-          position: readingTire ? labelFor(readingTire.position) : '',
-        })}
-        icon={Gauge}
-        width="xs"
-        closeLabel={t('common:close')}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setReadingTireId(null)}>
-              {t('common:cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={addReading.isPending}
-              onClick={() => readingTire && handleReading(readingTire.id)}
-            >
-              {t('common:save')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <Field id="reading-date" label={t('common:date')}>
-            <Input
-              id="reading-date"
-              type="date"
-              value={readingForm.recorded_at}
-              onChange={(e) => setReadingForm({ ...readingForm, recorded_at: e.target.value })}
-            />
-          </Field>
-          <TreadField
-            id="reading-tread"
-            label={treadLabel}
-            value={readingForm.tread_depth_mm}
-            onChange={(next) => setReadingForm((prev) => ({ ...prev, tread_depth_mm: next }))}
-            onConverted={() =>
-              setReadingForm((prev) => ({
-                ...prev,
-                origins: { ...prev.origins, tread_depth_mm: seedUnitField(null, u.tread) },
-              }))
+      <PinnedUnits open={formOpen}>
+        {(pu) => (
+          <Drawer
+            open={formOpen}
+            onClose={closeForm}
+            /* Editing names the tire, because position is a tire's whole identity
+               and five otherwise-identical rows are indistinguishable without it.
+               Adding stays the generic "Add Tire": retitling as the position chips
+               are pressed would make a create read like an edit. */
+            title={
+              editingTireId === null
+                ? t('tireList.addTitle')
+                : form.position == null
+                  ? t('tireList.editTitleStored')
+                  : t('tireList.editTitleNamed', { position: positionLabels[form.position] })
             }
-          />
-          <Field id="reading-pressure" label={pressureLabel}>
-            <Input
-              id="reading-pressure"
-              type="number"
-              step={u.pressure.step}
-              value={readingForm.pressure_kpa}
-              onChange={(e) => setReadingForm({ ...readingForm, pressure_kpa: e.target.value })}
-            />
-          </Field>
-          {tracksDistance && (
-            <Field id="reading-odo" label={odometerLabel}>
-              <Input
-                id="reading-odo"
-                type="number"
-                step={u.distance.step}
-                value={readingForm.odometer_km}
-                onChange={(e) => setReadingForm({ ...readingForm, odometer_km: e.target.value })}
+            icon={Gauge}
+            width="sm"
+            closeLabel={t('common:close')}
+            footer={
+              <>
+                {/* mr-auto against the footer's justify-end: the destructive action
+                    sits hard left, a full footer's width away from Save. */}
+                {editingTireId !== null && (
+                  <Button
+                    variant="danger"
+                    icon={Trash2}
+                    className="mr-auto"
+                    onClick={handleDelete}
+                    disabled={remove.isPending}
+                  >
+                    {t('common:delete')}
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={closeForm}>
+                  {t('common:cancel')}
+                </Button>
+                <Button variant="primary" onClick={() => handleSave(pu)} disabled={createAndMount.isPending || updateTire.isPending}>
+                  {t('common:save')}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              {/* Push toggles rather than a select: five short fixed options, one tap
+                  instead of two-plus-a-scroll on mobile, and (the real gain) the
+                  occupied slots stay visible instead of silently vanishing from a
+                  collapsed menu.
+
+                  role="group" + aria-pressed chips, not a radiogroup: Chip is the
+                  app's established filter primitive (Address Book categories) and
+                  matching it beats hand-rolling a roving-tabindex radiogroup for
+                  five buttons. Field is bypassed on purpose: it renders
+                  <label htmlFor>, which associates with nothing when the control is
+                  a group of buttons, so the label is wired via aria-labelledby. */}
+              <div className="mb-4">
+                <span
+                  id="tire-position-label"
+                  className="mb-1 block text-sm font-medium text-text"
+                >
+                  {t('tireList.position')}
+                </span>
+                <div
+                  role="group"
+                  aria-labelledby="tire-position-label"
+                  className="flex flex-wrap gap-2"
+                >
+                  {POSITIONS.map((p) => {
+                    const locked = editingTireId !== null
+                    const taken = takenPositions.has(p)
+                    // Editing locks every chip; adding leaves occupied slots inert.
+                    // Chip renders a plain <span> without onClick, so an unavailable
+                    // slot is shown as state rather than as a dead-looking button.
+                    const selectable = !locked && !taken
+                    return (
+                      <Chip
+                        key={p}
+                        tone={taken && !locked ? 'muted' : 'default'}
+                        selected={form.position === p}
+                        onClick={selectable ? () => setForm({ ...form, position: p }) : undefined}
+                      >
+                        {p}
+                      </Chip>
+                    )
+                  })}
+                  {/* Storage is a sixth destination, not a sixth corner. It is the
+                      only way to enter a tire you own but are not fitting today,
+                      which is every second seasonal set, and without it a tire
+                      could only come into the app by being mounted onto a corner
+                      it then had to be dismounted from. */}
+                  <Chip
+                    selected={form.position == null}
+                    onClick={
+                      editingTireId === null ? () => setForm({ ...form, position: null }) : undefined
+                    }
+                  >
+                    {t('tireList.inStorage')}
+                  </Chip>
+                </div>
+                {editingTireId === null && form.position == null && (
+                  <p className="mt-1 text-sm text-text-mute">{t('tireList.storedHint')}</p>
+                )}
+              </div>
+              {/* A tire added at a corner is born with a mount period, and a
+                  period without an odometer is one whose distance can never be
+                  worked out. Before v3.4.0 this form sent neither field, which is
+                  why every tire added here read "add an odometer to this tire's
+                  mount" with no control that could. Hidden on the storage branch
+                  and on Edit: a stored tire has no mount to date, and an existing
+                  tire's history is edited in its history drawer. */}
+              {editingTireId === null && form.position != null && (
+                <div className="mb-4">
+                  <MountEventFields
+                    vin={vin}
+                    idPrefix="tire-mount"
+                    dateLabel={t('tireList.mountedOn')}
+                    date={form.mounted_on}
+                    onDateChange={(next) => setForm({ ...form, mounted_on: next })}
+                    odometerLabel={unitLabels(pu).odometer}
+                    odometerHint={t('tireList.mountOdometerHint')}
+                    odometer={form.mounted_odometer_km}
+                    onOdometerChange={(next) => setForm({ ...form, mounted_odometer_km: next })}
+                    tracksDistance={tracksDistance}
+                    tracksHours={tracksHours}
+                    hours={form.mounted_hours}
+                    onHoursChange={(next) => setForm({ ...form, mounted_hours: next })}
+                    hoursHint={tracksDistance ? undefined : t('tireList.mountHoursHint')}
+                  />
+                </div>
+              )}
+              {(editingTireId !== null || form.position == null) && (
+                <div className="mb-4">
+                  <Field
+                    id="tire-storage"
+                    label={t('tireList.storageLocation')}
+                    hint={t('tireList.storageLocationHint')}
+                  >
+                    <Input
+                      id="tire-storage"
+                      value={form.storage_location}
+                      onChange={(e) => setForm({ ...form, storage_location: e.target.value })}
+                    />
+                  </Field>
+                </div>
+              )}
+              {/* Membership is editable on an EXISTING tire only, because
+                  `POST /tires` forbids a `set_id`. Hidden rather than disabled
+                  when adding: a control that cannot be used yet reads as broken,
+                  and the tire can be filed the moment it is saved. */}
+              {editingTireId !== null && tireSets.length > 0 && (
+                <div className="mb-4">
+                  <span id="tire-set-label" className="mb-1 block text-sm font-medium text-text">
+                    {t('tireList.setLabel')}
+                  </span>
+                  <div role="group" aria-labelledby="tire-set-label" className="flex flex-wrap gap-2">
+                    <Chip
+                      selected={form.set_id == null}
+                      onClick={() => setForm({ ...form, set_id: null })}
+                    >
+                      {t('tireList.setNone')}
+                    </Chip>
+                    {tireSets.map((tireSet) => (
+                      <Chip
+                        key={tireSet.id}
+                        selected={form.set_id === tireSet.id}
+                        onClick={() => setForm({ ...form, set_id: tireSet.id })}
+                      >
+                        {tireSet.name}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field id="tire-brand" label={t('tireList.brand')}>
+                  <Input
+                    id="tire-brand"
+                    value={form.brand}
+                    onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                  />
+                </Field>
+                <Field id="tire-model" label={t('tireList.model')}>
+                  <Input
+                    id="tire-model"
+                    value={form.model_name}
+                    onChange={(e) => setForm({ ...form, model_name: e.target.value })}
+                  />
+                </Field>
+                <Field id="tire-size" label={t('tireList.size')}>
+                  <Input
+                    id="tire-size"
+                    value={form.size}
+                    onChange={(e) => setForm({ ...form, size: e.target.value })}
+                  />
+                </Field>
+                <Field id="tire-dot" label={t('tireList.dot')}>
+                  <Input
+                    id="tire-dot"
+                    value={form.dot_code}
+                    onChange={(e) => setForm({ ...form, dot_code: e.target.value })}
+                  />
+                </Field>
+                <TreadField
+                  id="tire-tread"
+                  label={unitLabels(pu).tread}
+                  value={form.tread_depth_mm}
+                  onChange={(next) => setForm((prev) => ({ ...prev, tread_depth_mm: next }))}
+                  onConverted={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      origins: { ...prev.origins, tread_depth_mm: seedUnitField(null, pu.tread) },
+                    }))
+                  }
+                />
+                <Field id="tire-pressure" label={unitLabels(pu).pressure}>
+                  <NumberInput
+                    id="tire-pressure"
+                    value={form.pressure_kpa}
+                    onChange={(e) => setForm({ ...form, pressure_kpa: e.target.value })}
+                  />
+                </Field>
+                <TreadField
+                  id="tire-min"
+                  label={unitLabels(pu).minTread}
+                  value={form.min_tread_mm}
+                  onChange={(next) => setForm((prev) => ({ ...prev, min_tread_mm: next }))}
+                  onConverted={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      origins: { ...prev.origins, min_tread_mm: seedUnitField(null, pu.tread) },
+                    }))
+                  }
+                  gaugeHint={false}
+                />
+              </div>
+            </div>
+          </Drawer>
+        )}
+      </PinnedUnits>
+
+      <PinnedUnits open={readingTire !== null}>
+        {(pu) => (
+          <Drawer
+            open={readingTire !== null}
+            onClose={() => setReadingTireId(null)}
+            title={t('tireList.readingTitle', {
+              position: readingTire ? labelFor(readingTire.position) : '',
+            })}
+            icon={Gauge}
+            width="xs"
+            closeLabel={t('common:close')}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setReadingTireId(null)}>
+                  {t('common:cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={addReading.isPending}
+                  onClick={() => readingTire && handleReading(readingTire.id, pu)}
+                >
+                  {t('common:save')}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <Field id="reading-date" label={t('common:date')}>
+                <Input
+                  id="reading-date"
+                  type="date"
+                  value={readingForm.recorded_at}
+                  onChange={(e) => setReadingForm({ ...readingForm, recorded_at: e.target.value })}
+                />
+              </Field>
+              <TreadField
+                id="reading-tread"
+                label={unitLabels(pu).tread}
+                value={readingForm.tread_depth_mm}
+                onChange={(next) => setReadingForm((prev) => ({ ...prev, tread_depth_mm: next }))}
+                onConverted={() =>
+                  setReadingForm((prev) => ({
+                    ...prev,
+                    origins: { ...prev.origins, tread_depth_mm: seedUnitField(null, pu.tread) },
+                  }))
+                }
               />
-            </Field>
-          )}
-          {tracksHours && (
-            <Field id="reading-hours" label={t('common:engineHours')} unit="hr">
-              <Input
-                id="reading-hours"
-                type="number"
-                step="0.1"
-                value={readingForm.engine_hours}
-                onChange={(e) => setReadingForm({ ...readingForm, engine_hours: e.target.value })}
-              />
-            </Field>
-          )}
-        </div>
-      </Drawer>
+              <Field id="reading-pressure" label={unitLabels(pu).pressure}>
+                <NumberInput
+                  id="reading-pressure"
+                  value={readingForm.pressure_kpa}
+                  onChange={(e) => setReadingForm({ ...readingForm, pressure_kpa: e.target.value })}
+                />
+              </Field>
+              {tracksDistance && (
+                <Field id="reading-odo" label={unitLabels(pu).odometer}>
+                  <NumberInput
+                    id="reading-odo"
+                    value={readingForm.odometer_km}
+                    onChange={(e) => setReadingForm({ ...readingForm, odometer_km: e.target.value })}
+                  />
+                </Field>
+              )}
+              {tracksHours && (
+                <Field id="reading-hours" label={t('common:engineHours')} unit="hr">
+                  <NumberInput
+                    id="reading-hours"
+                    value={readingForm.engine_hours}
+                    onChange={(e) => setReadingForm({ ...readingForm, engine_hours: e.target.value })}
+                  />
+                </Field>
+              )}
+            </div>
+          </Drawer>
+        )}
+      </PinnedUnits>
 
       <TireHistoryDrawer
         vin={vin}

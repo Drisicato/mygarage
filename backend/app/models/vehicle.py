@@ -15,13 +15,13 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
 
 if TYPE_CHECKING:
     from app.models.def_record import DEFRecord
@@ -51,14 +51,21 @@ class Vehicle(Base):
 
     __tablename__ = "vehicles"
 
+    # The vehicle's key. The VIN for a vehicle that has one; for equipment and
+    # vehicles without one, a generated "Q" key (never a VIN, never shown).
+    # identifier_type says which (#226, migration 150); see app/utils/vehicle_key.py.
     vin: Mapped[str] = mapped_column(String(17), primary_key=True)
+    identifier_type: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="vin", server_default="vin"
+    )
+    identifier: Mapped[str | None] = mapped_column(String(64))
     nickname: Mapped[str] = mapped_column(String(100), nullable=False)
     vehicle_type: Mapped[str] = mapped_column(String(20), nullable=False)
     # Usage tracking dimension: 'distance' (odometer, km-canonical) or 'hours'
     # (engine-hour meter). Per-vehicle; 'distance' is the default. current_hours
     # holds the latest hour reading when usage_unit == 'hours'. See migration 080.
     usage_unit: Mapped[str] = mapped_column(String(10), default="distance", nullable=False)
-    current_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
+    current_hours: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 1), nullable=True)
     # Whether this vehicle also tracks the *other* usage dimension (the one that
     # isn't ``usage_unit``). Default off → existing vehicles stay single-track.
     # See migration 083.
@@ -71,11 +78,34 @@ class Vehicle(Base):
     make: Mapped[str | None] = mapped_column(String(50))
     model: Mapped[str | None] = mapped_column(String(50))
     license_plate: Mapped[str | None] = mapped_column(String(20))
+    # Where the vehicle is registered when that differs from the owner's
+    # country (ISO 3166-1 alpha-2, validated by Pydantic), and field B of its
+    # EU registration certificate, which inspection cadences count from
+    # (migration 143, #211). NULL = not set.
+    registration_country: Mapped[str | None] = mapped_column(String(2))
+    first_registration_date: Mapped[date | None] = mapped_column(Date)
+    # Field X.1 of the certificate: the date the next periodic inspection is
+    # due by (« visite avant le »), never a passed one. The inspection engine
+    # holds its reminder to it while no inspection is on record (migration
+    # 152, #211).
+    inspection_due_date: Mapped[date | None] = mapped_column(Date)
+    # The other EU registration-certificate fields (migration 147, #211):
+    # V.9 Euro class, P.6 fiscal power, V.7 CO₂ g/km, P.2 power kW, J EU
+    # category (M1, N1, L3e), J.1 national kind (VP, CTTE), and the
+    # low-emission-zone class a person sets by hand when the computed one
+    # is wrong. Bounds and vocabularies are Pydantic's, not a CHECK.
+    euro_emission_class: Mapped[str | None] = mapped_column(String(12))
+    fiscal_power: Mapped[int | None] = mapped_column(Integer)
+    co2_g_km: Mapped[int | None] = mapped_column(Integer)
+    power_kw: Mapped[int | None] = mapped_column(Integer)
+    eu_category: Mapped[str | None] = mapped_column(String(5))
+    national_category: Mapped[str | None] = mapped_column(String(10))
+    lez_class: Mapped[str | None] = mapped_column(String(10))
     color: Mapped[str | None] = mapped_column(String(30))
     purchase_date: Mapped[date | None] = mapped_column(Date)
-    purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    purchase_price: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     sold_date: Mapped[date | None] = mapped_column(Date)
-    sold_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    sold_price: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     main_photo: Mapped[str | None] = mapped_column(String(255))
     # VIN decoded fields
     trim: Mapped[str | None] = mapped_column(String(50))
@@ -92,17 +122,17 @@ class Vehicle(Base):
     # Window sticker fields
     window_sticker_file_path: Mapped[str | None] = mapped_column(String(255))
     window_sticker_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime)
-    msrp_base: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    msrp_options: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    msrp_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    fuel_economy_city_l_per_100km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    fuel_economy_highway_l_per_100km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    fuel_economy_combined_l_per_100km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    msrp_base: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
+    msrp_options: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
+    msrp_total: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
+    fuel_economy_city_l_per_100km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(7, 4))
+    fuel_economy_highway_l_per_100km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(7, 4))
+    fuel_economy_combined_l_per_100km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(7, 4))
     standard_equipment: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     optional_equipment: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     assembly_location: Mapped[str | None] = mapped_column(String(100))
     # Enhanced window sticker fields
-    destination_charge: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    destination_charge: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     window_sticker_options_detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     window_sticker_packages: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     exterior_color: Mapped[str | None] = mapped_column(String(100))
@@ -117,7 +147,7 @@ class Vehicle(Base):
     environmental_rating_ghg: Mapped[str | None] = mapped_column(String(10))
     environmental_rating_smog: Mapped[str | None] = mapped_column(String(10))
     window_sticker_parser_used: Mapped[str | None] = mapped_column(String(50))
-    window_sticker_confidence_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    window_sticker_confidence_score: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2))
     window_sticker_extracted_vin: Mapped[str | None] = mapped_column(String(17))
     # Multi-user support
     user_id: Mapped[int | None] = mapped_column(
@@ -129,7 +159,7 @@ class Vehicle(Base):
     archive_reason: Mapped[str | None] = mapped_column(
         String(50)
     )  # Sold, Totaled, Gifted, Trade-in, Other
-    archive_sale_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    archive_sale_price: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     archive_sale_date: Mapped[date | None] = mapped_column(Date)
     archive_notes: Mapped[str | None] = mapped_column(String(1000))
     archived_visible: Mapped[bool] = mapped_column(Boolean, server_default="1")
@@ -138,21 +168,21 @@ class Vehicle(Base):
         Boolean, nullable=False, server_default="1"
     )
     # DEF tracking
-    def_tank_capacity_liters: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    def_tank_capacity_liters: Mapped[Decimal | None] = mapped_column(ScaledNumeric(6, 2))
     # Structured maintenance specs (migration 095) — oil / torque / fluids
     oil_viscosity: Mapped[str | None] = mapped_column(String(30))
-    oil_capacity_liters: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    oil_capacity_liters: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2))
     oil_filter_part_number: Mapped[str | None] = mapped_column(String(50))
     # Migration 099. Not gated on fuel type: a diesel's filters are a scheduled
     # item, and an older petrol vehicle's inline filter is a real one too.
     fuel_filter_part_number: Mapped[str | None] = mapped_column(String(50))
-    lug_nut_torque_nm: Mapped[Decimal | None] = mapped_column(Numeric(6, 1))
+    lug_nut_torque_nm: Mapped[Decimal | None] = mapped_column(ScaledNumeric(6, 1))
     coolant_type: Mapped[str | None] = mapped_column(String(50))
     brake_fluid_type: Mapped[str | None] = mapped_column(String(30))
     transmission_fluid_type: Mapped[str | None] = mapped_column(String(50))
     maintenance_specs_notes: Mapped[str | None] = mapped_column(String(500))
     # Milestone notification tracking (km, per migration 053)
-    last_milestone_notified_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    last_milestone_notified_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2))
     # DEF-low crossing dedup marker (migration 064); Task 16 consumer
     def_low_notified_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -176,11 +206,21 @@ class Vehicle(Base):
     fuel_records: Mapped[list[FuelRecord]] = relationship(
         "FuelRecord", back_populates="vehicle", cascade="all, delete-orphan"
     )
+    # passive_deletes on these two: a vehicle delete leaves them to the `vin`
+    # ON DELETE CASCADE. Rows synced from a fuel record or service visit also
+    # cascade with their source, which the ORM deletes first, so the ORM's own
+    # DELETE for them matched nothing and warned on every such delete.
     odometer_records: Mapped[list[OdometerRecord]] = relationship(
-        "OdometerRecord", back_populates="vehicle", cascade="all, delete-orphan"
+        "OdometerRecord",
+        back_populates="vehicle",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     hours_records: Mapped[list[HoursRecord]] = relationship(
-        "HoursRecord", back_populates="vehicle", cascade="all, delete-orphan"
+        "HoursRecord",
+        back_populates="vehicle",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     tax_records: Mapped[list[TaxRecord]] = relationship(
         "TaxRecord", back_populates="vehicle", cascade="all, delete-orphan"
@@ -248,13 +288,13 @@ class TrailerDetails(Base):
     vin: Mapped[str] = mapped_column(
         String(17), ForeignKey("vehicles.vin", ondelete="CASCADE"), primary_key=True
     )
-    gvwr_kg: Mapped[Decimal | None] = mapped_column(Numeric(7, 2))
+    gvwr_kg: Mapped[Decimal | None] = mapped_column(ScaledNumeric(8, 3))
     hitch_type: Mapped[str | None] = mapped_column(String(30))
     axle_count: Mapped[int | None] = mapped_column(Integer)
     brake_type: Mapped[str | None] = mapped_column(String(20))
-    length_m: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    width_m: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    height_m: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    length_m: Mapped[Decimal | None] = mapped_column(ScaledNumeric(6, 3))
+    width_m: Mapped[Decimal | None] = mapped_column(ScaledNumeric(6, 3))
+    height_m: Mapped[Decimal | None] = mapped_column(ScaledNumeric(6, 3))
     tow_vehicle_vin: Mapped[str | None] = mapped_column(
         String(17), ForeignKey("vehicles.vin", ondelete="SET NULL")
     )

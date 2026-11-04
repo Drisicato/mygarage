@@ -44,9 +44,7 @@ def upgrade(engine=None):
             """)
             )
         conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS idx_supply_vehicles_vin ON supply_vehicles (vin)"
-            )
+            text("CREATE INDEX IF NOT EXISTS idx_supply_vehicles_vin ON supply_vehicles (vin)")
         )
 
         columns = {c["name"] for c in inspector.get_columns("supplies")}

@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.address_book import AddressBookEntry
 from app.models.supply import Supply, SupplyPurchase, SupplyUsage, SupplyVehicle
-from app.models.vehicle import Vehicle
 from app.models.user import User
+from app.models.vehicle import Vehicle
 from app.schemas._money import UNIT_COST_MAX
 from app.schemas.supply import (
     SupplyAdjustmentCreate,
@@ -32,6 +32,7 @@ from app.schemas.supply import (
     SupplyUpdate,
     SupplyUsageResponse,
 )
+from app.utils.household_time import household_datetime, household_zone
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.money_fits import ensure_fits
 from app.utils.path_validation import validate_path_within_base
@@ -42,6 +43,21 @@ _ZERO = Decimal("0")
 
 #: Longest edge of a stored product image; plenty for a list thumbnail or a form preview.
 SUPPLY_IMAGE_MAX_SIDE = (800, 800)
+
+#: What on-hand and running balances round to, in canonical units. Entries keep
+#: 13 places, but 1.03 fl oz has 15 and loses a sliver to rounding, so 32 of
+#: them leave -8E-13 L behind and a supply that's used up reads as short. This
+#: hides that and nothing real: the smallest entry is 0.001.
+BALANCE_GRAIN = Decimal("1E-9")
+
+
+def ledger_balance(value: Decimal) -> Decimal:
+    """A balance at BALANCE_GRAIN, with zero as plain 0.
+
+    Rounding a tiny negative gives -0E-9, and that goes out on the wire as is.
+    """
+    balance = value.quantize(BALANCE_GRAIN, rounding=ROUND_HALF_UP)
+    return balance if balance else _ZERO
 
 
 def usage_cost_subject(supply_id: int) -> str:
@@ -103,7 +119,7 @@ class SupplyService:
         for sid in supply_ids:
             p_qty, p_cost, costed_qty = purchases.get(sid, (_ZERO, _ZERO, _ZERO))
             u_qty = usages.get(sid, _ZERO)
-            on_hand = (p_qty - u_qty).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+            on_hand = ledger_balance(p_qty - u_qty)
             avg = (
                 (p_cost / costed_qty).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
                 if costed_qty > 0
@@ -195,9 +211,7 @@ class SupplyService:
         )
         missing = [vin for vin in vins if vin not in known]
         if missing:
-            raise HTTPException(
-                status_code=422, detail=f"Vehicle {', '.join(missing)} not found"
-            )
+            raise HTTPException(status_code=422, detail=f"Vehicle {', '.join(missing)} not found")
 
     @staticmethod
     def _set_vins(supply: Supply, vins: list[str]) -> None:
@@ -551,7 +565,7 @@ class SupplyService:
     async def get_supply_history(
         self, supply_id: int, current_user: User | None
     ) -> SupplyHistoryResponse:
-        from datetime import datetime, time
+        from datetime import UTC, datetime, time
 
         from sqlalchemy.orm import selectinload
 
@@ -602,15 +616,25 @@ class SupplyService:
 
         # Effective ledger date (R1-H3): purchase.date; job usage → owning visit
         # date (real consumption date); standalone adjustment → created_at.
+        # Dates are household days but created_at is naive UTC, so everything
+        # goes on the household clock first or a near-midnight adjustment
+        # lands on the wrong day.
+        zone = household_zone()
         events: list[tuple[datetime, str, object]] = []
         for p in purchases:
-            events.append((datetime.combine(p.date, time.min), "purchase", p))
+            events.append((datetime.combine(p.date, time.min, tzinfo=zone), "purchase", p))
         for u in usages:
             visit = u.line_item.visit if (u.line_item and u.line_item.visit) else None
-            eff = datetime.combine(visit.date, time.min) if visit else u.created_at
+            eff = (
+                datetime.combine(visit.date, time.min, tzinfo=zone)
+                if visit
+                else household_datetime(u.created_at)
+            )
             events.append((eff, "usage", u))
-        # Deterministic: same date → purchases first, then by id.
-        events.sort(key=lambda e: (e[0], 0 if e[1] == "purchase" else 1, e[2].id))
+        # Sort on the real instant, not the wall clock. In the fall-back hour a
+        # later adjustment has an earlier wall clock and would jump the queue.
+        # Same instant → purchases first, then by id.
+        events.sort(key=lambda e: (e[0].astimezone(UTC), 0 if e[1] == "purchase" else 1, e[2].id))
 
         entries: list[SupplyLedgerEntry] = []
         balance = _ZERO
@@ -622,8 +646,9 @@ class SupplyService:
                         entry_type="purchase",
                         id=obj.id,
                         at=at,
+                        ledger_date=at.date(),
                         quantity=obj.quantity,
-                        running_balance=balance.quantize(Decimal("0.001")),
+                        running_balance=ledger_balance(balance),
                         cost=obj.total_cost,
                         supplier_id=obj.supplier_id,
                         part_number=obj.part_number,
@@ -639,8 +664,9 @@ class SupplyService:
                         entry_type="usage",
                         id=obj.id,
                         at=at,
+                        ledger_date=at.date(),
                         quantity=-obj.quantity,
-                        running_balance=balance.quantize(Decimal("0.001")),
+                        running_balance=ledger_balance(balance),
                         cost=obj.cost_snapshot,
                         service_line_item_id=obj.service_line_item_id,
                         service_visit_id=visit.id if visit else None,

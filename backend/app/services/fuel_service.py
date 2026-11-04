@@ -28,7 +28,6 @@ from app.schemas.fuel import (
     FuelRecordUpdate,
     check_reading_and_amount,
 )
-from app.utils.cache import cached, invalidate_cache_for_vehicle
 from app.utils.def_sync import ensure_def_capable, sync_def_from_fuel_record
 from app.utils.fuel_station_sync import resolve_fuel_station
 from app.utils.hours_sync import sync_hours_from_record
@@ -108,6 +107,12 @@ def _fuel_response(
     return FuelRecordResponse(**record_dict)
 
 
+#: Computed L/100km keeps the four places the consumption columns hold, so a
+#: tank's figure and a typed OBC one compare at the same grain, and an MPG
+#: reader's conversion doesn't start from a figure already rounded off.
+L_PER_100KM_PLACES = 4
+
+
 def calculate_l_per_100km(
     current_record: FuelRecord,
     previous_record: FuelRecord | None,
@@ -162,7 +167,7 @@ def calculate_l_per_100km(
         return None
 
     l_per_100km = (liters / distance_km) * Decimal("100")
-    return round(l_per_100km, 2)
+    return round(l_per_100km, L_PER_100KM_PLACES)
 
 
 def calculate_hours_economy(
@@ -343,7 +348,7 @@ def average_l_per_100km(periods: Sequence[EconomyPeriod]) -> Decimal | None:
         return None
     liters = sum((period.liters for period in periods), Decimal(0))
     distance_km = sum((period.distance_km for period in periods), Decimal(0))
-    return round(liters / distance_km * Decimal(100), 2)
+    return round(liters / distance_km * Decimal(100), L_PER_100KM_PLACES)
 
 
 # A trailer has no odometer, so a bottle refill's consumption is volume over
@@ -575,7 +580,6 @@ async def get_previous_full_tank(
     return result.scalar_one_or_none()
 
 
-@cached(ttl_seconds=300)  # Cache for 5 minutes
 async def calculate_average_l_per_100km(
     db: AsyncSession, vin: str, exclude_hauling: bool = True
 ) -> Decimal | None:
@@ -606,7 +610,6 @@ async def calculate_average_l_per_100km(
     return average_l_per_100km(periods)
 
 
-@cached(ttl_seconds=300)  # Cache for 5 minutes
 async def calculate_average_hours_economy(
     db: AsyncSession, vin: str, exclude_hauling: bool = True
 ) -> tuple[Decimal | None, Decimal | None]:
@@ -651,6 +654,17 @@ class FuelRecordService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def _ensure_driver_exists(self, driver_user_id: int | None) -> None:
+        """Refuse a driver id that names no user here, active or not (B3-1).
+
+        Without it the FK caught it as a 409 that reads like a duplicate. SQLite
+        installs from before 054 have no FK, and there the dead id just got stored.
+        """
+        if driver_user_id is None:
+            return
+        if await self.db.get(User, driver_user_id) is None:
+            raise HTTPException(status_code=422, detail="driver_user_id: no such user")
 
     async def _economy_for(self, vin: str, record: FuelRecord) -> Decimal | None:
         """L/100km for a single just-written/read full-tank record.
@@ -845,6 +859,8 @@ class FuelRecordService:
 
             record_dict = record_data.model_dump()
             record_dict["vin"] = vin
+            # Before the station resolve, which can add an address book row.
+            await self._ensure_driver_exists(record_dict.get("driver_user_id"))
 
             # Pop DEF fill level before creating FuelRecord (not a fuel table column)
             def_fill_level = record_dict.pop("def_fill_level", None)
@@ -964,8 +980,6 @@ class FuelRecordService:
                 value,
             )
 
-            await invalidate_cache_for_vehicle(vin)
-
             return record, value, hours_value
 
         except HTTPException:
@@ -1011,6 +1025,13 @@ class FuelRecordService:
                 raise HTTPException(status_code=404, detail=f"Fuel record {record_id} not found")
 
             update_data = record_data.model_dump(exclude_unset=True)
+            # Only a changed driver is checked, so a fill-up keeps its driver
+            # through an unrelated edit (S13).
+            if (
+                "driver_user_id" in update_data
+                and update_data["driver_user_id"] != record.driver_user_id
+            ):
+                await self._ensure_driver_exists(update_data["driver_user_id"])
             # An edit can't leave a fill-up create would refuse, e.g. an emptied
             # propane refill that no list shows any more. Only an edit that
             # CHANGES one of the rule's fields is held to it: the forms send them
@@ -1097,6 +1118,10 @@ class FuelRecordService:
 
             for field, value in update_data.items():
                 setattr(record, field, value)
+            # The schema only sees the request; a scale sent to a record with
+            # no stored octane has nothing to qualify either.
+            if record.octane is None:
+                record.octane_scale = None
 
             # ---- Single outer transaction begins ----
             await self.db.flush()  # apply field changes inside the same tx
@@ -1184,8 +1209,6 @@ class FuelRecordService:
                 "Updated fuel record %s for %s", sanitize_for_log(record_id), sanitize_for_log(vin)
             )
 
-            await invalidate_cache_for_vehicle(vin)
-
             return record, value, hours_value
 
         except HTTPException:
@@ -1250,8 +1273,6 @@ class FuelRecordService:
             logger.info(
                 "Deleted fuel record %s for %s", sanitize_for_log(record_id), sanitize_for_log(vin)
             )
-
-            await invalidate_cache_for_vehicle(vin)
 
         except HTTPException:
             raise

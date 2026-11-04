@@ -114,7 +114,11 @@ vi.mock('../../hooks/useReminders', () => ({
 }))
 vi.mock('../../hooks/useLatestMileage', () => ({ useLatestMileage: () => ({ data: null }) }))
 vi.mock('../../hooks/useLatestHours', () => ({ useLatestHours: () => ({ data: null }) }))
-vi.mock('../ReminderForm', () => ({ default: () => null }))
+// ReminderList reads its type chip's label from the real module's REMINDER_TYPE_DEFS.
+vi.mock('../ReminderForm', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../ReminderForm')>()),
+  default: () => null,
+}))
 vi.mock('../../hooks/queries/useDEFRecords', () => ({
   useDEFRecords: () => ({ data: { records: [DEF_RECORD] }, isLoading: false, error: null }),
   useDEFAnalytics: () => ({ data: DEF_ANALYTICS }),
@@ -216,7 +220,7 @@ const SITES: { name: string; mount: () => void }[] = [
   { name: 'ServiceVisitList odometer (format)',
     mount: () => { render(<ServiceVisitList vin="V1" onAddClick={vi.fn()} onEditClick={vi.fn()} />) } },
   { name: 'ReminderList due mileage (format)',
-    mount: () => { render(<ReminderList vin="V1" />) } },
+    mount: () => { render(<ReminderList vehicle={{ ...VEHICLE, vin: 'V1' }} />) } },
   { name: 'DEFRecordList odometer column (format)',
     mount: () => { render(<DEFRecordList vin="V1" />) } },
 ]
@@ -251,13 +255,14 @@ describe('the sites that render a unit label of their own', () => {
   })
 
   it('the DEF estimate card names the resolved unit and converts the number beside it', () => {
-    // `Est. {label} Left` over `toDisplayText`: 80467 km is 50,000 mi, and the
-    // card used to answer "80,467" under an "Est. km Left" caption for this
-    // account because both halves read the collapsed system.
+    // The `defList.estimatedRemaining` caption over `toDisplayText`: 80467 km is
+    // 50,000 mi, and the card used to answer "80,467" under an "Est. km Left"
+    // caption for this account because both halves read the collapsed system.
     unitPrefMock.units = LITRES_MILES
     render(<DEFRecordList vin="V1" />)
-    const card = screen.getByText(/Est\./).closest('div')?.parentElement as HTMLElement
-    expect(within(card).getByText(/Est\. mi Left/)).toBeInTheDocument()
+    const caption = screen.getByText('defList.estimatedRemaining (mi)')
+    expect(caption).toBeInTheDocument()
+    const card = caption.closest('div')?.parentElement as HTMLElement
     expect(within(card).getByText('50,000')).toBeInTheDocument()
   })
 

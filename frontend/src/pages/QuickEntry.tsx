@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactElement, type ReactNode } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
@@ -16,7 +16,7 @@ import { useQuickEntryVehicles } from '../hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '../utils/vehicleLabel'
 import { withBase } from '../utils/basePath'
 import { fillUpKind, vehicleLogKinds } from '../utils/vehicleLogKinds'
-import { VehicleUnitScope, type VehicleDistanceUnit } from '../contexts/VehicleUnitScope'
+import { VehicleUnitScope } from '../contexts/VehicleUnitScope'
 
 type EntryType = 'fuel' | 'def' | 'propane' | 'service' | 'odometer' | 'hours' | null
 
@@ -27,26 +27,6 @@ interface Action {
   tint: string
   title: string
   description: string
-}
-
-/**
- * Holds a vehicle's odometer unit for the life of one open form (#172).
- *
- * The vehicle list refetches in the background (30 s stale, on focus), so a
- * unit changed on another device can arrive while a form holds typed text.
- * Captured synchronously on mount (a lazy state initialiser, never an effect,
- * which would render the first frame in the account's unit) and keyed on the
- * entry and vehicle, so the next form opens with the new one.
- */
-function EntryUnitSession({
-  distanceUnit,
-  children,
-}: {
-  distanceUnit: VehicleDistanceUnit
-  children: ReactNode
-}): ReactElement {
-  const [captured] = useState(() => distanceUnit)
-  return <VehicleUnitScope distanceUnit={captured}>{children}</VehicleUnitScope>
 }
 
 export default function QuickEntry() {
@@ -140,12 +120,12 @@ export default function QuickEntry() {
       {/* Minimal header */}
       <header className="bg-garage-surface border-b border-garage-border px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Car className="w-5 h-5 text-primary" />
+          <Car className="w-5 h-5 text-(--accent-fg)" />
           <span className="font-semibold text-garage-text">{t('common:appName')}</span>
         </div>
         <Link
           to="/"
-          className="flex items-center gap-1 text-sm text-primary hover:underline"
+          className="flex items-center gap-1 text-sm text-(--accent-fg) hover:underline"
         >
           <LayoutDashboard className="w-4 h-4" />
           {t('common:dashboard')}
@@ -165,7 +145,7 @@ export default function QuickEntry() {
             <button
               onClick={() => void refetch()}
               disabled={isFetching}
-              className="text-primary hover:underline disabled:opacity-50"
+              className="text-(--accent-fg) hover:underline disabled:opacity-50"
             >
               {isFetching ? t('quickEntry.loadingVehicles') : t('quickEntry.retry')}
             </button>
@@ -175,7 +155,7 @@ export default function QuickEntry() {
         {!isLoading && !isError && vehicles.length === 0 && (
           <div className="text-center py-12">
             <p className="text-garage-text-muted mb-4">{t('quickEntry.noVehicles')}</p>
-            <Link to="/" className="text-primary hover:underline">
+            <Link to="/" className="text-(--accent-fg) hover:underline">
               {t('quickEntry.goToDashboard')}
             </Link>
           </div>
@@ -244,10 +224,12 @@ export default function QuickEntry() {
         )}
       </main>
 
-      {/* Modal forms — opened by action buttons. Each holds the vehicle's
-          odometer unit it opened with until it closes (#172). */}
+      {/* Modal forms, opened by the action buttons. Each form pins the
+          vehicle's odometer unit and the account set itself when it mounts
+          (R4), so this scope stays live. The key remounts the form if a deep
+          link swaps the vehicle under it. */}
       {openEntry !== null && selectedVehicle && (
-        <EntryUnitSession key={`${openEntry}:${selectedVin}`} distanceUnit={selectedVehicle.distance_unit}>
+        <VehicleUnitScope key={`${openEntry}:${selectedVin}`} distanceUnit={selectedVehicle.distance_unit}>
           {openEntry === 'fuel' && (
             <FuelRecordForm
               vin={selectedVin}
@@ -296,7 +278,7 @@ export default function QuickEntry() {
               onSuccess={() => handleSuccess('hours')}
             />
           )}
-        </EntryUnitSession>
+        </VehicleUnitScope>
       )}
     </div>
   )

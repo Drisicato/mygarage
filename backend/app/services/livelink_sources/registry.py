@@ -76,6 +76,16 @@ class SourceRegistry:
         """The module for a device kind, or None if unknown."""
         return self._modules.get(kind)
 
+    def capabilities_for(self, kind: str) -> frozenset[Capability]:
+        """What a device kind can do. A kind with no module can do nothing.
+
+        Never raises, on purpose: a module removed in a later release leaves
+        its rows behind, and the offline sweep runs every device under one
+        `try`, so one orphan must not stop the rest (Fable F5-3).
+        """
+        module = self._modules.get(kind)
+        return module.capabilities if module is not None else frozenset()
+
     def all_modules(self) -> list[BaseSourceModule]:
         """Every registered module."""
         return list(self._modules.values())
@@ -83,6 +93,20 @@ class SourceRegistry:
     def valid_kinds(self) -> frozenset[str]:
         """Every valid `livelink_devices.kind` value."""
         return frozenset(self._modules)
+
+    def foreign_param_keys(self, kind: str) -> frozenset[str]:
+        """The keys every OTHER module names for itself (`own_param_keys`).
+
+        A device of ``kind`` never sent one, so a per-vehicle read (the latest
+        table has no device id) can tell another source's key from its own: a
+        WiCAN's odometer scan skips them (FW-A-r4a). A new source joins by
+        declaring its vocabulary; nothing here names a kind.
+        """
+        keys: frozenset[str] = frozenset()
+        for module in self._modules.values():
+            if module.kind != kind:
+                keys |= module.own_param_keys
+        return keys
 
     async def mqtt_subscriptions(self, db: AsyncSession | None) -> dict[str, BaseSourceModule]:
         """Exact topic to owning module, across all registered modules.

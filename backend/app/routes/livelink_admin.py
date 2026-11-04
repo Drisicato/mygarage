@@ -72,6 +72,8 @@ from app.services.livelink_integrations import (
     firmware_is_pending,
 )
 from app.services.livelink_service import LiveLinkService
+from app.services.livelink_sources.base import Capability
+from app.services.livelink_sources.generic_mqtt import GenericMqttModule
 from app.services.livelink_sources.presets import PRESETS
 from app.services.livelink_sources.presets.sensors import (
     create_sensor,
@@ -80,7 +82,7 @@ from app.services.livelink_sources.presets.sensors import (
     rename_sensor_parameters,
 )
 from app.services.livelink_sources.registry import default_registry
-from app.services.mqtt_subscriber import mqtt_subscriber
+from app.services.mqtt_subscriber import MqttNotConfiguredError, mqtt_subscriber
 from app.services.oidc import MASKED_SECRET_PLACEHOLDER
 from app.services.sd_backfill_service import SdBackfillService
 from app.services.settings_service import (
@@ -90,6 +92,8 @@ from app.services.settings_service import (
 )
 from app.services.telemetry_service import TelemetryService
 from app.tasks.livelink_tasks import get_mqtt_status as get_subscriber_status
+from app.tasks.livelink_tasks import restart_mqtt_subscriber as restart_subscriber
+from app.tasks.livelink_tasks import stop_mqtt_subscriber as stop_subscriber
 from app.utils.datetime_utils import utc_now
 from app.utils.request_scheme import get_external_base_url
 
@@ -277,18 +281,36 @@ async def regenerate_global_token(
 # =============================================================================
 
 
-async def _device_response(db: AsyncSession, device) -> LiveLinkDeviceResponse:
-    """One device, with `movement_unreadable` actually answered.
+async def _device_responses(
+    db: AsyncSession, devices: list[LiveLinkDevice]
+) -> list[LiveLinkDeviceResponse]:
+    """Devices, with the computed fields actually answered.
 
-    The field defaults to False on the schema, so a handler that skips this
-    reports "this device's movement reads fine" about a device nobody asked
-    about. That is the silent zero this whole feature exists to remove, one
-    layer up from where it was removed.
+    `movement_unreadable` and `online` both default to False on the schema, so
+    a handler that skips this reports "this device's movement reads fine" and
+    "offline" about a device nobody asked about. That is the silent zero this
+    whole feature exists to remove, one layer up from where it was removed.
+
+    `online` is `device_is_online`, the integrations card's rule (G5b-58).
     """
-    unreadable = await LiveLinkService(db).movement_unreadable_device_ids([device])
-    return LiveLinkDeviceResponse.model_validate(device).model_copy(
-        update={"movement_unreadable": device.device_id in unreadable}
-    )
+    service = LiveLinkService(db)
+    unreadable = await service.movement_unreadable_device_ids(devices)
+    timeout = await service.get_device_offline_timeout_minutes() if devices else 0
+    now = utc_now()
+    return [
+        LiveLinkDeviceResponse.model_validate(d).model_copy(
+            update={
+                "movement_unreadable": d.device_id in unreadable,
+                "online": device_is_online(d, timeout, now),
+            }
+        )
+        for d in devices
+    ]
+
+
+async def _device_response(db: AsyncSession, device: LiveLinkDevice) -> LiveLinkDeviceResponse:
+    """One device, answered like the list (`_device_responses`)."""
+    return (await _device_responses(db, [device]))[0]
 
 
 @router.get("/devices", response_model=LiveLinkDeviceListResponse)
@@ -302,21 +324,13 @@ async def list_devices(
     **Security:**
     - Requires authentication
     """
-    service = LiveLinkService(db)
-    devices = await service.list_devices()
-    unreadable = await service.movement_unreadable_device_ids(devices)
+    responses = await _device_responses(db, await LiveLinkService(db).list_devices())
 
-    online_count = sum(1 for d in devices if d.device_status == "online")
-
+    # Counted from the rows, so the header can't disagree with them (Fable F1-9).
     return LiveLinkDeviceListResponse(
-        devices=[
-            LiveLinkDeviceResponse.model_validate(d).model_copy(
-                update={"movement_unreadable": d.device_id in unreadable}
-            )
-            for d in devices
-        ],
-        total=len(devices),
-        online_count=online_count,
+        devices=responses,
+        total=len(responses),
+        online_count=sum(1 for r in responses if r.online),
     )
 
 
@@ -397,8 +411,14 @@ async def delete_device(
 
     **Security:**
     - Owner of the device's linked vehicle (admin for unlinked devices).
+    - A preset sensor is admin-only: deleting it drops its topic maps and its
+      readings on every vehicle it ever reported to, not just this one.
     """
-    await _get_device_for_owner_or_404(db, device_id, current_user)
+    device = await _get_device_for_owner_or_404(db, device_id, current_user)
+    # Same predicate `delete_sensor_readings` acts on (R6). None is auth off.
+    is_sensor = PRESETS.get(device.preset_key or "") is not None
+    if is_sensor and current_user is not None and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only an admin can delete a preset sensor")
 
     service = LiveLinkService(db)
     deleted = await service.delete_device(device_id)
@@ -506,7 +526,7 @@ async def send_device_command(
 
     **Security:**
     - Owner of the device's linked vehicle (admin for unlinked devices).
-    - Device must be online
+    - Device must take commands (a WiCAN) and be online
     - MQTT subscriber must be connected
     """
     await _get_device_for_owner_or_404(db, device_id, current_user)
@@ -898,13 +918,27 @@ async def update_mqtt_settings(
     current_user: User | None = Depends(get_current_admin_user),
 ):
     """
-    Update MQTT subscriber settings.
+    Update MQTT subscriber settings, and apply them.
 
-    After updating settings, restart the MQTT subscriber for changes to take effect.
+    Switching `enabled` off stops the subscriber and switching it on starts
+    it. Changing any other field restarts a running subscriber, as the Restart
+    button does; a stopped one stays stopped. Sending a field's stored value
+    isn't a change.
 
     **Security:**
     - Requires authentication
     """
+    before = await get_mqtt_settings(db=db, current_user=current_user)
+    broker_changed = (
+        (updates.broker_host is not None and updates.broker_host != before.broker_host)
+        or (updates.broker_port is not None and updates.broker_port != before.broker_port)
+        or (updates.username is not None and updates.username != before.username)
+        # Write-only, so any new one counts; the placeholder means "keep it".
+        or (updates.password is not None and updates.password != MASKED_SECRET_PLACEHOLDER)
+        or (updates.topic_prefix is not None and updates.topic_prefix != before.topic_prefix)
+        or (updates.use_tls is not None and updates.use_tls != before.use_tls)
+    )
+
     if updates.enabled is not None:
         await SettingsService.set(db, "livelink_mqtt_enabled", str(updates.enabled).lower())
     if updates.broker_host is not None:
@@ -928,6 +962,16 @@ async def update_mqtt_settings(
         await SettingsService.set(db, "livelink_mqtt_use_tls", str(updates.use_tls).lower())
 
     await db.commit()
+
+    # After the commit: the subscriber reads its config through its own session.
+    enabled = before.enabled if updates.enabled is None else updates.enabled
+    if not enabled:
+        if mqtt_subscriber.is_running:
+            await stop_subscriber()
+    elif not before.enabled or (broker_changed and mqtt_subscriber.is_running):
+        # A restart, not a start, for the switch too: a subscriber left running
+        # in its "disabled" wait would ignore a plain start.
+        await restart_subscriber()
 
     # Return updated settings
     return await get_mqtt_settings(db=db, current_user=current_user)
@@ -1073,6 +1117,8 @@ async def set_sd_config(
 ):
     """Configure the SD-pull address and enable flag for a device.
 
+    404 for no such device, 422 for a kind with no SD card (only WiCAN has one).
+
     **Security:**
     - Requires admin authentication
     - device_address must be a private/LAN address (SSRF guard)
@@ -1083,7 +1129,14 @@ async def set_sd_config(
             status_code=422,
             detail="device_address must be a private/LAN address (public IPs are rejected)",
         )
-    await svc.update_device_address(device_id, body.device_address, body.sd_backfill_enabled)
+    try:
+        await svc.update_device_address(device_id, body.device_address, body.sd_backfill_enabled)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        # Only a WiCAN has an SD card; a stray address on anything else would
+        # just sit there waiting to be pulled.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return SdConfigResponse()
 
 
@@ -1097,13 +1150,24 @@ async def trigger_backfill(
 
     409 while LiveLink is switched off: the service would quietly do nothing
     (it checks the master switch too, for queued backfills), and an operator
-    who pressed "pull now" deserves to be told why nothing arrived.
+    who pressed "pull now" deserves to be told why nothing arrived. 422 for a
+    kind with no SD card (only WiCAN has one), for the same reason, and 404
+    for no such device.
 
     **Security:**
     - Requires admin authentication
     """
-    if not await LiveLinkService(db).is_enabled():
+    livelink = LiveLinkService(db)
+    if not await livelink.is_enabled():
         raise HTTPException(status_code=409, detail="LiveLink is switched off")
+    device = await livelink.get_device_by_id(device_id)
+    # 404 like `set_sd_config`: an all-zero 200 read as "pulled nothing" (FB-9).
+    if device is None:
+        raise HTTPException(status_code=404, detail=f"Device {device_id} not found")
+    if Capability.SD_BACKFILL not in default_registry().capabilities_for(device.kind):
+        raise HTTPException(
+            status_code=422, detail=f"A {device.kind} device has no SD card to pull"
+        )
     result = await SdBackfillService(db).backfill_device(device_id)
     return BackfillResultResponse(
         files_seen=result.files_seen,
@@ -1430,7 +1494,7 @@ async def create_device(
     body: LiveLinkDeviceManualCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_admin_user),
-) -> LiveLinkDevice:
+) -> LiveLinkDeviceResponse:
     """Create a device by hand.
 
     Auto-discovery covers WiCAN and a token flow covers Torque; a generic MQTT
@@ -1452,7 +1516,7 @@ async def create_device(
     db.add(device)
     await db.commit()
     await db.refresh(device)
-    return device
+    return await _device_response(db, device)
 
 
 @router.get("/devices/{device_id}/param-keys", response_model=list[str])
@@ -1506,6 +1570,21 @@ async def _reject_foreign_topic_claim(
         )
 
 
+async def _reject_another_kinds_device(db: AsyncSession, device_id: str) -> None:
+    """A topic map names a generic MQTT device, or one not created yet (FW-B-c5).
+
+    Topic maps feed `GenericMqttModule`, which won't ingest another kind's
+    device (FB-1), so a map naming a WiCAN would sit there doing nothing.
+    Raises 422.
+    """
+    kind = await db.scalar(select(LiveLinkDevice.kind).where(LiveLinkDevice.device_id == device_id))
+    if kind is not None and kind != GenericMqttModule.kind:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Device {device_id} is a {kind} device. Topic maps are for generic MQTT devices.",
+        )
+
+
 async def _register_mapped_parameter(db: AsyncSession, row: LiveLinkTopicMap) -> None:
     """Give a mapped telemetry key a `livelink_parameters` row.
 
@@ -1533,6 +1612,7 @@ async def create_topic_map(
     current_user: User | None = Depends(get_current_admin_user),
 ) -> LiveLinkTopicMap:
     """Add a mapping and resubscribe."""
+    await _reject_another_kinds_device(db, body.device_id)
     await _reject_foreign_topic_claim(db, body.topic, body.device_id)
     reject_foreign_preset_key(body.param_key, body.device_id)
     row = LiveLinkTopicMap(**body.model_dump())
@@ -1584,6 +1664,9 @@ async def update_topic_map(
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
 
+    # No kind check here: a PATCH can't change `device_id` (TopicMapUpdate
+    # forbids it), so create is the only place a map names its device, and a
+    # map made before FW-B-c5 stays editable, or it couldn't be switched off.
     await _reject_foreign_topic_claim(db, validated.topic, validated.device_id, exclude_id=map_id)
     # Only a new claim: a mapping made before the rule (dev's two-tank
     # `rvgateway`) must still be editable, or it can never be switched off.
@@ -1618,13 +1701,22 @@ async def discover_topics(
     body: TopicDiscoveryRequest,
     current_user: User | None = Depends(get_current_admin_user),
 ) -> list[dict[str, str]]:
-    """Listen briefly and report what the broker is publishing."""
+    """Listen briefly and report what the broker is publishing.
+
+    409 when a run is already going or MQTT can't connect as configured (off,
+    no broker host), 502 with the broker's message when it refuses or can't be
+    reached.
+    """
+    import aiomqtt
+
     try:
         return await mqtt_subscriber.discover_topics(
             prefix=body.prefix, seconds=min(body.seconds, 60)
         )
-    except RuntimeError as exc:
+    except (RuntimeError, MqttNotConfiguredError) as exc:
         raise HTTPException(409, str(exc)) from exc
+    except aiomqtt.MqttError as exc:
+        raise HTTPException(502, f"MQTT broker: {exc}") from exc
 
 
 @router.get("/presets", response_model=list[PresetInfo])
@@ -1660,16 +1752,16 @@ async def apply_preset(
     body: PresetApplyRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_admin_user),
-) -> LiveLinkDevice:
+) -> LiveLinkDeviceResponse:
     """Add one sensor: its own device, and a topic map per reading given.
 
     Which readings a preset has, and which it requires, is the preset's, so
     `topics` is checked against it here rather than on the schema.
 
     Each reading's parameter gets the preset's `storage_interval_seconds`.
-    REQUIRED, not tuning: retained messages replay on every resubscribe and
-    the storage path stamps server time, so without it each reconnect writes a
-    fresh row.
+    REQUIRED, not tuning: the gateway republishes every few seconds and the
+    storage path stamps server time, so without it a sensor writes a row per
+    message.
     """
     preset = PRESETS.get(name)
     if preset is None:
@@ -1689,8 +1781,16 @@ async def apply_preset(
         )
 
     vin = await _resolve_new_device_vin(db, body.vin, current_user)
-    device = await create_sensor(db, preset, body.label, vin, body.topics)
-    await db.commit()
+    try:
+        device = await create_sensor(db, preset, body.label, vin, body.topics)
+        await db.commit()
+    except IntegrityError:
+        # Two applies at once read the same free index (or topic), and the
+        # second insert loses. It flushes inside `create_sensor` or at commit.
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="Another sensor was added at the same time; try again"
+        ) from None
     await db.refresh(device)
     await mqtt_subscriber.reload()
-    return device
+    return await _device_response(db, device)

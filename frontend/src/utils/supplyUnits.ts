@@ -52,11 +52,12 @@ const UNIT_LABELS: Readonly<Record<SupplyUnit, string>> = {
   mL: 'mL',
   L: 'L',
   fl_oz_us: 'fl oz',
-  fl_oz_uk: 'fl oz',
+  fl_oz_uk: 'fl oz (UK)',
   qt_us: 'qt',
-  qt_uk: 'qt',
+  qt_uk: 'qt (UK)',
   gal_us: 'gal',
-  gal_uk: 'gal',
+  // Matches the fuel adapter's UK gallon, so the two never disagree on a page.
+  gal_uk: 'gal (UK)',
 }
 
 /**
@@ -132,7 +133,7 @@ export function displayDecimals(unit: SupplyUnit): number {
   return unit === 'mL' || unit === 'count' ? 0 : 2
 }
 
-// Storage holds 0.001 L, which is 0.0003 gal at worst, so four decimals always show it.
+// The API takes nothing under 1 mL, which is 0.0003 gal at worst, so four decimals always show an entry.
 const MAX_AMOUNT_DECIMALS = 4
 
 /**

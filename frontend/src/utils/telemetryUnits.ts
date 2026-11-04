@@ -18,24 +18,16 @@
  * adapter for anything the unit system covers, and from this same classifier
  * for anything outside it (RPM, voltage, percentages).
  *
- * ★ What this module deliberately does NOT do, and why (spec L6).
- * `backend/app/services/session_service.py::_get_current_odometer` reads
- * `param_key IN ("ODOMETER", "odometer", "ODO", "DISTANCE")`. Every one of those
- * is non-hex-prefixed, i.e. a CUSTOM PID that may already be in the user's own
- * unit, and none of them is the standard `A6-Odometer` that SAE J1979
- * guarantees is kilometres. Nothing in such a reading says which unit it holds,
- * and the backend discards the provenance at write time, so **no frontend rule
- * can recover it**. The only honest rendering is the raw number marked as
- * unverified, which is what `'unverified'` produces. That is a display fix, not
- * a fix for the underlying defect: the backend contract still has to record
- * which PID produced a value and whether it was normalised.
- *
- * Consumers of that column the deferred backend fix must cover, because a
- * frontend marker reaches none of them: `routes/fuel.py:194-213`, which turns
- * it into a PERSISTED `obc_l_per_100km` when a user accepts an OBC suggestion
- * (and persists `obc_avg_speed_kmh` from `session.avg_speed` in the same
- * write), and `routes/livelink_vehicle.py:708,732,748`, which exports it as a
- * labelled CSV column that leaves the product entirely.
+ * ★ Odometers. The backend stores an odometer it normalises in kilometres
+ * and labels its parameter row `km` (FB-5, and migration 133 for rows from
+ * before), so a row that says km renders as a distance, whatever the key is
+ * called. Which keys get normalised depends on the device's kind (a WiCAN's
+ * name scan, any other kind's declared key), which this classifier can't see,
+ * so it trusts the label rather than the name (FW-A-r3). A standard PID that
+ * names a distance is km by SAE J1979 and renders as one too. Anything else
+ * (a custom `TOTAL_ODO` a generic topic sent in miles, a `DISTANCE` autopid)
+ * renders as a plain number with whatever unit came with it, which says
+ * nothing rather than something wrong.
  *
  * Native OBD2 units, all of which are the canonical metric ones the adapters
  * take: speed km/h, temperature °C, distance km, pressure kPa or bar. RPM,
@@ -87,8 +79,8 @@ export interface ConvertedTelemetry {
  *
  * `quantity` is convertible: the reading is canonical metric and an adapter
  * owns both the factor and the precision. `dimensionless` is outside the unit
- * system and carries only a precision. `unverified` is the L6 case above: the
- * key says the value is a distance, and nothing says in which unit.
+ * system and carries only a precision. `millimetres` is a declared mm (a
+ * propane tank's depth), which the unit system has no quantity for.
  */
 export type TelemetryClass =
   | { readonly kind: 'quantity'; readonly quantity: UnitQuantity }
@@ -100,15 +92,11 @@ export type TelemetryClass =
  *
  * The only classifier in the codebase; see the module docstring.
  *
- * ★ Why a custom `SPEED` PID IS trusted while a custom `ODOMETER` is not, since
- * the asymmetry is deliberate and this is the one place it can be read.
- * `SPEED_PARAM_KEYS` on the backend is `["SPEED", "0D-VehicleSpeed",
- * "0D-VEHICLESPEED"]`, so a non-hex custom speed carries exactly the same
- * hazard. It is trusted anyway because the standard PID is the common case for
- * speed, where for the odometer the backend query reads ONLY custom keys, so
- * marking every speed unverified would cost a large regression to buy a rare
- * correctness win. The right fix for both halves is on the write side, and it
- * is the same fix: record which PID produced the value.
+ * ★ Why any key with "speed" in it reads as km/h. Upstream WiCAN defines a
+ * bare `SPEED` as km/h, and a reading the device declares in mph is converted
+ * to km/h on ingest, so what's stored is km/h either way. The one hole is a
+ * custom mph autopid with no declared unit: it arrives raw and reads as km/h
+ * here. That's a write-side gap, and no key rule in the browser can see it.
  *
  * @param paramKey The parameter key, e.g. `'A6-Odometer'` or `'COOLANT_TMP'`.
  * @param unit The unit string the device reported, if any.
@@ -116,21 +104,6 @@ export type TelemetryClass =
  */
 /** A two-hex-digit OBD2 PID prefix, e.g. the `A6-` of `A6-ODOMETER`. */
 const OBD2_PID_PREFIX = /^[0-9A-Fa-f]{2}-/
-
-/**
- * Bare distance keys the backend converts to kilometres on ingest.
- *
- * Mirrors `_ODOMETER_BARE_KEYS` in `backend/app/utils/odometer_units.py`,
- * lowercased. A bare key outside this set reaches the browser in whatever unit
- * the device reported, so it cannot be labelled.
- */
-const NORMALISED_DISTANCE_KEYS = new Set([
-  'odometer',
-  'odo',
-  'mileage',
-  'total_distance',
-  'distance_total',
-])
 
 export function classifyTelemetryParam(paramKey: string, unit: string | null): TelemetryClass {
   const key = paramKey.toLowerCase()
@@ -162,18 +135,18 @@ export function classifyTelemetryParam(paramKey: string, unit: string | null): T
     return { kind: 'quantity', quantity: 'temperature' }
   }
 
-  // Canonical kilometres, but only for the keys that actually are. A key is
-  // canonical when it carries a two-hex-digit OBD2 prefix (a standard SAE
-  // J1979 PID, which reports kilometres by specification) or when the backend
-  // normalises it on ingest. That second set is `_ODOMETER_BARE_KEYS` in
-  // `backend/app/utils/odometer_units.py` and must be kept level with it.
+  // Canonical kilometres, but only where that's known. A custom odometer is
+  // km when its row says so, which the declared-unit lookup above already
+  // took: the backend labels every odometer it normalises km. Whether it did
+  // depends on the device's kind (a WiCAN scans names, anything else records
+  // only its declared key), and the browser can't see that, so no name rule
+  // here guesses it (FW-A-r3). The one key rule left is a two-hex-digit OBD2
+  // prefix naming a distance: a standard SAE J1979 PID, km by specification.
   //
-  // Matching every key containing "distance" claimed more than that: a custom
-  // autopid named `DISTANCE` is not in the backend's set, so it is stored in
-  // whatever unit the device sent, and calling it kilometres made imperial
-  // formatting divide a mileage figure by 1.609. Such a key falls through to a
-  // plain number instead, which states nothing rather than something wrong.
-  if (OBD2_PID_PREFIX.test(paramKey) || NORMALISED_DISTANCE_KEYS.has(key)) {
+  // Anything else falls through to a plain number with whatever unit it
+  // carries, which states nothing rather than something wrong: a generic
+  // topic's `TOTAL_ODO` in miles used to read 0.62x as km.
+  if (OBD2_PID_PREFIX.test(paramKey)) {
     if (key.includes('odo') || key.includes('distance') || key.includes('mileage')) {
       return { kind: 'quantity', quantity: 'distance' }
     }
@@ -197,8 +170,7 @@ export function classifyTelemetryParam(paramKey: string, unit: string | null): T
  * @param paramKey The parameter key.
  * @param unit The unit string the device reported, if any.
  * @param format The client's resolved formatters, from `useUnitFormat()`.
- * @param t The caller's translator, for the unknown-unit marker.
- * @returns The rendered number, its label, and whether that label is a claim.
+ * @returns The rendered number and its label.
  */
 export function convertTelemetryValue(
   value: number,

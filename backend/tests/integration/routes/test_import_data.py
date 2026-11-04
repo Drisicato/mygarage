@@ -14,29 +14,7 @@ import pytest_asyncio
 from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-@pytest.fixture(autouse=True)
-def _reset_import_rate_limit():
-    """Reset import (and export, for round-trip tests) limiter storage before each test.
-
-    ``routes/import_data.py`` defines a single module-level ``Limiter``
-    shared by every import endpoint (20/minute). This file's test count has
-    grown enough (Phase 9 added fuel/service/hours engine_hours coverage,
-    including export->import round-trip tests that also call ``routes/export.py``'s
-    stricter 5/minute limiter) that cumulative calls across tests can approach
-    either budget and cause intermittent 429s unrelated to the behavior under
-    test. Mirrors the precedent in ``test_auth.py``'s
-    ``TestCookieSecureFlag._reset_rate_limits``.
-    """
-    from app.routes.export import limiter as export_limiter
-    from app.routes.import_data import limiter as import_limiter
-
-    for lim in (import_limiter, export_limiter):
-        storage = lim._storage
-        storage.storage.clear()
-        storage.expirations.clear()
-        if hasattr(storage, "events"):
-            storage.events.clear()
+from tests._policy_scope import PolicyScope
 
 
 @pytest.mark.integration
@@ -198,18 +176,19 @@ class TestImportRoutes:
         assert data["error_count"] == 1
         assert "Reading is required" in data["errors"][0]
 
-    async def test_import_warranties_csv(self, client: AsyncClient, auth_headers, test_vehicle):
+    async def test_import_warranties_csv(self, client: AsyncClient, auth_headers, own_vehicle):
         """Test importing warranty records from CSV.
 
         Note: Import code may have field mapping issues. Verifying endpoint
-        handles requests properly and returns valid structure.
+        handles requests properly and returns valid structure. On its own
+        vehicle: the warranty ends in 2029, past the far-future leak guard.
         """
         csv_content = """Provider,Type,Start Date,End Date,Cost,Deductible,Notes
 Honda Care,Extended,2024-01-01,2029-01-01,1500.00,100.00,Extended warranty
 AAA,Roadside,2024-01-01,2025-01-01,150.00,0,Annual membership"""
 
         response = await client.post(
-            f"/api/import/vehicles/{test_vehicle['vin']}/warranties/csv",
+            f"/api/import/vehicles/{own_vehicle.vin}/warranties/csv",
             headers=auth_headers,
             files={"file": ("warranties.csv", BytesIO(csv_content.encode()), "text/csv")},
         )
@@ -221,28 +200,37 @@ AAA,Roadside,2024-01-01,2025-01-01,150.00,0,Annual membership"""
         assert "error_count" in data
         assert "total_processed" in data
 
-    async def test_import_insurance_csv(self, client: AsyncClient, auth_headers, test_vehicle):
+    async def test_import_insurance_csv(
+        self, client: AsyncClient, auth_headers, own_vehicle, db_session: AsyncSession
+    ):
         """Test importing insurance records from CSV.
 
         Note: Import code may have field mapping issues. Verifying endpoint
-        handles requests properly and returns valid structure.
+        handles requests properly and returns valid structure. The imported
+        policies are household rows that outlive the vehicle, so they go too.
         """
         csv_content = """Provider,Policy Number,Type,Start Date,End Date,Deductible,Notes
 State Farm,SF-12345,Full Coverage,2024-01-01,2024-07-01,500.00,6 month policy
 GEICO,GK-67890,Liability,2024-07-01,2025-01-01,250.00,Switched providers"""
+        policies = PolicyScope()
+        await policies.start(db_session)
+        try:
+            response = await client.post(
+                f"/api/import/vehicles/{own_vehicle.vin}/insurance/csv",
+                headers=auth_headers,
+                files={"file": ("insurance.csv", BytesIO(csv_content.encode()), "text/csv")},
+            )
 
-        response = await client.post(
-            f"/api/import/vehicles/{test_vehicle['vin']}/insurance/csv",
-            headers=auth_headers,
-            files={"file": ("insurance.csv", BytesIO(csv_content.encode()), "text/csv")},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        # Verify response structure is correct
-        assert "success_count" in data
-        assert "error_count" in data
-        assert "total_processed" in data
+            assert response.status_code == 200
+            data = response.json()
+            # Verify response structure is correct
+            assert "success_count" in data
+            assert "error_count" in data
+            assert "total_processed" in data
+        finally:
+            await db_session.rollback()
+            await policies.drop(db_session)
+            await db_session.commit()
 
     async def test_import_tax_csv(self, client: AsyncClient, auth_headers, test_vehicle):
         """Test importing tax records from CSV.
@@ -1248,6 +1236,82 @@ class TestVehicleJsonImportDates:
             f"{label} 3: date is not a valid date (expected YYYY-MM-DD)",
             f"{label} 4: date is not a valid date (expected YYYY-MM-DD)",
         ]
+
+
+_METRIC_MARKER = {"export_version": "3", "units": "metric"}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestVehicleJsonImportNumbers:
+    """A figure the importer may convert says which field isn't a number (F-4)."""
+
+    @pytest.mark.parametrize(
+        ("marker", "section", "row", "error"),
+        [
+            (
+                _METRIC_MARKER,
+                "odometer_records",
+                {"odometer_km": True},
+                "Odometer record 0: odometer_km is not a number",
+            ),
+            (
+                {},
+                "odometer_records",
+                {"reading": "abc"},
+                "Odometer record 0: reading is not a number",
+            ),
+            (
+                _METRIC_MARKER,
+                "fuel_records",
+                {"liters": "abc"},
+                "Fuel record 0: liters is not a number",
+            ),
+            ({}, "fuel_records", {"gallons": True}, "Fuel record 0: gallons is not a number"),
+            (
+                _METRIC_MARKER,
+                "fuel_records",
+                {"price_per_unit": "abc"},
+                "Fuel record 0: price_per_unit is not a number",
+            ),
+            (
+                _METRIC_MARKER,
+                "service_records",
+                {"odometer_km": "abc"},
+                "Service record 0: odometer_km is not a number",
+            ),
+            (
+                _METRIC_MARKER,
+                "hours_records",
+                {"engine_hours": "abc"},
+                "Hours record 0: engine_hours is not a number",
+            ),
+        ],
+        ids=[
+            "odometer-bool",
+            "legacy-reading",
+            "liters",
+            "legacy-gallons",
+            "price",
+            "service",
+            "hours",
+        ],
+    )
+    async def test_a_figure_that_is_not_a_number_names_its_field(
+        self,
+        client: AsyncClient,
+        auth_headers,
+        own_vehicle,
+        marker: dict[str, str],
+        section: str,
+        row: dict[str, Any],
+        error: str,
+    ):
+        payload = {**marker, section: [{"date": "2026-09-01", **row}]}
+        response = await _post_backup(client, auth_headers, own_vehicle.vin, payload)
+        assert response.status_code == 200, response.text
+        # main: "... 0: could not be imported", Decimal() raised InvalidOperation
+        assert response.json()["errors"] == [error]
 
 
 @pytest.mark.integration

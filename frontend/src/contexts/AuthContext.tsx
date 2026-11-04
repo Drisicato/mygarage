@@ -4,6 +4,7 @@ import type { components } from '../types/api.generated'
 import type { UnitSet } from '../types/units'
 import { readPublicUnitDefaults, type PublicSetting } from '../utils/publicUnitDefaults'
 import { ALL_NAV_SHOWN, readNavToggles, type NavToggles } from '../utils/navToggles'
+import { readPublicDefaultCountry } from '../utils/publicCountryDefault'
 import { setHouseholdTimeZone } from '../constants/i18n'
 
 /**
@@ -49,6 +50,13 @@ interface AuthContextType {
    * which is the same rule `defaultUnitPrefs` itself follows.
    */
   publicSettingsLoaded: boolean
+  /**
+   * The instance's `default_country` from `/settings/public` (ISO 3166-1
+   * alpha-2), or null when none is set. Last rung of the country precedence:
+   * a vehicle's registration country, then the account's country, then this.
+   * See `useResolvedCountry`.
+   */
+  defaultCountry: string | null
   login: (username: string, password: string) => Promise<User>
   register: (username: string, email: string, password: string) => Promise<void>
   logout: () => void
@@ -80,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
   const [loading, setLoading] = useState(true)
   const [authMode, setAuthMode] = useState<string>('none')
   const [defaultUnitPrefs, setDefaultUnitPrefs] = useState<UnitSet | null>(null)
+  const [defaultCountry, setDefaultCountry] = useState<string | null>(null)
   const [publicSettingsLoaded, setPublicSettingsLoaded] = useState(false)
   const [navToggles, setNavToggles] = useState<NavToggles>(ALL_NAV_SHOWN)
 
@@ -123,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
       // first is exactly why four phases shipped with this payload discarded.
       setDefaultUnitPrefs(readPublicUnitDefaults(publicSettings))
       setNavToggles(readNavToggles(publicSettings))
+      setDefaultCountry(readPublicDefaultCountry(publicSettings))
       {
         const zone = publicSettings.find((s) => s.key === 'effective_timezone')?.value ?? null
         setHouseholdTimeZone(zone)
@@ -178,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
       const publicSettings: PublicSetting[] = settingsResponse.data?.settings ?? []
       setDefaultUnitPrefs(readPublicUnitDefaults(publicSettings))
       setNavToggles(readNavToggles(publicSettings))
+      setDefaultCountry(readPublicDefaultCountry(publicSettings))
       {
         const zone = publicSettings.find((s) => s.key === 'effective_timezone')?.value ?? null
         setHouseholdTimeZone(zone)
@@ -280,6 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode}) {
     loading,
     authMode,
     defaultUnitPrefs,
+    defaultCountry,
     publicSettingsLoaded,
     login,
     register,

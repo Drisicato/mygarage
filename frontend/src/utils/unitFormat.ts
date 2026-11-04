@@ -51,6 +51,7 @@ import { getActiveLocale } from '@/constants/i18n'
 import { cachedCurrencyFormat, cachedNumberFormat } from './numberFormatCache'
 import { UNIT_QUANTITIES, type UnitQuantity, type UnitSet } from '@/types/units'
 import { adapterFor, counterpartFor, type UnitAdapter, type UnitToken } from './unitAdapters'
+import { parseDecimalInput } from './decimalInput'
 
 /**
  * What `format` renders when there is no value to render.
@@ -71,13 +72,11 @@ export interface QuantityFormat {
   readonly label: string
   /** Decimal places this unit is read and entered at. */
   readonly precision: number
-  /** The `step` an `<input type="number">` in this unit should carry. */
-  readonly step: string
   /** Canonical to this unit. Exact; the conversion layer's answer, unrounded. */
   toDisplay(canonical: number | null | undefined): number | null
   /** This unit to canonical. Exact; the conversion layer's answer, unrounded. */
   toCanonical(typed: number | null | undefined): number | null
-  /** Canonical to the ungrouped string an `<input type="number">` accepts. */
+  /** Canonical to the ungrouped JS-notation string a NumberInput is seeded with. */
   toInputValue(canonical: number | null | undefined): string
   /**
    * Canonical to the grouped number a reader sees, with NO label.
@@ -217,13 +216,6 @@ export function formatForAdapter(
     unit: adapter.unit,
     label: adapter.label,
     precision: adapter.precision,
-    // 0 -> '1', 1 -> '0.1', 2 -> '0.01'. `toFixed` is for readability, not for
-    // safety: no adapter in the table has a precision above 2, and `10 ** -1`
-    // and `10 ** -2` both stringify exactly, so this line has no reachable case
-    // where the two spellings differ. Replacing it with `String(...)` survives
-    // mutation for that reason, which is a fact about the vocabulary rather
-    // than a hole in the tests.
-    step: adapter.precision === 0 ? '1' : (10 ** -adapter.precision).toFixed(adapter.precision),
     toDisplay: (canonical) => adapter.toDisplay(canonical),
     toCanonical: (typed) => adapter.toCanonical(typed),
     toInputValue(canonical) {
@@ -558,6 +550,109 @@ export function formatCostPerDistance(
   )
 }
 
+/** Decimal places for a cost over ONE distance unit (e.g. `$0.189/mi`). */
+const COST_PER_SINGLE_DISTANCE_PRECISION = 3
+
+/**
+ * Render a cost rate over exactly ONE of the reader's distance units.
+ *
+ * The macro companion to {@link formatCostPerDistance}, which quotes the same
+ * canonical rate over 1,000 mi / 100 km. Three decimals because a per-mile
+ * figure lives in the cents-and-tenths range (`$0.189`), where two would round
+ * away the part worth reading.
+ *
+ * @param units The client's resolved unit set.
+ * @param costPerKm The canonical rate, currency per kilometre.
+ * @param currencyCode The reader's currency.
+ * @param locale The reader's locale.
+ * @returns e.g. `'$0.189'` per mi, or `'$0.117'` per km.
+ */
+export function formatCostPerSingleDistanceUnit(
+  units: UnitSet,
+  costPerKm: number,
+  currencyCode: string,
+  locale = 'en-US'
+): string {
+  const canonicalPerDistanceUnit = adapterFor(units, 'distance').toCanonical(1)!
+  return cachedCurrencyFormat(locale, currencyCode, COST_PER_SINGLE_DISTANCE_PRECISION).format(
+    costPerKm * canonicalPerDistanceUnit
+  )
+}
+
+/**
+ * The single distance unit's label, e.g. `'mi'` or `'km'`.
+ *
+ * @param units The client's resolved unit set.
+ */
+export function singleDistanceUnitLabel(units: UnitSet): string {
+  return adapterFor(units, 'distance').label
+}
+
+/**
+ * The single volume unit's label, e.g. `'gal'` or `'L'`.
+ *
+ * @param units The client's resolved unit set.
+ */
+export function singleVolumeUnitLabel(units: UnitSet): string {
+  return adapterFor(units, 'volume').label
+}
+
+/**
+ * A fuel price over ONE of the reader's volume units, at three places.
+ *
+ * Fuel prices are read to the tenth of a cent (`$2.986/gal`), which the
+ * two-place `UnitFormatter.formatCostPerVolume` would round away.
+ *
+ * @param units The client's resolved unit set.
+ * @param pricePerLiter The canonical price, currency per litre.
+ * @param currencyCode The reader's currency.
+ * @param locale The reader's locale.
+ * @returns e.g. `'$2.986'` per gal.
+ */
+export function formatPricePerVolumeUnit(
+  units: UnitSet,
+  pricePerLiter: number,
+  currencyCode: string,
+  locale = 'en-US'
+): string {
+  const litersPerUnit = adapterFor(units, 'volume').toCanonical(1)!
+  return cachedCurrencyFormat(locale, currencyCode, 3).format(pricePerLiter * litersPerUnit)
+}
+
+/**
+ * A volume in the reader's unit with its label, at a chosen precision.
+ *
+ * @param units The client's resolved unit set.
+ * @param liters The canonical volume in litres.
+ * @param digits Decimal places.
+ * @returns e.g. `'10.77 gal'` (`'10,77 gal'` in German), or `'N/A'` for a missing value.
+ *
+ * Reads the active locale ambiently, like `formatAtPrecision` and the
+ * `UnitFormatter` family, instead of taking a `locale` argument the way the
+ * currency helpers above do. A bare number has no currency to resolve, so the
+ * one app-wide locale is the only source it needs.
+ */
+export function formatVolumeWithUnit(units: UnitSet, liters: number | null | undefined, digits = 2): string {
+  const adapter = adapterFor(units, 'volume')
+  const value = adapter.toDisplay(liters)
+  return value == null || Number.isNaN(value) ? NOT_AVAILABLE : `${formatAtPrecision(value, digits)} ${adapter.label}`
+}
+
+/**
+ * How far one unit of currency of fuel goes, as a bare number in the reader's
+ * distance unit (the `10.595` of `10.595 mi/$`).
+ *
+ * @param units The client's resolved unit set.
+ * @param kmPerCurrencyUnit The canonical figure, kilometres per currency unit.
+ * @returns The number at three places, grouped and punctuated for the active
+ *   locale (`10,595` in German), or `'N/A'`.
+ *   Reads the active locale ambiently, like `formatVolumeWithUnit`.
+ */
+export function formatDistancePerCurrencyUnit(units: UnitSet, kmPerCurrencyUnit: number | null | undefined): string {
+  const value = adapterFor(units, 'distance').toDisplay(kmPerCurrencyUnit)
+  return value == null || Number.isNaN(value) ? NOT_AVAILABLE : formatAtPrecision(value, 3)
+}
+
 /**
  * The denominator a cost-per-distance figure is read under, as a unit phrase.
  *
@@ -631,6 +726,31 @@ export function canonicalFromUnitField(
   if (unitFieldUnchanged(typed, origin)) return origin.canonical
   if (typed.trim() === '') return null
   return quantity.toCanonical(Number(typed))
+}
+
+/**
+ * `canonicalFromUnitField` for a box that holds what the user typed, like a
+ * controlled NumberInput's text, rather than a number a form already parsed.
+ *
+ * `Number()` only knows a dot, so "1,234" in en came out NaN and "1.234" in de
+ * came out 1.234. This reads it in the active locale, the way NumberInput and
+ * registerDecimal do, so the save matches the "Read as" hint. Text that isn't a number comes back null.
+ *
+ * @param typed What the input currently holds.
+ * @param origin What `seedUnitField` recorded for this field.
+ * @param quantity The formatter for the field's quantity.
+ * @returns The canonical value to store, or null when the field is empty or not a number.
+ */
+export function canonicalFromTypedUnitField(
+  typed: string,
+  origin: UnitFieldOrigin,
+  quantity: QuantityFormat
+): number | null {
+  if (typed === origin.display) return origin.canonical
+  const parsed = parseDecimalInput(typed, getActiveLocale())
+  if (parsed.kind !== 'value') return null
+  // Hand the parsed number on, so an untouched value spelled differently still keeps its origin.
+  return canonicalFromUnitField(String(parsed.value), origin, quantity)
 }
 
 /**

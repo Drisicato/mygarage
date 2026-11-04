@@ -62,6 +62,9 @@ Timeline, with the commit that first emitted each tuple:
                        marker. This is the ONLY version that ever emitted it.
   49a4166  2026-08-26  v6: per-column vocabulary tokens, marker `metric` |
                        `imperial` | `custom`.
+  c0244a5  2026-10-28  v8 fuel: `Propane Volume`, `Tank Size`, `Tank Quantity`,
+                       `kWh` and `Price Basis` (batch 3b, B3-3). A price that
+                       isn't per volume is written by its basis (K9).
 
 The `reports.py` CSVs: all four tuples covered, none importable
 ---------------------------------------------------------------
@@ -233,6 +236,10 @@ _FUEL_V3 = (
     "units_version,Date,Odometer (km),Liters,Price Per Liter,Total Cost,Full Tank,"
     "Missed Fill-up,Is Hauling,Fuel Type,Notes"
 )
+# A row's Payment Method, Trip Type and Charge Location are the API's words
+# (`credit`, `commute`, `home`): each column arrived with its vocabulary (#69,
+# #138), so an export only ever wrote those, and the importer refuses any other
+# word since batch 3a task 3.
 _FUEL_V4_PREMARKER = (
     "units_version,Date,Filled At,Odometer (km),Liters,Price Per Liter,Total Cost,"
     "Full Tank,Missed Fill-up,Is Hauling,Fuel Type,Fuel Type Used,Station ID,Station,"
@@ -302,6 +309,17 @@ _FUEL_V6_CUSTOM = (
     "units_version,unit_system,Date,Filled At,Odometer (km),Engine Hours,Volume (gal_uk),"
     "Price Per Unit (gal_uk),Rebate,Total Cost,Full Tank,Missed Fill-up,Is Hauling,"
     "Fuel Type Used,Station ID,Station,Driver ID,Driver,Payment Method,Trip Type,"
+    "Outside Temp (f),OBC Economy (mpg_uk),OBC Avg Speed (mph),OBC Trip Duration (s),"
+    "SOC Start (%),SOC End (%),Charge Level,Charge Location,Battery SOH (%),Notes"
+)
+# v8 with batch 3b's five columns: propane by volume, tank size by mass, the
+# tank count, kWh, and the price's basis (K9). A custom account on km, UK
+# gallons and pounds.
+_FUEL_V8_CUSTOM = (
+    "units_version,unit_system,Date,Filled At,Odometer (km),Engine Hours,Volume (gal_uk),"
+    "Propane Volume (gal_uk),Tank Size (lb),Tank Quantity,kWh,Price Per Unit (gal_uk),"
+    "Price Basis,Rebate,Total Cost,Full Tank,Missed Fill-up,Is Hauling,Fuel Type Used,"
+    "Octane,Diesel Grade,Station ID,Station,Driver ID,Driver,Payment Method,Trip Type,"
     "Outside Temp (f),OBC Economy (mpg_uk),OBC Avg Speed (mph),OBC Trip Duration (s),"
     "SOC Start (%),SOC End (%),Charge Level,Charge Location,Battery SOH (%),Notes"
 )
@@ -708,7 +726,7 @@ CORPUS: Mapping[str, Shape] = {
         # (`OBC Trip Duration (s)`) must pass through untouched (R6).
         row=(
             "4,2026-04-04,2026-04-04T08:30:00,4200.50,43.250,1.500,64.88,Yes,No,No,"
-            "Gasoline,gasoline,,Shell,,Alex,Card,Commute,18.5,7.25,85.5,3600,"
+            "Gasoline,gasoline,,Shell,,Alex,credit,commute,18.5,7.25,85.5,3600,"
         ),
         expected={
             "odometer_km": "4200.50",
@@ -729,7 +747,7 @@ CORPUS: Mapping[str, Shape] = {
         # `units_version` with no marker to fall back on (R4 step 3).
         row=(
             "4,2026-04-13,2026-04-13T13:00:00,4700.15,47.125,1.700,0.50,80.11,Yes,No,No,"
-            "Gasoline,gasoline,,Shell,,Alex,Card,Commute,17.5,6.75,87.5,4500,"
+            "Gasoline,gasoline,,Shell,,Alex,credit,commute,17.5,6.75,87.5,4500,"
         ),
         expected={
             "odometer_km": "4700.15",
@@ -749,7 +767,7 @@ CORPUS: Mapping[str, Shape] = {
         # reason.
         row=(
             "4,2026-04-14,2026-04-14T13:30:00,4800.25,29.5,48.375,1.750,0.50,84.16,Yes,No,No,"
-            "Gasoline,gasoline,,Shell,,Alex,Card,Commute,16.5,6.50,89.5,4600,"
+            "Gasoline,gasoline,,Shell,,Alex,credit,commute,16.5,6.50,89.5,4600,"
         ),
         expected={
             "odometer_km": "4800.25",
@@ -766,7 +784,7 @@ CORPUS: Mapping[str, Shape] = {
         header=_FUEL_V4_MARKER_METRIC,
         row=(
             "4,metric,2026-04-05,2026-04-05T09:00:00,4300.75,21.5,44.125,1.550,0.00,68.39,"
-            "Yes,No,No,Gasoline,gasoline,,Shell,,Alex,Card,Commute,19.5,7.50,90.5,3700,"
+            "Yes,No,No,Gasoline,gasoline,,Shell,,Alex,credit,commute,19.5,7.50,90.5,3700,"
         ),
         expected={
             "odometer_km": "4300.75",
@@ -786,7 +804,7 @@ CORPUS: Mapping[str, Shape] = {
         # 235.2145833... / 23.5214 = 10.00 L/100km; 60 mph * 1.609344 = 96.56064 km/h.
         row=(
             "4,imperial,2026-04-06,2026-04-06T09:30:00,350,22.5,15,11.35623,0.00,170.34,"
-            "Yes,No,No,Gasoline,gasoline,,Shell,,Alex,Card,Commute,68,23.5214,60,3800,"
+            "Yes,No,No,Gasoline,gasoline,,Shell,,Alex,credit,commute,68,23.5214,60,3800,"
         ),
         expected={
             "odometer_km": "563.27",
@@ -812,8 +830,8 @@ CORPUS: Mapping[str, Shape] = {
         # 235.2145833... / 47.0428 = 5.00 L/100km; 90 mph * 1.609344 = 144.84096.
         row=(
             "4,imperial,2026-04-15,2026-04-15T14:00:00,390,30.5,24,15.14164,0.50,363.40,"
-            "Yes,No,No,Gasoline,gasoline,,Shell,,Alex,Card,Commute,140,47.0428,90,4700,"
-            "10.0,90.0,L2,Home,99.0,"
+            "Yes,No,No,Gasoline,gasoline,,Shell,,Alex,credit,commute,140,47.0428,90,4700,"
+            "10.0,90.0,L2,home,99.0,"
         ),
         expected={
             "odometer_km": "627.64",
@@ -830,8 +848,8 @@ CORPUS: Mapping[str, Shape] = {
         header=_FUEL_V5_METRIC,
         row=(
             "5,metric,2026-04-07,2026-04-07T10:00:00,4400.10,23.5,45.500,1.600,0.00,72.80,"
-            "Yes,No,No,gasoline,,Shell,,Alex,Card,Commute,20.5,7.75,92.5,3900,"
-            "10.0,90.0,L2,Home,99.0,"
+            "Yes,No,No,gasoline,,Shell,,Alex,credit,commute,20.5,7.75,92.5,3900,"
+            "10.0,90.0,L2,home,99.0,"
         ),
         expected={
             "odometer_km": "4400.10",
@@ -851,8 +869,8 @@ CORPUS: Mapping[str, Shape] = {
         # 235.2145833... / 11.7607 = 20.00 L/100km; 55 mph * 1.609344 = 88.51392 km/h.
         row=(
             "5,imperial,2026-04-08,2026-04-08T10:30:00,360,24.5,16,7.57082,0.00,121.13,"
-            "Yes,No,No,gasoline,,Shell,,Alex,Card,Commute,50,11.7607,55,4000,"
-            "10.0,90.0,L2,Home,99.0,"
+            "Yes,No,No,gasoline,,Shell,,Alex,credit,commute,50,11.7607,55,4000,"
+            "10.0,90.0,L2,home,99.0,"
         ),
         expected={
             "odometer_km": "579.36",
@@ -875,8 +893,8 @@ CORPUS: Mapping[str, Shape] = {
         # 65 mph * 1.609344 = 104.60736 km/h.
         row=(
             "5,imperial_uk,2026-04-09,2026-04-09T11:00:00,370,25.5,18,13.63827,0.00,245.49,"
-            "Yes,No,No,gasoline,,Shell,,Alex,Card,Commute,86,14.12405,65,4100,"
-            "10.0,90.0,L2,Home,99.0,"
+            "Yes,No,No,gasoline,,Shell,,Alex,credit,commute,86,14.12405,65,4100,"
+            "10.0,90.0,L2,home,99.0,"
         ),
         expected={
             "odometer_km": "595.46",
@@ -893,8 +911,8 @@ CORPUS: Mapping[str, Shape] = {
         header=_FUEL_V6_METRIC,
         row=(
             "6,metric,2026-04-10,2026-04-10T11:30:00,4500.20,26.5,46.750,1.650,0.00,77.14,"
-            "Yes,No,No,gasoline,,Shell,,Alex,Card,Commute,21.5,8.25,94.5,4200,"
-            "10.0,90.0,L2,Home,99.0,"
+            "Yes,No,No,gasoline,,Shell,,Alex,credit,commute,21.5,8.25,94.5,4200,"
+            "10.0,90.0,L2,home,99.0,"
         ),
         expected={
             "odometer_km": "4500.20",
@@ -914,8 +932,8 @@ CORPUS: Mapping[str, Shape] = {
         # 235.2145833... / 23.5214 = 10.00 L/100km; 70 mph * 1.609344 = 112.65408.
         row=(
             "6,imperial,2026-04-11,2026-04-11T12:00:00,380,27.5,20,11.35623,0.00,227.12,"
-            "Yes,No,No,gasoline,,Shell,,Alex,Card,Commute,104,23.5214,70,4300,"
-            "10.0,90.0,L2,Home,99.0,"
+            "Yes,No,No,gasoline,,Shell,,Alex,credit,commute,104,23.5214,70,4300,"
+            "10.0,90.0,L2,home,99.0,"
         ),
         expected={
             "odometer_km": "611.55",
@@ -938,8 +956,8 @@ CORPUS: Mapping[str, Shape] = {
         # 282.4809363... / 28.2481 = 10.00 L/100km; 80 mph * 1.609344 = 128.74752.
         row=(
             "6,custom,2026-04-12,2026-04-12T12:30:00,4600.30,28.5,22,9.09218,0.00,200.03,"
-            "Yes,No,No,gasoline,,Shell,,Alex,Card,Commute,122,28.2481,80,4400,"
-            "10.0,90.0,L2,Home,99.0,"
+            "Yes,No,No,gasoline,,Shell,,Alex,credit,commute,122,28.2481,80,4400,"
+            "10.0,90.0,L2,home,99.0,"
         ),
         expected={
             "odometer_km": "4600.30",
@@ -948,6 +966,25 @@ CORPUS: Mapping[str, Shape] = {
             "outside_temp_c": "50.0",
             "obc_l_per_100km": "10.00",
             "obc_avg_speed_kmh": "128.7",
+        },
+    ),
+    "fuel-v8-custom-propane-by-weight": Shape(
+        pair="fuel",
+        evidence="c0244a5",
+        header=_FUEL_V8_CUSTOM,
+        # Two 20 lb tanks priced by the pound. 20 * 0.45359237 = 9.0718474 kg;
+        # 1.00004 / 0.45359237 = 2.20470 a kg. The price follows Tank Size's
+        # token, not the gal_uk in its own header (K9).
+        row=(
+            "8,custom,2026-04-13,,,,,,20.000,2,,1.00004,per_weight,,40.00,Yes,No,No,"
+            ",,,,,,,,,,,,,,,,,,"
+        ),
+        expected={
+            "tank_size_kg": "9.072",
+            "tank_quantity": "2",
+            "price_per_unit": "2.2047",
+            "propane_liters": None,
+            "kwh": None,
         },
     ),
 }
@@ -962,23 +999,6 @@ MODELS = {
 # A stable 17-character VIN per fixture, so a leaked row names its own shape
 # in the primary key rather than colliding with another fixture's vehicle.
 VINS = {fixture_id: f"CORPUS{index:011d}" for index, fixture_id in enumerate(CORPUS)}
-
-
-@pytest.fixture(autouse=True)
-def _reset_import_rate_limit():
-    """Clear the shared import limiter between tests.
-
-    `routes/import_data.py` has one module-level 20/minute limiter across
-    every import endpoint, and this file posts far more than that. Mirrors
-    the precedent in `test_import_data.py` and `test_import_csv_v6_units.py`.
-    """
-    from app.routes.import_data import limiter as import_limiter
-
-    storage = import_limiter._storage
-    storage.storage.clear()
-    storage.expirations.clear()
-    if hasattr(storage, "events"):
-        storage.events.clear()
 
 
 @asynccontextmanager
@@ -1445,3 +1465,286 @@ class TestR9OrderedTupleSignature:
             assert resp.status_code == 200, resp.text
             visit = await _one(test_sessionmaker, ServiceVisit, vin)
             assert Decimal(visit.odometer_km) == Decimal("531.08")
+
+
+# --------------------------------------------------------------------------
+# Batch 3a (R8): a multi-row v7 service file and a v8 JSON backup.
+# --------------------------------------------------------------------------
+
+
+class TestV7ServiceRowsOfOneVisit:
+    """v7 wrote one row per line item and no visit number (G4-73)."""
+
+    async def test_two_rows_of_one_visit_import_as_one_visit(
+        self, client, auth_headers, test_user, db_session, test_sessionmaker
+    ) -> None:
+        body = (
+            f"{_SVC_MARKER_KM}\n"
+            f"7,metric,2026-08-01,Maintenance,Oil,5000.00,10.0,40.00,{CORPUS_VENDOR},shared\n"
+            f"7,metric,2026-08-01,Maintenance,Filter,5000.00,10.0,10.00,{CORPUS_VENDOR},shared\n"
+        )
+        async with _vehicle(db_session, test_user["id"], "CORPUSV7TWOITEM01") as vin:
+            resp = await _post(client, auth_headers, vin, "service", body)
+            assert resp.status_code == 200, resp.text
+            async with test_sessionmaker() as fresh:
+                visits = (
+                    (await fresh.execute(select(ServiceVisit).where(ServiceVisit.vin == vin)))
+                    .scalars()
+                    .all()
+                )
+                items = (
+                    (
+                        await fresh.execute(
+                            select(ServiceLineItem.description)
+                            .join(ServiceVisit)
+                            .where(ServiceVisit.vin == vin)
+                            .order_by(ServiceLineItem.id)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            # main: two visits, one item each
+            assert len(visits) == 1, [v.id for v in visits]
+            assert (visits[0].notes, items) == ("shared", ["Oil", "Filter"])
+
+
+# A v8 backup's reading-bearing sections as the v3.9.0 export wrote them: the
+# odometer row a fill-up synced carries its marker, the hours row its source.
+_V8_BACKUP = {
+    "export_version": "8",
+    "units": "metric",
+    "export_date": "2026-10-01T12:00:00",
+    "vehicle": {"vin": "IGNORED", "year": 2024, "make": "Test", "model": "Corpus"},
+    "service_records": [
+        {
+            "date": "2026-08-02",
+            "service_category": "Maintenance",
+            "service_type": "Oil",
+            "odometer_km": 5100.0,
+            "cost": 45.0,
+            "vendor_name": CORPUS_VENDOR,
+            "notes": None,
+        }
+    ],
+    "fuel_records": [
+        {
+            "date": "2026-08-03",
+            "odometer_km": 5200.0,
+            "liters": 40.0,
+            "price_per_unit": 1.5,
+            "price_basis": "per_volume",
+            "rebate": None,
+            "cost": 60.0,
+            "is_full_tank": True,
+            "missed_fillup": False,
+            "is_hauling": False,
+            "fuel_type_used": "diesel",
+            "octane": None,
+            "diesel_grade": "onroad",
+            "notes": None,
+        }
+    ],
+    "def_records": [
+        {
+            "date": "2026-08-04",
+            "odometer_km": 5300.0,
+            "liters": 9.5,
+            "price_per_unit": 1.1,
+            "cost": 10.45,
+            "fill_level": 0.8,
+            "source": "Pump",
+            "brand": "Blue",
+            "notes": None,
+        }
+    ],
+    "odometer_records": [
+        {"date": "2026-08-03", "reading": 5200.0, "notes": "[AUTO-SYNC from fuel #41]"},
+        {"date": "2026-08-05", "reading": 5400.0, "notes": "Monthly"},
+    ],
+    "hours_records": [
+        {"date": "2026-08-05", "engine_hours": 12.5, "notes": None, "source": "manual"}
+    ],
+}
+
+
+def _synced_from(notes: str | None) -> str | None:
+    """The source a sync marker names (its id is the new row's); other notes as they are."""
+    prefix = "[AUTO-SYNC from "
+    if notes and notes.startswith(prefix) and notes.endswith("]"):
+        return notes[len(prefix) :].split(" #")[0]
+    return notes
+
+
+class TestJsonV8Backup:
+    async def test_a_v8_backup_still_imports_every_reading_once(
+        self, client, auth_headers, test_user, db_session, test_sessionmaker
+    ) -> None:
+        import json
+
+        async with _vehicle(db_session, test_user["id"], "CORPUSJSONV8BACK1") as vin:
+            resp = await client.post(
+                f"/api/import/vehicles/{vin}/json",
+                headers=auth_headers,
+                files={"file": ("v8.json", json.dumps(_V8_BACKUP).encode(), "application/json")},
+                data={"skip_duplicates": "true"},
+            )
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert [
+                data[s]["success_count"]
+                for s in ("service_records", "fuel_records", "def_records", "odometer_records")
+            ] == [1, 1, 1, 2], data
+            assert data["hours_records"]["success_count"] == 1, data
+            async with test_sessionmaker() as fresh:
+                readings = (
+                    await fresh.execute(
+                        select(
+                            OdometerRecord.date, OdometerRecord.odometer_km, OdometerRecord.notes
+                        )
+                        .where(OdometerRecord.vin == vin)
+                        .order_by(OdometerRecord.date)
+                    )
+                ).all()
+            # The 3rd's copied marker is gone, and the fill-up's own sync found the day
+            # already read; the 2nd and 4th are synced from the visit and the DEF fill.
+            # main: no rows for the 2nd and 4th, and the 3rd still marked fuel #41
+            assert [(d.isoformat(), str(km), _synced_from(n)) for d, km, n in readings] == [
+                ("2026-08-02", "5100.00", "service_visit"),
+                ("2026-08-03", "5200.00", None),
+                ("2026-08-04", "5300.00", "def"),
+                ("2026-08-05", "5400.00", "Monthly"),
+            ]
+
+
+# --------------------------------------------------------------------------
+# Batch 3b (R8, S14): a v9 backup as 3a wrote it, before tires, brakes, the
+# schedule, recalls, DTCs and supplies joined the file.
+# --------------------------------------------------------------------------
+
+_V9_3A_BACKUP = {
+    "export_version": "9",
+    "units": "metric",
+    "export_date": "2026-10-28T12:00:00",
+    "vehicle": {"vin": "IGNORED", "year": 2024, "make": "Test", "model": "Corpus"},
+    "service_visits": [
+        {
+            "date": "2026-09-02",
+            "odometer_km": 6100.0,
+            "engine_hours": None,
+            "tax_amount": 3.0,
+            "shop_supplies": None,
+            "misc_fees": None,
+            "notes": "3a visit",
+            "service_category": "Maintenance",
+            "insurance_claim_number": None,
+            "vendor_name": CORPUS_VENDOR,
+            # No supply_usages key: 3a didn't write one.
+            "line_items": [
+                {
+                    "description": "Oil change",
+                    "category": "Maintenance",
+                    "maintenance_type": "engine_oil_filter",
+                    "cost": 40.0,
+                    "notes": None,
+                    "is_inspection": False,
+                    "inspection_result": None,
+                    "inspection_severity": None,
+                    "triggered_by_inspection": None,
+                }
+            ],
+        }
+    ],
+    "fuel_records": [
+        {
+            "date": "2026-09-03",
+            "filled_at": None,
+            "odometer_km": 6200.0,
+            "liters": 40.0,
+            "cost": 60.0,
+            "price_per_unit": 1.5,
+            "price_basis": "per_volume",
+            "fuel_type_used": "diesel",
+            "is_full_tank": True,
+            "missed_fillup": False,
+            "is_hauling": False,
+            "station_name": None,
+            "driver_username": None,
+        }
+    ],
+    "notes": [{"date": "2026-09-04", "title": "3a note", "content": "kept"}],
+    "financing_records": [
+        {
+            "date": "2026-09-05",
+            "amount": 450.0,
+            "category": "loan_payment",
+            "notes": None,
+            "vendor_name": CORPUS_VENDOR,
+        }
+    ],
+    "toll_tags": [{"toll_system": "EZ TAG", "tag_number": "CORPUS3A", "status": "active"}],
+    "toll_transactions": [
+        {"date": "2026-09-06", "amount": 2.5, "location": "Hardy", "toll_tag_index": 0}
+    ],
+}
+
+#: Every bucket 3b adds, each untouched by a 3a file.
+_3B_BUCKETS = (
+    "maintenance_rules",
+    "tire_sets",
+    "tires",
+    "brake_axles",
+    "brake_jobs",
+    "brake_measurements",
+    "supplies",
+    "recalls",
+    "dtcs",
+)
+
+
+class TestJsonV9From3a:
+    async def test_a_3a_v9_backup_imports_as_before_and_again_as_duplicates(
+        self, client, auth_headers, test_user, db_session, test_sessionmaker
+    ) -> None:
+        import json
+
+        body = json.dumps(_V9_3A_BACKUP).encode()
+        async with _vehicle(db_session, test_user["id"], "CORPUSJSONV93A001") as vin:
+            counts = []
+            for _ in range(2):
+                resp = await client.post(
+                    f"/api/import/vehicles/{vin}/json",
+                    headers=auth_headers,
+                    files={"file": ("v9.json", body, "application/json")},
+                    data={"skip_duplicates": "true"},
+                )
+                assert resp.status_code == 200, resp.text
+                data = resp.json()
+                assert (data["errors"], data["warnings"]) == ([], []), data
+                counts.append(
+                    [
+                        (data[s]["success_count"], data[s]["skipped_count"])
+                        for s in (
+                            "service_records",
+                            "fuel_records",
+                            "notes",
+                            "financing_records",
+                            "toll_tags",
+                            "toll_transactions",
+                        )
+                    ]
+                )
+                # main: KeyError, the 3b buckets don't exist yet.
+                for bucket in _3B_BUCKETS:
+                    assert data[bucket]["success_count"] == 0, bucket
+                    assert data[bucket]["skipped_count"] == 0, bucket
+                    assert data[bucket]["error_count"] == 0, bucket
+            assert counts == [[(1, 0)] * 6, [(0, 1)] * 6]
+            async with test_sessionmaker() as fresh:
+                total = (
+                    await fresh.execute(
+                        select(ServiceVisit.total_cost).where(ServiceVisit.vin == vin)
+                    )
+                ).scalar_one()
+            # The item and the tax: no supplies in a 3a file.
+            assert total == Decimal("43.00")

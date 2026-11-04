@@ -1,8 +1,11 @@
 """Pytest configuration and fixtures for MyGarage backend tests."""
 
+import logging
 import os
 import shutil
 import tempfile
+import time
+import uuid
 from pathlib import Path
 
 # Enable test mode BEFORE importing app (disables CSRF validation in middleware)
@@ -15,35 +18,55 @@ os.environ["MYGARAGE_TEST_MODE"] = "true"
 # Tests that swap key sources call settings_crypto._reset_keyring_for_tests().
 os.environ.setdefault("MYGARAGE_SETTINGS_KEY", "bXlnYXJhZ2UgdGVzdCBzZXR0aW5ncyBrZXkgMDAwMSE")
 
+# Same for the JWT key: unset, importing app.config writes /data/secret.key on
+# any host where /data is writable. Same value as docker-compose.test.yml.
+os.environ.setdefault("MYGARAGE_SECRET_KEY", "test-secret-key")
+
 # If TEST_DATABASE_URL is set (e.g. for PostgreSQL), propagate it to the app's
 # database URL so the app engine matches the test engine. Must happen before imports.
 if "TEST_DATABASE_URL" in os.environ:
     os.environ["MYGARAGE_DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
 
-from collections.abc import AsyncGenerator
-from typing import NoReturn
+from collections.abc import AsyncGenerator, Generator, Iterator
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from slowapi import Limiter
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
+from app.main import limiter as main_limiter
+from app.models.def_record import DEFRecord
+from app.models.financing import FinancingRecord
 from app.models.fuel import FuelRecord
+from app.models.hours import HoursRecord
+from app.models.odometer import OdometerRecord
+from app.models.reminder import Reminder
 from app.models.service_visit import ServiceVisit
+from app.models.tax import TaxRecord
 from app.models.user import User
 from app.models.vehicle import Vehicle
+from app.models.warranty import WarrantyRecord
+from app.routes.analytics import limiter as analytics_limiter
+from app.routes.auth import limiter as auth_limiter
+from app.routes.export import limiter as export_limiter
+from app.routes.fuel import limiter as fuel_limiter
+from app.routes.garage_assistant import limiter as garage_assistant_limiter
+from app.routes.import_data._common import limiter as import_limiter
+from app.routes.insurance import limiter as insurance_limiter
+from app.routes.oidc import limiter as oidc_limiter
+from app.routes.registration_certificate import limiter as registration_certificate_limiter
+from app.routes.webhooks import limiter as webhooks_limiter
+from app.services.widget_auth import widget_limiter
+from app.utils.pg_session import create_utc_async_engine
 from tests._shard import apply_shard
-
-
-def skip_test(reason: str) -> NoReturn:
-    """Skip test with given reason - typed to indicate it never returns."""
-    pytest.skip(reason)
-    raise AssertionError("pytest.skip should have raised")
+from tests._users import TEST_PASSWORD_HASH
 
 
 @pytest.hookimpl(trylast=True)
@@ -71,12 +94,13 @@ async def test_engine():
     """Create async engine for tests.
 
     Uses NullPool for PostgreSQL/asyncpg to avoid event loop binding issues
-    with starlette middleware sub-tasks in pytest.
+    with starlette middleware sub-tasks in pytest. PG sessions are pinned to
+    UTC like the app's, so a test reads what production would store.
     """
     pool_kwargs = {}
     if "asyncpg" in TEST_DATABASE_URL:
         pool_kwargs["poolclass"] = NullPool
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False, **pool_kwargs)
+    engine = create_utc_async_engine(TEST_DATABASE_URL, echo=False, **pool_kwargs)
     if "sqlite" in TEST_DATABASE_URL:
         # Mirror production connection pragmas (WAL + foreign_keys=ON) so FK
         # cascade behavior in tests matches the deployed engine.
@@ -101,16 +125,179 @@ async def test_sessionmaker(test_engine):
     )
 
 
+#: Dated records the leak guard checks, each with the column that dates it. A
+#: row on any of these a year out lands in every later test's "latest reading",
+#: trend window, active warranty or due count.
+FAR_FUTURE_GUARDED: tuple[tuple[type[Base], str], ...] = (
+    (DEFRecord, "date"),
+    (FinancingRecord, "date"),
+    (FuelRecord, "date"),
+    (HoursRecord, "date"),
+    (OdometerRecord, "date"),
+    (Reminder, "due_date"),
+    (ServiceVisit, "date"),
+    (TaxRecord, "date"),
+    (WarrantyRecord, "end_date"),
+)
+
+
+def far_future_horizon() -> date:
+    """Rows dated after this are far-future: a year past today, in UTC.
+
+    UTC, not household time: no request is running at session end, so there's
+    no household zone to read, and the container's TZ moves under
+    `local_clock_off_utc`. A day either way is nothing against a year.
+    """
+    return datetime.now(UTC).date() + timedelta(days=365)
+
+
+async def far_future_survivors(engine: AsyncEngine, horizon: date | None = None) -> list[str]:
+    """One line per guarded row dated past the horizon: table, id, VIN and date.
+
+    The horizon defaults to `far_future_horizon()`; a caller that has already
+    read it passes it in, so a run crossing UTC midnight can't move it between.
+    """
+    horizon = horizon or far_future_horizon()
+    found: list[str] = []
+    async with engine.connect() as conn:
+        for model, column_name in FAR_FUTURE_GUARDED:
+            column = getattr(model, column_name)
+            rows = await conn.execute(
+                select(model.id, model.vin, column.label("dated"))
+                .where(column > horizon)
+                .order_by(model.vin, column, model.id)
+            )
+            found += [
+                f"{model.__tablename__} id={row.id} vin={row.vin} {column_name}={row.dated}"
+                for row in rows
+            ]
+    return found
+
+
+async def finish_test_db(engine: AsyncEngine) -> None:
+    """Session end: fail on any far-future survivor (R5), dropping the tables either way.
+
+    The drop sits in a finally, so a guard query that blows up still leaves a
+    clean database behind.
+    """
+    horizon = far_future_horizon()
+    try:
+        survivors = await far_future_survivors(engine, horizon)
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+    if survivors:
+        # This lands on whichever test ran last, so say it isn't that one's fault.
+        pytest.fail(
+            f"{len(survivors)} row(s) dated after {horizon} outlived their "
+            "tests (checked at session end; the last test isn't necessarily the culprit). "
+            "Find the test that writes this VIN and give its vehicle a teardown:\n"
+            + "\n".join(f"  {line}" for line in survivors),
+            pytrace=False,
+        )
+
+
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def init_test_db(test_engine):
-    """Initialize test database schema."""
-    async with test_engine.begin() as conn:
-        # Create all tables from SQLAlchemy models
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-    # Cleanup after tests
+    """Initialize test database schema.
+
+    Dropped first: a run killed before its teardown leaves its tables and rows
+    in the file, and the next run would start on them and trip over its own
+    test data. At the end `finish_test_db` fails the run if any far-future row
+    survived its test's teardown (R5), then drops the tables either way.
+    """
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    await finish_test_db(test_engine)
+
+
+@pytest.fixture(autouse=True)
+def _no_session_refresh_debounce() -> Generator[None]:
+    """Run a closed session's queued refresh as soon as its commit lands.
+
+    With the real debounce every test that commits a reading inside a closed
+    window would park in the drain below for 2 to 30 s (B6-12, E-7). A test
+    that measures the debounce sets the real values itself.
+    """
+    from app.services import telemetry_service
+
+    saved = (
+        telemetry_service.SESSION_REFRESH_DEBOUNCE_SECONDS,
+        telemetry_service.SESSION_REFRESH_MAX_DELAY_SECONDS,
+    )
+    telemetry_service.SESSION_REFRESH_DEBOUNCE_SECONDS = 0.0
+    telemetry_service.SESSION_REFRESH_MAX_DELAY_SECONDS = 0.0
+    telemetry_service._REFRESH_DUE.clear()
+    yield
+    (
+        telemetry_service.SESSION_REFRESH_DEBOUNCE_SECONDS,
+        telemetry_service.SESSION_REFRESH_MAX_DELAY_SECONDS,
+    ) = saved
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _finish_post_commit_jobs(_no_session_refresh_debounce: None) -> AsyncGenerator[None]:
+    """Let the background jobs a test's commits queued finish before the next test.
+
+    They run on the test loop, so one still running would send its
+    notification into the next test's recorder (`app.services.post_commit`).
+    Torn down before the debounce fixture, so the drain runs on its values.
+    """
+    yield
+    from app.services.post_commit import drain
+
+    await drain()
+
+
+@pytest.fixture(autouse=True)
+def _forget_rate_baselines() -> None:
+    """Start every test with no remembered readings, as a fresh process would.
+
+    The rate check keeps each device's last accepted reading in memory, and
+    the suite reuses device ids and keys across tests.
+    """
+    from app.services.telemetry_validator import forget_accepted_readings
+
+    forget_accepted_readings()
+
+
+#: Every module-level slowapi Limiter in app/, by where it lives.
+#: tests/unit/test_limiter_reset_inventory.py fails if a new one isn't here.
+APP_LIMITERS: dict[str, Limiter] = {
+    "app.main.limiter": main_limiter,
+    "app.routes.analytics.limiter": analytics_limiter,
+    "app.routes.auth.limiter": auth_limiter,
+    "app.routes.export.limiter": export_limiter,
+    "app.routes.fuel.limiter": fuel_limiter,
+    "app.routes.garage_assistant.limiter": garage_assistant_limiter,
+    "app.routes.import_data._common.limiter": import_limiter,
+    "app.routes.insurance.limiter": insurance_limiter,
+    "app.routes.oidc.limiter": oidc_limiter,
+    "app.routes.registration_certificate.limiter": registration_certificate_limiter,
+    "app.routes.webhooks.limiter": webhooks_limiter,
+    "app.services.widget_auth.widget_limiter": widget_limiter,
+}
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> None:
+    """Start every test with every rate limit unspent.
+
+    The limiters are module globals keyed on the client address, and the whole
+    suite comes from 127.0.0.1, so one file's requests could 429 the next file.
+    """
+    # Each reset logs an INFO line, and ten a test would bury the live log.
+    # A storage that can't reset still gets its WARNING through.
+    slowapi_log = logging.getLogger("slowapi")
+    level = slowapi_log.level
+    slowapi_log.setLevel(logging.WARNING)
+    try:
+        for limiter in APP_LIMITERS.values():
+            limiter.reset()
+    finally:
+        slowapi_log.setLevel(level)
 
 
 @pytest_asyncio.fixture
@@ -118,6 +305,22 @@ async def db_session(test_sessionmaker, init_test_db) -> AsyncGenerator[AsyncSes
     """Provide a database session for tests. Depends on init_test_db to ensure tables exist."""
     async with test_sessionmaker() as session:
         yield session
+
+
+@pytest.fixture
+def local_clock_off_utc() -> Iterator[None]:
+    """Put the process clock five hours west of UTC for one test.
+
+    A naive value fed to `astimezone` is read as LOCAL time, and a bare
+    `datetime.now()` is local too, so in a UTC container either bug looks right
+    and no test can tell. Its own MonkeyPatch, so undoing it can't undo the
+    test's other patches.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TZ", "EST5")
+        time.tzset()
+        yield
+    time.tzset()
 
 
 @pytest_asyncio.fixture
@@ -303,10 +506,6 @@ async def test_user(db_session: AsyncSession) -> dict[str, object]:
     """
     from sqlalchemy import or_
 
-    # Pre-computed hash for "testpassword123" using argon2id with same settings as auth.py
-    # This avoids calling hash_password() which requires threads (fails in PID-limited containers)
-    test_password_hash = "$argon2id$v=19$m=102400,t=2,p=8$NNbLa8SMLODWY2Es68EvLw$hiGLA+DtO213EMAMi8D8gXvvyjP8EVMFIHWp7SlUVnI"
-
     # Try to get existing test user (check both username and email for conflicts)
     result = await db_session.execute(
         select(User).where(or_(User.username == "testuser", User.email == "testuser@example.com"))
@@ -318,7 +517,7 @@ async def test_user(db_session: AsyncSession) -> dict[str, object]:
         user = User(
             username="testuser",
             email="testuser@example.com",
-            hashed_password=test_password_hash,
+            hashed_password=TEST_PASSWORD_HASH,
             is_active=True,
             is_admin=True,
         )
@@ -391,70 +590,35 @@ async def test_vehicle(db_session: AsyncSession, test_user: dict[str, object]) -
 
 
 @pytest_asyncio.fixture
-async def vehicle_with_service_records(
-    db_session: AsyncSession, test_user: dict[str, object]
-) -> Vehicle:
-    """Get a vehicle that has service records."""
-    user_id = test_user["id"]
-    # Find a vehicle with service records
-    result = await db_session.execute(select(Vehicle).where(Vehicle.user_id == user_id).limit(10))
-    vehicles = result.scalars().all()
+async def own_vehicle(
+    request: pytest.FixtureRequest, db_session: AsyncSession, test_user: dict[str, object]
+) -> AsyncGenerator[Vehicle]:
+    """A fresh vehicle, deleted afterwards with every record on it. What a test
+    writes here would otherwise land in the test user's garage-wide totals.
 
-    for vehicle in vehicles:
-        service_result = await db_session.execute(
-            select(ServiceVisit).where(ServiceVisit.vin == vehicle.vin).limit(1)
-        )
-        if service_result.scalar_one_or_none():
-            return vehicle
-
-    # skip_test() never returns - it raises Skipped exception
-    skip_test("No vehicles with service visits found. Please add service visits first.")
-
-
-@pytest_asyncio.fixture
-async def vehicle_with_fuel_records(
-    db_session: AsyncSession, test_user: dict[str, object]
-) -> Vehicle:
-    """Get a vehicle that has fuel records."""
-    user_id = test_user["id"]
-    # Find a vehicle with fuel records
-    result = await db_session.execute(select(Vehicle).where(Vehicle.user_id == user_id).limit(10))
-    vehicles = result.scalars().all()
-
-    for vehicle in vehicles:
-        fuel_result = await db_session.execute(
-            select(FuelRecord).where(FuelRecord.vin == vehicle.vin).limit(1)
-        )
-        if fuel_result.scalar_one_or_none():
-            return vehicle
-
-    # skip_test() never returns - it raises Skipped exception
-    skip_test("No vehicles with fuel records found. Please add fuel records first.")
-
-
-@pytest_asyncio.fixture
-async def vehicle_with_analytics_data(
-    db_session: AsyncSession, test_user: dict[str, object]
-) -> Vehicle:
-    """Get a vehicle that has sufficient data for analytics (service + fuel records)."""
-    user_id = test_user["id"]
-    # Find a vehicle with both service and fuel records
-    result = await db_session.execute(select(Vehicle).where(Vehicle.user_id == user_id).limit(10))
-    vehicles = result.scalars().all()
-
-    for vehicle in vehicles:
-        service_result = await db_session.execute(
-            select(ServiceVisit).where(ServiceVisit.vin == vehicle.vin).limit(1)
-        )
-        fuel_result = await db_session.execute(
-            select(FuelRecord).where(FuelRecord.vin == vehicle.vin).limit(1)
-        )
-
-        if service_result.scalar_one_or_none() and fuel_result.scalar_one_or_none():
-            return vehicle
-
-    # skip_test() never returns - it raises Skipped exception
-    skip_test("No vehicles with both service visits and fuel records found.")
+    `@pytest.mark.own_vehicle(fuel_type="diesel", ...)` on a test, class or
+    module overrides any of its columns.
+    """
+    marker = request.node.get_closest_marker("own_vehicle")
+    fields: dict[str, object] = {
+        "nickname": "Legacy Money",
+        "vehicle_type": "Car",
+        "year": 2015,
+        "make": "Honda",
+        "model": "Fit",
+        **(marker.kwargs if marker is not None else {}),
+    }
+    vehicle = Vehicle(vin="LEG" + uuid.uuid4().hex[:14].upper(), user_id=test_user["id"], **fields)
+    db_session.add(vehicle)
+    await db_session.commit()
+    vin = vehicle.vin
+    yield vehicle
+    # A failed read rolls the session back, so look the vehicle up again.
+    await db_session.rollback()
+    stored = await db_session.get(Vehicle, vin)
+    if stored is not None:
+        await db_session.delete(stored)
+        await db_session.commit()
 
 
 @pytest.fixture
@@ -493,7 +657,7 @@ async def non_admin_user(db_session: AsyncSession) -> dict[str, object]:
         user = User(
             username="nonadminuser",
             email="nonadminuser@example.com",
-            hashed_password="$argon2id$v=19$m=102400,t=2,p=8$NNbLa8SMLODWY2Es68EvLw$hiGLA+DtO213EMAMi8D8gXvvyjP8EVMFIHWp7SlUVnI",
+            hashed_password=TEST_PASSWORD_HASH,
             is_active=True,
             is_admin=False,
         )

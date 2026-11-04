@@ -22,14 +22,19 @@ vi.mock('../../../hooks/queries/useHoursRecords', () => ({
 
 /** Overridden per test; defaults to metric. */
 let units: UnitSet = METRIC_UNITS
-vi.mock('../../../hooks/useUnitPreference', () => ({
-  useUnitPreference: () => ({
+vi.mock('../../../hooks/useUnitPreference', () => {
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({
     system: units.distance === 'km' ? 'metric' : 'imperial',
     showBoth: false,
     gallonStandard: units.secondary_gallon,
     units,
-  }),
-}))
+  })
+  return {
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
+  }
+})
 
 const toastSuccess = vi.fn()
 const toastError = vi.fn()
@@ -145,5 +150,16 @@ describe('AddPastPeriodDrawer', () => {
     expect(payload.dismounted_hours).toBe(95.5)
     expect(payload).not.toHaveProperty('mounted_odometer_km')
     expect(payload).not.toHaveProperty('dismounted_odometer_km')
+  })
+
+  it('groups each half under its own name, so the two odometers and hour meters are told apart', () => {
+    render(<AddPastPeriodDrawer vin={VIN} tire={TIRE as never} open onClose={vi.fn()} labelFor={labelFor} tracksHours />)
+    const mount = drawer().getByRole('group', { name: 'tireList.periodMount' })
+    const dismount = drawer().getByRole('group', { name: 'tireList.periodDismount' })
+    expect(mount).toContainElement(input('past-mount-odometer'))
+    expect(mount).toContainElement(input('past-mount-hours'))
+    expect(mount).not.toContainElement(input('past-dismount-odometer'))
+    expect(dismount).toContainElement(input('past-dismount-odometer'))
+    expect(dismount).toContainElement(input('past-dismount-hours'))
   })
 })

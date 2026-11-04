@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import { useUpdateBrakeJob, useUpdateBrakeMeasurement } from '../../hooks/queries/useBrakes'
 import { useUnitFormat } from '../../hooks/useUnitFormat'
+import { useRefuseUnreadableNumbers } from '../../hooks/useRefuseUnreadableNumbers'
 import type {
   BrakeJob,
   BrakeMeasurement,
@@ -16,10 +17,13 @@ import type {
 import { formatDateForDisplay } from '../../utils/dateUtils'
 import { hoursFromField } from '../../utils/hoursFormat'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
-import { canonicalFromUnitField, seedUnitField } from '../../utils/unitFormat'
+import { canonicalFromTypedUnitField, seedUnitField } from '../../utils/unitFormat'
+import { numberFromField } from '../../utils/decimalInput'
+import { num } from '../../utils/wireNumber'
+import { withUnitSession } from '../../contexts/UnitSession'
 import MountEventFields, { type OdometerFieldValue } from '../tires/MountEventFields'
-import { Button, Chip, Drawer, Field, Input, Toggle } from '../ui'
-import { formatMm, num } from './useBrakeText'
+import { Button, Chip, Drawer, Field, Input, NumberInput, Toggle } from '../ui'
+import { formatMm } from './useBrakeText'
 
 type Figure = 'inner_pad_mm' | 'outer_pad_mm' | 'rotor_mm' | 'shoe_mm' | 'drum_mm'
 
@@ -28,13 +32,10 @@ const FIGURES: Record<BrakeType, Figure[]> = {
   drum: ['shoe_mm', 'drum_mm'],
 }
 
-const typed = (v: number | string | null | undefined): string => (v == null ? '' : String(Number(v)))
-
-const mm = (text: string): number | null => {
-  const trimmed = text.trim()
-  if (trimmed === '') return null
-  const n = Number(trimmed)
-  return Number.isFinite(n) ? n : null
+// Built on num so a blank figure seeds a blank field, not '0'.
+const typed = (v: number | string | null | undefined): string => {
+  const n = num(v)
+  return n == null ? '' : String(n)
 }
 
 interface MeasurementEditorProps {
@@ -52,7 +53,7 @@ interface MeasurementEditorProps {
  * job wrote keeps the job's date and odometer; change those on the job.
  * Render with `key={measurement.id}` so it seeds once per measurement.
  */
-export function MeasurementEditor({
+function MeasurementEditorForm({
   vin,
   overview,
   measurement,
@@ -63,6 +64,7 @@ export function MeasurementEditor({
   const { t } = useTranslation('vehicles')
   const u = useUnitFormat()
   const update = useUpdateBrakeMeasurement(vin)
+  const refuseUnreadable = useRefuseUnreadableNumbers()
   const linked = measurement.brake_job_id != null
   const [date, setDate] = useState(measurement.recorded_at)
   const [odometer, setOdometer] = useState<OdometerFieldValue>(() => {
@@ -94,12 +96,21 @@ export function MeasurementEditor({
       toast.error(t('tireList.eventDateRequired'))
       return
     }
+    const odometerLabel = t('brakes.odometerWithUnit', { unit: u.distance.label })
+    if (
+      refuseUnreadable([
+        [odometerLabel, !linked && overview.tracks_distance && odometer.typed],
+        [t('common:engineHours'), !linked && overview.tracks_hours && hours],
+        ...FIGURES[brakeType].map((name) => [labels[name], values[name]] as const),
+      ])
+    )
+      return
     const payload: BrakeMeasurementUpdate & { id: number } = { id: measurement.id, notes: notes.trim() || null }
-    for (const name of FIGURES[brakeType]) payload[name] = mm(values[name])
+    for (const name of FIGURES[brakeType]) payload[name] = numberFromField(values[name])
     if (!linked) {
       payload.recorded_at = date
       if (overview.tracks_distance) {
-        payload.odometer_km = canonicalFromUnitField(odometer.typed, odometer.origin, u.distance)
+        payload.odometer_km = canonicalFromTypedUnitField(odometer.typed, odometer.origin, u.distance)
       }
       if (overview.tracks_hours) payload.engine_hours = hoursFromField(hours)
     }
@@ -164,10 +175,8 @@ export function MeasurementEditor({
           const id = `brake-measurement-edit-${name}`
           return (
             <Field key={name} id={id} label={labels[name]} unit="mm">
-              <Input
+              <NumberInput
                 id={id}
-                type="number"
-                step="0.1"
                 value={values[name]}
                 onChange={(e) => setValues((prev) => ({ ...prev, [name]: e.target.value }))}
               />
@@ -194,10 +203,11 @@ interface JobEditorProps {
  * Correct one corner's brake job. The new-pads figure it wrote moves with
  * its date and odometer, and goes if the pads come off the job.
  */
-export function JobEditor({ vin, overview, job, open, onClose }: JobEditorProps): ReactElement {
+function JobEditorForm({ vin, overview, job, open, onClose }: JobEditorProps): ReactElement {
   const { t } = useTranslation('vehicles')
   const u = useUnitFormat()
   const update = useUpdateBrakeJob(vin)
+  const refuseUnreadable = useRefuseUnreadableNumbers()
   const drum = job.brake_type === 'drum'
   const [date, setDate] = useState(job.performed_on)
   const [odometer, setOdometer] = useState<OdometerFieldValue>(() => {
@@ -218,6 +228,13 @@ export function JobEditor({ vin, overview, job, open, onClose }: JobEditorProps)
       toast.error(t('brakes.jobDoesNothing'))
       return
     }
+    if (
+      refuseUnreadable([
+        [t('brakes.odometerWithUnit', { unit: u.distance.label }), overview.tracks_distance && odometer.typed],
+        [t('common:engineHours'), overview.tracks_hours && hours],
+      ])
+    )
+      return
     update.mutate(
       {
         id: job.id,
@@ -226,7 +243,7 @@ export function JobEditor({ vin, overview, job, open, onClose }: JobEditorProps)
         surface,
         notes: notes.trim() || null,
         ...(overview.tracks_distance
-          ? { odometer_km: canonicalFromUnitField(odometer.typed, odometer.origin, u.distance) }
+          ? { odometer_km: canonicalFromTypedUnitField(odometer.typed, odometer.origin, u.distance) }
           : {}),
         ...(overview.tracks_hours ? { engine_hours: hoursFromField(hours) } : {}),
       },
@@ -302,3 +319,7 @@ export function JobEditor({ vin, overview, job, open, onClose }: JobEditorProps)
     </Drawer>
   )
 }
+
+// Both pin their units for as long as they're open (R4).
+export const MeasurementEditor = withUnitSession(MeasurementEditorForm)
+export const JobEditor = withUnitSession(JobEditorForm)

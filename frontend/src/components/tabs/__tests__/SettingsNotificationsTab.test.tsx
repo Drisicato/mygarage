@@ -4,19 +4,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SettingsProvider, useSettings } from '@/contexts/SettingsContext'
 
-// EventNotificationsCard, rendered by this tab, reads `useUnitFormat()` for the
-// service-reminder lead-distance suffix, and that reaches `useAuth()`, which
-// throws without a provider.
-vi.mock('@/contexts/AuthContext', () => ({
-  useAuth: () => ({ user: null, isAuthenticated: false, defaultUnitPrefs: null }),
-}))
-
 vi.mock('@/services/api', () => ({
   default: {
     get: vi.fn(),
     post: vi.fn(),
   },
 }))
+
+const toast = vi.hoisted(() => ({ loading: vi.fn(() => 'toast-id'), success: vi.fn(), error: vi.fn() }))
+vi.mock('sonner', () => ({ toast }))
 
 // The global setup mock (src/__tests__/setup.ts) hands back a brand-new `t`
 // function on every useTranslation() call. SettingsNotificationsTab's
@@ -37,6 +33,7 @@ vi.mock('react-i18next', () => {
 })
 
 import api from '@/services/api'
+import { setActiveLocale } from '@/constants/i18n'
 import SettingsNotificationsTab from '../SettingsNotificationsTab'
 
 const mockedApi = vi.mocked(api)
@@ -96,10 +93,12 @@ describe('SettingsNotificationsTab — DEF-low settings (Task 17)', () => {
 
     await screen.findByText('events.defLow.group')
 
-    // Change the percent field while the toggle is still on — the field
-    // disables itself once the toggle flips off (mirrors the days/miles
-    // sibling fields), so order matters here.
-    fireEvent.change(screen.getByDisplayValue('25'), { target: { value: '40' } })
+    // Change the percent field while the toggle is still on: the field
+    // disables itself once the toggle flips off (as the days fields do), so
+    // order matters here.
+    const percent = screen.getByDisplayValue('25')
+    fireEvent.change(percent, { target: { value: '40' } })
+    fireEvent.blur(percent)
     fireEvent.click(screen.getByRole('checkbox', { name: 'events.defLow.label' }))
 
     // Auto-save is debounced 1s (see SettingsContext.triggerSave).
@@ -110,6 +109,36 @@ describe('SettingsNotificationsTab — DEF-low settings (Task 17)', () => {
     expect(url).toBe('/settings/batch')
     expect(body.settings.notify_def_low).toBe('false')
     expect(body.settings.notify_def_low_threshold_percent).toBe('40')
+  })
+})
+
+describe('SettingsNotificationsTab: the removed lead-time keys (D1c)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // The two rows stay in the table as orphans (no migration), so GET still
+    // returns them.
+    answerGet([
+      { key: 'ntfy_enabled', value: 'true' },
+      { key: 'notify_service_days', value: '30' },
+      { key: 'notify_service_miles', value: '500' },
+    ])
+    mockedApi.post.mockResolvedValue({ data: {} })
+  })
+
+  it('never sends notify_service_days or notify_service_miles in the batch save', async () => {
+    renderTab()
+
+    await screen.findByText('events.defLow.group')
+    const percent = screen.getByDisplayValue('25')
+    fireEvent.change(percent, { target: { value: '40' } })
+    fireEvent.blur(percent)
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled(), { timeout: 3000 })
+    const [url, body] = mockedApi.post.mock.calls.at(-1) as [string, { settings: Record<string, string> }]
+    expect(url).toBe('/settings/batch')
+    expect(body.settings.notify_def_low_threshold_percent).toBe('40')
+    expect(body.settings).not.toHaveProperty('notify_service_days')
+    expect(body.settings).not.toHaveProperty('notify_service_miles')
   })
 })
 
@@ -153,5 +182,61 @@ describe('SettingsNotificationsTab — a switch stored as another on word', () =
     expect(await screen.findByRole('checkbox', { name: 'ntfy.enable' })).toBeChecked()
     // The event card only opens once some service reads as on.
     expect(screen.getByText('events.defLow.group')).toBeInTheDocument()
+  })
+})
+
+describe('SettingsNotificationsTab: a number box that is out of range', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApi.post.mockResolvedValue({ data: {} })
+  })
+
+  const openAdvanced = async (): Promise<HTMLInputElement> => {
+    await screen.findByText('events.defLow.group')
+    fireEvent.click(screen.getByText('events.card.advanced'))
+    return document.getElementById('notification_retry_attempts') as HTMLInputElement
+  }
+
+  it('refuses to save while retry attempts reads 15, then saves once it is fixed', async () => {
+    // Save used to post whatever the form held, with the box still showing its error.
+    answerGet([{ key: 'ntfy_enabled', value: 'true' }])
+    renderTab()
+    const attempts = await openAdvanced()
+    fireEvent.change(attempts, { target: { value: '15' } })
+    fireEvent.blur(attempts)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'events.defLow.label' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('notifications.fixNumbers', { id: 'toast-id' }), {
+      timeout: 3000,
+    })
+    expect(mockedApi.post).not.toHaveBeenCalled()
+
+    // Back to the stored 3: nothing in the form changes, so the held toggle has to go up on its own.
+    fireEvent.change(attempts, { target: { value: '3' } })
+    fireEvent.blur(attempts)
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled(), { timeout: 3000 })
+    const [, body] = mockedApi.post.mock.calls.at(-1) as [string, { settings: Record<string, string> }]
+    expect(body.settings.notification_retry_attempts).toBe('3')
+    expect(body.settings.notify_def_low).toBe('false')
+  })
+
+  it('de: a stored 1.234 second delay saves back as 1.234', async () => {
+    setActiveLocale('de')
+    try {
+      answerGet([
+        { key: 'ntfy_enabled', value: 'true' },
+        { key: 'notification_retry_delay', value: '1.234' },
+      ])
+      renderTab()
+      await openAdvanced()
+      expect(screen.getByDisplayValue('1,234')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('checkbox', { name: 'events.defLow.label' }))
+      await waitFor(() => expect(mockedApi.post).toHaveBeenCalled(), { timeout: 3000 })
+      const [, body] = mockedApi.post.mock.calls.at(-1) as [string, { settings: Record<string, string> }]
+      expect(body.settings.notification_retry_delay).toBe('1.234')
+      expect(toast.error).not.toHaveBeenCalled()
+    } finally {
+      setActiveLocale('en')
+    }
   })
 })

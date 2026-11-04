@@ -89,18 +89,38 @@ def household_zone() -> ZoneInfo:
     return zone if zone is not None else resolve_zone(None)
 
 
+def household_datetime(timestamp: datetime) -> datetime:
+    """A stored timestamp as an aware time on the household's clock.
+
+    A naive one is UTC, like :func:`household_date` says.
+    """
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(household_zone())
+
+
 def household_date(timestamp: datetime) -> date:
     """The household day of a stored timestamp. A naive one is UTC, which is how
     every timestamp column here is written.
 
-    One exception: on PostgreSQL a ``server_default=func.now()`` column is
-    written in the session's time zone. That is UTC unless the server's
-    ``timezone`` setting says otherwise (CI's is UTC). On a non-UTC server an
-    evening-created row can land on the next day here.
+    That holds on PostgreSQL too: ``func.now()`` stamps land in the session's
+    zone, and every session is pinned to UTC (``app.utils.pg_session``).
+    Migration 134 converted what a non-UTC server had already written to the
+    server-only columns, unless it couldn't trust that zone (it warns and skips
+    then).
     """
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=UTC)
-    return timestamp.astimezone(household_zone()).date()
+    return household_datetime(timestamp).date()
+
+
+def household_wall_clock_to_utc(value: datetime) -> datetime:
+    """A time the user typed, as the naive UTC every stored stamp uses.
+
+    A naive value is the household's wall clock (a form's date and time); an
+    aware one already says its zone.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=household_zone())
+    return value.astimezone(UTC).replace(tzinfo=None)
 
 
 def household_today() -> date:

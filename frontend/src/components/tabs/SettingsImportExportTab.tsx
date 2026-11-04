@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { Button, Card, CardHeader, Field, Select, Tabs } from '../ui'
 import { useQuickEntryVehicles } from '../../hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '../../utils/vehicleLabel'
+import { keyForFilename } from '../../utils/vehicleIdentifier'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
 import ImportPanel from '../importExport/ImportPanel'
 import LubeLoggerImportPanel from '../importExport/LubeLoggerImportPanel'
@@ -48,7 +49,7 @@ export default function SettingsImportExportTab() {
   const runExport = async () => {
     setExporting(true)
     try {
-      await downloadFile(exportPath(vin, kind), `${vin}_${kind}.${kind === 'vehicle' ? 'json' : 'csv'}`)
+      await downloadFile(exportPath(vin, kind), `${keyForFilename(vin)}_${kind}.${kind === 'vehicle' ? 'json' : 'csv'}`)
     } catch (err) {
       toast.error(getActionErrorMessage(err, t('importExport.exportAction')))
     } finally {

@@ -41,6 +41,7 @@ export default function ImportPanel({ vin, kind, format }: ImportPanelProps) {
   const queryClient = useQueryClient()
   const { units } = useUnitPreference()
   const [file, setFile] = useState<File | null>(null)
+  // units-exempt(token-branch): only pre-selects which unit the uploaded file's odometer column is in; the person can change it, and the backend converts the file from that declared unit, so no displayed quantity depends on this read.
   const [odometerUnit, setOdometerUnit] = useState<'km' | 'mi'>(units.distance === 'mi' ? 'mi' : 'km')
   const [decimalSeparator, setDecimalSeparator] = useState<'dot' | 'comma'>('dot')
   const [preview, setPreview] = useState<ImportSummary | null>(null)

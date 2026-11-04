@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { useForm } from 'react-hook-form'
+import { useForm, type Path } from 'react-hook-form'
 import { AlertTriangle, Download, FileX, History, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/services/api'
@@ -46,6 +46,7 @@ import { getActiveLocale } from '@/constants/i18n'
 import { applyServerErrors } from '@/hooks/useApiFormErrors'
 import { getActionErrorMessage } from '@/utils/httpErrorHandler'
 import { moneyError } from '@/schemas/shared'
+import { withUnitSession } from '@/contexts/UnitSession'
 
 type SupplyLedgerEntry = components['schemas']['SupplyLedgerEntry']
 
@@ -71,11 +72,7 @@ function formatSignedQuantity(raw: string, unit: SupplyUnit): string {
   return `${sign}${magnitude}${label ? ` ${label}` : ''}`
 }
 
-function formatEntryDate(at: string): string {
-  return formatDateForDisplay(at.includes('T') ? at.split('T')[0] : at)
-}
-
-export default function SupplyHistoryModal({ supply, onClose, initialForm }: SupplyHistoryModalProps) {
+function SupplyHistoryModal({ supply, onClose, initialForm }: SupplyHistoryModalProps) {
   const { t } = useTranslation('common')
   const { system } = useUnitPreference()
   // Resolve once; everything below reads the token, never `system`.
@@ -307,7 +304,7 @@ function PurchaseRow({ entry, supply, unit }: LedgerRowProps) {
     <div className="flex items-center justify-between gap-3 p-3 bg-garage-bg border border-garage-border rounded-md">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="font-medium text-garage-text">{formatEntryDate(entry.at)}</span>
+          <span className="font-medium text-garage-text">{formatDateForDisplay(entry.ledger_date)}</span>
           <span className="text-xs px-1.5 py-0.5 rounded bg-success/10 text-success">
             {t('supplies.history.purchase')}
           </span>
@@ -334,7 +331,7 @@ function PurchaseRow({ entry, supply, unit }: LedgerRowProps) {
               type="button"
               onClick={handleDownload}
               disabled={downloading}
-              className="p-1.5 text-primary hover:bg-primary/10 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-1.5 text-(--accent-fg) hover:bg-primary/10 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               aria-label={t('supplies.history.downloadReceipt')}
               title={t('supplies.history.downloadReceipt')}
             >
@@ -363,7 +360,7 @@ function PurchaseRow({ entry, supply, unit }: LedgerRowProps) {
             />
             <label
               htmlFor={inputId}
-              className="p-1.5 text-garage-text-muted hover:text-primary rounded transition-colors cursor-pointer"
+              className="p-1.5 text-garage-text-muted hover:text-(--accent-fg) rounded transition-colors cursor-pointer"
               aria-label={t('supplies.history.chooseReceipt')}
               title={t('supplies.history.chooseReceipt')}
             >
@@ -427,7 +424,7 @@ function UsageRow({ entry, supply, unit }: LedgerRowProps) {
     <div className="flex items-center justify-between gap-3 p-3 bg-garage-bg border border-garage-border rounded-md">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="font-medium text-garage-text">{formatEntryDate(entry.at)}</span>
+          <span className="font-medium text-garage-text">{formatDateForDisplay(entry.ledger_date)}</span>
           <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning">
             {isJob ? t('supplies.history.job') : t('supplies.history.adjustment')}
           </span>
@@ -476,8 +473,9 @@ function UsageRow({ entry, supply, unit }: LedgerRowProps) {
  * receives the raw value without that coercion, so it can reject the same
  * cases (empty, too small, and now also non-numeric) with the same message.
  *
- * A positive volume that converts below 1 mL gets its own message, since the
- * API can't store it and "enter a quantity greater than 0" would be a lie.
+ * A positive volume that converts below 1 mL gets its own message: the API
+ * refuses anything under 1 mL (the smallest amount the ledger tracks, not a
+ * storage limit), and "enter a quantity greater than 0" would be a lie.
  */
 function validateSupplyQuantity(value: unknown, unit: SupplyUnit, t: TFunction): true | string {
   if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
@@ -648,11 +646,19 @@ function PurchaseForm({
       // attached.length === 0 catches a non-422 failure (network drop, 500):
       // it carries no field problems at all, so `unhandled` alone would stay
       // empty and this banner would never show.
-      const { attached, unhandled } = applyServerErrors<PurchaseFormValues>(setFieldError, err, [
+      // The form names the supplier, the API takes its address-book id: a 422
+      // on supplier_id belongs under the name box.
+      const { attached, unhandled } = applyServerErrors<PurchaseFormValues & { supplier_id?: number | null }>(
+        (field, fieldError, options) =>
+          setFieldError((field === 'supplier_id' ? 'supplier_name' : field) as Path<PurchaseFormValues>, fieldError, options),
+        err,
+        [
         'date',
         'quantity',
         'total_cost',
         'supplier_name',
+        'supplier_id',
+        'part_number',
       ])
       if (attached.length === 0 || unhandled.length > 0) {
         setError(
@@ -683,10 +689,11 @@ function PurchaseForm({
           <input
             type="date"
             id={`${idPrefix}-date`}
-            {...register('date', { required: true })}
+            {...register('date', { required: t('required') })}
             className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-garage-bg text-garage-text border-garage-border"
             disabled={isSubmitting}
           />
+          <FormError error={errors.date} />
         </div>
         <div>
           <label htmlFor={`${idPrefix}-quantity`} className="block text-xs font-medium text-garage-text mb-1">
@@ -741,6 +748,7 @@ function PurchaseForm({
             ))}
           </datalist>
           <p className="mt-1 text-xs text-garage-text-muted">{t('supplies.history.supplierHint')}</p>
+          <FormError error={errors.supplier_name} />
         </div>
       </div>
 
@@ -757,6 +765,7 @@ function PurchaseForm({
             disabled={isSubmitting}
           />
         </div>
+        <FormError error={errors.part_number} />
       </div>
 
       {/* A logged purchase's receipt is managed on its ledger row. */}
@@ -891,3 +900,6 @@ function AdjustmentForm({
     </form>
   )
 }
+
+// Pins its units for as long as it is open (R4).
+export default withUnitSession(SupplyHistoryModal)

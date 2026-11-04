@@ -15,6 +15,7 @@ import {
 } from '@/hooks/queries/useSupplies'
 import { useQuickEntryVehicles } from '@/hooks/queries/useQuickEntryVehicles'
 import { vehicleLabel } from '@/utils/vehicleLabel'
+import { vinForDisplay } from '@/utils/vehicleIdentifier'
 import { useUnitPreference } from '@/hooks/useUnitPreference'
 import { useCurrencyPreference } from '@/hooks/useCurrencyPreference'
 import {
@@ -41,6 +42,7 @@ import type { Supply, SupplyCreate, SupplyUpdate } from '@/types/supplies'
 import { getActiveLocale } from '@/constants/i18n'
 import { applyServerErrors } from '@/hooks/useApiFormErrors'
 import { getActionErrorMessage } from '@/utils/httpErrorHandler'
+import { withUnitSession } from '@/contexts/UnitSession'
 
 export default function Supplies() {
   const { t } = useTranslation('common')
@@ -104,7 +106,7 @@ export default function Supplies() {
 
   const vehicleLabelFor = (vin: string): string => {
     const known = quickVehicles.find((v) => v.vin === vin)
-    return known ? vehicleLabel(known) : vin
+    return known ? vehicleLabel(known) : (vinForDisplay(vin) ?? t('supplies.unlistedVehicle'))
   }
   const supplyVehiclesLabel = (supply: Supply): string =>
     isSharedSupply(supply) ? t('supplies.sharedVehicle') : supply.vins.map(vehicleLabelFor).join(', ')
@@ -208,19 +210,29 @@ export default function Supplies() {
   const avgCostValue = (supply: Supply, unit: SupplyUnit): string =>
     formatCurrency(unitCostToDisplay(supply.avg_unit_cost, unit), { fractionDigits: costDecimals(unit) })
 
+  // The list shares one header across rows, so the cell says what it's per. A
+  // count has no unit, and no cost stays a bare dash instead of "-/qt".
+  const avgCostCell = (supply: Supply, unit: SupplyUnit): string => {
+    const value = avgCostValue(supply, unit)
+    const label = unitLabel(unit)
+    return label && unitCostToDisplay(supply.avg_unit_cost, unit)
+      ? t('supplies.avgCostValuePerUnit', { value, unit: label })
+      : value
+  }
+
   const quickActions = (supply: Supply) => (
     <>
       <button
         type="button"
         onClick={() => setHistoryTarget({ supply, initialForm: 'purchase' })}
-        className="text-xs text-primary hover:underline"
+        className="text-xs text-(--accent-fg) hover:underline"
       >
         {t('supplies.history.logPurchase')}
       </button>
       <button
         type="button"
         onClick={() => setHistoryTarget({ supply, initialForm: 'adjustment' })}
-        className="text-xs text-primary hover:underline"
+        className="text-xs text-(--accent-fg) hover:underline"
       >
         {t('supplies.history.logAdjustment')}
       </button>
@@ -231,7 +243,7 @@ export default function Supplies() {
     <>
       <button
         onClick={() => setHistoryTarget({ supply })}
-        className="text-garage-text-muted hover:text-primary transition-colors"
+        className="text-garage-text-muted hover:text-(--accent-fg) transition-colors"
         aria-label={t('supplies.viewHistory')}
         title={t('supplies.viewHistory')}
       >
@@ -239,7 +251,7 @@ export default function Supplies() {
       </button>
       <button
         onClick={() => handleEditClick(supply)}
-        className="text-garage-text-muted hover:text-primary transition-colors"
+        className="text-garage-text-muted hover:text-(--accent-fg) transition-colors"
         aria-label={t('common:edit')}
         title={t('common:edit')}
       >
@@ -304,7 +316,7 @@ export default function Supplies() {
       header: t('supplies.avgUnitCost'),
       align: 'right',
       mono: true,
-      render: (s) => avgCostValue(s, unitFor(s)),
+      render: (s) => avgCostCell(s, unitFor(s)),
     },
     {
       id: 'actions',
@@ -415,7 +427,7 @@ export default function Supplies() {
         {anyFilterActive && (
           <div className="flex items-center gap-3 mb-4 text-sm text-garage-text-muted">
             <span>{t('supplies.showingResults', { shown: visible.length, total: supplies.length })}</span>
-            <button type="button" onClick={clearFilters} className="text-primary hover:underline">
+            <button type="button" onClick={clearFilters} className="text-(--accent-fg) hover:underline">
               {t('supplies.clearFilters')}
             </button>
           </div>
@@ -532,7 +544,7 @@ export default function Supplies() {
 
                           <div className="space-y-2 text-sm">
                             {supply.category && (
-                              <div className="inline-block px-2 py-1 bg-primary/10 text-primary rounded text-xs">
+                              <div className="inline-block px-2 py-1 bg-primary/10 text-(--accent-fg) rounded text-xs">
                                 {supply.category}
                               </div>
                             )}
@@ -641,7 +653,7 @@ interface SupplyFormProps {
   categorySuggestions?: string[]
 }
 
-export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [] }: SupplyFormProps) {
+function SupplyFormBody({ supply, onClose, onSuccess, categorySuggestions = [] }: SupplyFormProps) {
   const { t } = useTranslation('common')
   const isEdit = !!supply
   const [error, setError] = useState<string | null>(null)
@@ -704,7 +716,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
     ...vehicles.map((v) => ({ vin: v.vin, label: vehicleLabel(v) })),
     ...(supply?.vins ?? [])
       .filter((vin) => !vehicles.some((v) => v.vin === vin))
-      .map((vin) => ({ vin, label: vin })),
+      .map((vin) => ({ vin, label: vinForDisplay(vin) ?? t('supplies.unlistedVehicle') })),
   ]
   const unitType = watch('unit_type')
   const watchedName = watch('name')
@@ -789,6 +801,7 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
         'part_number',
         'brand',
         'part_source',
+        'barcode',
         'category',
         'notes',
         'vins',
@@ -1007,3 +1020,6 @@ export function SupplyForm({ supply, onClose, onSuccess, categorySuggestions = [
     </FormModalWrapper>
   )
 }
+
+// Its unit picker seeds from the account, so it pins like the record forms (R4).
+export const SupplyForm = withUnitSession(SupplyFormBody)

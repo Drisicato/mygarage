@@ -1,17 +1,23 @@
 """Telemetry service for LiveLink data ingestion and storage."""
 
-import hashlib
-import json
+import asyncio
 import logging
-from collections.abc import Mapping
+import math
+import time
+import weakref
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from functools import partial
 from typing import Any, cast
 
-from sqlalchemy import and_, delete, func, not_, or_, select, text
+from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
+from sqlalchemy.orm.exc import StaleDataError
 
+from app.constants.param_names import READABLE_PARAM_NAMES
 from app.database import is_sqlite
 from app.services.livelink_sources.base import Reading, StoragePolicy
 from app.utils.datetime_utils import utc_now
@@ -25,11 +31,15 @@ from app.models import OdometerRecord
 from app.models.drive_session import DriveSession
 from app.models.livelink_device import LiveLinkDevice
 from app.models.livelink_parameter import DISPLAY_NAME_MAX_LENGTH, LiveLinkParameter
+from app.models.livelink_topic_map import LiveLinkTopicMap
 from app.models.vehicle_telemetry import (
     TelemetryDailySummary,
     VehicleTelemetry,
     VehicleTelemetryLatest,
 )
+from app.services.device_units import DeviceUnitService, relabel_parameter
+from app.services.livelink_alerts import ThresholdAlert, deliver_threshold_alert
+from app.services.post_commit import after_commit
 from app.services.telemetry_validator import TelemetryValidator
 from app.utils.autopid_normalizer import (
     canonical_param_key,
@@ -38,7 +48,15 @@ from app.utils.autopid_normalizer import (
 )
 from app.utils.household_time import household_today
 from app.utils.logging_utils import sanitize_for_log
-from app.utils.odometer_units import odometer_value_to_km
+from app.utils.odometer_units import (
+    ODOMETER_UNIT_KM,
+    WICAN_DEVICE_KIND,
+    is_converted_odometer_key,
+    is_miles_odometer_key,
+    is_miles_unit,
+    odometer_value_to_km,
+    stores_odometer_key_raw,
+)
 
 
 class MaintenanceModeError(RuntimeError):
@@ -63,10 +81,18 @@ class MaintenanceModeError(RuntimeError):
 #:
 #: Matches the default contact-loss timeout, deliberately: a sample that is
 #: further from now than the timeout that would have closed the session cannot
-#: be describing the session that is open. Beyond this the reading is treated as
-#: replay -- still real driving, still allowed to open and extend a session, but
-#: not allowed to move the anchor every live timeout measures from.
+#: be describing the session that is open. Beyond this it's a replay, built into
+#: closed sessions by sample time, and it never opens or holds the pointer.
 LIVE_SAMPLE_TOLERANCE_SECONDS = 300
+
+#: Devices already warned about a clock in the future, this process. A restart
+#: warning again is a feature, same as `session_service._NO_MOVEMENT_WARNED`.
+_FUTURE_CLOCK_WARNED: set[str] = set()
+
+
+#: How far ahead of now a stored latest timestamp can be before it's a bad
+#: clock to heal rather than a dongle a little fast (T4-e).
+FUTURE_LATEST_SKEW = timedelta(minutes=5)
 
 
 def _refuse_if_in_maintenance(operation: str) -> None:
@@ -95,16 +121,6 @@ class StoreResult:
     validated_data: dict[str, float | int | str | None] = field(default_factory=dict)
 
 
-# PIDs that represent odometer readings (case-insensitive matching)
-ODOMETER_PID_PATTERNS = [
-    "A6-",  # Standard OBD2 PID 0xA6 (166)
-    "ODOMETER",
-    "ODO",
-    "MILEAGE",
-    "DISTANCE_TOTAL",
-    "TOTAL_DISTANCE",
-]
-
 #: How far a param's newest sample may trail the vehicle's newest sample before
 #: it stops counting as live. Generous on purpose: every reported param is
 #: upserted on every payload regardless of its storage interval, so params that
@@ -120,56 +136,126 @@ logger = logging.getLogger(__name__)
 _DECLARED_ODOMETER_WARNED: dict[str, date] = {}
 
 
+def _delegates_to_store_telemetry(policy: StoragePolicy) -> bool:
+    """Whether `store_readings` hands this policy's batch to `store_telemetry`."""
+    return policy.sync_odometer or policy.observe_movement
+
+
+def _title_case(param_key: str) -> str:
+    """The name a new row got before the readable table, and still gets for any other key."""
+    return param_key.replace("_", " ").title()
+
+
+def normalises_odometer(policy: StoragePolicy, device: LiveLinkDevice | None) -> bool:
+    """Whether `store_readings` converts a batch's odometer to km.
+
+    `device` is what the caller passes `store_readings` (None without the
+    ODOMETER capability). `store_telemetry` converts every odometer key by the
+    device's match (its declared key, else name matching); the simple path
+    only a declared one. Torque has ODOMETER and still converts nothing
+    without a declared key, so the capability alone doesn't say. `ODOMETER_MI`
+    is converted on every path, and `check_thresholds` knows that per key.
+    """
+    if _delegates_to_store_telemetry(policy):
+        return True
+    return device is not None and bool(device.odometer_param_key)
+
+
+#: A closed session a replay keeps landing in isn't recomputed per frame. The
+#: refresh runs behind the commit, this long after the last frame that asked
+#: for it, and no later than this long after the first (B6-12, D-7). The test
+#: suite sets both to 0.
+SESSION_REFRESH_DEBOUNCE_SECONDS = 2.0
+SESSION_REFRESH_MAX_DELAY_SECONDS = 30.0
+
+
+@dataclass
+class _RefreshDue:
+    first: float
+    deadline: float
+
+
+#: Session id -> the refresh job already waiting on it. Written by the JOB when
+#: it starts, never when it's queued, so a transaction that rolls back after
+#: queueing leaves nothing behind to suppress the next one (E-3).
+_REFRESH_DUE: dict[int, _RefreshDue] = {}
+
+#: Session id -> the lock its refreshes take, read through commit. Two side by
+#: side let the older one, stuck on SQLite's write lock, commit last and put
+#: back figures from a narrower window. Weak, so a lock goes when its jobs do.
+_REFRESH_LOCKS: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
+
+
+def queue_session_refresh(db: AsyncSession, session_id: int) -> None:
+    """Recompute a closed session's aggregates once ``db`` commits, debounced per session."""
+    after_commit(
+        db, partial(_refresh_session_debounced, session_id), label=f"refresh-session:{session_id}"
+    )
+
+
+async def _refresh_session_debounced(session_id: int, db: AsyncSession) -> None:
+    """The queued job: the first one for a session waits out the debounce, the rest push it."""
+    now = time.monotonic()
+    due = _REFRESH_DUE.get(session_id)
+    if due is not None:
+        # Another job is already waiting: push its deadline and go.
+        due.deadline = min(
+            now + SESSION_REFRESH_DEBOUNCE_SECONDS, due.first + SESSION_REFRESH_MAX_DELAY_SECONDS
+        )
+        return
+    due = _RefreshDue(first=now, deadline=now + SESSION_REFRESH_DEBOUNCE_SECONDS)
+    _REFRESH_DUE[session_id] = due
+    lock = _REFRESH_LOCKS.get(session_id)
+    if lock is None:
+        lock = _REFRESH_LOCKS[session_id] = asyncio.Lock()
+    try:
+        while (remaining := due.deadline - time.monotonic()) > 0:
+            await asyncio.sleep(remaining)
+        # Still registered while it waits, so a frame landing meanwhile folds
+        # into this run: it reads after the lock, which is after that commit.
+        await lock.acquire()
+    except asyncio.CancelledError:
+        # Shutdown mid-sleep or mid-wait on the lock (`post_commit.shutdown`):
+        # refresh once now rather than lose the drain's last seconds to a
+        # restart (E-12). No lock here, but ingest has stopped, so nothing can
+        # widen the window under it. The runner won't commit after a
+        # cancellation, so commit here.
+        _REFRESH_DUE.pop(session_id, None)
+        await _refresh_session_now(db, session_id)
+        await db.commit()
+        raise
+    try:
+        _REFRESH_DUE.pop(session_id, None)
+        await _refresh_session_now(db, session_id)
+        # Committed under the lock, or the next one could read before this lands.
+        await db.commit()
+    finally:
+        lock.release()
+
+
+async def _refresh_session_now(db: AsyncSession, session_id: int) -> None:
+    """Recompute one closed session, if it's still there and still closed."""
+    from app.services.session_service import SessionService  # local import avoids cycle
+
+    session = await db.get(DriveSession, session_id)
+    if session is None or session.ended_at is None:
+        return  # merged away, or reopened: nothing to recompute
+    await SessionService(db).refresh_aggregates(session)
+    try:
+        await db.flush()
+    except StaleDataError:
+        # A merge deleted the row while this was recomputing it. Nothing to
+        # write, and not an error worth a traceback (M5).
+        await db.rollback()
+        logger.debug("Session %d went away mid-refresh; skipped", session_id)
+
+
 class TelemetryService:
     """Service for telemetry data ingestion and storage."""
 
     def __init__(self, db: AsyncSession):
         """Initialize with database session."""
         self.db = db
-
-    # =========================================================================
-    # Payload Hash / Deduplication
-    # =========================================================================
-
-    @staticmethod
-    def compute_payload_hash(autopid_data: dict[str, Any]) -> str:
-        """Compute a hash of the autopid_data for deduplication.
-
-        Uses sorted JSON serialization to ensure consistent hashing.
-        """
-        # Sort keys and round floats for consistent hashing
-        normalized = {}
-        for key, value in sorted(autopid_data.items()):
-            if isinstance(value, float):
-                # Round to 2 decimal places to handle float precision
-                normalized[key] = round(value, 2)
-            else:
-                normalized[key] = value
-
-        serialized = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(serialized.encode()).hexdigest()[:16]  # First 16 chars
-
-    async def is_duplicate_payload(self, device_id: str, payload_hash: str) -> bool:
-        """Check if payload is a duplicate based on hash.
-
-        Returns True if the hash matches the device's last_payload_hash.
-        """
-        result = await self.db.execute(
-            select(LiveLinkDevice.last_payload_hash).where(LiveLinkDevice.device_id == device_id)
-        )
-        row = result.first()
-        if not row or not row[0]:
-            return False
-
-        return row[0] == payload_hash
-
-    async def update_payload_hash(self, device_id: str, payload_hash: str) -> None:
-        """Update the device's last_payload_hash."""
-        await self.db.execute(
-            text(
-                "UPDATE livelink_devices SET last_payload_hash = :hash WHERE device_id = :device_id"
-            ).bindparams(hash=payload_hash, device_id=device_id)
-        )
 
     # =========================================================================
     # Parameter Management
@@ -228,6 +314,9 @@ class TelemetryService:
         A source's `display_name` names a new row, and an existing one still on
         its auto name; a name someone set stays. It is cut to the column's
         width: PostgreSQL refuses a longer one where SQLite stores it (TQ-L2).
+        With no source name, a shared key falls back to its readable one
+        (`_format_display_name` for a new row, `_adopt_readable_name` for an
+        existing one).
         """
         if display_name is not None:
             display_name = display_name[:DISPLAY_NAME_MAX_LENGTH]
@@ -245,11 +334,7 @@ class TelemetryService:
             # Update metadata if provided and not already set
             if unit and not existing.unit:
                 existing.unit = unit
-            if display_name and existing.display_name in (
-                None,
-                self._format_display_name(param_key),
-            ):
-                existing.display_name = display_name
+            self._adopt_readable_name(existing, display_name)
             if not existing.param_class and resolved_class:
                 existing.param_class = resolved_class
                 # Only recompute category when it's unset or still the
@@ -326,13 +411,25 @@ class TelemetryService:
 
     @staticmethod
     def _format_display_name(param_key: str) -> str:
-        """Format a parameter key into a display name.
+        """Format a parameter key into a display name: its readable one, else the title case."""
+        return READABLE_PARAM_NAMES.get(param_key) or _title_case(param_key)
 
-        Also the test for "still the auto name" when a source names a reading
-        (auto_register_parameter), so the two can't drift.
+    @staticmethod
+    def _adopt_readable_name(param: LiveLinkParameter, name: str | None = None) -> None:
+        """Give a row still on its auto name `name`, or its key's readable name.
+
+        Auto means no name, the old title case or the readable one; anything
+        else is a name someone set and stays. One rule for every ingest path.
         """
-        # Replace underscores with spaces and title case
-        return param_key.replace("_", " ").title()
+        key: str = param.param_key
+        current: str | None = param.display_name
+        readable = READABLE_PARAM_NAMES.get(key)
+        # WiCAN never names a reading and Torque only its KFF ones, so without
+        # the fallback a row on "Coolant Tmp" would never move.
+        name = name or readable
+        # Skip a row already on it, so a frame doesn't dirty every row it carries.
+        if name and current != name and current in (None, _title_case(key), readable):
+            param.display_name = name
 
     def _is_odometer_param(self, param_key: str, declared: str | None = None) -> bool:
         """Check if a parameter key represents an odometer reading.
@@ -340,15 +437,10 @@ class TelemetryService:
         ``declared`` is the device's ``odometer_param_key``. When set it
         REPLACES the pattern scan for that one key, so a device can name a
         parameter no pattern would match (a vendor custom PID, say) without
-        widening the match for anything else.
+        widening the match for anything else. The scan is
+        `is_converted_odometer_key`'s, shared with the old-reading guard.
         """
-        if declared:
-            return param_key.upper() == declared.upper()
-        param_upper = param_key.upper()
-        for pattern in ODOMETER_PID_PATTERNS:
-            if pattern.upper() in param_upper:
-                return True
-        return False
+        return is_converted_odometer_key(param_key, declared)
 
     async def _declared_odometer_key(self, device_id: str) -> str | None:
         """The device's `odometer_param_key`, or None when it declares nothing.
@@ -372,43 +464,190 @@ class TelemetryService:
         ).first()
         return row if row else (None, None)
 
+    def _normalised_odometer_keys(
+        self, keys: Iterable[str], declared: str | None, *, by_name: bool
+    ) -> set[str]:
+        """The keys a storage path converts to km.
+
+        `by_name`: `store_telemetry` converts every odometer key by the
+        device's match (`declared` replaces the name scan); the simple path
+        only a declared one. `ODOMETER_MI` is miles for every kind, so it's
+        converted on both (Codex R1-M1).
+        """
+        return {
+            k
+            for k in keys
+            if is_miles_odometer_key(k)
+            or ((by_name or declared) and self._is_odometer_param(k, declared))
+        }
+
     async def _normalize_odometer_units(
         self,
         device_id: str,
         autopid_data: dict[str, float | int | str | None],
-        declared: str | None = None,
+        keys: set[str],
+        key_units: Mapping[str, str | None] | None = None,
     ) -> dict[str, float | int | str | None]:
-        """Return ``autopid_data`` with any odometer value converted to km.
+        """Return ``autopid_data`` with each odometer in ``keys`` converted to km.
 
-        Only the standard SAE J1979 PID is guaranteed metric; a bare autopid key
-        is a user-defined CAN expression and is usually miles on a US-market
-        car. The device's declared `odometer_unit` decides, falling back to the
-        key shape (WiCAN only) when it has not been set.
+        ``key_units`` is each key's unit as it arrived (this request's
+        `config`). It goes through R12's resolution with the device's stored
+        rows, so a kept `legacy` row and a boot declaration both reach this.
+        `resolve_odometer_unit` has the order: device unit, then that, then
+        the key shape (WiCAN only).
         """
-        if not any(self._is_odometer_param(k, declared) for k in autopid_data):
+        # Values narrowed here, so the loop below needs no None check.
+        odometers = {k: v for k, v in autopid_data.items() if v is not None and k in keys}
+        if not odometers:
             return autopid_data
 
         device_unit, device_kind = await self._odometer_units_for(device_id)
+        given = key_units or {}
+        units = await DeviceUnitService(self.db).resolve_key_units(
+            device_id, {k: given.get(k) for k in odometers}
+        )
 
         normalized = dict(autopid_data)
-        for param_key, value in autopid_data.items():
-            if value is None or not self._is_odometer_param(param_key, declared):
-                continue
+        for param_key, value in odometers.items():
             try:
-                converted = odometer_value_to_km(float(value), param_key, device_unit, device_kind)
+                converted = odometer_value_to_km(
+                    float(value), param_key, device_unit, device_kind, units.get(param_key)
+                )
             except TypeError, ValueError:
                 continue
             if converted is not None:
                 normalized[param_key] = converted
         return normalized
 
-    async def _sanitize_odometer_value(self, vin: str, value: float) -> float | None:
+    async def _label_odometer_km(self, param: LiveLinkParameter | None) -> None:
+        """A normalised odometer's row says km, whatever an older version wrote (FB-5).
+
+        R4 relabels an mph row the same way. An empty unit gets km too: the
+        browser reads an odometer's unit from this row, not its name
+        (FW-A-r3). The lines stay: they were always compared with the stored
+        values, which were km.
+
+        Rows are global by key, so a key another device stores raw (another
+        kind that doesn't declare it, or a WiCAN that declares a different
+        key) keeps its label, as migration 133 leaves it (FW-A-r4b). That
+        check is a query, so it only runs while the row still needs relabelling.
+        """
+        if param is None:
+            return
+        unlabelled = not (param.unit or "").strip()
+        if not (unlabelled or is_miles_unit(param.unit)):
+            return
+        if await self._another_device_stores_raw(param.param_key):
+            return
+        relabel_parameter(param, ODOMETER_UNIT_KM)
+
+    async def _another_device_stores_raw(self, param_key: str) -> bool:
+        """Whether a device that doesn't convert ``param_key`` may have sent it.
+
+        Migration 133's guard for its km stamp, asked live. Every device that
+        may have sent the key, judged by `stores_odometer_key_raw`. Raw rows
+        alone aren't enough (wave A re-review T2): they prune at 90 days, and a
+        deleted device's stay behind under an id that's no longer on file. So
+        the evidence is, as in 133:
+
+        - a device on file with raw rows under the key;
+        - a device on file with a topic map that sends it the key (generic
+          MQTT: that's where its keys come from, and it doesn't prune);
+        - a WiCAN on file whose vehicle has a latest row for the key, when it's
+          the only device that has reported on that vehicle: linked, or with a
+          drive there (a WiCAN names its own autopids, so its vehicle's latest
+          rows are the record that outlives the raw ones, but they're the
+          vehicle's, not the device's, so with company they prove nothing,
+          wave B review M-4);
+        - raw rows under the key from a device that's gone. Its kind is
+          unknown, so they count as raw, until they prune.
+
+        Torque needs none of these: its keys come from its own fixed map, and
+        none of them is an odometer a WiCAN records.
+        """
+        other = aliased(LiveLinkDevice)
+        sent_it = or_(
+            exists().where(
+                VehicleTelemetry.device_id == LiveLinkDevice.device_id,
+                VehicleTelemetry.param_key == param_key,
+            ),
+            exists().where(
+                LiveLinkTopicMap.device_id == LiveLinkDevice.device_id,
+                LiveLinkTopicMap.param_key == param_key,
+            ),
+            and_(
+                LiveLinkDevice.kind == WICAN_DEVICE_KIND,
+                exists().where(
+                    VehicleTelemetryLatest.vin == LiveLinkDevice.vin,
+                    VehicleTelemetryLatest.param_key == param_key,
+                ),
+                ~exists().where(
+                    other.vin == LiveLinkDevice.vin, other.device_id != LiveLinkDevice.device_id
+                ),
+                ~exists().where(
+                    DriveSession.vin == LiveLinkDevice.vin,
+                    DriveSession.device_id != LiveLinkDevice.device_id,
+                ),
+            ),
+        )
+        rows = await self.db.execute(
+            select(LiveLinkDevice.kind, LiveLinkDevice.odometer_param_key).where(sent_it)
+        )
+        if any(stores_odometer_key_raw(param_key, kind, declared) for kind, declared in rows.all()):
+            return True
+        if not stores_odometer_key_raw(param_key, None):
+            return False  # every kind converts it (ODOMETER_MI)
+        return await self._a_gone_device_sent(param_key)
+
+    async def _a_gone_device_sent(self, param_key: str) -> bool:
+        """Whether a device no longer on file has raw rows under ``param_key``.
+
+        Walks the distinct device ids in the raw table one index seek at a time
+        (a handful of devices, ever), the way migration 133 walks a device's keys.
+        """
+        on_file = set((await self.db.execute(select(LiveLinkDevice.device_id))).scalars().all())
+        previous = ""
+        while True:
+            device_id = await self.db.scalar(
+                select(func.min(VehicleTelemetry.device_id)).where(
+                    VehicleTelemetry.device_id > previous
+                )
+            )
+            if device_id is None:
+                return False
+            previous = device_id
+            if device_id in on_file:
+                continue
+            found = await self.db.scalar(
+                select(VehicleTelemetry.id)
+                .where(
+                    VehicleTelemetry.device_id == device_id,
+                    VehicleTelemetry.param_key == param_key,
+                )
+                .limit(1)
+            )
+            if found is not None:
+                return True
+
+    async def _odometer_record_max(self, vin: str) -> float:
+        """The vehicle's highest odometer record in km, or 0 with none."""
+        found = await self.db.execute(
+            select(func.max(OdometerRecord.odometer_km)).where(OdometerRecord.vin == vin)
+        )
+        return float(found.scalar() or 0)
+
+    async def _sanitize_odometer_value(
+        self, vin: str, value: float, *, record_max: float | None = None
+    ) -> float | None:
         """Sanitize an odometer value (km), returning None if invalid.
 
         Applies the same sanity checks as _sync_odometer_from_telemetry:
         - Absolute cap at ~1.6 million km (1M mi equivalent)
         - Reject unreasonable jumps (>16,000 km from existing max)
         - Reject negative/zero values
+
+        ``record_max`` is the vehicle's highest record when the caller already
+        has it (an SD pull checks thousands of rows against one).
 
         Returns:
             Sanitized value if valid, None if should be rejected
@@ -428,11 +667,10 @@ class TelemetryService:
             )
             return None
 
-        # Query max existing odometer_km to check for unreasonable jumps
-        max_result = await self.db.execute(
-            select(func.max(OdometerRecord.odometer_km)).where(OdometerRecord.vin == vin)
+        # Max existing odometer_km, to check for unreasonable jumps
+        max_odometer_km = (
+            record_max if record_max is not None else await self._odometer_record_max(vin)
         )
-        max_odometer_km = max_result.scalar() or 0
 
         # Reject values that are unreasonably higher than existing max
         # (prevents overflow values like 0xFFFFFF from being displayed)
@@ -478,10 +716,13 @@ class TelemetryService:
         # Canonicalize all keys to UPPERCASE with spaces→underscores so every ingest
         # path (MQTT, HTTPS, SD backfill) stores under the same param_key form, and
         # drop WiCAN frame-metadata params (TS, TIMESTAMP) that are not telemetry.
+        # NaN and infinity go too. `ingest` already drops them; this keeps the
+        # method safe on its own, since a NaN binds as NULL into the latest
+        # table's NOT NULL on SQLite.
         autopid_data = {
             ck: v
             for ck, v in ((canonical_param_key(k), v) for k, v in autopid_data.items())
-            if is_telemetry_param(ck)
+            if is_telemetry_param(ck) and (not isinstance(v, float) or math.isfinite(v))
         }
 
         # Normalise the odometer to canonical km ONCE, here, so every downstream
@@ -489,7 +730,13 @@ class TelemetryService:
         # the session stamp) reads the same units. Doing it per-consumer is what
         # let the record path and the storage path disagree for four months.
         declared_key = await self._declared_odometer_key(device_id)
-        autopid_data = await self._normalize_odometer_units(device_id, autopid_data, declared_key)
+        normalised = self._normalised_odometer_keys(autopid_data, declared_key, by_name=True)
+        autopid_data = await self._normalize_odometer_units(
+            device_id,
+            autopid_data,
+            normalised,
+            {canonical_param_key(k): (c or {}).get("unit") for k, c in config.items()},
+        )
 
         received_at = utc_now()
 
@@ -502,14 +749,28 @@ class TelemetryService:
                 param_config = config.get(param_key, {})
                 unit = param_config.get("unit") if param_config else None
                 param_class = param_config.get("class") if param_config else None
+                # Converted above, so its row names km, not the unit it came in (FB-5).
+                if param_key in normalised:
+                    unit = ODOMETER_UNIT_KM
                 param = await self.auto_register_parameter(param_key, unit, param_class)
                 parameters[param_key] = param
+            else:
+                # Registered keys skip auto_register_parameter here, so the
+                # rename runs on the rows we already hold (F6-1).
+                self._adopt_readable_name(parameters[param_key])
+        for param_key in normalised & autopid_data.keys():
+            await self._label_odometer_km(parameters.get(param_key))
 
         # Validate telemetry values before storage
         validator = TelemetryValidator(self.db)
-        valid_data, _rejected = await validator.validate_batch(vin, autopid_data, parameters)
+        valid_data, _rejected = await validator.validate_batch(
+            vin, autopid_data, parameters, device_id=device_id, sample_at=timestamp
+        )
 
         stored_count = 0
+        #: Odometer readings the sanitizer threw out. They never reach a row, so
+        #: they don't get to prove movement either (B6-12, I1).
+        rejected_odometer: set[str] = set()
 
         for param_key, value in valid_data.items():
             if value is None:
@@ -532,15 +793,20 @@ class TelemetryService:
                 parameters[param_key] = param
 
             # Check if this is an odometer parameter and apply sanity checks
-            is_odometer = self._is_odometer_param(param_key)
+            # The declared key too: a custom odometer no pattern names gets the
+            # same rounding and screening as the rest (OOS-2).
+            is_odometer = self._is_odometer_param(param_key) or self._is_odometer_param(
+                param_key, declared_key
+            )
             if is_odometer:
                 sanitized_value = await self._sanitize_odometer_value(vin, float(value))
                 if sanitized_value is None:
                     # Invalid odometer value - skip storing to latest but may still log to historical
+                    rejected_odometer.add(param_key)
                     continue
                 value = sanitized_value
 
-            # Always update latest value (for live dashboard)
+            # Update the live dashboard's value, unless this reading is older
             await self._upsert_latest_value(vin, param_key, float(value), timestamp, received_at)
 
             # Check storage interval for historical storage
@@ -553,8 +819,8 @@ class TelemetryService:
 
             # Store to historical table. INSERT ... ON CONFLICT DO NOTHING on
             # the (device_id, param_key, timestamp) unique index, the same
-            # dedup `bulk_backfill` and `store_torque_telemetry` already use
-            # for this table: a replayed duplicate is a routine outcome here,
+            # dedup `bulk_backfill` and `store_readings` already use for this
+            # table: a replayed duplicate is a routine outcome here,
             # not an exceptional one, and rowcount says whether the row
             # actually landed.
             stmt = (
@@ -585,8 +851,10 @@ class TelemetryService:
         #
         # Reads `valid_data`, not the raw batch: the validator has already
         # dropped out-of-range garbage, and a spurious 400 km/h reading must not
-        # be what opens a drive.
-        await self._observe_movement(vin, device_id, valid_data, timestamp, received_at)
+        # be what opens a drive. Nor an odometer the sanitizer refused (an
+        # overflow, a 16,000 km jump): it was never stored.
+        observed = {k: v for k, v in valid_data.items() if k not in rejected_odometer}
+        await self._observe_movement(vin, device_id, observed, timestamp, received_at)
 
         # Check for odometer reading and sync
         await self._sync_odometer_from_telemetry(vin, autopid_data, timestamp, declared_key)
@@ -612,12 +880,11 @@ class TelemetryService:
         an optional device timestamp that a buffering dongle sets hours in the
         past -- or, with a bad clock plugin, in the future.
 
-        A sample far from receipt time may still open and extend a session (it
-        is real driving that happened), but must not anchor
-        ``last_movement_at``, which every live timeout measures from. Anchoring
-        a live session on a replayed timestamp drags it hours away from where it
-        belongs and makes the contact-loss clock fire against a moment the
-        device never spoke.
+        A sample far from receipt time is a replay. Since B6-12 it never opens
+        or holds the pointed session and never anchors ``last_movement_at``,
+        which every live timeout measures from; it is built into closed
+        sessions from the rows already stored, unless it is the pointed
+        session's own late sample.
         """
         from app.services.session_service import SessionService  # local import avoids cycle
 
@@ -632,6 +899,17 @@ class TelemetryService:
         sample = sample_at.replace(tzinfo=None) if sample_at.tzinfo else sample_at
         arrival = received_at.replace(tzinfo=None) if received_at.tzinfo else received_at
         live = abs((arrival - sample).total_seconds()) <= LIVE_SAMPLE_TOLERANCE_SECONDS
+        ahead = (sample - arrival).total_seconds()
+        if ahead > LIVE_SAMPLE_TOLERANCE_SECONDS and device.device_id not in _FUTURE_CLOCK_WARNED:
+            # Once per device per process: every frame from that clock is in
+            # the future, and the builder quietly drops what ends there (NB-2).
+            _FUTURE_CLOCK_WARNED.add(device.device_id)
+            logger.warning(
+                "Device %s is stamping readings %d s in the future; its drives won't be "
+                "recorded until the clock is fixed",
+                sanitize_for_log(device.device_id),
+                int(ahead),
+            )
 
         await SessionService(self.db).observe_telemetry(device, samples, sample, live=live)
 
@@ -651,8 +929,13 @@ class TelemetryService:
         drive the vehicle did not make.
 
         Open sessions are excluded — `end_session` computes those on close.
+
+        Queued behind the commit and debounced per session, not run here
+        (B6-12, D-7): a replayed drive is closed from its second frame, so every
+        later frame of the drain lands in its window, and recomputing it inline
+        cost O(n) per frame.
         """
-        # `_refresh_sessions_in_span` below selects on `ended_at IS NOT NULL`.
+        # `_closed_sessions_in_span` below selects on `ended_at IS NOT NULL`.
         # `end_session` sets `ended_at` as a plain ORM attribute, no flush, so
         # a session this same unit of work already closed -- the HTTPS route
         # calling `handle_ecu_offline` (grace period 0) ahead of this same
@@ -667,7 +950,8 @@ class TelemetryService:
         await self.db.flush()
 
         reading_at = timestamp.replace(tzinfo=None) if timestamp.tzinfo else timestamp
-        await self._refresh_sessions_in_span(vin, device_id, reading_at, reading_at)
+        for session in await self._closed_sessions_in_span(vin, device_id, reading_at, reading_at):
+            queue_session_refresh(self.db, session.id)
 
     async def _sync_odometer_from_telemetry(
         self,
@@ -823,8 +1107,21 @@ class TelemetryService:
         timestamp: datetime,
         received_at: datetime,
     ) -> None:
-        """Upsert a value into the latest values cache table."""
-        # Use SQLite's INSERT OR REPLACE
+        """Upsert a value into the latest values cache table, unless it's older.
+
+        A replayed reading lands after newer live ones, and overwriting would
+        roll the dashboard back to it. An equal timestamp writes when the value
+        differs (the later arrival wins the tie), but an exact duplicate leaves
+        the row and its `received_at` alone (B6-7): a re-sent old reading isn't
+        fresh. `_update_latest_if_newer` is the strict twin, for backfill.
+
+        A stored row dated more than `FUTURE_LATEST_SKEW` after now is always
+        overwritten. The device timestamp isn't checked against the clock, so
+        one reading from a dongle with a bad clock would otherwise freeze this
+        value until real time caught up (T4-a). A clock a minute or two fast
+        isn't bad, and healing it let a replayed old reading displace the live
+        value (T4-e).
+        """
         stmt = dialect_insert(VehicleTelemetryLatest).values(
             vin=vin,
             param_key=param_key,
@@ -835,10 +1132,18 @@ class TelemetryService:
         stmt = stmt.on_conflict_do_update(
             index_elements=["vin", "param_key"],
             set_={
-                "value": value,
-                "timestamp": timestamp,
-                "received_at": received_at,
+                "value": stmt.excluded.value,
+                "timestamp": stmt.excluded.timestamp,
+                "received_at": stmt.excluded.received_at,
             },
+            where=or_(
+                VehicleTelemetryLatest.timestamp < stmt.excluded.timestamp,
+                and_(
+                    VehicleTelemetryLatest.timestamp == stmt.excluded.timestamp,
+                    VehicleTelemetryLatest.value != stmt.excluded.value,
+                ),
+                VehicleTelemetryLatest.timestamp > utc_now() + FUTURE_LATEST_SKEW,
+            ),
         )
         await self.db.execute(stmt)
 
@@ -907,23 +1212,53 @@ class TelemetryService:
         stamps: list[datetime] = []
         observed: list[tuple[datetime, str, float]] = []
 
-        # The SD path writes `r.value` straight to a metric-canonical column,
-        # so it needs the same odometer conversion `store_telemetry` applies:
-        # a bare `ODOMETER` autopid on a US-market car reports miles. Fetched
-        # once here rather than per row; a pull is one device.
-        device_unit, device_kind = await self._odometer_units_for(device_id)
+        # A NaN binds as NULL into a NOT NULL column. The parser drops them;
+        # this keeps the method safe on its own, as store_telemetry is.
+        rows = [r for r in rows if math.isfinite(r.value)]
+        if not rows:
+            return 0
 
-        for i, r in enumerate(rows, start=1):
+        # The SD path writes straight to metric-canonical columns, so it
+        # resolves units through the same step live ingest does (R12): stored
+        # rows, mph to km/h, and the odometer order below. Otherwise one key
+        # holds two scales depending on which path wrote it. A pull is one
+        # device, so this is fetched once.
+        resolved = await DeviceUnitService(self.db).resolve_readings(
+            device_id, [Reading(r.param_key, r.value) for r in rows]
+        )
+        device_unit, device_kind = await self._odometer_units_for(device_id)
+        declared = await self._declared_odometer_key(device_id)
+        normalised = self._normalised_odometer_keys(
+            {r.param_key for r in rows}, declared, by_name=True
+        )
+        # Records don't move during a pull, so the jump check's ceiling is read once.
+        record_max: float | None = None
+
+        for i, (r, reading) in enumerate(zip(rows, resolved, strict=True), start=1):
             # Normalise to naive UTC once so the (device_id, param_key, timestamp)
             # dedup index matches live-ingest rows (which store naive UTC via utc_now()).
             # Binding tz-aware datetimes into PG's TIMESTAMP WITHOUT TIME ZONE is also unsafe.
             ts = r.timestamp.replace(tzinfo=None) if r.timestamp.tzinfo is not None else r.timestamp
 
-            value = r.value
-            if self._is_odometer_param(r.param_key):
-                converted = odometer_value_to_km(value, r.param_key, device_unit, device_kind)
+            value = reading.value
+            if r.param_key in normalised:
+                converted = odometer_value_to_km(
+                    value, r.param_key, device_unit, device_kind, reading.unit
+                )
                 if converted is not None:
                     value = converted
+            # Same rounding, cap and jump checks as live ingest, on the same
+            # keys (B6-11), the declared one included. A dropped one is skipped
+            # whole, as live drops it.
+            if self._is_odometer_param(r.param_key) or self._is_odometer_param(
+                r.param_key, declared
+            ):
+                if record_max is None:
+                    record_max = await self._odometer_record_max(vin)
+                sanitized = await self._sanitize_odometer_value(vin, value, record_max=record_max)
+                if sanitized is None:
+                    continue
+                value = sanitized
             # Kept for the session reconstruction below, in CANONICAL km. The
             # predicate compares odometer readings against each other, so a
             # batch mixing raw miles with converted kilometres would see
@@ -1001,193 +1336,57 @@ class TelemetryService:
     ) -> int:
         """Create or extend the drive sessions a replayed batch describes.
 
-        Returns the number of sessions created or extended.
-
-        The grouping is `session_boundaries.group_drives`, which applies the
-        same movement predicate and the same gap as the live path -- so a drive
-        is cut the same way whether it arrived over MQTT or off an SD card.
-
-        Three rules keep this from making things worse than the bug it fixes:
-
-        - **Torque sessions are never touched.** The phone supplies an
-          authoritative session id; re-bounding it on a gap threshold replaces
-          good evidence with inference. Excluded by `external_session_id`, not
-          by heuristic.
-        - **No overlaps are written.** Nothing in the schema forbids them, and
-          every aggregate is a window scan, so two overlapping sessions both
-          claim the same samples and both report the same distance.
-        - **An ambiguous window is left alone.** A drive overlapping more than
-          one existing session is a history-repair problem, not a backfill one;
-          merging them here would be a destructive guess made during an ingest.
+        The builder lives in `SessionService.reconstruct_sessions_from_rows`
+        now (B6-12), since the HTTPS and MQTT replay paths use it too. This
+        stays as the name `bulk_backfill` calls and tests patch.
         """
-        from app.services.session_boundaries import BOUNDARY_ALGORITHM_MOVEMENT, group_drives
+        from app.services.session_service import SessionService  # local: avoids a cycle
 
-        device = (
-            await self.db.execute(
-                select(LiveLinkDevice).where(LiveLinkDevice.device_id == device_id)
-            )
-        ).scalar_one_or_none()
-        if device is None or not device.vin:
-            return 0
-
-        from app.services.livelink_service import LiveLinkService  # local: avoids a cycle
-
-        gap = await LiveLinkService(self.db).get_session_gap_minutes()
-        drives = group_drives(observed, gap)
-        if not drives:
-            return 0
-
-        changed = 0
-        for index, drive in enumerate(drives):
-            session_end = func.coalesce(DriveSession.ended_at, DriveSession.started_at)
-
-            # Inclusive at both bounds by default: a session matches this drive
-            # when each one's start is at or before the other's end. A
-            # single-instant touch with a session from the live path or from
-            # another SD file is most plausibly the same physical drive seen by
-            # two sources (a device reconnecting mid-drive, or one reading both
-            # logged to SD and sent over HTTPS), so it matches.
-            #
-            # The two exclusions below apply only at an instant this drive
-            # shares with the adjacent drive of this same `group_drives` call,
-            # which gives that instant to the earlier drive. The ownership is a
-            # property of one call, where both drives were cut from the same
-            # evidence; it says nothing about a session from anywhere else.
-            # Neither exclusion can remove a genuine overlap (a positive shared
-            # duration), because both require the two windows to meet at
-            # exactly one point.
-            conditions = [
-                DriveSession.device_id == device_id,
-                DriveSession.external_session_id.is_(None),
-                DriveSession.started_at <= drive.movement_ended_at,
-                session_end >= drive.started_at,
-            ]
-
-            if index + 1 < len(drives) and drives[index + 1].started_at == drive.movement_ended_at:
-                # Right: the next drive in this batch starts exactly at this
-                # drive's movement_ended_at, which is always this drive's own
-                # movement sample. A session that starts there and runs on past
-                # it is the next drive's. An open session starting there counts
-                # as running on past it, since it is still going. A closed
-                # session that starts and ends at that instant keeps matching
-                # this drive.
-                conditions.append(
-                    not_(
-                        and_(
-                            DriveSession.started_at == drive.movement_ended_at,
-                            or_(
-                                DriveSession.ended_at.is_(None),
-                                session_end > drive.movement_ended_at,
-                            ),
-                        )
-                    )
-                )
-
-            if index > 0 and drives[index - 1].movement_ended_at == drive.started_at:
-                # Left: the previous drive in this batch ends exactly at this
-                # drive's started_at, so a closed session ending there is the
-                # previous drive's. Closed sessions only: an open session
-                # collapses to a point at its own started_at and must keep
-                # matching, so the open-session branch below still protects it.
-                conditions.append(
-                    not_(
-                        and_(
-                            DriveSession.ended_at.is_not(None),
-                            session_end == drive.started_at,
-                        )
-                    )
-                )
-
-            overlapping = list(
-                (await self.db.execute(select(DriveSession).where(*conditions))).scalars().all()
-            )
-
-            if len(overlapping) > 1:
-                logger.info(
-                    "SD reconstruction: drive %s..%s for %s spans %d existing sessions; "
-                    "left unchanged (history repair, not ingest)",
-                    drive.started_at,
-                    drive.movement_ended_at,
-                    sanitize_for_log(device_id),
-                    len(overlapping),
-                )
-                continue
-
-            if overlapping:
-                session = overlapping[0]
-                if session.ended_at is None:
-                    # An OPEN session is the live path's business: it is still
-                    # deciding where this drive ends, and closing it here would
-                    # race the timeout clocks.
-                    continue
-                session.started_at = min(self._naive_ts(session.started_at), drive.started_at)
-                session.ended_at = max(self._naive_ts(session.ended_at), drive.movement_ended_at)
-                session.movement_started_at = min(
-                    self._naive_ts(session.movement_started_at) or drive.movement_started_at,
-                    drive.movement_started_at,
-                )
-                session.movement_ended_at = max(
-                    self._naive_ts(session.movement_ended_at) or drive.movement_ended_at,
-                    drive.movement_ended_at,
-                )
-            else:
-                session = DriveSession(
-                    vin=device.vin,
-                    device_id=device_id,
-                    started_at=drive.started_at,
-                    ended_at=drive.movement_ended_at,
-                    movement_started_at=drive.movement_started_at,
-                    movement_ended_at=drive.movement_ended_at,
-                    boundary_algorithm_version=BOUNDARY_ALGORITHM_MOVEMENT,
-                    effective_gap_minutes=gap,
-                )
-                self.db.add(session)
-                # Flushed (not just added), not committed: production sessions
-                # are autoflush=False, so without this the next drive's own
-                # overlap query -- issued in the same loop, same transaction --
-                # cannot see a session this loop just created. A commit stays
-                # the caller's: bulk_backfill commits once after every drive
-                # in the batch is done.
-                await self.db.flush()
-                logger.info(
-                    "SD reconstruction: created session for %s over %s..%s",
-                    sanitize_for_log(device_id),
-                    drive.started_at,
-                    drive.movement_ended_at,
-                )
-
-            # Read back into locals and narrow. Both were assigned non-None a
-            # few lines up, in either branch, but they are nullable columns and
-            # a later edit to one branch could stop being true without anything
-            # here noticing.
-            window_start = self._naive_ts(session.started_at)
-            window_end = self._naive_ts(session.ended_at)
-            if window_start is not None and window_end is not None:
-                session.duration_seconds = max(0, int((window_end - window_start).total_seconds()))
-            changed += 1
-
-        await self.db.flush()
-        return changed
-
-    @staticmethod
-    def _naive_ts(value: datetime | None) -> datetime | None:
-        return value.replace(tzinfo=None) if value is not None and value.tzinfo else value
+        return await SessionService(self.db).reconstruct_sessions_from_rows(
+            vin, device_id, observed
+        )
 
     async def _refresh_sessions_in_span(
         self, vin: str, device_id: str, start: datetime, end: datetime
     ) -> None:
-        """Recompute every closed session of `vin` overlapping [start, end].
+        """Recompute every closed session of `vin` overlapping [start, end], now.
 
         Overlap only selects the candidates; each session then recomputes from
         its own window, so a session the pull merely straddles without landing
         any rows inside keeps the values it already had.
 
-        The single point a closed session is refreshed from ingest: a live
-        reading is the degenerate span `[ts, ts]`. Does not commit: callers
-        own the transaction, and `store_telemetry` deliberately does not.
+        SD backfill's refresh, once per batch. A single reading's goes through
+        the debounced queue instead (`_refresh_closed_session`). Does not
+        commit: callers own the transaction.
+
+        Each one also gets a queued refresh behind the commit. The inline one
+        doesn't take the session lock (it would wait on the lock while holding
+        SQLite's), so a queued job could land after it with older figures. The
+        follow-up reads under the lock after this commits, so it lands last.
         """
         from app.services.session_service import SessionService  # local import avoids cycle
 
+        sessions = await self._closed_sessions_in_span(vin, device_id, start, end)
+        if not sessions:
+            return
+
+        session_service = SessionService(self.db)
+        for session in sessions:
+            await session_service.refresh_aggregates(session)
+            queue_session_refresh(self.db, session.id)
+
+        logger.debug(
+            "Refreshed %d closed session(s) for %s over %s..%s",
+            len(sessions),
+            vin[:8],
+            sanitize_for_log(start),
+            sanitize_for_log(end),
+        )
+
+    async def _closed_sessions_in_span(
+        self, vin: str, device_id: str, start: datetime, end: datetime
+    ) -> list[DriveSession]:
+        """The closed sessions of this device and VIN overlapping [start, end]."""
         result = await self.db.execute(
             select(DriveSession)
             .where(DriveSession.vin == vin)
@@ -1199,54 +1398,7 @@ class TelemetryService:
             .where(DriveSession.started_at <= end)
             .where(DriveSession.ended_at >= start)
         )
-        sessions = list(result.scalars().all())
-        if not sessions:
-            return
-
-        session_service = SessionService(self.db)
-        for session in sessions:
-            await session_service.refresh_aggregates(session)
-
-        logger.debug(
-            "Refreshed %d closed session(s) for %s over %s..%s",
-            len(sessions),
-            vin[:8],
-            sanitize_for_log(start),
-            sanitize_for_log(end),
-        )
-
-    async def store_torque_telemetry(
-        self, vin: str, device_id: str, timestamp: datetime, values: dict[str, float]
-    ) -> int:
-        """Idempotently store Torque OBD readings (all at one timestamp).
-
-        Auto-registers unknown params, dedups on (device_id, param_key, timestamp)
-        via on_conflict_do_nothing, and keeps vehicle_telemetry_latest current.
-        Does NOT commit — the caller owns the transaction. `values` keys are already
-        canonical param_keys (see torque_pid_map). `timestamp` must be naive UTC.
-        """
-        _refuse_if_in_maintenance("store_torque_telemetry")
-        if not values:
-            return 0
-        ts = timestamp.replace(tzinfo=None) if timestamp.tzinfo is not None else timestamp
-        inserted = 0
-        for param_key, value in values.items():
-            await self.auto_register_parameter(param_key)
-            stmt = (
-                dialect_insert(VehicleTelemetry)
-                .values(
-                    vin=vin,
-                    device_id=device_id,
-                    param_key=param_key,
-                    value=float(value),
-                    timestamp=ts,
-                )
-                .on_conflict_do_nothing(index_elements=["device_id", "param_key", "timestamp"])
-            )
-            result = await self.db.execute(stmt)
-            inserted += cast(CursorResult[Any], result).rowcount or 0
-            await self._update_latest_if_newer(vin, param_key, float(value), ts)
-        return inserted
+        return list(result.scalars().all())
 
     async def _update_latest_if_newer(
         self, vin: str, param_key: str, value: float, ts: datetime
@@ -1264,6 +1416,10 @@ class TelemetryService:
         watermark unmoved and the device's SD backfill retrying that file
         forever. The conditional upsert also cannot race live ingest, and it
         holds no ORM object across `bulk_backfill`'s per-chunk commits.
+
+        A stored row dated more than `FUTURE_LATEST_SKEW` after now loses to
+        anything, same as `_upsert_latest_value`, so a bad device clock can't
+        freeze it.
         """
         stmt = dialect_insert(VehicleTelemetryLatest).values(
             vin=vin,
@@ -1279,7 +1435,10 @@ class TelemetryService:
                 "timestamp": stmt.excluded.timestamp,
                 "received_at": stmt.excluded.received_at,
             },
-            where=VehicleTelemetryLatest.timestamp < stmt.excluded.timestamp,
+            where=or_(
+                VehicleTelemetryLatest.timestamp < stmt.excluded.timestamp,
+                VehicleTelemetryLatest.timestamp > utc_now() + FUTURE_LATEST_SKEW,
+            ),
         )
         await self.db.execute(stmt)
 
@@ -1387,21 +1546,15 @@ class TelemetryService:
         """
         cutoff = utc_now() - timedelta(days=retention_days)
 
-        # Count first for logging
-        count_result = await self.db.execute(
-            select(func.count(VehicleTelemetry.id)).where(VehicleTelemetry.timestamp < cutoff)
+        # The DELETE's own rowcount, not a count taken first: rows can land in between.
+        result = await self.db.execute(
+            delete(VehicleTelemetry).where(VehicleTelemetry.timestamp < cutoff)
         )
-        count_row = count_result.first()
-        to_delete = count_row[0] if count_row else 0
-
-        if to_delete > 0:
-            await self.db.execute(
-                delete(VehicleTelemetry).where(VehicleTelemetry.timestamp < cutoff)
-            )
-            await self.db.commit()
-            logger.info("Pruned %d telemetry records older than %d days", to_delete, retention_days)
-
-        return to_delete
+        await self.db.commit()
+        deleted = cast(CursorResult[Any], result).rowcount or 0
+        if deleted:
+            logger.info("Pruned %d telemetry records older than %d days", deleted, retention_days)
+        return deleted
 
     async def get_telemetry_row_count(self) -> int:
         """Get total row count for health monitoring."""
@@ -1498,17 +1651,20 @@ class TelemetryService:
         validation, odometer unit normalization and sanitization, movement
         observation and closed-session refresh. Reimplementing it here is how
         the port would silently lose behavior, so it does not.
+
+        Only that delegating path runs `TelemetryValidator`. The simple path
+        below stores every reading it is handed, so its `validated_data` is
+        what was accepted, not what passed validation.
         """
         _refuse_if_in_maintenance("store_readings")
         if not readings:
             return StoreResult()
 
-        # `device` is optional here and REQUIRED by Task 17: it carries
-        # `odometer_param_key`, which decides whether an odometer normalisation
-        # step runs before any row is written. Task 17 adds that step; leave the
-        # parameter unused for now rather than changing the signature twice.
+        # `device` carries `odometer_param_key`, which decides which odometer
+        # the simple path below converts and records. None without the
+        # ODOMETER capability.
 
-        if policy.sync_odometer or policy.observe_movement:
+        if _delegates_to_store_telemetry(policy):
             autopid: dict[str, float | int | str | None] = {r.param_key: r.value for r in readings}
             config: dict[str, dict[str, str | None]] = {
                 r.param_key: {"unit": r.unit, "class": r.param_class}
@@ -1525,31 +1681,41 @@ class TelemetryService:
         # odometer record) must read the same units; converting per-consumer is
         # what let the record path and the storage path disagree for four
         # months. `device` is None when the module lacks the ODOMETER
-        # capability, so this is dead for a source that has no business
-        # recording one.
+        # capability, so only `ODOMETER_MI` converts for a source with no
+        # business recording an odometer: it's miles whoever sends it (R1-M1).
         declared = device.odometer_param_key if device else None
-        if declared:
-            normalised = await self._normalize_odometer_units(
-                device_id, {r.param_key: r.value for r in readings}, declared
+        normalised = self._normalised_odometer_keys(
+            (r.param_key for r in readings), declared, by_name=False
+        )
+        if normalised:
+            converted = await self._normalize_odometer_units(
+                device_id,
+                {r.param_key: r.value for r in readings},
+                normalised,
+                {r.param_key: r.unit for r in readings},
             )
             readings = [
-                replace(r, value=float(normalised[r.param_key]))
-                if normalised.get(r.param_key) is not None
+                replace(r, value=float(converted[r.param_key]))
+                if r.param_key in normalised and converted.get(r.param_key) is not None
                 else r
                 for r in readings
             ]
 
         stored = 0
-        validated: dict[str, float | int | str | None] = {}
+        accepted: dict[str, float | int | str | None] = {}
 
         for reading in readings:
-            await self.auto_register_parameter(
+            odometer = reading.param_key in normalised
+            param = await self.auto_register_parameter(
                 reading.param_key,
-                unit=reading.unit,
+                # Stored in km now, whatever unit it came in (FB-5).
+                unit=ODOMETER_UNIT_KM if odometer else reading.unit,
                 param_class=reading.param_class,
                 display_name=reading.display_name,
             )
-            validated[reading.param_key] = reading.value
+            if odometer:
+                await self._label_odometer_km(param)
+            accepted[reading.param_key] = reading.value
 
             if policy.latest == "if_newer":
                 await self._update_latest_if_newer(vin, reading.param_key, reading.value, ts)
@@ -1558,18 +1724,17 @@ class TelemetryService:
                     vin, reading.param_key, reading.value, ts, utc_now()
                 )
 
-            if policy.apply_storage_interval:
-                param = await self.get_parameter(reading.param_key)
-                if param is not None and param.storage_interval_seconds > 0:
-                    keep = await self._should_store_historical(
-                        vin,
-                        device_id,
-                        reading.param_key,
-                        param.storage_interval_seconds,
-                        ts,
-                    )
-                    if not keep:
-                        continue
+            param = await self.get_parameter(reading.param_key)
+            if param is not None and param.storage_interval_seconds > 0:
+                keep = await self._should_store_historical(
+                    vin,
+                    device_id,
+                    reading.param_key,
+                    param.storage_interval_seconds,
+                    ts,
+                )
+                if not keep:
+                    continue
 
             stmt = (
                 dialect_insert(VehicleTelemetry)
@@ -1589,9 +1754,9 @@ class TelemetryService:
         # inside store_telemetry. WiCAN returns above via the delegating branch,
         # so it cannot double-record.
         if declared:
-            await self._sync_odometer_from_telemetry(vin, validated, ts, declared)
+            await self._sync_odometer_from_telemetry(vin, accepted, ts, declared)
 
-        return StoreResult(stored_count=stored, validated_data=validated)
+        return StoreResult(stored_count=stored, validated_data=accepted)
 
     async def check_thresholds(
         self,
@@ -1600,14 +1765,31 @@ class TelemetryService:
         value: float,
         *,
         once: bool = False,
+        odometer_normalised: bool = False,
+        declared_odometer_key: str | None = None,
     ) -> None:
         """Notify when a value crosses one of its parameter's alert lines.
 
         `once`: notify once per crossing (`alert_state`, see `livelink_alerts`),
         as a preset sensor's readings do. Otherwise every breaching reading
         notifies again, held back by the alert cooldown.
+
+        `odometer_normalised`: storage normalised this batch's odometer
+        (`normalises_odometer`), so an odometer key, by the same match
+        normalisation used (`declared_odometer_key` is the device's
+        `odometer_param_key`), holds km. So does `ODOMETER_MI`, on every path.
+        The alert then reads in the owner's distance unit whatever the
+        parameter row's unit says. An odometer-named key that wasn't
+        normalised prints raw unless its row says km.
         """
-        from app.services.livelink_alerts import alert_band, band_line, crossing
+        from app.services.livelink_alerts import (
+            alert_band,
+            alert_quantity,
+            band_line,
+            crossing,
+            note_reading,
+            send_started,
+        )
 
         param = await self.get_parameter(param_key)
         if not param:
@@ -1615,6 +1797,9 @@ class TelemetryService:
 
         now = utc_now()
         if once:
+            # A send that's still out stores its band when it's delivered,
+            # unless this reading clears it first.
+            note_reading(param.id, value, param)
             # Held, or re-armed by a value back clear of its line: the state
             # is stored as is. A band to notify leaves it unchanged.
             band, param.alert_state = crossing(param.alert_state, value, param)
@@ -1628,6 +1813,10 @@ class TelemetryService:
         else:
             band = alert_band(value, param)
             if band is None:
+                return
+            # Same hold as above (R2): without it a webhook outage retried
+            # inline on every breaching frame, and stalled MQTT ingest.
+            if param.alert_retry_at is not None and now < param.alert_retry_at:
                 return
 
         from app.services.livelink_service import LiveLinkService
@@ -1652,39 +1841,72 @@ class TelemetryService:
         from app.models.vehicle import Vehicle
 
         result = await self.db.execute(
-            select(Vehicle.year, Vehicle.make, Vehicle.model).where(Vehicle.vin == vin)
+            select(Vehicle.nickname, Vehicle.year, Vehicle.make, Vehicle.model).where(
+                Vehicle.vin == vin
+            )
         )
         row = result.first()
+        # The nickname first: it's required, and a mower with no year or make
+        # would otherwise read "None None None" (#226).
         if row:
-            vehicle_name = f"{row[0]} {row[1]} {row[2]}"
+            vehicle_name = row[0] or " ".join(str(p) for p in row[1:] if p) or "Vehicle"
         else:
-            vehicle_name = f"Vehicle ({vin[:8]}...)"
+            vehicle_name = "Vehicle"
 
-        # Send notification
-        from app.services.notifications.dispatcher import NotificationDispatcher
+        # Lines are canonical metric, so the alert reads in the owner's units,
+        # but only for a value known to be canonical. A custom key whose row
+        # says psi holds psi, and prints as it is (D2a).
+        from app.utils.render_context import render_context_for_vehicle
 
-        dispatcher = NotificationDispatcher(self.db)
-        dispatch_results = await dispatcher.notify_livelink_threshold_alert(
-            vehicle_name=vehicle_name,
-            parameter_name=param.display_name or param_key,
-            value=value,
-            band=band,
-            threshold_value=band_line(band, param),
-            unit=param.unit,
+        # Odometer-named counts too: on a device that declares another key it
+        # wasn't normalised, and a unitless row isn't proof of km (carry 15).
+        # Normalised is the declared match, or ODOMETER_MI, which every path
+        # converts (R1-M1).
+        odometer_key = self._is_odometer_param(
+            param_key, declared_odometer_key
+        ) or self._is_odometer_param(param_key)
+        normalised = (
+            odometer_normalised and self._is_odometer_param(param_key, declared_odometer_key)
+        ) or is_miles_odometer_key(param_key)
+        quantity = alert_quantity(
+            param.param_class,
+            param.unit,
+            odometer_key=odometer_key,
+            odometer_normalised=normalised,
         )
 
-        # Stamp the cooldown, and a notify-once reading's band, only when at
-        # least one service actually accepted the notification. The
-        # dispatcher records False for attempted-but-failed sends, so an
-        # all-failed dict (e.g. transient outage) must not start the cooldown
-        # clock and silence real alerts; nor must an empty dict (event
-        # disabled / no services enabled). The caller commits the surrounding
-        # transaction, so no explicit commit here.
-        if any(dispatch_results.values()):
-            param.warning_last_notified_at = now
-            if once:
-                param.alert_state = band
-                param.alert_retry_at = None
-        elif once:
-            cooldown_minutes = await livelink.get_alert_cooldown_minutes()
-            param.alert_retry_at = now + timedelta(minutes=cooldown_minutes)
+        # Held from here, as a send nothing took would be: the frames that land
+        # while this one is out wait like the rest. A delivered send clears it
+        # and stamps the cooldown instead (`deliver_threshold_alert`).
+        cooldown_minutes = await livelink.get_alert_cooldown_minutes()
+        param.alert_retry_at = now + timedelta(minutes=cooldown_minutes)
+        await self._send_alert(
+            ThresholdAlert(
+                param_id=param.id,
+                param_key=param_key,
+                band=band,
+                once=once,
+                at=now,
+                vehicle_name=vehicle_name,
+                parameter_name=param.display_name or param_key,
+                value=value,
+                threshold_value=band_line(band, param),
+                unit=param.unit,
+                ctx=await render_context_for_vehicle(self.db, vin),
+                quantity=quantity,
+                flight=send_started(param.id, band) if once else None,
+            )
+        )
+
+    async def _send_alert(self, alert: ThresholdAlert) -> None:
+        """Send it once the caller's transaction commits, in the background.
+
+        Not inline (B6-1): a slow notification service held up the MQTT frame,
+        and every frame queued behind it, once per cooldown. A rollback drops
+        it, so a frame that failed to store alerts nobody.
+        """
+        after_commit(
+            self.db,
+            partial(deliver_threshold_alert, alert=alert),
+            label=f"threshold alert for {alert.param_key}",
+        )

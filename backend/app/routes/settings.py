@@ -1,10 +1,10 @@
 """Settings API endpoints."""
 
-import datetime as dt
 import logging
 import re
 import sys
 import time
+from collections.abc import Container
 from enum import Enum
 from typing import Final
 from zoneinfo import ZoneInfo
@@ -19,6 +19,7 @@ from app.models.settings import Setting
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.schemas.settings import (
+    LlmTestResponse,
     POIProviderCreate,
     POIProviderUpdate,
     SecretsStatusResponse,
@@ -32,7 +33,15 @@ from app.schemas.settings import (
     UploadLimitsResponse,
     UploadStorageDirs,
 )
+from app.services import llm_client
 from app.services.auth import get_current_admin_user
+from app.services.auth_settings import (
+    AUTH_KEYS,
+    AuthSettingsConflictError,
+    ensure_sso_mode_usable,
+    lock_auth_settings,
+)
+from app.services.document_reader_service import reading_enabled as document_reading_enabled
 from app.services.file_upload_service import (
     ATTACHMENT_UPLOAD_CONFIG,
     DOCUMENT_UPLOAD_CONFIG,
@@ -48,6 +57,7 @@ from app.services.setting_rules import (
 )
 from app.services.settings_init import SENSITIVE_SETTING_KEYS
 from app.services.settings_service import SettingsService
+from app.utils.datetime_utils import utc_now
 from app.utils.default_unit_prefs import (
     DEFAULT_UNIT_PREFS_KEY,
     validate_default_unit_prefs_value,
@@ -78,11 +88,14 @@ def _to_response(setting: Setting) -> SettingResponse:
     configured", and the placeholder for a secret that can't be decrypted,
     which reads as None but is still configured (D3a). `model_validate` reads
     the `unreadable` flag from the row's own property.
+
+    `encrypted` comes from the key too, on every row: the column drifts, and a
+    row the create route made reads its TEXT 'false' default back as true.
     """
     response = SettingResponse.model_validate(setting)
-    if setting.key in SENSITIVE_SETTING_KEYS:
+    response.encrypted = setting.key in SENSITIVE_SETTING_KEYS
+    if response.encrypted:
         response.value = _stored_secret_mask(setting)
-        response.encrypted = True
     return response
 
 
@@ -130,6 +143,16 @@ def _resolve_write_value[V: str | None](key: str, new_value: V) -> V | _KeepStor
     return new_value
 
 
+def _after_write(keys: Container[str]) -> None:
+    """What a committed write of ``keys`` changes outside the settings table.
+
+    A saved ``llm_base_url`` forgets the cached localities, so re-saving the
+    same URL after its host moved makes the next vision read look it up again.
+    """
+    if llm_client.LLM_BASE_URL_SETTING in keys:
+        llm_client.clear_locality_cache()
+
+
 def _reject_reserved_key(key: str) -> None:
     """`effective_timezone` is computed and served, never stored (plan 4.4)."""
     if key == EFFECTIVE_TIMEZONE_KEY:
@@ -153,6 +176,18 @@ def _reject_unwritable_key(key: str) -> None:
             status_code=422,
             detail=f"Setting '{key}' cannot be written through this API",
         )
+
+
+async def _refuse_unusable_sso(db: AsyncSession, pending: dict[str, str | None]) -> None:
+    """409 when these writes would leave sign-in set to SSO without usable SSO (S1c-01).
+
+    Only for a request that took `lock_auth_settings`; `pending` holds the
+    values the route is about to write, None for a row it deletes.
+    """
+    try:
+        await ensure_sso_mode_usable(db, pending)
+    except AuthSettingsConflictError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
 
 
 def _reject_unwritable_value(key: str, value: str | None) -> None:
@@ -271,6 +306,9 @@ async def get_public_settings(db: AsyncSession = Depends(get_db)):
         "imperial_gallon_standard",
         "llm_receipt_parse_enabled",
         "llm_garage_assistant_enabled",
+        # The document import cards show only when a vision model may read a
+        # photo; without it the same fields are typed by hand (#211).
+        "llm_document_reading_enabled",
         # Replaces imperial_gallon_standard for clients with no user: anonymous
         # visitors and every client on an auth_mode=none instance skip /auth/me,
         # so they have no user row to resolve units from (spec D5). Non-sensitive:
@@ -283,6 +321,9 @@ async def get_public_settings(db: AsyncSession = Depends(get_db)):
         "carcomplaints_enabled",
         "window_sticker_enabled",
         "window_sticker_ocr_enabled",
+        # Same reasoning: the country a client without a user resolves its
+        # national defaults from (#211).
+        "default_country",
     }
 
     result = await db.execute(
@@ -293,7 +334,7 @@ async def get_public_settings(db: AsyncSession = Depends(get_db)):
     entries = [_to_response(s) for s in settings]
     # Computed, read-only: the zone in effect for this request. Never a
     # stored row; every write path rejects the key.
-    now = dt.datetime.now()
+    now = utc_now()
     entries.append(
         SettingResponse(
             key=EFFECTIVE_TIMEZONE_KEY,
@@ -762,6 +803,36 @@ async def get_upload_limits(
     )
 
 
+@router.post("/test/llm", response_model=LlmTestResponse)
+async def test_llm_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_admin_user),
+) -> LlmTestResponse:
+    """Exercise the saved LLM settings once (admin only).
+
+    Sends a one-word text completion to ``llm_base_url`` with ``llm_model``
+    and, when document reading is enabled, a 64×64 image to the vision model,
+    so an operator sees "text OK / vision OK" (or the endpoint's own error)
+    before uploading a real document. Reads the stored settings: the card
+    saves first, then tests. Writes nothing.
+    """
+    result = await llm_client.probe(db, check_vision=await document_reading_enabled(db))
+    logger.info(
+        "LLM connection test: text=%s vision=%s model=%s",
+        result.text_ok,
+        result.vision_ok,
+        sanitize_for_log(result.model),
+    )
+    return LlmTestResponse(
+        valid=result.valid,
+        message=result.message,
+        text_ok=result.text_ok,
+        vision_ok=result.vision_ok,
+        model=result.model,
+        vision_model=result.vision_model,
+    )
+
+
 @router.get("/{key}", response_model=SettingResponse)
 async def get_setting(
     key: str,
@@ -786,6 +857,9 @@ async def create_setting(
 ):
     """Create a new setting (admin only)."""
     _reject_unwritable_key(setting.key)
+    auth_key = setting.key in AUTH_KEYS
+    if auth_key:
+        await lock_auth_settings(db)
     # Check if setting already exists
     result = await db.execute(select(Setting).where(Setting.key == setting.key))
     existing = result.scalar_one_or_none()
@@ -795,17 +869,20 @@ async def create_setting(
 
     value = canonical_setting_value(setting.key, setting.value)
     _reject_unwritable_value(setting.key, value)
+    if auth_key:
+        await _refuse_unusable_sso(db, {setting.key: value})
 
     # Create new setting
     db_setting = Setting(
         key=setting.key,
         value=value,
         description=setting.description,
-        updated_at=dt.datetime.now(),
+        updated_at=utc_now(),
     )
 
     db.add(db_setting)
     await db.commit()
+    _after_write({setting.key})
     await db.refresh(db_setting)
 
     logger.info("Created setting: %s", sanitize_for_log(setting.key))
@@ -821,6 +898,8 @@ async def update_setting(
 ):
     """Update a setting (admin only)."""
     _reject_unwritable_key(key)
+    if key in AUTH_KEYS:
+        await lock_auth_settings(db)
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one_or_none()
 
@@ -846,14 +925,17 @@ async def update_setting(
         if resolved is not KEEP_STORED:
             resolved = canonical_setting_value(key, resolved)
             _reject_unwritable_value(key, resolved)
+            if key in AUTH_KEYS:
+                await _refuse_unusable_sso(db, {key: resolved})
             update_data["value"] = resolved
 
     for field, value in update_data.items():
         setattr(setting, field, value)
 
-    setting.updated_at = dt.datetime.now()
+    setting.updated_at = utc_now()
 
     await db.commit()
+    _after_write({key})
     await db.refresh(setting)
 
     logger.info("Updated setting: %s", sanitize_for_log(key))
@@ -874,6 +956,11 @@ async def batch_update_settings(
             "⚠️  SECURITY WARNING: Authentication is being disabled (auth_mode='none'). "
             "This exposes your application to unauthorized access. Use with caution!"
         )
+
+    # Before the first read, and only when a sign-in key is in it (R8).
+    auth_batch = not AUTH_KEYS.isdisjoint(batch.settings)
+    if auth_batch:
+        await lock_auth_settings(db)
 
     # Resolve and validate EVERY key before mutating any row. A rejection raised
     # halfway through the apply loop would leave the earlier keys mutated on a
@@ -897,17 +984,20 @@ async def batch_update_settings(
         _reject_unwritable_value(key, resolved)
         resolved_writes.append((key, resolved, setting))
 
+    if auth_batch:
+        await _refuse_unusable_sso(db, {key: value for key, value, _ in resolved_writes})
+
     written: dict[str, Setting] = {}
     for key, resolved, setting in resolved_writes:
         if setting:
             # Update existing
             setting.value = resolved
-            setting.updated_at = dt.datetime.now()
+            setting.updated_at = utc_now()
         else:
             setting = Setting(
                 key=key,
                 value=resolved,
-                updated_at=dt.datetime.now(),
+                updated_at=utc_now(),
             )
             db.add(setting)
 
@@ -916,6 +1006,7 @@ async def batch_update_settings(
     updated_settings = [written[key] if key in written else kept[key] for key in batch.settings]
 
     await db.commit()
+    _after_write(written)
 
     # Refresh all settings
     for setting in updated_settings:
@@ -936,14 +1027,20 @@ async def delete_setting(
     current_user: User | None = Depends(get_current_admin_user),
 ):
     """Delete a setting (admin only)."""
+    if key in AUTH_KEYS:
+        await lock_auth_settings(db)
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one_or_none()
 
     if not setting:
         raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
 
+    if key in AUTH_KEYS:
+        await _refuse_unusable_sso(db, {key: None})
+
     await db.delete(setting)
     await db.commit()
+    _after_write({key})
 
     logger.info("Deleted setting: %s", sanitize_for_log(key))
     return Response(status_code=204)

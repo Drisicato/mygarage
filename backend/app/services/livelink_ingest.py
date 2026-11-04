@@ -6,14 +6,18 @@ semantics, status updates and storage. That duplication is why adding a third
 source meant adding a third copy.
 
 Capabilities are consulted before any side effect, so a module that does not
-declare DRIVE_SESSION has no reachable path to SessionService at all.
+declare DRIVE_SESSION has no reachable path to SessionService at all. And a
+module only ever gets a device of its own kind (`BaseSourceModule.owns`), so
+a WiCAN upload naming a sensor can't borrow WiCAN's capabilities for it (FB-1).
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
+import math
+from dataclasses import dataclass, replace
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,22 +26,52 @@ from app.models.drive_session import DriveSession
 from app.models.livelink_device import LiveLinkDevice
 from app.models.vehicle import Vehicle
 from app.services import declared_units
+from app.services.device_units import DeviceUnitService
+from app.services.dtc_service import DTCService
 from app.services.livelink_service import LiveLinkService
 from app.services.livelink_sources.base import (
     BaseSourceModule,
     Capability,
     Envelope,
     InferSession,
+    IngestBatch,
+    MqttEnvelope,
     SessionSignal,
     StatusTransition,
 )
 from app.services.location_service import LocationService
+from app.services.notifications.dispatcher import NotificationDispatcher
+from app.services.post_commit import after_commit
 from app.services.session_service import SessionService
-from app.services.telemetry_service import TelemetryService
+from app.services.telemetry_service import TelemetryService, normalises_odometer
 from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
+
+#: Why `ingest` stopped short. None on an `IngestOutcome` means it ran through.
+DropReason = Literal[
+    "livelink_disabled",  # the master switch is off
+    "ignored",  # the module's parser said "not mine"
+    "retained",  # a broker replay (R1)
+    "unknown_device",  # no such device, and none was discovered
+    "device_disabled",  # the device's own switch is off (A-4)
+    "unlinked",  # no vehicle, so no telemetry
+]
+
+
+@dataclass
+class IngestOutcome:
+    """What `ingest` did, for a caller with a response to build (HTTPS).
+
+    MQTT ignores it.
+    """
+
+    device: LiveLinkDevice | None = None
+    discovered: bool = False
+    stored_count: int = 0
+    dtc_count: int = 0
+    reason: DropReason | None = None
 
 
 async def apply_session_signal(
@@ -90,26 +124,83 @@ async def apply_session_signal(
     return await sessions.resolve_torque_session(device, signal.external_id, timestamp or utc_now())
 
 
-async def ingest(module: BaseSourceModule, env: Envelope, db: AsyncSession) -> None:
-    """Parse one message or request and apply it. Does NOT commit."""
-    # The master switch ("Enable LiveLink"). Every MQTT message and every Torque
-    # upload comes through here; the HTTPS route and the periodic jobs check it
-    # themselves, and SD backfill in SdBackfillService.backfill_device. Checked
-    # before parsing, so a switched-off install also discovers no new device
-    # and bumps no last_seen, which is what the integrations card's all-off
-    # state tells the operator.
-    if not await LiveLinkService(db).is_enabled():
-        return
+async def _apply_retained_offline(
+    module: BaseSourceModule, batch: IngestBatch, db: AsyncSession
+) -> None:
+    """A retained LWT `offline`: set the status on a known device, nothing else.
 
-    batch = await module.parse(env)
-    if batch is None:
-        return
-
-    device = await module.resolve_device(db, batch.device_key)
-    if device is None or not device.enabled:
+    No discovery (a replay is no reason to create a device), no `last_seen`
+    bump, and no more than the same message would do live: a disabled device
+    freezes at its last status, an unlinked one is skipped when the batch
+    requires a link, and another kind's device is left alone.
+    """
+    livelink = LiveLinkService(db)
+    device = await livelink.get_device_by_id(batch.device_key)
+    if device is None or not module.owns(device) or not device.enabled:
         return
     if batch.requires_link and not device.vin:
         return
+    await livelink.update_device_status(
+        device_id=device.device_id, device_status="offline", touch_last_seen=False
+    )
+
+
+async def ingest(module: BaseSourceModule, env: Envelope, db: AsyncSession) -> IngestOutcome:
+    """Parse one message or request and apply it. Does NOT commit."""
+    # The master switch ("Enable LiveLink"). Every MQTT message, every Torque
+    # upload and every WiCAN HTTPS POST comes through here; the periodic jobs
+    # check it themselves, and SD backfill in SdBackfillService.backfill_device.
+    # Checked before parsing, so a switched-off install also discovers no new
+    # device and bumps no last_seen, which is what the integrations card's
+    # all-off state tells the operator.
+    if not await LiveLinkService(db).is_enabled():
+        return IngestOutcome(reason="livelink_disabled")
+
+    batch = await module.parse(env)
+    if batch is None:
+        return IngestOutcome(reason="ignored")
+
+    # A retained message is the broker's last copy, of unknown age, and both
+    # live sources republish within seconds anyway. Only a status topic's own
+    # `offline` (an LWT) is worth applying; a retained `online` is dropped too,
+    # since a gateway that died without an LWT leaves exactly that behind (R1).
+    if isinstance(env, MqttEnvelope) and env.retain:
+        if batch.status_from_wire and batch.device_status == "offline":
+            await _apply_retained_offline(module, batch, db)
+        return IngestOutcome(reason="retained")
+
+    device, discovered = await module.resolve_device(db, batch)
+    if device is None:
+        return IngestOutcome(reason="unknown_device")
+    outcome = IngestOutcome(device=device, discovered=discovered)
+
+    # D4a. The dispatcher checks the General drawer's switch itself. After the
+    # commit: sent before it, a commit that failed still sent it, and the
+    # device's retry discovered it again and sent it twice (carry 9).
+    if discovered:
+        new_id = device.device_id
+        hw_version = batch.discovery.hw_version if batch.discovery else None
+
+        async def _notify(own: AsyncSession) -> None:
+            await NotificationDispatcher(own).notify_livelink_new_device(new_id, hw_version)
+
+        after_commit(db, _notify, label=f"new-device notice for {new_id}")
+
+    # Before the enabled and link checks (R12): a WiCAN declares its units
+    # only on the first POST after a boot, a new device is still unlinked
+    # then, and a disabled one that reboots would lose them until the next
+    # boot. Declarations are device metadata, not telemetry.
+    if batch.declared_wire_units:
+        await DeviceUnitService(db).record(
+            device, batch.declared_wire_units, whole_profile=batch.wire_profile
+        )
+
+    if not device.enabled:
+        outcome.reason = "device_disabled"
+        return outcome
+    if batch.requires_link and not device.vin:
+        outcome.reason = "unlinked"
+        return outcome
 
     livelink = LiveLinkService(db)
     timestamp = batch.timestamp or utc_now()
@@ -125,19 +216,24 @@ async def ingest(module: BaseSourceModule, env: Envelope, db: AsyncSession) -> N
         session = await apply_session_signal(db, device, batch.session, timestamp)
 
     # AFTER the session signal: the detector above reads the old ecu_status.
-    # None means LEAVE UNCHANGED and still bumps last_seen
-    # (`livelink_service.py:575`: `device_status or LiveLinkDevice.device_status`).
-    # Never default this to "online", or a retained message replayed after a
-    # gateway's LWT offline resurrects the dead gateway.
+    # None means LEAVE UNCHANGED and still bumps last_seen (Torque). No retained
+    # batch gets here (R1, above), so a source can say 'online' for a reading.
+    # An unlinked device's ECU stays as it was: written now, a device linked
+    # mid-drive never sees the change that opens its drive (carry 7).
+    battery = batch.battery_voltage
     await livelink.update_device_status(
         device_id=device.device_id,
         device_status=batch.device_status,
-        ecu_status=batch.ecu_status,
-        battery_voltage=batch.battery_voltage,
+        ecu_status=batch.ecu_status if device.vin else None,
+        # Same rule as the readings below: a NaN is not a voltage.
+        battery_voltage=battery if battery is not None and math.isfinite(battery) else None,
+        rssi=batch.rssi,
+        sta_ip=batch.sta_ip,
     )
 
     if not device.vin:
-        return  # discovered but unlinked: status only, never telemetry
+        outcome.reason = "unlinked"  # discovered but unlinked: status only, never telemetry
+        return outcome
 
     # Torque declares its units in a request of their own, before any value.
     # Held for this device until a value arrives; rows on file get them now.
@@ -145,30 +241,46 @@ async def ingest(module: BaseSourceModule, env: Envelope, db: AsyncSession) -> N
         declared_units.remember(device.device_id, batch.declared_units)
         await TelemetryService(db).fill_declared_units(batch.declared_units)
 
-    if batch.readings:
+    # NaN and infinity never reach storage, whatever the source's parser let
+    # through: a NaN binds as NULL and the latest table is NOT NULL on SQLite.
+    finite = [r for r in batch.readings if math.isfinite(r.value)]
+    if len(finite) < len(batch.readings):
+        logger.debug(
+            "Dropped %d non-finite readings from %s device %s",
+            len(batch.readings) - len(finite),
+            sanitize_for_log(module.kind),
+            sanitize_for_log(device.device_id),
+        )
+
+    if finite:
         telemetry = TelemetryService(db)
         readings = [
             r if r.unit else replace(r, unit=declared_units.unit_for(device.device_id, r.param_key))
-            for r in batch.readings
+            for r in finite
         ]
+        # The device's stored declarations fill what's still missing, and mph
+        # becomes km/h here, once, whichever way the unit arrived (R4, R12).
+        readings = await DeviceUnitService(db).resolve_readings(device.device_id, readings)
+        # The store reads `device.odometer_param_key` from this to decide
+        # which odometer to normalise and record.
+        #
+        # GATED on the capability, deliberately. Passing it unconditionally
+        # would let ANY source with a declared key write odometer records,
+        # which falsifies the central claim in `Capability`'s docstring that
+        # a module without a capability has no reachable path to its
+        # machinery. A `generic_mqtt` device whose owner picks an odometer
+        # parameter in Settings must still record nothing until that module
+        # is deliberately granted ODOMETER.
+        odometer_device = device if Capability.ODOMETER in module.capabilities else None
         result = await telemetry.store_readings(
             vin=device.vin,
             device_id=device.device_id,
             readings=readings,
             timestamp=timestamp,
             policy=module.storage_policy,
-            # Task 17 reads `device.odometer_param_key` from this to decide
-            # whether to normalise and record an odometer reading.
-            #
-            # GATED on the capability, deliberately. Passing it unconditionally
-            # would let ANY source with a declared key write odometer records,
-            # which falsifies the central claim in `Capability`'s docstring that
-            # a module without a capability has no reachable path to its
-            # machinery. A `generic_mqtt` device whose owner picks an odometer
-            # parameter in Settings must still record nothing until that module
-            # is deliberately granted ODOMETER.
-            device=device if Capability.ODOMETER in module.capabilities else None,
+            device=odometer_device,
         )
+        outcome.stored_count = result.stored_count
         # Gated: WiCAN can/rx alerts today, WiCAN battery and Torque do NOT.
         # Ungated, this port would start sending notifications that have never
         # fired for a Torque user or on a battery frame.
@@ -176,9 +288,26 @@ async def ingest(module: BaseSourceModule, env: Envelope, db: AsyncSession) -> N
             # A preset sensor (a propane tank) sits past its line for days, so
             # its readings notify once per crossing rather than every cooldown.
             once = device.preset_key is not None
+            # Asks the store what it did, not the capability: Torque has
+            # ODOMETER and converts nothing without a declared key, and a
+            # generic_mqtt ODOMETER is raw (D2a).
+            odometer_normalised = normalises_odometer(module.storage_policy, odometer_device)
             for param_key, value in result.validated_data.items():
                 if isinstance(value, (int, float)):
-                    await telemetry.check_thresholds(device.vin, param_key, float(value), once=once)
+                    await telemetry.check_thresholds(
+                        device.vin,
+                        param_key,
+                        float(value),
+                        once=once,
+                        odometer_normalised=odometer_normalised,
+                        declared_odometer_key=device.odometer_param_key,
+                    )
+
+    # Gated like every other side effect: only a module that declares DTC can
+    # write codes, whatever its batch carries.
+    if Capability.DTC in module.capabilities and batch.dtcs and device.vin:
+        await DTCService(db).process_dtcs(device.vin, device.device_id, batch.dtcs)
+        outcome.dtc_count = len(batch.dtcs)
 
     if Capability.LOCATION in module.capabilities and batch.location is not None:
         vehicle = (
@@ -203,3 +332,4 @@ async def ingest(module: BaseSourceModule, env: Envelope, db: AsyncSession) -> N
         sanitize_for_log(module.kind),
         sanitize_for_log(device.device_id),
     )
+    return outcome

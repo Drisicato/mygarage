@@ -6,8 +6,10 @@ the vehicle page downloads, so it can be inspected or re-imported through
 restore: a service visit keeps its first line item, and tax, warranties,
 reminders and media are not in it. The whole-instance backups in Settings >
 Backup are. It also carries a ``supplies`` key: the supplies the vehicle can
-use, with their purchase and usage ledgers, because supplies imports write
-to them and the vehicle export doesn't include them.
+use, shared ones included, with their purchase and usage ledgers, because
+supplies imports write to them and the export's own ``supplies`` holds only
+the ones pinned to this vehicle. It goes under ``supplies_snapshot`` so a
+re-import reads the export's ``supplies`` and nothing else.
 
 They live in ``<data_dir>/backups/vehicles/``, a folder of their own: the
 settings-backup routes treat every ``.json`` in ``<data_dir>/backups`` as a
@@ -32,6 +34,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.models.supply import Supply
+from app.models.user import User
 from app.models.vehicle import Vehicle
 
 #: ``<VIN>-<reason>-<UTC yyyymmdd-hhmmss>[-n].json``
@@ -45,7 +48,9 @@ def backup_dir() -> Path:
     return settings.data_dir / "backups" / "vehicles"
 
 
-async def write_vehicle_backup(db: AsyncSession, vehicle: Vehicle, reason: str) -> str:
+async def write_vehicle_backup(
+    db: AsyncSession, vehicle: Vehicle, reason: str, current_user: User | None
+) -> str:
     """Write the vehicle's JSON export to disk and return the file name.
 
     Written to a temporary name and moved into place, so a file under the final
@@ -55,9 +60,9 @@ async def write_vehicle_backup(db: AsyncSession, vehicle: Vehicle, reason: str) 
     # Imported here: export.py's routes import from app.services.
     from app.routes.export import build_vehicle_export
 
-    data: dict[str, Any] = await build_vehicle_export(db, vehicle)
+    data: dict[str, Any] = await build_vehicle_export(db, vehicle, current_user)
     data["backup_reason"] = reason
-    data["supplies"] = await supplies_snapshot(db, vehicle.vin)
+    data["supplies_snapshot"] = await supplies_snapshot(db, vehicle.vin)
     folder = backup_dir()
     folder.mkdir(parents=True, exist_ok=True)
 

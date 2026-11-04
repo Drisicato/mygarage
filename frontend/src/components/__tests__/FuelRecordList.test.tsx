@@ -62,7 +62,8 @@ vi.mock('react-i18next', () => ({
     // that dropped it would render the same key for 10.4 gal and 47.3 L.
     // `format` for the import options drawer's title, so a dropped or wrong
     // format name shows. `message` (with `errors`) for the import error toast,
-    // which wraps the summary line and the row errors in one key.
+    // which wraps the summary line and the row errors in one key. `warnings`
+    // stands in when there are no errors, for the import warnings toast.
     t: (
       key: string,
       options?: { unit?: string; value?: string; format?: string; message?: string; errors?: string | number; column?: string },
@@ -279,6 +280,20 @@ describe('FuelRecordList — conditional propane column', () => {
     expect(await screen.findByRole('columnheader', { name: 'fuelList.propaneUnit (L)' })).toBeInTheDocument()
   })
 
+  it('labels each octane with its own scale, and a legacy one without (B4)', async () => {
+    const rows = [
+      { ...record, id: 1, octane: 95, octane_scale: 'RON' },
+      { ...record, id: 2, date: '2026-02-01', octane: 91, octane_scale: 'AKI' },
+      { ...record, id: 3, date: '2026-01-01', octane: 89, octane_scale: null },
+    ] as FuelRecord[]
+    useFuelRecordsMock.mockReturnValue({ data: { records: rows, total: 3, average_l_per_100km: null }, isLoading: false, error: null })
+    render(<FuelRecordList {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
+    expect(within(table()).getByText('95 RON')).toBeInTheDocument()
+    expect(within(table()).getByText('91 AKI')).toBeInTheDocument()
+    expect(within(table()).getByText('89')).toBeInTheDocument()
+  })
+
   it('omits the propane column for a non-propane vehicle', async () => {
     render(<FuelRecordList {...DEFAULT_PROPS} />)
     await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
@@ -378,13 +393,14 @@ describe('FuelRecordList — hours usage tracking (Task 13)', () => {
     render(<FuelRecordList {...DEFAULT_PROPS} />)
 
     // 4.5 / 4.54609 = 0.99 on the card; 3.2 / 4.54609 = 0.70 in the row.
-    expect(await screen.findByText('0.99 gal/hr')).toBeInTheDocument()
-    expect(within(table()).getByText('0.70 gal/hr')).toBeInTheDocument()
+    expect(await screen.findByText('0.99 gal (UK)/hr')).toBeInTheDocument()
+    expect(within(table()).getByText('0.70 gal (UK)/hr')).toBeInTheDocument()
     // The card's LABEL too, through the local i18n mock's `{{unit}}`: a label
     // that lost the `/hr` and read a bare `gal` would otherwise survive, since
     // the value beside it is unchanged.
-    expect(screen.getByText('fuelList.avgFuelRate (gal/hr)')).toBeInTheDocument()
+    expect(screen.getByText('fuelList.avgFuelRate (gal (UK)/hr)')).toBeInTheDocument()
     // What the instance-wide US gallon would have answered for the same rows.
+    // 4.5 / 3.785411784 = 1.19, printed by the US adapter.
     expect(screen.queryByText('1.19 gal/hr')).not.toBeInTheDocument()
     expect(screen.queryByText('1.19 GPH')).not.toBeInTheDocument()
   })
@@ -541,13 +557,13 @@ describe('FuelRecordList — one gallon per page, taken from the user', () => {
 
     const t = table()
     // 47.318 L is 10.41 imperial gallons; 12.50 US ones.
-    expect(within(t).getByRole('columnheader', { name: 'fuelList.volumeUnit (gal)' })).toBeInTheDocument()
-    expect(within(t).getByText('10.41 gal')).toBeInTheDocument()
+    expect(within(t).getByRole('columnheader', { name: 'fuelList.volumeUnit (gal (UK))' })).toBeInTheDocument()
+    expect(within(t).getByText('10.41 gal (UK)')).toBeInTheDocument()
     // $0.925/L is $4.21/imperial gal, $3.50/US gal.
     expect(within(t).getByText('$4.21')).toBeInTheDocument()
     // Summary cards, OUTSIDE the table, on the same gallon.
-    expect(screen.getByText('fuelList.volumeTotal (10.4 gal)')).toBeInTheDocument()
-    expect(screen.getByText('fuelList.avgCostPerVolume (gal)')).toBeInTheDocument()
+    expect(screen.getByText('fuelList.volumeTotal (10.4 gal (UK))')).toBeInTheDocument()
+    expect(screen.getByText('fuelList.avgCostPerVolume (gal (UK))')).toBeInTheDocument()
     expect(screen.getByText('$4.20')).toBeInTheDocument()
     expect(UnitConverter.getGallonStandard()).toBe('us')
   })

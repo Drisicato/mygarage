@@ -3,9 +3,7 @@
 Simulates real-world upgrade scenarios against PostgreSQL:
 
 1. Fresh install: create_all -> run every migration -> verify schema
-2. Upgrade from v2.21: create baseline schema missing new columns ->
-   run migrations -> verify missing columns are added (Issue #42)
-3. Idempotency: run migrations twice -> no errors
+2. Idempotency: run migrations twice -> no errors
 
 The migration runner uses psycopg2 (sync), not asyncpg.
 
@@ -25,12 +23,12 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine, create_engine, inspect, text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import Engine, inspect, text
 from sqlalchemy.pool import NullPool
 
 from app.database import Base
 from app.migrations.runner import MigrationRunner
+from app.utils.pg_session import create_utc_async_engine, create_utc_engine
 
 PG_ASYNC_URL = os.getenv("TEST_DATABASE_URL", "")
 PG_SYNC_URL = PG_ASYNC_URL.replace("postgresql+asyncpg", "postgresql+psycopg2")
@@ -41,7 +39,7 @@ pytestmark = pytest.mark.skipif("asyncpg" not in PG_ASYNC_URL, reason="PostgreSQ
 
 def _reset_schema():
     """Drop and recreate public schema (clean slate)."""
-    engine = create_engine(PG_SYNC_URL)
+    engine = create_utc_engine(PG_SYNC_URL)
     with engine.begin() as conn:
         # An open transaction elsewhere would block the drop with no error.
         conn.execute(text("SET LOCAL lock_timeout = '30s'"))
@@ -86,7 +84,7 @@ class TestFreshInstallPath:
         _reset_schema()
 
         # Step 1: create_all (what init_db does first)
-        async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+        async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
         import asyncio
 
         async def _create():
@@ -97,7 +95,7 @@ class TestFreshInstallPath:
         asyncio.run(_create())
 
         # Verify tables
-        sync_engine = create_engine(PG_SYNC_URL)
+        sync_engine = create_utc_engine(PG_SYNC_URL)
         tables = _get_all_tables(sync_engine)
         expected = set(Base.metadata.tables.keys())
         missing = expected - tables
@@ -110,7 +108,7 @@ class TestFreshInstallPath:
         _reset_schema()
 
         # create_all first (migrations expect base tables to exist)
-        async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+        async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
         import asyncio
 
         async def _create():
@@ -125,7 +123,7 @@ class TestFreshInstallPath:
         runner.run_pending_migrations()
 
         # Verify tracking table
-        sync_engine = create_engine(PG_SYNC_URL)
+        sync_engine = create_utc_engine(PG_SYNC_URL)
         with sync_engine.begin() as conn:
             result = conn.execute(text("SELECT count(*) FROM schema_migrations"))
             count = result.scalar()
@@ -138,7 +136,7 @@ class TestFreshInstallPath:
         """Should have applied all discovered migrations."""
         _reset_schema()
 
-        async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+        async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
         import asyncio
 
         async def _create():
@@ -163,36 +161,7 @@ class TestFreshInstallPath:
 
 
 # ===========================================================================
-# Scenario 2: Upgrade from v2.21 (Issue #42)
-#
-# Simulates: Existing user upgrades from v2.21 to current.
-# The v2.21 schema is missing columns that were added in later migrations.
-# Flow: create baseline → mark old migrations as applied → run pending → verify
-# ===========================================================================
-
-
-@pytest.mark.skip(
-    reason=(
-        "v2.21 baseline simulation no longer works after migration 053 (v2.26.2). "
-        "create_all produces the metric-canonical schema, but 053 is a destructive "
-        "rebuild gated on an idempotency check that sees odometer_km already "
-        "present and short-circuits. To restore real v2.21 upgrade-path coverage "
-        "we'd need a hand-maintained v2.21 baseline SQL dump fed in before the "
-        "migration runner — out of scope for the migration-runner regression tests, "
-        "which are the focus of this file. Fresh install + idempotency + runner "
-        "behaviour are still covered by TestFreshInstallPath, TestMigrationIdempotency, "
-        "and TestMigrationRunnerOnPG below."
-    )
-)
-class TestUpgradeFromV221:
-    """Disabled — see class-level skip reason."""
-
-    def test_disabled(self):
-        pass
-
-
-# ===========================================================================
-# Scenario 3: Idempotency
+# Scenario 2: Idempotency
 #
 # Simulates: User restarts container (migrations run again on every startup).
 # All migrations should be safe to run twice without errors.
@@ -206,7 +175,7 @@ class TestMigrationIdempotency:
         """Running all migrations twice should not raise any errors."""
         _reset_schema()
 
-        async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+        async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
         import asyncio
 
         async def _create():
@@ -237,7 +206,7 @@ class TestMigrationIdempotency:
         """create_all + migrations should be idempotent (the init_db path)."""
         _reset_schema()
 
-        async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+        async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
         import asyncio
 
         async def _init():
@@ -264,7 +233,7 @@ class TestMigrationIdempotency:
         runner2.engine.dispose()
 
         # Schema should be intact
-        sync_engine = create_engine(PG_SYNC_URL)
+        sync_engine = create_utc_engine(PG_SYNC_URL)
         tables = _get_all_tables(sync_engine)
         expected = set(Base.metadata.tables.keys())
         missing = expected - tables
@@ -274,7 +243,7 @@ class TestMigrationIdempotency:
 
 
 # ===========================================================================
-# Scenario 4: Migration runner PostgreSQL-specific behavior
+# Scenario 3: Migration runner PostgreSQL-specific behavior
 #
 # Verify the runner itself works correctly with PostgreSQL.
 # ===========================================================================
@@ -314,7 +283,7 @@ class TestMigrationRunnerOnPG:
         """Migrations that accept engine= should receive the PG engine."""
         _reset_schema()
 
-        async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+        async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
         import asyncio
 
         async def _create():
@@ -346,7 +315,7 @@ class TestMigrationRunnerOnPG:
         """Applied migrations should be recorded in schema_migrations."""
         _reset_schema()
 
-        async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+        async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
         import asyncio
 
         async def _create():
@@ -373,7 +342,7 @@ class TestMigrationRunnerOnPG:
 
 
 # ===========================================================================
-# Scenario 5: Unit preference columns (migration 093)
+# Scenario 4: Unit preference columns (migration 093)
 #
 # Everything here runs against a GENUINE pre-093 schema, built by hand. A
 # create_all schema already carries the eleven columns from the ORM model, so
@@ -407,7 +376,7 @@ def _make_pre_093_pg_db(*, gallon_standard: str | None, users: list[dict]):
     Python-side NOT NULL defaults.
     """
     _reset_schema()
-    engine = create_engine(PG_SYNC_URL)
+    engine = create_utc_engine(PG_SYNC_URL)
     with engine.begin() as conn:
         conn.execute(
             text("""
@@ -611,7 +580,7 @@ class TestUnitPreferenceColumns:
 
 
 # ===========================================================================
-# Scenario 6: Money columns (migration 122)
+# Scenario 5: Money columns (migration 122)
 #
 # tests/migrations/test_122_widen_money_columns.py runs the ALTERs on bare
 # narrow tables with values in them, on both dialects. Here it's the two
@@ -621,6 +590,7 @@ class TestUnitPreferenceColumns:
 # ===========================================================================
 
 MIGRATION_122 = "122_widen_money_columns"
+MIGRATION_135 = "135_widen_numeric_columns"
 
 
 def _money_column_types(engine: Engine) -> dict[str, tuple[int | None, int | None]]:
@@ -637,7 +607,7 @@ def _create_all_on_pg() -> None:
     import asyncio
 
     _reset_schema()
-    async_engine = create_async_engine(PG_ASYNC_URL, poolclass=NullPool)
+    async_engine = create_utc_async_engine(PG_ASYNC_URL, poolclass=NullPool)
 
     async def _create():
         async with async_engine.begin() as conn:
@@ -662,7 +632,14 @@ class TestMoneyColumnsWidened:
             runner.engine.dispose()
 
     def test_upgrade_through_the_runner_widens_every_money_column(self):
-        """An install with every migration but 122 applied, at the pre-122 widths."""
+        """An install from before 122, at the pre-122 widths, upgraded through the runner.
+
+        Only the migrations before 122 are stamped, as on a real install that
+        old, so both run: the recorded ALTERs show 122 widening the unit prices
+        to (12,3) and 135 taking them on to (13,4), in that order.
+        """
+        from sqlalchemy import event
+
         from tests.migrations._money_columns import PRE_122_TYPES
         from tests.unit.schemas._money_names import MONEY_COLUMNS
 
@@ -680,28 +657,114 @@ class TestMoneyColumnsWidened:
                     )
             runner._ensure_migration_tracking_table()
             discovered = [name for name, _ in runner._discover_migrations()]
-            assert MIGRATION_122 in discovered
-            runner._mark_migrations_applied([n for n in discovered if n != MIGRATION_122])
+            assert MIGRATION_122 in discovered and MIGRATION_135 in discovered
+            runner._mark_migrations_applied([n for n in discovered if n < MIGRATION_122])
             narrow = _money_column_types(runner.engine)
             assert {q: narrow[q] for q in PRE_122_TYPES} == PRE_122_TYPES, (
                 "the install must start at the old widths"
             )
 
+            # Guard: passes at t=0. Kills a 122 that stops widening the prices,
+            # which the end state can't see now that 135 widens them anyway.
+            # On the Engine class: the runner swaps in a new engine once 134 is
+            # stamped, so a listener on runner.engine would miss 135.
+            alters: list[str] = []
+
+            def record(_conn, _cursor, statement: str, *_args) -> None:
+                if statement.lstrip().upper().startswith("ALTER TABLE FUEL_RECORDS"):
+                    alters.append(statement)
+
+            event.listen(Engine, "before_cursor_execute", record)
+            try:
+                runner.run_pending_migrations()
+            finally:
+                event.remove(Engine, "before_cursor_execute", record)
+
+            applied = runner._get_applied_migrations()
+            assert {MIGRATION_122, MIGRATION_135} <= applied
+            widened_by_122 = [i for i, s in enumerate(alters) if "NUMERIC(12, 3)" in s]
+            widened_by_135 = [i for i, s in enumerate(alters) if "NUMERIC(13, 4)" in s]
+            assert widened_by_122 and widened_by_135, alters
+            assert all("price_per_unit TYPE NUMERIC(12, 3)" in alters[i] for i in widened_by_122)
+            assert all("price_per_unit TYPE NUMERIC(13, 4)" in alters[i] for i in widened_by_135)
+            assert max(widened_by_122) < min(widened_by_135), alters
+            assert _money_column_types(runner.engine) == MONEY_COLUMNS
+
+            # Rerun 122 on the widened install: it leaves the (13,4) prices alone.
+            _load_migration(MIGRATION_122).upgrade(engine=runner.engine)
+            assert _money_column_types(runner.engine) == MONEY_COLUMNS
+        finally:
+            runner.engine.dispose()
+
+
+# ===========================================================================
+# Scenario 6: Batch 7's widened columns (migration 135)
+#
+# tests/migrations/test_135_widen_numeric_columns.py runs the ALTERs on bare
+# tables. Here it's the whole install, through the runner.
+# ===========================================================================
+
+
+def _load_migration(name: str):
+    """Import a migration as a module, the way the runner does."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, MIGRATIONS_DIR / f"{name}.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _widened_types(engine: Engine) -> dict[str, tuple[int | None, int | None]]:
+    """(precision, scale) of each of the 14 columns 135 widens."""
+    from tests.migrations._money_columns import pg_numeric_types
+    from tests.migrations._widened_columns import R7_TYPES
+
+    found = pg_numeric_types(engine)
+    return {qualified: found[qualified][1:] for qualified in R7_TYPES}
+
+
+class TestBatch7ColumnsWidened:
+    """The 14 columns end at their R7 types, fresh or upgraded."""
+
+    def test_fresh_install_lands_on_the_new_types(self):
+        from tests.migrations._widened_columns import R7_TYPES
+
+        _create_all_on_pg()
+        runner = MigrationRunner(PG_SYNC_URL, MIGRATIONS_DIR)
+        runner.run_pending_migrations()
+        try:
+            assert MIGRATION_135 in runner._get_applied_migrations()
+            assert _widened_types(runner.engine) == R7_TYPES
+        finally:
+            runner.engine.dispose()
+
+    def test_upgrade_through_the_runner_widens_them(self):
+        """An install with every migration but 135 applied, at the old types."""
+        from tests.migrations._widened_columns import PRE_135_TYPES, R7_TYPES
+
+        _create_all_on_pg()
+        runner = MigrationRunner(PG_SYNC_URL, MIGRATIONS_DIR)
+        try:
+            with runner.engine.begin() as conn:
+                for qualified, (precision, scale) in PRE_135_TYPES.items():
+                    table, column = qualified.split(".", 1)
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE {table} ALTER COLUMN {column} "
+                            f"TYPE NUMERIC({precision}, {scale})"
+                        )
+                    )
+            runner._ensure_migration_tracking_table()
+            discovered = [name for name, _ in runner._discover_migrations()]
+            assert MIGRATION_135 in discovered
+            runner._mark_migrations_applied([n for n in discovered if n != MIGRATION_135])
+            assert _widened_types(runner.engine) == PRE_135_TYPES, "must start at the old types"
+
             runner.run_pending_migrations()
 
-            assert MIGRATION_122 in runner._get_applied_migrations()
-            assert _money_column_types(runner.engine) == MONEY_COLUMNS
-
-            # Rerun on the widened install: nothing left to do.
-            import importlib.util
-
-            spec = importlib.util.spec_from_file_location(
-                MIGRATION_122, MIGRATIONS_DIR / f"{MIGRATION_122}.py"
-            )
-            assert spec is not None and spec.loader is not None
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            module.upgrade(engine=runner.engine)
-            assert _money_column_types(runner.engine) == MONEY_COLUMNS
+            assert MIGRATION_135 in runner._get_applied_migrations()
+            assert _widened_types(runner.engine) == R7_TYPES
         finally:
             runner.engine.dispose()

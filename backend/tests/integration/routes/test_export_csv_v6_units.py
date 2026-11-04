@@ -84,11 +84,11 @@ UK_IMPERIAL = UnitSet.model_validate(
 # 500.00 km / 1.609344       = 310.68560...  -> "310.686" at 3 dp
 # 40.000 L  / 3.785411784    = 10.566882...  -> "10.5669" at 4 dp
 # 40.000 L  / 4.54609        = 8.798770...   -> "8.7988"  at 4 dp
-# 1.500/L   * 3.785411784    = 5.678118      -> "5.678"   at 3 dp
-# 1.500/L   * 4.54609        = 6.819135      -> "6.819"   at 3 dp
-# 20.0 C    * 9/5 + 32       = 68.0          -> "68.0"    at 1 dp
-# 235.2145833... / 8.00      = 29.40182      -> "29.402"  at 3 dp
-# 282.4809363... / 8.00      = 35.31012      -> "35.310"  at 3 dp
+# 1.500/L   * 3.785411784    = 5.678118      -> "5.6781"   at 4 dp
+# 1.500/L   * 4.54609        = 6.819135      -> "6.8191"   at 4 dp
+# 20.0 C    * 9/5 + 32       = 68.0          -> "68.00"    at 2 dp
+# 235.2145833... / 8.00      = 29.401823     -> "29.40182" at 5 dp
+# 282.4809363... / 8.00      = 35.310117     -> "35.31012" at 5 dp
 # 100.0 kmh / 1.609344       = 62.13712...   -> "62.14"   at 2 dp
 _FUEL_ODOMETER_KM = Decimal("500.00")
 _FUEL_LITERS = Decimal("40.000")
@@ -113,7 +113,12 @@ _FUEL_HEADERS_METRIC = [
     "Odometer (km)",
     "Engine Hours",
     "Volume (L)",
+    "Propane Volume (L)",
+    "Tank Size (kg)",
+    "Tank Quantity",
+    "kWh",
     "Price Per Unit (L)",
+    "Price Basis",
     "Rebate",
     "Total Cost",
     "Full Tank",
@@ -121,7 +126,9 @@ _FUEL_HEADERS_METRIC = [
     "Is Hauling",
     "Fuel Type Used",
     "Octane",
+    "Octane Scale",
     "Diesel Grade",
+    "Fuel Grade",
     "Station ID",
     "Station",
     "Driver ID",
@@ -148,7 +155,12 @@ _FUEL_HEADERS_UK_IMPERIAL = [
     "Odometer (mi)",
     "Engine Hours",
     "Volume (gal_uk)",
+    "Propane Volume (gal_uk)",
+    "Tank Size (lb)",
+    "Tank Quantity",
+    "kWh",
     "Price Per Unit (gal_uk)",
+    "Price Basis",
     "Rebate",
     "Total Cost",
     "Full Tank",
@@ -156,7 +168,9 @@ _FUEL_HEADERS_UK_IMPERIAL = [
     "Is Hauling",
     "Fuel Type Used",
     "Octane",
+    "Octane Scale",
     "Diesel Grade",
+    "Fuel Grade",
     "Station ID",
     "Station",
     "Driver ID",
@@ -346,19 +360,6 @@ async def _cleanup(db: AsyncSession) -> None:
     await _set_setting(db, "auth_mode", "local")
 
 
-@pytest.fixture(autouse=True)
-def _reset_export_rate_limit() -> None:
-    """CSV exports are capped at 5/minute and this module makes far more.
-
-    Same approach as `test_widget.py`: wipe the route module's own limiter
-    storage before each test, so a 429 earned by a sibling test cannot
-    masquerade as a units failure.
-    """
-    from app.routes.export import limiter as export_limiter
-
-    export_limiter.reset()
-
-
 def _read(body: str) -> tuple[list[str], dict[str, str]]:
     """The header row and the single data row of a one-record export."""
     reader = csv.DictReader(io.StringIO(body))
@@ -390,10 +391,10 @@ class TestMarkerDiscriminatesOnTheResolvedSet:
             headers, row = _read(response.text)
             assert headers == _FUEL_HEADERS_METRIC
             assert row["unit_system"] == "metric"
-            assert row["units_version"] == "7"
+            assert row["units_version"] == "8"
             assert row["Odometer (km)"] == "500.00"
             assert row["Volume (L)"] == "40.000"
-            assert row["Price Per Unit (L)"] == "1.500"
+            assert row["Price Per Unit (L)"] == "1.5000"
         finally:
             await _cleanup(db_session)
 
@@ -423,10 +424,10 @@ class TestMarkerDiscriminatesOnTheResolvedSet:
             assert "Price Per Unit (gal_uk)" in headers
             assert row["Odometer (km)"] == "500.00"
             assert row["Volume (gal_uk)"] == "8.7988"
-            assert row["Price Per Unit (gal_uk)"] == "6.819"
+            assert row["Price Per Unit (gal_uk)"] == "6.8191"
             # Consumption and temperature stayed metric: only volume moved.
-            assert row["OBC Economy (l_100km)"] == "8.00"
-            assert row["Outside Temp (c)"] == "20.0"
+            assert row["OBC Economy (l_100km)"] == "8.0000"
+            assert row["Outside Temp (c)"] == "20.00"
         finally:
             await _cleanup(db_session)
 
@@ -533,8 +534,8 @@ class TestExplicitUnitsParameterWinsOutright:
             assert "Volume (gal_uk)" not in headers
             # 40 L is 10.5669 US gallons, not 8.7988 UK ones.
             assert row["Volume (gal_us)"] == "10.5669"
-            assert row["Price Per Unit (gal_us)"] == "5.678"
-            assert row["OBC Economy (mpg_us)"] == "29.402"
+            assert row["Price Per Unit (gal_us)"] == "5.6781"
+            assert row["OBC Economy (mpg_us)"] == "29.40182"
         finally:
             await _cleanup(db_session)
 
@@ -560,9 +561,9 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
             assert row["unit_system"] == "custom"
             assert row["Odometer (mi)"] == "310.686"
             assert row["Volume (gal_uk)"] == "8.7988"
-            assert row["Price Per Unit (gal_uk)"] == "6.819"
-            assert row["Outside Temp (f)"] == "68.0"
-            assert row["OBC Economy (mpg_uk)"] == "35.310"
+            assert row["Price Per Unit (gal_uk)"] == "6.8191"
+            assert row["Outside Temp (f)"] == "68.00"
+            assert row["OBC Economy (mpg_uk)"] == "35.31012"
             assert row["OBC Avg Speed (mph)"] == "62.14"
             # Dimensionless columns are untouched by the unit set.
             assert row["Engine Hours"] == "42.3"
@@ -587,6 +588,7 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
             assert headers == [
                 "units_version",
                 "unit_system",
+                "Visit",
                 "Date",
                 "Category",
                 "Description",
@@ -594,7 +596,12 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
                 "Engine Hours",
                 "Cost",
                 "Vendor",
-                "Notes",
+                "Item Notes",
+                "Tax",
+                "Shop Supplies",
+                "Misc Fees",
+                "Insurance Claim",
+                "Visit Notes",
             ]
             assert row["unit_system"] == "custom"
             # 600 km / 1.609344 = 372.82272...
@@ -632,9 +639,9 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
             ]
             assert row["unit_system"] == "custom"
             assert row["Odometer (mi)"] == "310.686"
-            # 10 L / 4.54609 = 2.19969...; 0.850 * 4.54609 = 3.8641765
+            # 10 L / 4.54609 = 2.19969...; 0.850 * 4.54609 = 3.8641765 (4 dp)
             assert row["Volume (gal_uk)"] == "2.1997"
-            assert row["Price Per Unit (gal_uk)"] == "3.864"
+            assert row["Price Per Unit (gal_uk)"] == "3.8642"
         finally:
             await _cleanup(db_session)
 
@@ -683,7 +690,7 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
                 "Notes",
                 "Source",
             ]
-            assert row["units_version"] == "7"
+            assert row["units_version"] == "8"
             assert row["unit_system"] == "metric"
             assert row["Engine Hours"] == "77.7"
         finally:
@@ -773,5 +780,72 @@ class TestV6RoundTrip:
                 )
             ).scalar_one()
             assert row.odometer_km == Decimal("1000.00")
+        finally:
+            await _cleanup(db_session)
+
+    @pytest.mark.parametrize(
+        ("units_query", "caller_units"),
+        [("?units=imperial", IMPERIAL_PRESET), ("", UK_IMPERIAL)],
+        ids=["imperial", "uk"],
+    )
+    async def test_a_converted_fuel_and_def_round_trip_keeps_every_place(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        units_query: str,
+        caller_units: UnitSet,
+    ) -> None:
+        """#245 widened price to 4 places, temp to 2 and economy to 4.
+
+        The import's rounding has to follow, or 0.9138 comes back 0.9140.
+        """
+        try:
+            owner = await _make_materialised_user(db_session, _OWNER, IMPERIAL_PRESET)
+            caller = await _make_materialised_user(db_session, _UK_CALLER, caller_units)
+            await _seed(db_session, owner)
+            fuel = (
+                await db_session.execute(select(FuelRecord).where(FuelRecord.vin == _VIN))
+            ).scalar_one()
+            fuel.price_per_unit = Decimal("0.9138")
+            fuel.outside_temp_c = Decimal("21.67")
+            fuel.obc_l_per_100km = Decimal("9.4123")
+            def_row = (
+                await db_session.execute(select(DEFRecord).where(DEFRecord.vin == _VIN))
+            ).scalar_one()
+            def_row.price_per_unit = Decimal("0.9138")
+            # The DEF import wants a diesel to land on.
+            destination = await db_session.get(Vehicle, _DST_VIN)
+            assert destination is not None
+            destination.fuel_type = "Diesel"
+            await db_session.commit()
+
+            for pair in ("fuel", "def"):
+                export_resp = await client.get(
+                    f"/api/export/vehicles/{_VIN}/{pair}/csv{units_query}",
+                    headers=_headers_for(caller),
+                )
+                assert export_resp.status_code == 200, export_resp.text
+                assert "(l)" not in export_resp.text.splitlines()[0].lower()
+                import_resp = await client.post(
+                    f"/api/import/vehicles/{_DST_VIN}/{pair}/csv",
+                    headers=_headers_for(caller),
+                    files={"file": (f"{pair}.csv", io.BytesIO(export_resp.content), "text/csv")},
+                )
+                assert import_resp.status_code == 200, import_resp.text
+                assert import_resp.json()["success_count"] == 1, import_resp.text
+
+            db_session.expire_all()
+            fuel_back = (
+                await db_session.execute(select(FuelRecord).where(FuelRecord.vin == _DST_VIN))
+            ).scalar_one()
+            def_back = (
+                await db_session.execute(select(DEFRecord).where(DEFRecord.vin == _DST_VIN))
+            ).scalar_one()
+            assert (
+                fuel_back.price_per_unit,
+                fuel_back.outside_temp_c,
+                fuel_back.obc_l_per_100km,
+                def_back.price_per_unit,
+            ) == (Decimal("0.9138"), Decimal("21.67"), Decimal("9.4123"), Decimal("0.9138"))
         finally:
             await _cleanup(db_session)

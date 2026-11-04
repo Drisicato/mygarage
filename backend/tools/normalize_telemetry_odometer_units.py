@@ -36,58 +36,28 @@ from __future__ import annotations
 import argparse
 import sys
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 sys.path.insert(0, ".")
 
 from app.utils.odometer_units import (  # noqa: E402
     ODOMETER_UNIT_KM,
-    is_odometer_param_key,
+    is_recorded_odometer_key,
     resolve_odometer_unit,
 )
 from app.utils.units import UnitConverter  # noqa: E402
-from tools._tool_db import resolve_sync_url  # noqa: E402
+from tools._tool_db import (  # noqa: E402
+    create_tool_engine,
+    declared_odometer_keys,
+    device_key_units,
+    migrated_odometer_mi_devices,
+    mixed_units_step,
+    print_unreadable_note,
+)
 
 #: Above this, the vehicle's km odometer records tower over its stored odometer
 #: telemetry by roughly the miles factor, so the telemetry is still in miles.
 NEEDS_CONVERSION_RATIO = 1.4
-
-#: A unit change inside one series shows up as a step of the miles factor
-#: between readings that are adjacent in time. An odometer never really moves
-#: 55% in one sample interval, so a step in this band is a units discontinuity.
-MIXED_STEP_LOW = 1.55
-MIXED_STEP_HIGH = 1.67
-
-
-def _mixed_units_step(conn, device_id: str, param_key: str):
-    """Return a (previous, next) reading straddling a units change, or None.
-
-    `stored_max` alone cannot tell a converted series from a half-converted
-    one: post-fix rows are already kilometres and are numerically the largest,
-    so one new reading after the ingest fix makes the max-ratio test report
-    "already converted" while every older row is still in miles. Converting
-    such a series would double the new rows; skipping it leaves the old ones
-    wrong. Neither is safe, so detect it and stop.
-    """
-    row = conn.execute(
-        text(
-            "SELECT prev, value FROM ("
-            "  SELECT value, LAG(value) OVER (ORDER BY timestamp) AS prev"
-            "  FROM vehicle_telemetry WHERE device_id = :d AND param_key = :p"
-            ") stepped "
-            "WHERE prev IS NOT NULL AND prev > 0 AND value > 0 "
-            "  AND ((value / prev BETWEEN :lo AND :hi)"
-            "    OR (prev / value BETWEEN :lo AND :hi)) "
-            "LIMIT 1"
-        ),
-        {
-            "d": device_id,
-            "p": param_key,
-            "lo": MIXED_STEP_LOW,
-            "hi": MIXED_STEP_HIGH,
-        },
-    ).first()
-    return (row.prev, row.value) if row else None
 
 
 def _parse_args() -> argparse.Namespace:
@@ -109,16 +79,29 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     """Convert miles-recorded odometer telemetry to kilometres."""
     args = _parse_args()
-    engine = create_engine(resolve_sync_url(args.db))
+    engine = create_tool_engine(args.db)
     factor = float(UnitConverter.MILES_TO_KM)
 
     with engine.begin() as conn:
+        # Its device query needs these columns; without them it can't tell a
+        # WiCAN from anything else, so it stops rather than guess.
+        if print_unreadable_note(conn):
+            return 2
         devices = [
             (row.device_id, row.vin, row.odometer_unit, row.kind)
             for row in conn.execute(
                 text("SELECT device_id, vin, odometer_unit, kind FROM livelink_devices")
             )
         ]
+
+        # The device's stored units, as live ingest reads them: after 3.10 a
+        # bare ODOMETER is km unless a legacy row says miles, and without this
+        # every legacy device would be skipped as "already metric".
+        key_units = device_key_units(conn)
+        # Migration 133 moves these to km itself.
+        left_to_133 = migrated_odometer_mi_devices(conn)
+        # The keys ingest converted: a WiCAN's scan, or the device's declared key.
+        declared = declared_odometer_keys(conn)
 
         total_hist = 0
         total_latest = 0
@@ -132,13 +115,15 @@ def main() -> int:
                     text("SELECT DISTINCT param_key FROM vehicle_telemetry WHERE device_id = :d"),
                     {"d": device_id},
                 )
-                if is_odometer_param_key(row.param_key)
+                if is_recorded_odometer_key(row.param_key, kind, declared.get(device_id))
+                and not (device_id in left_to_133 and row.param_key == "ODOMETER_MI")
             ]
             for param_key in keys:
-                if resolve_odometer_unit(param_key, unit, kind) == ODOMETER_UNIT_KM:
+                key_unit = key_units.get((device_id, param_key))
+                if resolve_odometer_unit(param_key, unit, kind, key_unit) == ODOMETER_UNIT_KM:
                     continue  # already metric on the wire
 
-                mixed = _mixed_units_step(conn, device_id, param_key)
+                mixed = mixed_units_step(conn, device_id, param_key)
                 if mixed:
                     before, after = mixed
                     print(f"\n{device_id} / {param_key}")

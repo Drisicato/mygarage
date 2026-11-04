@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
+import { vehicleQueryKey } from '../hooks/queries/useVehicle'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
@@ -69,6 +70,7 @@ import LiveLinkSessionsTab from '../components/tabs/LiveLinkSessionsTab'
 import LiveLinkChartsTab from '../components/tabs/LiveLinkChartsTab'
 import LiveLinkTripsTab from '../components/tabs/LiveLinkTripsTab'
 import ReminderList from '../components/ReminderList'
+import InspectionScheduleNotice from '../components/InspectionScheduleNotice'
 import SubTabNav from '../components/SubTabNav'
 import VehicleHero from '../components/vehicle-detail/VehicleHero'
 import VehicleActionsToolbar from '../components/vehicle-detail/VehicleActionsToolbar'
@@ -78,6 +80,7 @@ import VehicleMobileActionsSheet from '../components/vehicle-detail/VehicleMobil
 import VehicleKeyFacts from '../components/vehicle-detail/VehicleKeyFacts'
 import { livelinkService } from '../services/livelinkService'
 import WindowStickerUpload from '../components/WindowStickerUpload'
+import { RegistrationCertificateDrawer } from '../components/RegistrationCertificateImport'
 import VehicleRemoveModal from '../components/modals/VehicleRemoveModal'
 import VehicleTransferWizard from '../components/modals/VehicleTransferWizard'
 import VehicleSharingModal from '../components/modals/VehicleSharingModal'
@@ -93,11 +96,28 @@ import { forgetCachedVehicle, readCachedVehicle, rememberVehicle } from '../util
 import { useSyncQuickEntryVehicle } from '../hooks/queries/useQuickEntryVehicles'
 import { useVehicleDetailStats } from '../hooks/queries/useVehicleDetailStats'
 
-export type ModalType = 'remove' | 'transfer' | 'sharing' | 'windowSticker' | 'torqueSource' | null
+export type ModalType =
+  | 'remove'
+  | 'transfer'
+  | 'sharing'
+  | 'windowSticker'
+  | 'torqueSource'
+  | 'registrationCertificate'
+  | null
 export type PrimaryTabType = 'overview' | 'media' | 'maintenance' | 'fuel' | 'tracking' | 'financial' | 'livelink'
 export type SubTabType = 'photos' | 'documents' | 'service' | 'repairs' | 'inspections' | 'fuel' | 'def' | 'propane' | 'odometer' | 'hours' | 'notes' | 'warranties' | 'insurance' | 'tax' | 'tolls' | 'financing' | 'spotrentals' | 'suppliesused' | 'recalls' | 'reports' | 'reminders' | 'live' | 'dtcs' | 'sessions' | 'charts' | 'trips' | 'tires' | 'brakes'
 
+/**
+ * The route's element. Keyed by vin so switching vehicles mounts a fresh page:
+ * a late load, LiveLink answer or sidecar save for the old vehicle lands on an
+ * unmounted page and goes nowhere, and tabs and drawers start over (G2c-54).
+ */
 export default function VehicleDetail() {
+  const { vin } = useParams<{ vin: string }>()
+  return <VehicleDetailPage key={vin} />
+}
+
+function VehicleDetailPage() {
   const { t } = useTranslation('vehicles')
   const { vin } = useParams<{ vin: string }>()
   const navigate = useNavigate()
@@ -184,6 +204,8 @@ export default function VehicleDetail() {
       setVehicle(updated)
       if (vin) {
         rememberVehicle(vin, updated)
+        // The forms that read the row through the query cache see the save (B9).
+        queryClient.setQueryData(vehicleQueryKey(vin), updated)
         // Tracking distance or hours changes the tire and brake dialogs and figures (#217, #202).
         for (const key of ['tires', 'brakes']) {
           void queryClient.invalidateQueries({ queryKey: [key, vin] })
@@ -639,7 +661,12 @@ export default function VehicleDetail() {
 
         {/* Tracking Sub-tabs */}
         {activePrimaryTab === 'tracking' && activeSubTab === 'notes' && vin && <NotesTab vin={vin} />}
-        {activePrimaryTab === 'tracking' && activeSubTab === 'reminders' && vin && <ReminderList vin={vin} />}
+        {activePrimaryTab === 'tracking' && activeSubTab === 'reminders' && vin && vehicle && (
+          <>
+            <InspectionScheduleNotice vehicle={vehicle} />
+            <ReminderList vehicle={vehicle} />
+          </>
+        )}
         {activePrimaryTab === 'tracking' && activeSubTab === 'reports' && vin && <ReportsTab vin={vin} />}
 
         {/* Financial Sub-tabs */}
@@ -743,6 +770,19 @@ export default function VehicleDetail() {
           onDownloadWindowSticker={handleDownloadWindowSticker}
           onUploadWindowSticker={() => setOpenModal('windowSticker')}
           onManageTorqueSources={() => setOpenModal('torqueSource')}
+          onImportRegistrationCertificate={() => setOpenModal('registrationCertificate')}
+        />
+      )}
+
+      {/* Registration certificate import (#211), stacked over the edit sidecar */}
+      {openModal === 'registrationCertificate' && vin && (
+        <RegistrationCertificateDrawer
+          vin={vin}
+          onClose={() => setOpenModal(null)}
+          onImported={() => {
+            loadVehicle()
+            toast.success(t('registrationImport.importedToast'))
+          }}
         />
       )}
 
@@ -787,16 +827,9 @@ export default function VehicleDetail() {
   )
 
   // Every tab, drawer and record form reads the vehicle's odometer unit
-  // through this scope (#172). Keyed on the unit: a sidecar save can land
-  // AFTER its drawer was dismissed (the drawers do not block closing
-  // mid-save), and if it changes the unit while a record form is open, that
-  // form would read typed miles as kilometres. A unit change remounts
-  // everything below instead, closing any open form: a lost draft in a rare
-  // race, never a silently wrong reading. A save that keeps the unit remounts
-  // nothing.
-  return (
-    <VehicleUnitScope key={vehicle.distance_unit ?? 'account'} distanceUnit={vehicle.distance_unit}>
-      {page}
-    </VehicleUnitScope>
-  )
+  // through this scope (#172). It's live: a unit change repaints the page in
+  // place. Open forms and drawers pin the unit they opened with (R4), so a
+  // late sidecar save can't make one read typed miles as km, and nobody loses
+  // a draft to a remount.
+  return <VehicleUnitScope distanceUnit={vehicle.distance_unit}>{page}</VehicleUnitScope>
 }

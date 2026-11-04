@@ -151,12 +151,24 @@ async def test_a_status_role_sets_device_status_not_a_reading(db_session):
 
 
 @pytest.mark.asyncio
-async def test_a_telemetry_batch_leaves_device_status_alone(mapped):
-    """R1-H5: a retained replay must not resurrect a gateway the LWT killed."""
+async def test_a_live_telemetry_batch_says_the_device_is_online(mapped):
+    """D5a: a live reading means it's talking, like WiCAN's `can/rx`. This used
+    to be None so a retained replay couldn't revive a dead gateway (R1-H5);
+    `ingest` drops retained telemetry before the device now, and the batch
+    still doesn't claim the status came off the wire."""
     batch = await mapped.parse(MqttEnvelope(T, b"71"))
-    assert batch.device_status is None
+    assert batch.device_status == "online"
+    assert batch.status_from_wire is False
     assert batch.requires_link is True
     assert batch.alert_on_thresholds is True
+
+
+@pytest.mark.asyncio
+async def test_a_retained_telemetry_batch_leaves_device_status_alone(mapped):
+    """Regression guard (None on main too), belt and braces under R1: the
+    reading flip skips a retained reading even if `ingest` ever stops dropping it."""
+    batch = await mapped.parse(MqttEnvelope(T, b"71", retain=True))
+    assert batch.device_status is None
 
 
 @pytest.mark.asyncio
@@ -190,3 +202,42 @@ async def test_one_topic_feeding_two_params_yields_two_readings(db_session):
     await mod.refresh(db_session)
     batch = await mod.parse(MqttEnvelope("t/j", b'{"a": 1, "b": 2}'))
     assert sorted(r.param_key for r in batch.readings) == ["A", "B"]
+
+
+@pytest.mark.parametrize("raw", ["nan", "NaN", "inf", "-inf", "Infinity", "1e400"])
+def test_coerce_refuses_non_finite_values(raw):
+    """A-3: float() takes all of these, and NaN hits a NOT NULL on SQLite."""
+    from app.services.livelink_sources.generic_mqtt import _coerce
+
+    assert _coerce(raw) is None
+
+
+@pytest.mark.asyncio
+async def test_a_json_nan_is_dropped(db_session):
+    db_session.add(LiveLinkTopicMap(device_id="d", topic="t/j", param_key="V", value_path="v"))
+    await db_session.commit()
+    mod = GenericMqttModule()
+    await mod.refresh(db_session)
+    batch = await mod.parse(MqttEnvelope("t/j", b'{"v": NaN}'))
+    assert batch is None
+
+
+@pytest.mark.asyncio
+async def test_a_status_role_batch_says_its_status_came_from_the_wire(db_session):
+    """R1: the retained-offline path keys on this, not on device_status alone."""
+    db_session.add(
+        LiveLinkTopicMap(
+            device_id="gw01", topic="mygarage/rv/status", role="status", param_key=None
+        )
+    )
+    await db_session.commit()
+    mod = GenericMqttModule()
+    await mod.refresh(db_session)
+    batch = await mod.parse(MqttEnvelope("mygarage/rv/status", b"offline"))
+    assert batch.status_from_wire is True
+
+
+@pytest.mark.asyncio
+async def test_a_telemetry_batch_does_not_claim_a_wire_status(mapped):
+    batch = await mapped.parse(MqttEnvelope(T, b"71"))
+    assert batch.status_from_wire is False

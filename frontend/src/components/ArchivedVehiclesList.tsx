@@ -14,6 +14,7 @@ import api from '@/services/api'
 import { toast } from 'sonner'
 import { formatAPITimestamp } from '@/utils/parseAPITimestamp'
 import type { Vehicle, VehicleListResponse } from '@/types/vehicle'
+import { identifierValue, keyForFilename } from '../utils/vehicleIdentifier'
 
 export default function ArchivedVehiclesList() {
   const { t } = useTranslation('vehicles')
@@ -89,7 +90,7 @@ export default function ArchivedVehiclesList() {
     const downloadUrl = window.URL.createObjectURL(response.data)
     const a = document.createElement('a')
     a.href = downloadUrl
-    a.download = `${reportType}_${vin}_${Date.now()}.pdf`
+    a.download = `${reportType}_${keyForFilename(vin)}_${Date.now()}.pdf`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -226,10 +227,10 @@ export default function ArchivedVehiclesList() {
                       setSelectedVins(new Set())
                     }
                   }}
-                  className="w-4 h-4 text-primary bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2"
+                  className="w-4 h-4 accent-(--accent-solid) bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2"
                 />
               </th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-garage-text">{t('archivedList.vin')}</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-garage-text">{t('identifier.archivedColumn')}</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-garage-text">{t('archivedList.vehicle')}</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-garage-text">{t('archivedList.reason')}</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-garage-text">{t('archivedList.archived')}</th>
@@ -244,11 +245,11 @@ export default function ArchivedVehiclesList() {
                     type="checkbox"
                     checked={selectedVins.has(vehicle.vin)}
                     onChange={() => handleToggleSelection(vehicle.vin)}
-                    className="w-4 h-4 text-primary bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2"
+                    className="w-4 h-4 accent-(--accent-solid) bg-garage-bg border-garage-border rounded focus:ring-primary focus:ring-2"
                   />
                 </td>
                 <td className="px-4 py-3 text-sm text-garage-text-muted font-mono">
-                  {vehicle.vin.slice(-8)}
+                  {(identifierValue(vehicle) ?? '-').slice(-8)}
                 </td>
                 <td className="px-4 py-3">
                   <div className="text-sm font-medium text-garage-text">{vehicle.nickname}</div>
@@ -260,7 +261,7 @@ export default function ArchivedVehiclesList() {
                   <span className={`px-2 py-1 text-xs rounded-full ${
                     vehicle.archive_reason === 'Sold' ? 'bg-success/20 text-success' :
                     vehicle.archive_reason === 'Totaled' ? 'bg-danger/20 text-danger' :
-                    vehicle.archive_reason === 'Gifted' ? 'bg-primary/20 text-primary' :
+                    vehicle.archive_reason === 'Gifted' ? 'bg-primary/20 text-(--accent-fg)' :
                     vehicle.archive_reason === 'Trade-in' ? 'bg-warning/20 text-warning' :
                     'bg-garage-surface text-garage-text-muted'
                   }`}>
@@ -279,7 +280,7 @@ export default function ArchivedVehiclesList() {
                     {/* Toggle Visibility */}
                     <button
                       onClick={() => handleToggleVisibility(vehicle.vin, vehicle.archived_visible ?? true)}
-                      className="p-2 text-garage-text-muted hover:text-primary transition-colors"
+                      className="p-2 text-garage-text-muted hover:text-(--accent-fg) transition-colors"
                       title={vehicle.archived_visible ? t('archivedList.hideInMainList') : t('archivedList.showInMainList')}
                     >
                       {vehicle.archived_visible ? (

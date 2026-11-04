@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -54,11 +55,18 @@ class _Entry:
 
 
 def _coerce(raw: str) -> float | None:
-    """A payload to a float, or None when it is not a value at all."""
+    """A payload to a float, or None when it is not a value at all.
+
+    NaN and infinity are not values: float() takes "nan", "inf" and "1e400",
+    and a NaN hits the latest table's NOT NULL on SQLite. Same rule as
+    Torque's `_to_float`.
+    """
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         pass
+    else:
+        return value if math.isfinite(value) else None
     lowered = raw.strip().lower()
     if lowered in _TRUTHY:
         return 1.0
@@ -88,7 +96,6 @@ class GenericMqttModule(BaseSourceModule):
     capabilities = frozenset({Capability.TELEMETRY})
     storage_policy = StoragePolicy(
         latest="always",
-        apply_storage_interval=True,
         sync_odometer=False,
         observe_movement=False,
     )
@@ -185,13 +192,22 @@ class GenericMqttModule(BaseSourceModule):
 
         if not readings and device_status is None:
             return None
+        # The status came off a status topic, so a retained `offline` here is
+        # the LWT and still counts (R1).
+        status_from_wire = device_status is not None
+        # A live reading means it's talking, same as WiCAN's `can/rx`. That's
+        # what gets a sensor with no status topic into the offline sweep (D5a),
+        # and it brings back a device whose retained `online` birth R1 dropped.
+        # Not over a status the same message gave: `{"available": false,
+        # "level": 42}` is offline (Fable F3-4). Retained telemetry never gets
+        # this far anyway, R1 drops it in `ingest` before the device is touched.
+        if readings and not status_from_wire and not env.retain:
+            device_status = "online"
         return IngestBatch(
             device_key=device_id,
             readings=readings,
-            # NOT `or "online"`. A retained telemetry message replayed after
-            # the gateway's LWT offline would otherwise resurrect a dead
-            # gateway. None leaves the status alone and still bumps last_seen.
             device_status=device_status,
+            status_from_wire=status_from_wire,
             # No AUTO_DISCOVER: a generic device is created explicitly, so an
             # unmapped or unlinked one stores nothing.
             requires_link=True,

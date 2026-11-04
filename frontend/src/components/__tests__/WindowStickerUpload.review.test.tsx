@@ -18,7 +18,10 @@ vi.mock('../../hooks/useCurrencyPreference', () => ({
 }))
 vi.mock('../../hooks/useUnitPreference', async () => {
   const { IMPERIAL_UNITS } = await import('@/__tests__/factories')
-  return { useUnitPreference: () => ({ system: 'imperial', showBoth: false, units: IMPERIAL_UNITS }) }
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({ system: 'imperial', showBoth: false, units: IMPERIAL_UNITS }) 
+  return { useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference}
 })
 
 import WindowStickerUpload from '../WindowStickerUpload'
@@ -190,7 +193,7 @@ describe('WindowStickerUpload review: the PATCH carries only what the user chang
     await save(user)
     await vi.waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1))
     expect(await screen.findByRole('alert')).toHaveTextContent('String should have at most 10 characters')
-    expect(screen.queryByText('Failed to {{action}}. Please check your input.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Failed to windowSticker.saveAction. Please check your input.')).not.toBeInTheDocument()
   })
 })
 

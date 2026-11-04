@@ -4,7 +4,7 @@
  * panel and the mobile tab bar) must drop them, and keep everything else.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { NavToggles } from '../../../utils/navToggles'
 
@@ -30,8 +30,12 @@ describe('switchable nav tabs', () => {
     toggles.current = { nav_address_book_enabled: true, nav_poi_finder_enabled: true }
   })
 
+  // Contacts and POI live in the phone bar's More drawer.
+  const openMore = () => fireEvent.click(screen.getByRole('button', { name: 'more' }))
+
   it('shows both tabs while they are on', () => {
     renderIn(<MobileTabBar />)
+    openMore()
     expect(link('nav:contacts')).toBeInTheDocument()
     expect(link('nav:poi')).toBeInTheDocument()
   })
@@ -39,6 +43,7 @@ describe('switchable nav tabs', () => {
   it('the mobile tab bar drops the tabs switched off, and only those', () => {
     toggles.current = { nav_address_book_enabled: false, nav_poi_finder_enabled: false }
     renderIn(<MobileTabBar />)
+    openMore()
     expect(link('nav:contacts')).not.toBeInTheDocument()
     expect(link('nav:poi')).not.toBeInTheDocument()
     expect(link('nav:supplies')).toBeInTheDocument()

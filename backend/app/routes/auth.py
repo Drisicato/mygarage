@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import delete, exists, func, select
+from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -387,6 +387,13 @@ async def update_current_user(
 
     logger.info("User updated their profile: %s", sanitize_for_log(current_user.username))
 
+    # #211 — the country and the inspection preference decide whether each of
+    # this person's vehicles gets an automatic inspection reminder.
+    if changes.keys() & {"country", "inspection_auto_schedule"}:
+        from app.services.inspection_schedule_service import resync_user_vehicles
+
+        await resync_user_vehicles(db, current_user.id)
+
     return current_user
 
 
@@ -712,6 +719,7 @@ async def delete_user(
     # via the FKs themselves.
     from sqlalchemy import or_
 
+    from app.models.fuel import FuelRecord
     from app.models.vehicle_share import VehicleShare
     from app.models.vehicle_transfer import VehicleTransfer
 
@@ -726,6 +734,38 @@ async def delete_user(
         )
     )
 
+    # SQLite installs from before 054 have no FK on a fill-up's driver, so
+    # nothing would clear it. Do what ON DELETE SET NULL does everywhere else.
+    await db.execute(
+        update(FuelRecord).where(FuelRecord.driver_user_id == user_id).values(driver_user_id=None)
+    )
+
+    # Their vehicles go by FK cascade, which never reaches the attachment rows
+    # or anything on disk, so clean up the way a vehicle delete does.
+    from app.models.vehicle import Vehicle
+    from app.services.attachment_cleanup import purge_vehicle_attachments, remove_attachment_files
+    from app.services.vehicle_service import VehicleService
+
+    owned = (
+        await db.execute(
+            select(Vehicle.vin, Vehicle.window_sticker_file_path).where(Vehicle.user_id == user_id)
+        )
+    ).all()
+    attachment_paths = await purge_vehicle_attachments(db, [v.vin for v in owned])
+
+    # The cascade would drop each vehicle's policy link but leave the premium
+    # counting it, so the vehicles that stay wouldn't add up. Release them the
+    # way a vehicle delete does: the premium drops by each one's share.
+    from app.services.insurance_service import InsuranceService
+
+    insurance = InsuranceService(db)
+    for v in owned:
+        await insurance.release_vehicle(v.vin)
+        # Flushed one at a time: the next release reloads the policy, so an
+        # unflushed cut would be undone. Done before the user goes, too, or the
+        # cascade deletes the links first and the ORM's delete finds nothing.
+        await db.flush()
+
     await db.delete(user)
 
     if active_admins >= 1:
@@ -735,6 +775,11 @@ async def delete_user(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_LAST_ADMIN_DELETE)
 
     await db.commit()
+
+    # Files only after the commit, so a refused or rolled-back delete keeps them.
+    remove_attachment_files(attachment_paths)
+    for v in owned:
+        VehicleService.remove_vehicle_files(v.vin, [], v.window_sticker_file_path)
 
     logger.info(
         "Admin %s deleted user: %s",

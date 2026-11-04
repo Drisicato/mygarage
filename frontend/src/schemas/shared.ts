@@ -32,11 +32,11 @@ export const INVALID_NUMBER: unique symbol = Symbol('INVALID_NUMBER')
  *
  * Records carry no currency, so one cap serves forint and dollars alike: it is
  * what the column holds. Every stored amount is Numeric(12,2) and every
- * `price_per_unit` Numeric(12,3). moneyBounds.test.ts checks both against the
+ * `price_per_unit` Numeric(13,4). moneyBounds.test.ts checks both against the
  * maxima in openapi.json.
  */
 export const MONEY_MAX = 9_999_999_999.99
-export const UNIT_PRICE_MAX = 999_999_999.999
+export const UNIT_PRICE_MAX = 999_999_999.9999
 
 interface NumericFieldOptions {
   min: number
@@ -55,6 +55,8 @@ interface NumericFieldOptions {
   /** When set, a non-integer value is rejected with this message. Checked
    *  alongside min/max, after the invalid-number guard. */
   integerKey?: string
+  /** Interpolated into every message, for one that names its bounds in the user's unit. */
+  messageValues?: Record<string, string>
 }
 
 /**
@@ -88,24 +90,25 @@ export const makeNumericField = (t: TFunction, opts: NumericFieldOptions) =>
       // parse, never an empty one, and belongs with the invalid guard below,
       // not the empty one.
       const isEmpty = val === undefined || val === null || val === ''
+      const say = (key: string): string => (opts.messageValues ? t(key, opts.messageValues) : t(key))
 
       if (isEmpty) {
         if (opts.requiredKey) {
-          ctx.addIssue({ code: 'custom', message: t(opts.requiredKey) })
+          ctx.addIssue({ code: 'custom', message: say(opts.requiredKey) })
         }
         return
       }
 
       if (val === INVALID_NUMBER || typeof val !== 'number' || Number.isNaN(val)) {
-        ctx.addIssue({ code: 'custom', message: t(opts.invalidKey) })
+        ctx.addIssue({ code: 'custom', message: say(opts.invalidKey) })
         return
       }
       if (opts.integerKey && !Number.isInteger(val)) {
-        ctx.addIssue({ code: 'custom', message: t(opts.integerKey) })
+        ctx.addIssue({ code: 'custom', message: say(opts.integerKey) })
       }
       const belowMin = opts.exclusiveMin ? val <= opts.min : val < opts.min
-      if (belowMin) ctx.addIssue({ code: 'custom', message: t(opts.negativeKey) })
-      if (val > opts.max) ctx.addIssue({ code: 'custom', message: t(opts.tooLargeKey) })
+      if (belowMin) ctx.addIssue({ code: 'custom', message: say(opts.negativeKey) })
+      if (val > opts.max) ctx.addIssue({ code: 'custom', message: say(opts.tooLargeKey) })
     })
     .transform(val => (typeof val === 'number' && !Number.isNaN(val) ? val : undefined))
 
@@ -184,6 +187,14 @@ export const makeVinSchema = (t: TFunction) =>
     .string()
     .length(17, t('common:validation.vin.length'))
     .regex(/^[A-HJ-NPR-Z0-9]{17}$/, t('common:validation.vin.invalidFormat'))
+
+// A vehicle picked from a list: its key, which is a VIN or the generated "Q"
+// key of a vehicle without one (#226). Not for typed VINs: use makeVinSchema.
+export const makeVehicleKeySchema = (t: TFunction) =>
+  z
+    .string()
+    .length(17, t('common:validation.vin.length'))
+    .regex(/^(?:[A-HJ-NPR-Z0-9]{17}|Q[A-HJ-NPR-Z0-9]{16})$/, t('common:validation.vin.invalidFormat'))
 
 // Optional numeric fields
 // Forms use valueAsNumber: true, so empty fields become NaN; NumberInput can

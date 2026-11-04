@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import { useCreateBrakeJob } from '../../hooks/queries/useBrakes'
 import { useUnitFormat } from '../../hooks/useUnitFormat'
+import { useRefuseUnreadableNumbers } from '../../hooks/useRefuseUnreadableNumbers'
 import {
   AXLE_OF,
   BRAKE_POSITIONS,
@@ -16,10 +17,12 @@ import {
 import { formatDateForInput } from '../../utils/dateUtils'
 import { hoursFromField } from '../../utils/hoursFormat'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
-import { canonicalFromUnitField } from '../../utils/unitFormat'
+import { canonicalFromTypedUnitField } from '../../utils/unitFormat'
+import { numberFromField } from '../../utils/decimalInput'
 import MountEventFields, { EMPTY_ODOMETER, type OdometerFieldValue } from '../tires/MountEventFields'
-import { Button, Chip, Drawer, Field, Input, Textarea, Toggle } from '../ui'
+import { Button, Chip, Drawer, Field, NumberInput, Textarea, Toggle } from '../ui'
 import { useBrakeText } from './useBrakeText'
+import { withUnitSession } from '../../contexts/UnitSession'
 
 interface BrakeJobDrawerProps {
   vin: string
@@ -40,7 +43,7 @@ const AXLE_CORNERS: Record<BrakeAxleName, BrakePosition[]> = {
  * New pads start the corner's wear estimate over, from the new thickness when
  * it's filled in. Remount it (with a `key`) to start the form over.
  */
-export default function BrakeJobDrawer({
+function BrakeJobDrawer({
   vin,
   overview,
   open,
@@ -51,6 +54,7 @@ export default function BrakeJobDrawer({
   const u = useUnitFormat()
   const text = useBrakeText()
   const create = useCreateBrakeJob(vin)
+  const refuseUnreadable = useRefuseUnreadableNumbers()
   const [date, setDate] = useState(() => formatDateForInput())
   const [odometer, setOdometer] = useState<OdometerFieldValue>(EMPTY_ODOMETER)
   const [hours, setHours] = useState('')
@@ -82,6 +86,12 @@ export default function BrakeJobDrawer({
       ? t('brakes.padsReplaced')
       : t('brakes.padsOrShoesReplaced')
   const surfaceLabel = onlyDrum ? t('brakes.drums') : onlyDisc ? t('brakes.rotors') : t('brakes.rotorsOrDrums')
+  const newThicknessLabel = (axle: BrakeAxleName): string => {
+    const drum = axleOf(axle)?.brake_type === 'drum'
+    if (axle === 'front') return drum ? t('brakes.newShoesFront') : t('brakes.newPadsFront')
+    return drum ? t('brakes.newShoesRear') : t('brakes.newPadsRear')
+  }
+  const odometerLabel = t('brakes.odometerWithUnit', { unit: u.distance.label })
 
   const handleSave = (): void => {
     if (!date) {
@@ -96,12 +106,16 @@ export default function BrakeJobDrawer({
       toast.error(t('brakes.jobDoesNothing'))
       return
     }
-    const thickness = (position: BrakePosition): number | null => {
-      if (!friction) return null
-      const typed = newThickness[AXLE_OF[position]].trim()
-      const n = Number(typed)
-      return typed !== '' && Number.isFinite(n) ? n : null
-    }
+    if (
+      refuseUnreadable([
+        [odometerLabel, overview.tracks_distance && odometer.typed],
+        [t('common:engineHours'), overview.tracks_hours && hours],
+        ...axles.map((axle) => [newThicknessLabel(axle), friction && newThickness[axle]] as const),
+      ])
+    )
+      return
+    const thickness = (position: BrakePosition): number | null =>
+      friction ? numberFromField(newThickness[AXLE_OF[position]]) : null
     create.mutate(
       {
         performed_on: date,
@@ -113,7 +127,7 @@ export default function BrakeJobDrawer({
           new_thickness_mm: thickness(position),
         })),
         ...(overview.tracks_distance
-          ? { odometer_km: canonicalFromUnitField(odometer.typed, odometer.origin, u.distance) }
+          ? { odometer_km: canonicalFromTypedUnitField(odometer.typed, odometer.origin, u.distance) }
           : {}),
         ...(overview.tracks_hours ? { engine_hours: hoursFromField(hours) } : {}),
       },
@@ -153,7 +167,7 @@ export default function BrakeJobDrawer({
           dateLabel={t('common:date')}
           date={date}
           onDateChange={setDate}
-          odometerLabel={t('brakes.odometerWithUnit', { unit: u.distance.label })}
+          odometerLabel={odometerLabel}
           odometer={odometer}
           onOdometerChange={setOdometer}
           tracksDistance={overview.tracks_distance}
@@ -193,27 +207,10 @@ export default function BrakeJobDrawer({
         {friction &&
           axles.map((axle) => {
             const id = `brake-job-new-${axle}`
-            const drum = axleOf(axle)?.brake_type === 'drum'
             return (
-              <Field
-                key={axle}
-                id={id}
-                label={
-                  axle === 'front'
-                    ? drum
-                      ? t('brakes.newShoesFront')
-                      : t('brakes.newPadsFront')
-                    : drum
-                      ? t('brakes.newShoesRear')
-                      : t('brakes.newPadsRear')
-                }
-                unit="mm"
-                hint={t('brakes.newThicknessHint')}
-              >
-                <Input
+              <Field key={axle} id={id} label={newThicknessLabel(axle)} unit="mm" hint={t('brakes.newThicknessHint')}>
+                <NumberInput
                   id={id}
-                  type="number"
-                  step="0.1"
                   value={newThickness[axle]}
                   onChange={(e) => setNewThickness((prev) => ({ ...prev, [axle]: e.target.value }))}
                 />
@@ -243,3 +240,6 @@ export default function BrakeJobDrawer({
     </Drawer>
   )
 }
+
+// Pins its units for as long as it is open (R4).
+export default withUnitSession(BrakeJobDrawer)

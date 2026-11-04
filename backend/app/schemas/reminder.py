@@ -172,6 +172,9 @@ class ReminderResponse(BaseModel):
     last_notified_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    #: What created it: 'low_tread' (the tire sync), 'inspection' (the
+    #: country-profile inspection engine, #211), null for a person.
+    source: str | None = None
     # --- Maintenance lifecycle ---------------------------------------------
     maintenance_type: str | None = None
     rule_id: int | None = None
@@ -186,8 +189,6 @@ class ReminderResponse(BaseModel):
     completed_hours: Decimal | None = None
     completed_line_item_id: int | None = None
     superseded_by_id: int | None = None
-    #: Other PENDING reminders on the vehicle with the same maintenance type.
-    duplicate_of: list[int] = Field(default_factory=list)
 
 
 class ReminderCompleteResponse(BaseModel):

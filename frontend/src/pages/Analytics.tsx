@@ -68,6 +68,8 @@ import type {
   SpotRentalAnalysis,
   DEFAnalysis,
 } from '../types/analytics'
+import { keyForFilename, vinForDisplay } from '../utils/vehicleIdentifier'
+import AdvancedStatistics from '../components/AdvancedStatistics'
 import AnalyticsHelpModal from '../components/AnalyticsHelpModal'
 import TireAnalyticsSection from '../components/TireAnalyticsSection'
 import ExportMenu from '../components/ExportMenu'
@@ -273,7 +275,7 @@ export default function Analytics() {
     // Header
     rows.push(['MyGarage Analytics Export'])
     rows.push(['Vehicle:', analytics.vehicle_name])
-    rows.push(['VIN:', analytics.vin])
+    if (vinForDisplay(analytics.vin)) rows.push(['VIN:', analytics.vin])
     rows.push(['Export Date:', new Date().toLocaleDateString()])
     rows.push([]) // Empty row
 
@@ -388,7 +390,7 @@ export default function Analytics() {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
-    link.download = `mygarage-analytics-${analytics.vin}-${formatDateForInput()}.csv`
+    link.download = `mygarage-analytics-${keyForFilename(analytics.vin)}-${formatDateForInput()}.csv`
     link.click()
   }
 
@@ -484,7 +486,7 @@ export default function Analytics() {
       <div className="mb-6">
         <Link
           to={`/vehicles/${vin}`}
-          className="inline-flex items-center space-x-2 text-primary hover:text-primary-600 mb-4"
+          className="inline-flex items-center space-x-2 text-(--accent-fg) hover:underline mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>{t('vehicle.backToVehicle')}</span>
@@ -1244,7 +1246,7 @@ export default function Analytics() {
             </div>
             <div className="text-center p-4 bg-garage-bg rounded-lg">
               <p className="text-sm text-garage-text-muted mb-1">{t('vehicle.latestFillUp')}</p>
-              <p className="text-2xl font-bold text-primary">{fuel_economy.recent_l_per_100km ? u.consumption.format(parseFloat(fuel_economy.recent_l_per_100km)) : t('vehicle.notAvailable')}</p>
+              <p className="text-2xl font-bold text-(--accent-fg)">{fuel_economy.recent_l_per_100km ? u.consumption.format(parseFloat(fuel_economy.recent_l_per_100km)) : t('vehicle.notAvailable')}</p>
             </div>
           </div>
 
@@ -1548,7 +1550,7 @@ export default function Analytics() {
             </div>
             <div className="text-center p-4 bg-garage-bg rounded-lg">
               <p className="text-sm text-garage-text-muted mb-1">{t('vehicle.avgPricePerUnit', { unit: UnitFormatter.getVolumeUnit(units) })}</p>
-              <p className="text-2xl font-bold text-primary">
+              <p className="text-2xl font-bold text-(--accent-fg)">
                 {propane.avg_price_per_liter
                   ? UnitFormatter.formatCostPerVolume(parseFloat(propane.avg_price_per_liter), units, currencyCode, locale)
                   : t('vehicle.notAvailable')}
@@ -1614,7 +1616,7 @@ export default function Analytics() {
             </div>
             <div className="text-center p-4 bg-garage-bg rounded-lg">
               <p className="text-sm text-garage-text-muted mb-1">{t('vehicle.monthlyAverage')}</p>
-              <p className="text-2xl font-bold text-primary">
+              <p className="text-2xl font-bold text-(--accent-fg)">
                 {formatCurrency(spotRental.monthly_average, { currencyCode, locale })}
               </p>
             </div>
@@ -1697,7 +1699,7 @@ export default function Analytics() {
             </div>
             <div className="text-center p-4 bg-garage-bg rounded-lg">
               <p className="text-sm text-garage-text-muted mb-1">{t('vehicle.consumptionRate')}</p>
-              <p className="text-2xl font-bold text-primary">
+              <p className="text-2xl font-bold text-(--accent-fg)">
                 {defAnalysis.liters_per_1000_km
                   ? `${formatVolumePerDistance(accountUnits, parseFloat(defAnalysis.liters_per_1000_km))} ${volumePerDistanceLabel(accountUnits)}`
                   : '-'}
@@ -1731,12 +1733,12 @@ export default function Analytics() {
                     {item.odometer_km && <span>{u.distance.formatPrimary(parseFloat(item.odometer_km))}</span>}
                     {item.vendor_name && <span>{item.vendor_name}</span>}
                     {item.days_since_last && (
-                      <span className="text-primary">
+                      <span className="text-(--accent-fg)">
                         {t('vehicle.daysSinceLast', { count: item.days_since_last, type: item.service_type.toLowerCase() })}
                       </span>
                     )}
                     {item.km_since_last && (
-                      <span className="text-primary">
+                      <span className="text-(--accent-fg)">
                         {t('vehicle.distanceSinceLast', { distance: u.distance.formatPrimary(parseFloat(item.km_since_last)) })}
                       </span>
                     )}
@@ -2010,6 +2012,14 @@ export default function Analytics() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Optional, collapsed by default; additive to the cards above */}
+      {isMotorized && analytics.statistics && (
+        <AdvancedStatistics
+          statistics={analytics.statistics}
+          statisticsAsPaid={analytics.statistics_as_paid}
+        />
       )}
 
       {/* Period Comparison */}

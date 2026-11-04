@@ -27,18 +27,39 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.reminder import Reminder
+from app.models.vehicle import Vehicle
+from app.services.notifications.dispatcher import NotificationDispatcher
+
+
+@pytest.fixture
+def delivered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every notification reaches a provider.
+
+    The sweep stamps only a delivery, and the test database has no provider set
+    up, so the real `dispatch` returns `{}` and nothing would be stamped. Only
+    `dispatch` is replaced: the conditional stamp `UPDATE` is the real one, and
+    this file is its only PostgreSQL coverage.
+    """
+
+    async def _dispatch(
+        self: NotificationDispatcher, event_type: str, title: str, message: str, **_: object
+    ) -> dict[str, bool]:
+        return {"ntfy": True}
+
+    monkeypatch.setattr(NotificationDispatcher, "dispatch", _dispatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("delivered")
 class TestLastNotifiedAtIsWrittenNaive:
     async def test_a_due_reminder_can_be_marked_notified(
-        self, db_session: AsyncSession, test_vehicle: dict[str, object]
+        self, db_session: AsyncSession, own_vehicle: Vehicle
     ) -> None:
         """The regression. On PostgreSQL this raised before the row was written."""
         from app.services.reminder_service import check_due_reminders
 
         reminder = Reminder(
-            vin=str(test_vehicle["vin"]),
+            vin=own_vehicle.vin,
             title="Naive datetime guard",
             reminder_type="date",
             due_date=date.today() - timedelta(days=1),
@@ -63,7 +84,7 @@ class TestLastNotifiedAtIsWrittenNaive:
         )
 
     async def test_the_cooldown_still_works_after_a_notification(
-        self, db_session: AsyncSession, test_vehicle: dict[str, object]
+        self, db_session: AsyncSession, own_vehicle: Vehicle
     ) -> None:
         """The read guard and the write must agree.
 
@@ -75,7 +96,7 @@ class TestLastNotifiedAtIsWrittenNaive:
         from app.services.reminder_service import check_due_reminders
 
         reminder = Reminder(
-            vin=str(test_vehicle["vin"]),
+            vin=own_vehicle.vin,
             title="Cooldown guard",
             reminder_type="date",
             due_date=date.today() - timedelta(days=1),
@@ -97,7 +118,7 @@ class TestLastNotifiedAtIsWrittenNaive:
     async def test_now_is_still_aware_where_it_is_compared(self) -> None:
         """Pins the shape of the fix.
 
-        The column is naive; the comparison against `NOTIFICATION_COOLDOWN` is
+        The column is naive; the comparison in `in_cooldown` is
         aware. Both are true at once, and a fix that makes `now` naive
         everywhere would pass the first test and silently reintroduce the
         TypeError this module's read guard exists to prevent.

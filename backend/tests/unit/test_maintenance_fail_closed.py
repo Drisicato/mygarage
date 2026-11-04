@@ -9,12 +9,10 @@ That is two rounds of the same defect, and the shape is clear: any gate that
 enumerates entry points is a floor. MQTT is not a route. The scheduler is not a
 route. A future ingest path need not be a route either.
 
-So the gate moves to the place every path must pass through: the three writers
+So the gate moves to the place every path must pass through: the writers
 themselves. The route gate stays, because a 503 at the edge is a better answer
 than a 500 from the middle, but it is no longer the thing being relied on.
 """
-
-from datetime import UTC, datetime
 
 import pytest
 
@@ -37,15 +35,7 @@ class TestWritersRefuseInMaintenanceMode:
 
         with pytest.raises(MaintenanceModeError):
             await TelemetryService(db_session).store_telemetry(
-                "1HGBH41JXMN109186", "dev-1", {"SPEED": 40}, {}
-            )
-
-    async def test_store_torque_telemetry_refuses(self, db_session, maintenance_on):
-        from app.services.telemetry_service import TelemetryService
-
-        with pytest.raises(MaintenanceModeError):
-            await TelemetryService(db_session).store_torque_telemetry(
-                "1HGBH41JXMN109186", "dev-1", datetime.now(UTC), {"SPEED": 40}
+                "1HGCM82633A004352", "dev-1", {"SPEED": 40}, {}
             )
 
     async def test_bulk_backfill_refuses(self, db_session, maintenance_on):
@@ -53,7 +43,7 @@ class TestWritersRefuseInMaintenanceMode:
         from app.services.telemetry_service import TelemetryService
 
         with pytest.raises(MaintenanceModeError):
-            await TelemetryService(db_session).bulk_backfill("1HGBH41JXMN109186", "dev-1", [])
+            await TelemetryService(db_session).bulk_backfill("1HGCM82633A004352", "dev-1", [])
 
     async def test_bulk_backfill_refuses_before_it_looks_at_its_rows(
         self, db_session, maintenance_on
@@ -68,7 +58,7 @@ class TestWritersRefuseInMaintenanceMode:
 
         with pytest.raises(MaintenanceModeError):
             await TelemetryService(db_session).bulk_backfill(
-                "1HGBH41JXMN109186", "dev-1", [object()]
+                "1HGCM82633A004352", "dev-1", [object()]
             )
 
 

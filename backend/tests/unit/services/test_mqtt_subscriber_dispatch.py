@@ -1,5 +1,6 @@
 """Subscriber dispatch and resubscribe. The WiCAN behavior gate is the existing suite."""
 
+import asyncio
 import contextlib
 from unittest.mock import AsyncMock, patch
 
@@ -186,3 +187,217 @@ async def test_reload_leaves_unchanged_topics_alone():
         await sub.reload()
     client.subscribe.assert_not_called()
     client.unsubscribe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_the_retain_flag_reaches_the_envelope(db_session):
+    """R1: ingest can only drop a replay it can see."""
+    sub = MQTTSubscriber()
+    spy = _Spy()
+    sub._subscribed = {"spy/one": spy}
+    with (
+        _session_factory(db_session),
+        patch("app.services.mqtt_subscriber.ingest", new=AsyncMock()) as ing,
+    ):
+        await sub._process_message("spy/one", b"42", retain=True)
+        await sub._process_message("spy/one", b"43", retain=False)
+    assert [call.args[1].retain for call in ing.await_args_list] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_the_message_loop_passes_the_brokers_retain_flag():
+    """`_run` is where aiomqtt's `Message.retain` is read; drop it there and
+    every replay looks live again."""
+
+    class _Message:
+        def __init__(self, retain: bool) -> None:
+            self.topic = "spy/one"
+            self.payload = b"1"
+            self.retain = retain
+
+    class _Client:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc) -> bool:
+            return False
+
+        async def subscribe(self, _topic) -> None:
+            return None
+
+        @property
+        def messages(self):
+            async def _gen():
+                yield _Message(True)
+                yield _Message(False)
+
+            return _gen()
+
+    sub = MQTTSubscriber()
+    sub._running = True
+    seen: list[bool | None] = []
+
+    # Tolerates the old two-argument call, so the red run fails on the
+    # assertion instead of looping on the reconnect sleep.
+    async def _process(topic, payload, retain=None):
+        seen.append(retain)
+        if len(seen) == 2:
+            sub._running = False
+
+    config = {
+        "host": "h",
+        "port": 1883,
+        "username": None,
+        "password": None,
+        "topic_prefix": "wican",
+        "use_tls": False,
+    }
+    with (
+        patch("aiomqtt.Client", _Client),
+        patch.object(MQTTSubscriber, "_get_config", new=AsyncMock(return_value=config)),
+        patch.object(MQTTSubscriber, "_desired_subscriptions", new=AsyncMock(return_value={})),
+        patch.object(sub, "_process_message", new=_process),
+    ):
+        await sub._run()
+    assert seen == [True, False]
+
+
+# ---------------------------------------------------------------------------
+# A-14: the connect-time subscribe behaves like reload()
+# ---------------------------------------------------------------------------
+
+
+class _Reconnected(BaseException):
+    """Raised by a second `_get_config` call: the loop went round again.
+
+    A BaseException, so `_run`'s own `except Exception` can't swallow it.
+    """
+
+
+_CONFIG = {
+    "host": "h",
+    "port": 1883,
+    "username": None,
+    "password": None,
+    "topic_prefix": "wican",
+    "use_tls": False,
+}
+
+
+def _one_connection_config(sub: MQTTSubscriber) -> AsyncMock:
+    calls = 0
+
+    async def _config():
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise _Reconnected
+        return _CONFIG
+
+    sub._reconnect_delay = 0
+    return AsyncMock(side_effect=_config)
+
+
+def _client_class(fail: set[str], subscribed: list[str], gate: asyncio.Event | None = None):
+    class _Message:
+        topic = "good/t"
+        payload = b"1"
+        retain = False
+
+    class _Client:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc) -> bool:
+            return False
+
+        async def subscribe(self, topic) -> None:
+            subscribed.append(topic)
+            if topic in fail:
+                raise RuntimeError("broker said no")
+
+        @property
+        def messages(self):
+            async def _gen():
+                if gate is not None:
+                    await gate.wait()
+                yield _Message()
+
+            return _gen()
+
+    return _Client
+
+
+@pytest.mark.asyncio
+async def test_a_subscribe_failure_at_connect_keeps_the_connection():
+    """One refused topic used to raise out of the connect block: the whole
+    connection dropped, every other topic with it, and it reconnected into the
+    same failure forever."""
+    sub = MQTTSubscriber()
+    sub._running = True
+    spy = _Spy()
+    processed: list[str] = []
+    subscribed: list[str] = []
+
+    async def _process(topic, payload, retain=False):
+        processed.append(topic)
+        sub._running = False
+
+    with (
+        patch("aiomqtt.Client", _client_class({"bad/t"}, subscribed)),
+        patch.object(MQTTSubscriber, "_get_config", new=_one_connection_config(sub)),
+        patch.object(
+            MQTTSubscriber,
+            "_desired_subscriptions",
+            new=AsyncMock(return_value={"bad/t": spy, "good/t": spy}),
+        ),
+        patch.object(sub, "_process_message", new=_process),
+    ):
+        await asyncio.wait_for(sub._run(), timeout=5)
+
+    assert processed == ["good/t"]
+    assert sorted(subscribed) == ["bad/t", "good/t"]
+    # Left out, so the next reload() retries it.
+    assert sub._confirmed == {"good/t"}
+    assert set(sub._subscribed) == {"bad/t", "good/t"}
+
+
+@pytest.mark.asyncio
+async def test_the_connect_time_subscribe_waits_for_a_reload_in_progress():
+    """It ran outside `_reload_lock`, so a topic-map save landing during a
+    reconnect could interleave its subscribe/unsubscribe with this one."""
+    sub = MQTTSubscriber()
+    sub._running = True
+    spy = _Spy()
+    subscribed: list[str] = []
+    gate = asyncio.Event()
+
+    async def _process(topic, payload, retain=False):
+        sub._running = False
+
+    with (
+        patch("aiomqtt.Client", _client_class(set(), subscribed, gate)),
+        patch.object(MQTTSubscriber, "_get_config", new=_one_connection_config(sub)),
+        patch.object(
+            MQTTSubscriber, "_desired_subscriptions", new=AsyncMock(return_value={"good/t": spy})
+        ),
+        patch.object(sub, "_process_message", new=_process),
+    ):
+        await sub._reload_lock.acquire()
+        run = asyncio.create_task(sub._run())
+        for _ in range(20):
+            await asyncio.sleep(0)
+        held_back = list(subscribed)
+        sub._reload_lock.release()
+        gate.set()
+        await asyncio.wait_for(run, timeout=5)
+
+    assert held_back == []
+    assert subscribed == ["good/t"]
+    assert sub._confirmed == {"good/t"}

@@ -1,6 +1,6 @@
 """Every money column has exactly the type the policy gives it.
 
-Money is Numeric(12,2), a unit price Numeric(12,3), and the supply unit-cost
+Money is Numeric(12,2), a unit price Numeric(13,4), and the supply unit-cost
 snapshot Numeric(15,4). Migration 122 widens an existing PostgreSQL database to
 these, so a fresh create_all has to land on the same types or the two drift.
 
@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Column, Float, Numeric
+from sqlalchemy.types import TypeDecorator, TypeEngine
 
 import app.main  # noqa: F401 (registers every model on Base.metadata)
 from app.database import Base
@@ -28,9 +29,9 @@ from tests.unit.schemas._money_names import (
     is_money_name,
 )
 
-#: Decimal places a money column has: cents, a unit price's tenth of a cent,
-#: the unit-cost snapshot's four.
-MONEY_SCALES = frozenset({2, 3, 4})
+#: Decimal places a money column has: cents, and the four a unit price and the
+#: unit-cost snapshot carry.
+MONEY_SCALES = frozenset({2, 4})
 
 #: Columns with money's decimal places that aren't money.
 NOT_MONEY_COLUMNS = frozenset(
@@ -38,12 +39,15 @@ NOT_MONEY_COLUMNS = frozenset(
         "address_book.rating",  # a star rating
         "def_records.fill_level",  # a tank fraction, 0 to 1
         "location_points.speed",  # a GPS fix's speed
-        "planned_repair_parts.supply_quantity",  # a planned supply amount, Numeric(12,3)
-        "supply_purchases.quantity",  # a supply amount, Numeric(12,3)
-        "supply_usages.quantity",  # same
         "vehicles.window_sticker_confidence_score",  # the OCR parser's score
     }
 )
+
+
+def _stored_type(column: Column[Any]) -> TypeEngine[Any]:
+    """The column's database type: a ScaledNumeric's is its `.impl`."""
+    kind = column.type
+    return kind.impl_instance if isinstance(kind, TypeDecorator) else kind
 
 
 def _numeric_columns() -> dict[str, Column[Any]]:
@@ -53,7 +57,7 @@ def _numeric_columns() -> dict[str, Column[Any]]:
         for table in Base.metadata.tables.values()
         for column in table.columns
         # SQLAlchemy 2.1 split Float off Numeric, so it has to be named.
-        if isinstance(column.type, (Numeric, Float))
+        if isinstance(_stored_type(column), (Numeric, Float))
     }
 
 
@@ -75,7 +79,7 @@ def test_every_numeric_column_is_money_exactly_when_registered():
 def _money_shaped(column: Column[Any]) -> bool:
     """Money's decimal places, and no unit word in the name."""
     words = set(column.name.lower().split("_"))
-    return column.type.scale in MONEY_SCALES and not words & UNIT_WORDS
+    return _stored_type(column).scale in MONEY_SCALES and not words & UNIT_WORDS
 
 
 def test_every_money_shaped_column_is_registered_or_excused():
@@ -104,15 +108,16 @@ def test_every_money_column_has_its_policy_type():
     columns = _numeric_columns()
     missing = sorted(MONEY_COLUMNS.keys() - columns.keys())
     assert missing == [], "registered but not a Numeric column in the models"
-    wrong = {
-        qualified: f"{type(column.type).__name__}({column.type.precision}, {column.type.scale})"
+    stored = {
+        qualified: _stored_type(column)
         for qualified, column in columns.items()
         if qualified in MONEY_COLUMNS
+    }
+    wrong = {
+        qualified: f"{type(kind).__name__}({kind.precision}, {kind.scale})"
+        for qualified, kind in stored.items()
         # Exactly Numeric: the scan takes Floats too, and a Float stores a double.
-        and (
-            type(column.type) is not Numeric
-            or (column.type.precision, column.type.scale) != MONEY_COLUMNS[qualified]
-        )
+        if type(kind) is not Numeric or (kind.precision, kind.scale) != MONEY_COLUMNS[qualified]
     }
     assert wrong == {}
 

@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import delete, func, select
 
+from app.models.drive_session import DriveSession
+from app.models.livelink_topic_map import LiveLinkTopicMap
+from app.models.vehicle_telemetry import VehicleTelemetryLatest
 from app.services.livelink_ingest import ingest
 from app.services.livelink_sources.base import (
     BaseSourceModule,
@@ -15,6 +19,8 @@ from app.services.livelink_sources.base import (
     Reading,
     StoragePolicy,
 )
+from app.services.livelink_sources.generic_mqtt import GenericMqttModule
+from app.services.livelink_sources.registry import default_registry
 
 # LiveLink's master switch gates the ingest pipeline and SD backfill, and it is
 # off by default. Explicit, not inherited from whatever an earlier test left in
@@ -27,7 +33,9 @@ class _Fake(BaseSourceModule):
 
     Parameterised rather than hardcoded because each test seeds its own
     uuid-scoped device; a fixed "gw01" collides on the UNIQUE index at the
-    second test (the suite shares one database with no rollback).
+    second test (the suite shares one database with no rollback). A fake's
+    kind must be its device's: the pipeline refuses any other (FB-1), and a
+    refused batch passes every "never called" assertion for the wrong reason.
     """
 
     def __init__(self, device_id: str) -> None:
@@ -89,11 +97,65 @@ ENV = MqttEnvelope(topic="t", payload=b"1")
 
 @pytest.mark.asyncio
 async def test_a_source_without_the_drive_session_capability_never_opens_one(
-    db_session, linked_device
+    db_session, make_livelink_vehicle, request
 ):
     """THE regression guard: propane must not manufacture drives on a parked trailer.
 
-    If this test ever fails, a source gained DRIVE_SESSION by accident.
+    Regression guard (A-12): passes on main by design. The real generic module
+    from the real registry through real `ingest`, nothing mocked, so the store's
+    `_observe_movement` back door is covered too. These speed samples open a
+    drive once generic_mqtt has DRIVE_SESSION and movement observation, so a
+    failure here means it gained them by accident.
+    """
+    suffix = f"{abs(hash(request.node.name)) % 10**6:06d}"
+    vin, device = await make_livelink_vehicle("nods", suffix, kind="generic_mqtt")
+    device_id = device.device_id
+    topic = f"ingest/test/{suffix}/speed"
+    await db_session.execute(delete(LiveLinkTopicMap).where(LiveLinkTopicMap.topic == topic))
+    db_session.add(
+        LiveLinkTopicMap(device_id=device_id, topic=topic, param_key="SPEED", unit="km/h")
+    )
+    await db_session.commit()
+    module = default_registry().get_module("generic_mqtt")
+    assert isinstance(module, GenericMqttModule)
+    await module.refresh(db_session)
+    try:
+        # Steady speed: a jump in a few milliseconds fails the rate check and
+        # never reaches the session code at all.
+        for value in (b"60", b"60", b"60"):
+            await ingest(module, MqttEnvelope(topic, value), db_session)
+            await db_session.commit()
+
+        sessions = await db_session.scalar(
+            select(func.count()).select_from(DriveSession).where(DriveSession.vin == vin)
+        )
+        assert sessions == 0
+        # The readings did land, so the zero above isn't a dropped frame.
+        latest = await db_session.scalar(
+            select(VehicleTelemetryLatest.value).where(
+                VehicleTelemetryLatest.vin == vin, VehicleTelemetryLatest.param_key == "SPEED"
+            )
+        )
+        assert latest == 60.0
+    finally:
+        await db_session.rollback()
+        await db_session.execute(
+            delete(LiveLinkTopicMap).where(LiveLinkTopicMap.device_id == device_id)
+        )
+        await db_session.commit()
+        # The registry is a process-wide singleton: don't leave our topic in its cache.
+        await module.refresh(db_session)
+
+
+@pytest.mark.asyncio
+async def test_the_pipeline_ignores_a_session_signal_without_the_capability(
+    db_session, linked_device
+):
+    """The ingest-level gate: a module without DRIVE_SESSION that still emits
+    `InferSession` never reaches `handle_ecu_online`.
+
+    Regression guard: main's test, kept beside the real-module one, which can't
+    see this gate because generic batches carry no session signal.
     """
     with patch("app.services.livelink_ingest.SessionService") as svc:
         svc.return_value.handle_ecu_online = AsyncMock()
@@ -157,6 +219,80 @@ async def test_thresholds_are_checked_for_each_validated_param(db_session, linke
         tel.return_value.check_thresholds.assert_awaited_once()
         # Not a preset sensor: alerts repeat every cooldown, as WiCAN's do.
         assert tel.return_value.check_thresholds.await_args.kwargs["once"] is False
+        # No ODOMETER capability, so nothing here went through odometer
+        # normalisation and an odometer-named key is not known to be km (D2a).
+        assert tel.return_value.check_thresholds.await_args.kwargs["odometer_normalised"] is False
+
+
+class _OdometerSource(_Fake):
+    """Torque-shaped: ODOMETER, on the simple storage path. That path only
+    normalises the device's declared odometer key."""
+
+    kind = "odometersource"
+    capabilities = frozenset({Capability.TELEMETRY, Capability.ODOMETER})
+    storage_policy = StoragePolicy()
+
+    async def parse(self, env):
+        return IngestBatch(
+            device_key=self.device_id,
+            readings=[Reading("ODOMETER", 1000.0)],
+            requires_link=True,
+            alert_on_thresholds=True,
+        )
+
+
+class _DelegatingSource(_OdometerSource):
+    """WiCAN-shaped: its policy sends storage through `store_telemetry`,
+    which normalises every odometer key, declared or not."""
+
+    kind = "delegatingsource"
+    storage_policy = StoragePolicy(sync_odometer=True, observe_movement=True)
+
+
+class _TelemetryOnlySource(_OdometerSource):
+    """generic_mqtt-shaped: no ODOMETER capability, so the store is handed no
+    device and converts nothing, whatever key the device declares."""
+
+    kind = "telemetryonlysource"
+    capabilities = frozenset({Capability.TELEMETRY})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module_cls", "declared", "expected"),
+    [
+        # The case the capability check got wrong: Torque's path converts
+        # nothing without a declared key.
+        (_OdometerSource, None, False),
+        (_OdometerSource, "ODOMETER", True),
+        (_DelegatingSource, None, True),
+        (_DelegatingSource, "ODOMETER", True),
+        # Regression guard (carry 4): a declared key on a source without the
+        # capability is still raw. Kills asking with `device` instead of the
+        # capability-gated `odometer_device`.
+        (_TelemetryOnlySource, "ODOMETER", False),
+    ],
+)
+async def test_thresholds_learn_whether_the_store_normalised_the_odometer(
+    db_session, linked_device, module_cls, declared, expected
+):
+    """The alert renders an odometer in the owner's units only if storage
+    really converted it to km, so the flag must follow the storage path."""
+    linked_device.kind = module_cls.kind
+    linked_device.odometer_param_key = declared
+    await db_session.commit()
+    with patch("app.services.livelink_ingest.TelemetryService") as tel:
+        tel.return_value.store_readings = AsyncMock(
+            return_value=type(
+                "R", (), {"validated_data": {"ODOMETER": 1000.0}, "stored_count": 1}
+            )()
+        )
+        tel.return_value.check_thresholds = AsyncMock()
+        await ingest(module_cls(linked_device.device_id), ENV, db_session)
+
+    kwargs = tel.return_value.check_thresholds.await_args.kwargs
+    assert kwargs["odometer_normalised"] is expected
+    assert kwargs["declared_odometer_key"] == declared
 
 
 @pytest.mark.asyncio
@@ -199,8 +335,6 @@ async def test_a_disabled_device_stores_nothing(db_session, linked_device):
 @pytest.mark.asyncio
 async def test_a_module_returning_none_is_a_no_op(db_session, linked_device):
     class _Silent(_Sessionless):
-        kind = "silent"
-
         async def parse(self, env):
             return None
 
@@ -220,8 +354,6 @@ async def test_an_unlinked_device_still_gets_its_status_updated(db_session, link
     await db_session.commit()
 
     class _StatusOnly(_Sessionless):
-        kind = "statusonly"
-
         async def parse(self, env):
             return IngestBatch(
                 device_key=self.device_id, device_status="online", requires_link=False
@@ -258,8 +390,6 @@ async def test_thresholds_are_not_checked_unless_the_batch_asks(db_session, link
     """R1-H4c: WiCAN battery and Torque have never sent threshold alerts."""
 
     class _Quiet(_Sessionless):
-        kind = "quiet"
-
         async def parse(self, env):
             return IngestBatch(
                 device_key=self.device_id,
@@ -282,8 +412,6 @@ async def test_a_telemetry_batch_does_not_resurrect_an_offline_device(db_session
     """R1-H5: retained replay after an LWT offline must not mark it online."""
 
     class _NoStatus(_Sessionless):
-        kind = "nostatus"
-
         async def parse(self, env):
             return IngestBatch(
                 device_key=self.device_id, readings=[Reading("X", 1.0)], device_status=None
@@ -323,8 +451,6 @@ async def test_location_is_skipped_without_the_location_capability(db_session, l
     from app.services.livelink_sources.base import GeoPoint
 
     class _Located(_Sessionless):
-        kind = "located"
-
         async def parse(self, env):
             return IngestBatch(
                 device_key=self.device_id,

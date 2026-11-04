@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ComponentProps } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -39,6 +39,7 @@ import { IMPERIAL_UNITS, UK_IMPERIAL_UNITS, makeDetailStats } from '../../../__t
 import { binarySystemFor } from '../../../types/units'
 import { UnitConverter } from '../../../utils/units'
 import { toast } from 'sonner'
+import { registeredFieldNames, submitAndSettle, validationError, dropQueuedOnces } from '../../../__tests__/serverErrors'
 import api from '../../../services/api'
 import VehicleEditDrawer from '../VehicleEditDrawer'
 
@@ -46,6 +47,8 @@ const mockedApi = vi.mocked(api)
 
 const baseVehicle: Vehicle = {
   vin: 'TEST12345678901234',
+  identifier_type: 'vin',
+  has_vin: true,
   nickname: 'Test Car',
   vehicle_type: 'Car',
   usage_unit: 'distance',
@@ -116,6 +119,9 @@ function renderVehicleEdit(
 function renderVehicleEditWithStats(vehicle: Vehicle, detailStats: VehicleDetailStats): void {
   renderVehicleEdit(vehicle, detailStats)
 }
+
+// A rejection a failed test queued but never used mustn't reach the next one.
+afterEach(dropQueuedOnces(mockedApi.put))
 
 describe('VehicleEditDrawer — canonical fuel-type select', () => {
   beforeEach(() => {
@@ -588,13 +594,10 @@ describe('VehicleEditDrawer — conversion behaviour', () => {
     await screen.findByLabelText('edit.nickname *')
     fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
 
-    // i18next isn't initialized in this test environment (only the
-    // react-i18next hook is mocked), so getActionErrorMessage's generic
-    // fallback resolves to i18next's unresolved defaultValue template rather
-    // than an interpolated string. This still proves the toast fired via the
-    // generic-failure branch, which is what this test is verifying.
+    // The generic-failure branch, with the save action key and the error
+    // message filled in by the en singleton from setup.ts.
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Failed to {{action}}. {{message}}')
+      expect(toast.error).toHaveBeenCalledWith('Failed to vehicleEditPage.saveAction. Boom')
     )
     expect(onUpdated).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
@@ -904,7 +907,7 @@ describe('VehicleEditDrawer — the DEF tank capacity is the eighth gallon write
     renderVehicleEdit(dieselWithCapacity)
 
     // 19 L is 4.18 imperial gallons; it would read 5.02 on US ones.
-    const capacity = (await screen.findByLabelText('edit.defTankCapacity (gal)')) as HTMLInputElement
+    const capacity = (await screen.findByLabelText('edit.defTankCapacity (gal (UK))')) as HTMLInputElement
     expect(capacity.value).toBe('4.18')
 
     fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
@@ -940,7 +943,7 @@ describe('VehicleEditDrawer — the DEF tank capacity is the eighth gallon write
     unitPrefMock.units = UK_IMPERIAL_UNITS
 
     renderVehicleEdit(dieselWithCapacity)
-    const capacity = (await screen.findByLabelText('edit.defTankCapacity (gal)')) as HTMLInputElement
+    const capacity = (await screen.findByLabelText('edit.defTankCapacity (gal (UK))')) as HTMLInputElement
     expect(capacity.value).toBe('4.18')
 
     fireEvent.change(capacity, { target: { value: '5.00' } })
@@ -982,7 +985,7 @@ describe('VehicleEditDrawer — the DEF tank capacity is the eighth gallon write
     const view = render(
       drawerEl({ open: true, vin: dieselWithCapacity.vin, vehicle: dieselWithCapacity, onClose: vi.fn(), onUpdated: vi.fn() })
     )
-    const first = (await screen.findByLabelText('edit.defTankCapacity (gal)')) as HTMLInputElement
+    const first = (await screen.findByLabelText('edit.defTankCapacity (gal (UK))')) as HTMLInputElement
     expect(first.value).toBe('4.18')
 
     // Close and reopen the SAME mounted drawer, which is what re-seeds it. A
@@ -995,11 +998,11 @@ describe('VehicleEditDrawer — the DEF tank capacity is the eighth gallon write
       drawerEl({ open: true, vin: cleared.vin, vehicle: cleared, onClose: vi.fn(), onUpdated: vi.fn() })
     )
     await waitFor(() =>
-      expect(screen.queryByLabelText('edit.defTankCapacity (gal)')).toBeNull()
+      expect(screen.queryByLabelText('edit.defTankCapacity (gal (UK))')).toBeNull()
     )
 
     fireEvent.click(screen.getByLabelText('edit.enableDefTracking'))
-    const reopened = (await screen.findByLabelText('edit.defTankCapacity (gal)')) as HTMLInputElement
+    const reopened = (await screen.findByLabelText('edit.defTankCapacity (gal (UK))')) as HTMLInputElement
     expect(reopened.value).toBe('')
 
     fireEvent.change(reopened, { target: { value: '4.18' } })
@@ -1021,7 +1024,7 @@ describe('VehicleEditDrawer — the DEF tank capacity is the eighth gallon write
     unitPrefMock.units = UK_IMPERIAL_UNITS
 
     renderVehicleEdit(dieselWithCapacity)
-    const uk = (await screen.findByLabelText('edit.defTankCapacity (gal)')) as HTMLInputElement
+    const uk = (await screen.findByLabelText('edit.defTankCapacity (gal (UK))')) as HTMLInputElement
     expect(uk.placeholder).toBe('4.2')
     // The collapsed answer agrees with the US one here, which is what made this
     // invisible: both gallons read 'imperial'.
@@ -1077,5 +1080,119 @@ describe('VehicleEditDrawer: an untouched save writes nothing new', () => {
     await waitFor(() => expect(mockedApi.put).toHaveBeenCalled())
     const [, payload] = mockedApi.put.mock.calls[0] as [string, Record<string, unknown>]
     expect(payload.secondary_usage_enabled).toBe(true)
+  })
+})
+
+describe('VehicleEditDrawer: a 422 lands under the field it names', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // Diesel with a stored DEF capacity and both usages on, so every field the
+  // drawer can show is on screen at once.
+  const everyField: Vehicle = {
+    ...baseVehicle,
+    fuel_type: 'diesel',
+    def_tank_capacity_liters: '19.0',
+    secondary_usage_enabled: true,
+  }
+  const drawerForm = (): HTMLFormElement => document.getElementById('vehicle-edit-form') as HTMLFormElement
+  const namesWithoutTheirError = (names: string[]): string[] =>
+    names.filter((n) => !document.getElementById(`${n}-error`)?.textContent?.includes(`bad ${n}`))
+
+  it('a 422 on distance_unit shows under the odometer unit select and does not toast', async () => {
+    mockedApi.put.mockRejectedValueOnce(validationError({ distance_unit: 'Input should be km or mi' }))
+    renderVehicleEdit(everyField, { ...baseDetailStats, secondary_usage_enabled: true })
+    await screen.findByLabelText('edit.distanceUnit')
+    fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
+
+    await waitFor(() => expect(document.getElementById('distance_unit-error')).not.toBeNull())
+    expect(document.getElementById('distance_unit-error')).toHaveTextContent('Input should be km or mi')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  // Named controls that aren't payload fields go here. None today.
+  const UI_ONLY: string[] = []
+  // Submitted but controlled and nameless, so the sweep below can't see them. A
+  // toggle has no inline error, so it stays out of knownFields and its 422
+  // toasts. The DEF toggle is display-only and never sent.
+  const BANNER_ROUTED = ['secondary_usage_enabled']
+
+  // Guard for knownFields drift: every control the drawer registers has to be in
+  // the server-error list, or a 422 on it turns into a generic toast.
+  // Mutant: drop any name from knownFields and this toasts.
+  it('guard: a 422 on every registered field attaches, so none is missing from knownFields', async () => {
+    renderVehicleEdit(everyField, { ...baseDetailStats, secondary_usage_enabled: true })
+    await screen.findByLabelText('edit.distanceUnit')
+    await screen.findByLabelText('edit.currentHours')
+    const names = registeredFieldNames(drawerForm(), UI_ONLY)
+    // The fields that drifted before have to be in the sweep, or it proves nothing.
+    expect(names).toEqual(expect.arrayContaining(['distance_unit', 'current_hours', 'def_tank_capacity_liters']))
+
+    mockedApi.put.mockRejectedValueOnce(validationError(Object.fromEntries(names.map((n) => [n, `bad ${n}`]))))
+    fireEvent.click(screen.getByRole('button', { name: 'edit.saveChanges' }))
+
+    await waitFor(() => expect(mockedApi.put).toHaveBeenCalled())
+    await waitFor(() => expect(namesWithoutTheirError(names)).toEqual([]))
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  // Guard for the nameless toggles: each one's 422 has to toast. Mutant: put
+  // secondary_usage_enabled in knownFields with no error slot and it goes silent.
+  it('guard: a 422 on each toggle toasts, since a toggle has nowhere to show it', async () => {
+    renderVehicleEdit(everyField, { ...baseDetailStats, secondary_usage_enabled: true })
+    await screen.findByLabelText('edit.currentHours')
+
+    const silent: string[] = []
+    for (const name of BANNER_ROUTED) {
+      vi.mocked(toast.error).mockClear()
+      const calls = mockedApi.put.mock.calls.length
+      mockedApi.put.mockRejectedValueOnce(validationError({ [name]: `bad ${name}` }))
+      await submitAndSettle(drawerForm())
+      const [, payload] = mockedApi.put.mock.calls[calls] as [string, Record<string, unknown>]
+      // It has to be a field the save really sends, or the sweep proves nothing.
+      expect(payload).toHaveProperty(name)
+      if (vi.mocked(toast.error).mock.calls.length === 0) silent.push(name)
+    }
+    expect(silent).toEqual([])
+  })
+})
+
+describe('VehicleEditDrawer: window sticker without a VIN (#226)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const noVin: Vehicle = {
+    ...baseVehicle,
+    vin: 'QABCDEFGH12345678',
+    identifier_type: 'serial',
+    identifier: 'KBT-1',
+    has_vin: false,
+  }
+
+  it('offers the upload for a vehicle with a VIN (guard)', async () => {
+    renderVehicleEdit(baseVehicle)
+    expect(await screen.findByRole('button', { name: 'detail.uploadWindowSticker' })).toBeInTheDocument()
+    expect(screen.getByText('detail.misc.testOcr')).toBeInTheDocument()
+  })
+
+  it('hides the whole section when there is no VIN and no sticker on file', async () => {
+    renderVehicleEdit(noVin)
+    await screen.findByLabelText(/^edit\.nickname/)
+    expect(screen.queryByText('detail.windowSticker')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'detail.uploadWindowSticker' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a sticker already on file viewable, without replace or the VIN badge', async () => {
+    renderVehicleEdit({
+      ...noVin,
+      // A fake VIN switched to its serial keeps the sticker it had.
+      vin: '1FTFW1E50NFA00001',
+      window_sticker_file_path: '/data/stickers/x.pdf',
+      window_sticker_extracted_vin: '1FTFW1E50NFA00001',
+    })
+    expect(await screen.findByText('detail.viewWindowSticker')).toBeInTheDocument()
+    expect(screen.queryByText('detail.replaceSticker')).not.toBeInTheDocument()
+    expect(screen.queryByText(/detail\.misc\.vinVerified/)).not.toBeInTheDocument()
+    expect(screen.queryByText('detail.misc.testOcr')).not.toBeInTheDocument()
   })
 })

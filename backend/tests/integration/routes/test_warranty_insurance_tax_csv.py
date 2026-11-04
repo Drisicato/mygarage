@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.insurance import InsurancePolicy, InsurancePolicyVehicle
 from app.models.tax import TaxRecord
+from app.models.vehicle import Vehicle
 from app.models.warranty import WarrantyRecord
 
 
@@ -45,10 +46,10 @@ def _csv_rows(body: str) -> tuple[list[str], list[list[str]]]:
 @pytest.mark.asyncio
 class TestWarrantyCsv:
     async def test_export_does_not_500_and_carries_the_real_fields(
-        self, client: AsyncClient, db_session: AsyncSession, test_vehicle, auth_headers
+        self, client: AsyncClient, db_session: AsyncSession, own_vehicle: Vehicle, auth_headers
     ):
         """The original defect: `record.coverage` raised AttributeError."""
-        vin = str(test_vehicle["vin"])
+        vin = own_vehicle.vin
         db_session.add(
             WarrantyRecord(
                 vin=vin,
@@ -84,7 +85,7 @@ class TestWarrantyCsv:
         self,
         client: AsyncClient,
         db_session: AsyncSession,
-        test_vehicle,
+        own_vehicle: Vehicle,
         auth_headers,
         unit_query,
         header,
@@ -95,7 +96,7 @@ class TestWarrantyCsv:
         Asserts the TRANSFORMED value, not just the header: a test that checked
         only the dimensionless columns would pass with the conversion missing.
         """
-        vin = str(test_vehicle["vin"])
+        vin = own_vehicle.vin
         db_session.add(
             WarrantyRecord(
                 vin=vin,
@@ -117,14 +118,14 @@ class TestWarrantyCsv:
         assert row[headers.index(header)].startswith(expected)
 
     async def test_round_trip(
-        self, client: AsyncClient, db_session: AsyncSession, test_vehicle, auth_headers
+        self, client: AsyncClient, db_session: AsyncSession, own_vehicle: Vehicle, auth_headers
     ):
         """Export, re-import, and get the record back.
 
         This is the assertion no earlier revision could write, because the
         importer was believed not to exist.
         """
-        vin = str(test_vehicle["vin"])
+        vin = own_vehicle.vin
         db_session.add(
             WarrantyRecord(
                 vin=vin,
@@ -155,17 +156,11 @@ class TestWarrantyCsv:
         )
         assert r.status_code == 200, r.text
         assert r.json()["error_count"] == 0, r.json()
-        # Derived, not hardcoded: the suite shares one database and one VIN, so
-        # earlier tests in this file have added warranties to the same vehicle
-        # and the export carries them too. Every exported row must be ACCOUNTED
-        # for -- imported or deduped -- and none may error. The parametrized
-        # units test above writes two rows with the same (provider, start_date),
-        # which is the importer's dedup key, so one of them is legitimately
-        # skipped and asserting on success_count alone would be wrong.
+        # Its own vehicle, so the export is exactly the one row added above.
         body = r.json()
         _, exported_rows = _csv_rows(exported.text)
-        assert body["success_count"] + body["skipped_count"] == len(exported_rows), body
-        assert body["success_count"] > 0, body
+        assert len(exported_rows) == 1
+        assert (body["success_count"], body["skipped_count"]) == (1, 0), body
 
         back = (
             await db_session.execute(
@@ -185,9 +180,9 @@ class TestInsuranceCsv:
     real premium columns."""
 
     async def test_export_does_not_500(
-        self, client: AsyncClient, db_session: AsyncSession, test_vehicle, auth_headers
+        self, client: AsyncClient, db_session: AsyncSession, own_vehicle: Vehicle, auth_headers
     ):
-        vin = str(test_vehicle["vin"])
+        vin = own_vehicle.vin
         policy = InsurancePolicy(
             provider="Ins",
             policy_number="P-1",
@@ -219,7 +214,7 @@ class TestInsuranceCsv:
 @pytest.mark.asyncio
 class TestTaxCsv:
     async def test_round_trip(
-        self, client: AsyncClient, db_session: AsyncSession, test_vehicle, auth_headers
+        self, client: AsyncClient, db_session: AsyncSession, own_vehicle: Vehicle, auth_headers
     ):
         """The one both earlier revisions missed.
 
@@ -228,12 +223,12 @@ class TestTaxCsv:
         model does not have, and the importer read four headers the exporter
         does not write.
         """
-        vin = str(test_vehicle["vin"])
+        vin = own_vehicle.vin
         db_session.add(
             TaxRecord(
                 vin=vin,
                 date=date(2026, 5, 1),
-                tax_type="Registration",
+                tax_type="registration",
                 amount=Decimal("212.00"),
                 renewal_date=date(2027, 5, 1),
                 notes="tax rt",
@@ -268,15 +263,54 @@ class TestTaxCsv:
             )
         ).scalar_one()
         assert back.date == date(2026, 5, 1)
-        assert back.tax_type == "Registration"
+        assert back.tax_type == "registration"
         assert back.amount == Decimal("212.00")
         assert back.renewal_date == date(2027, 5, 1)
+
+    async def test_legacy_and_unknown_types_land_as_codes(
+        self, client: AsyncClient, db_session: AsyncSession, test_vehicle, auth_headers
+    ):
+        """#211 — a file exported before migration 146 carries the display
+        strings; a type this build does not know is filed under `other`."""
+        vin = str(test_vehicle["vin"])
+        csv_text = (
+            "Date,Type,Amount,Renewal Date,Notes\n"
+            "2026-06-01,Property Tax,150.00,,legacy tax csv\n"
+            "2026-06-02,co2_malus,300.00,,code tax csv\n"
+            "2026-06-03,Road fund licence,45.00,,unknown tax csv\n"
+        )
+        r = await client.post(
+            f"/api/import/vehicles/{vin}/tax/csv",
+            files={"file": ("legacy.csv", csv_text, "text/csv")},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["error_count"] == 0, r.json()
+        rows = (
+            (
+                await db_session.execute(
+                    select(TaxRecord).where(TaxRecord.vin == vin, TaxRecord.notes.like("% tax csv"))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_note = {row.notes: row.tax_type for row in rows}
+        assert by_note == {
+            "legacy tax csv": "property_tax",
+            "code tax csv": "co2_malus",
+            "unknown tax csv": "other",
+        }
+        await db_session.execute(
+            TaxRecord.__table__.delete().where(TaxRecord.notes.like("% tax csv"))
+        )
+        await db_session.commit()
 
 
 @pytest.mark.asyncio
 class TestALegacyFileIsNotSilentlySwallowed:
     async def test_old_headers_report_the_real_problem(
-        self, client: AsyncClient, test_vehicle, auth_headers
+        self, client: AsyncClient, own_vehicle: Vehicle, auth_headers
     ):
         """A pre-fix file must not come back 200 with every row blamed on the user.
 
@@ -284,7 +318,7 @@ class TestALegacyFileIsNotSilentlySwallowed:
         `error_count == 1` and the message "Invalid record data" is exactly the
         current behaviour, and it must fail this test.
         """
-        vin = str(test_vehicle["vin"])
+        vin = own_vehicle.vin
         legacy = (
             "Provider,Type,Coverage,Start Date,End Date,Cost,Deductible,Max Claims,Terms,Notes\n"
             "Legacy,Powertrain,old coverage,2026-01-01,2031-01-01,10.00,50.00,3,terms,n\n"

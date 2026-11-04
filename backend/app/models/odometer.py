@@ -6,11 +6,13 @@ import datetime as dt
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
+from app.utils.datetime_utils import utc_now
 
 
 class OdometerRecord(Base):
@@ -23,7 +25,7 @@ class OdometerRecord(Base):
         String(17), ForeignKey("vehicles.vin", ondelete="CASCADE"), nullable=False
     )
     date: Mapped[dt.date] = mapped_column(Date, nullable=False)
-    odometer_km: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    odometer_km: Mapped[Decimal] = mapped_column(ScaledNumeric(10, 2), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(
         String(20), default="manual"
@@ -36,7 +38,11 @@ class OdometerRecord(Base):
     fuel_record_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("fuel_records.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    #: The app clock as well as the server default, so the odometer-history
+    #: bound compares it with telemetry timestamps on one clock (Fable F5-6).
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), default=utc_now
+    )
 
     # Relationships
     vehicle: Mapped[Vehicle] = relationship("Vehicle", back_populates="odometer_records")

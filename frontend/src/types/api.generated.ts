@@ -56,6 +56,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/address-book/{entry_id}/fuel-prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Address Book Fuel Prices
+         * @description The prices at (and right around) a saved station. 404 for an entry
+         *     the garage does not have; 422 for one without coordinates.
+         */
+        get: operations["address_book_fuel_prices_api_address_book__entry_id__fuel_prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analytics/garage": {
         parameters: {
             query?: never;
@@ -576,6 +597,9 @@ export interface paths {
          *       - issuer_url has trailing slash + whitespace stripped before persisting
          *       - `redirect_uri` left out preserves the stored value; sent, it's stripped and
          *         must be an absolute http(s) URL or blank, else a 422 and nothing is written
+         *       - client_id is stripped before persisting
+         *       - 409, and nothing written, when sign-in is set to SSO and this would turn SSO
+         *         off or blank its issuer URL or client ID
          */
         put: operations["put_oidc_admin_config_api_auth_oidc_config_admin_put"];
         post?: never;
@@ -1060,6 +1084,9 @@ export interface paths {
          *     restarts. 503 while a secret setting is still stored as plaintext and can't be encrypted first,
          *     since the safety backup would copy it.
          *
+         *     409 when a settings backup would leave sign-in set to SSO without usable SSO; nothing is
+         *     restored then.
+         *
          *     A settings restore that skipped secret keys (ciphertext no key in the keyring opens, or
          *     plaintext with no keyring to encrypt it) lists them in `details.skipped_secret_keys` and names
          *     them in `warning`; those keys keep their current values.
@@ -1188,6 +1215,49 @@ export interface paths {
          * @description Export calendar events as iCal format.
          */
         get: operations["export_calendar_ical_api_calendar_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/country-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Country Profiles
+         * @description Every shipped profile, the ``EU`` baseline included.
+         */
+        get: operations["list_country_profiles_api_country_profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/country-profiles/{country}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Country Profile
+         * @description The profile a country code resolves to.
+         *
+         *     A member state without a file of its own answers with the ``EU`` baseline
+         *     (its ``country`` field says ``EU``); a code with no profile is a 404.
+         */
+        get: operations["get_country_profile_api_country_profiles__country__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1765,6 +1835,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fuel-prices/nearby": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fuel Prices Nearby
+         * @description The stations near a point, nearest first, with their pump prices.
+         */
+        get: operations["fuel_prices_nearby_api_fuel_prices_nearby_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -2016,7 +2106,7 @@ export interface paths {
         put?: never;
         /**
          * Import Vehicle Json
-         * @description Import complete vehicle data from JSON file.
+         * @description Import a vehicle's records from a JSON export.
          */
         post: operations["import_vehicle_json_api_import_vehicles__vin__json_post"];
         delete?: never;
@@ -2198,11 +2288,20 @@ export interface paths {
         put?: never;
         /**
          * Parse Insurance Pdf
-         * @description Read a declarations page and return what it says, persisting nothing.
+         * @description Read a policy document and return what it says, persisting nothing.
+         *
+         *     A PDF with a text layer is read on the server (the North American
+         *     parsers, the French one, the generic fallback); a photo or a scan goes
+         *     to the vision model when document reading is on, else 409
+         *     `ai_reading_not_configured` (#211). `source` says which. A vision model
+         *     outside the household's network answers 409 `vision_consent_required`
+         *     first, until the request carries `allow_external_vision=true`.
          *
          *     `vehicles` lists every VIN on the document with its own premium and
-         *     deductible where the parser finds a per-vehicle section. `matched` marks
-         *     the ones the caller has WRITE access to, which is what attaching one takes.
+         *     deductible where the parser finds a per-vehicle section, and every
+         *     registration plate when the document names no VIN (`matched_by` is
+         *     `vin` or `plate`). `matched` marks the ones the caller has WRITE access
+         *     to, which is what attaching one takes.
          */
         post: operations["parse_insurance_pdf_api_insurance_parse_pdf_post"];
         delete?: never;
@@ -2457,6 +2556,8 @@ export interface paths {
          *
          *     **Security:**
          *     - Owner of the device's linked vehicle (admin for unlinked devices).
+         *     - A preset sensor is admin-only: deleting it drops its topic maps and its
+         *       readings on every vehicle it ever reported to, not just this one.
          */
         delete: operations["delete_device_api_livelink_devices__device_id__delete"];
         options?: never;
@@ -2479,7 +2580,9 @@ export interface paths {
          *
          *     409 while LiveLink is switched off: the service would quietly do nothing
          *     (it checks the master switch too, for queued backfills), and an operator
-         *     who pressed "pull now" deserves to be told why nothing arrived.
+         *     who pressed "pull now" deserves to be told why nothing arrived. 422 for a
+         *     kind with no SD card (only WiCAN has one), for the same reason, and 404
+         *     for no such device.
          *
          *     **Security:**
          *     - Requires admin authentication
@@ -2513,7 +2616,7 @@ export interface paths {
          *
          *     **Security:**
          *     - Owner of the device's linked vehicle (admin for unlinked devices).
-         *     - Device must be online
+         *     - Device must take commands (a WiCAN) and be online
          *     - MQTT subscriber must be connected
          */
         post: operations["send_device_command_api_livelink_devices__device_id__command_post"];
@@ -2636,6 +2739,8 @@ export interface paths {
         /**
          * Set Sd Config
          * @description Configure the SD-pull address and enable flag for a device.
+         *
+         *     404 for no such device, 422 for a kind with no SD card (only WiCAN has one).
          *
          *     **Security:**
          *     - Requires admin authentication
@@ -2877,9 +2982,12 @@ export interface paths {
         get: operations["get_mqtt_settings_api_livelink_mqtt_settings_get"];
         /**
          * Update Mqtt Settings
-         * @description Update MQTT subscriber settings.
+         * @description Update MQTT subscriber settings, and apply them.
          *
-         *     After updating settings, restart the MQTT subscriber for changes to take effect.
+         *     Switching `enabled` off stops the subscriber and switching it on starts
+         *     it. Changing any other field restarts a running subscriber, as the Restart
+         *     button does; a stopped one stays stopped. Sending a field's stored value
+         *     isn't a change.
          *
          *     **Security:**
          *     - Requires authentication
@@ -3030,9 +3138,9 @@ export interface paths {
          *     `topics` is checked against it here rather than on the schema.
          *
          *     Each reading's parameter gets the preset's `storage_interval_seconds`.
-         *     REQUIRED, not tuning: retained messages replay on every resubscribe and
-         *     the storage path stamps server time, so without it each reconnect writes a
-         *     fresh row.
+         *     REQUIRED, not tuning: the gateway republishes every few seconds and the
+         *     storage path stamps server time, so without it a sensor writes a row per
+         *     message.
          */
         post: operations["apply_preset_api_livelink_presets__name__apply_post"];
         delete?: never;
@@ -3128,6 +3236,10 @@ export interface paths {
         /**
          * Discover Topics
          * @description Listen briefly and report what the broker is publishing.
+         *
+         *     409 when a run is already going or MQTT can't connect as configured (off,
+         *     no broker host), 502 with the broker's message when it refuses or can't be
+         *     reached.
          */
         post: operations["discover_topics_api_livelink_topic_discovery_post"];
         delete?: never;
@@ -3604,6 +3716,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/registration-certificate/parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Registration Certificate
+         * @description Read a certificate and return what it would fill. Writes nothing.
+         *
+         *     The read is kept for 30 minutes under ``parse_token``, so the import that
+         *     files the certificate on the new vehicle does not read it a second time.
+         */
+        post: operations["parse_registration_certificate_api_registration_certificate_parse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reminder-packs": {
         parameters: {
             query?: never;
@@ -3943,6 +4078,32 @@ export interface paths {
         get: operations["get_system_info_api_settings_system_info_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/test/llm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Llm Endpoint
+         * @description Exercise the saved LLM settings once (admin only).
+         *
+         *     Sends a one-word text completion to ``llm_base_url`` with ``llm_model``
+         *     and, when document reading is enabled, a 64×64 image to the vision model,
+         *     so an operator sees "text OK / vision OK" (or the endpoint's own error)
+         *     before uploading a real document. Reads the stored settings: the card
+         *     saves first, then tests. Writes nothing.
+         */
+        post: operations["test_llm_endpoint_api_settings_test_llm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4363,11 +4524,14 @@ export interface paths {
          * @description Receive telemetry data from WiCAN OBD2 devices.
          *
          *     This endpoint is called by WiCAN PRO devices configured for HTTPS POST.
-         *     Authentication is via Bearer token (global or per-device).
+         *     Authentication is via Bearer token (global or per-device). The payload is
+         *     processed before the response is sent, through the same pipeline as MQTT.
          *
          *     WiCAN sends two types of payloads:
-         *     - Status payloads (with device_id) - used for discovery and status updates
-         *     - Telemetry-only payloads (just autopid_data) - for high-frequency data
+         *     - Status payloads (with device_id): sent with `config` on the first POST after
+         *       a cold boot, and used for discovery and status updates
+         *     - Telemetry-only payloads (just autopid_data): every cycle; the device is
+         *       found by its token
          *
          *     **Headers:**
          *     - **Authorization**: Bearer token (required)
@@ -4375,11 +4539,11 @@ export interface paths {
          *     **Request Body:**
          *     WiCAN payload containing:
          *     - **autopid_data**: Dictionary of parameter names to values (decoded OBD2 data)
-         *     - **config**: Dictionary of parameter metadata (units, classes) - optional
-         *     - **status**: Device status information - optional (sent periodically)
+         *     - **config**: Dictionary of parameter metadata (units, classes); kept per device
+         *     - **status**: Device status information - optional
          *
          *     **Returns:**
-         *     - 202 Accepted: Payload queued for processing
+         *     - 202 Accepted: Payload processed (a `processing_error` key says it failed)
          *     - 401 Unauthorized: Invalid or missing token
          *     - 422 Unprocessable Entity: Invalid payload format
          */
@@ -4953,6 +5117,27 @@ export interface paths {
          * @description Delete one measurement.
          */
         delete: operations["delete_brake_measurement_api_vehicles__vin__brakes_measurements__measurement_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/compliance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Vehicle Compliance
+         * @description The low-emission-zone class, the next periodic inspection and the Euro
+         *     class of the vehicle under its country's rules. Read-only; indicative.
+         */
+        get: operations["get_vehicle_compliance_api_vehicles__vin__compliance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6656,6 +6841,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vehicles/{vin}/recalls/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Recalls
+         * @description Check every recall source that covers the vehicle's country (#211):
+         *     NHTSA where no country profile says otherwise, RappelConso in France.
+         *     Stores what is new; names the sources asked and the ones that failed.
+         */
+        post: operations["check_recalls_api_vehicles__vin__recalls_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vehicles/{vin}/recalls/check-nhtsa": {
         parameters: {
             query?: never;
@@ -6699,6 +6906,34 @@ export interface paths {
          * @description Delete a recall.
          */
         delete: operations["delete_recall_api_vehicles__vin__recalls__recall_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/registration-certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Registration Certificate
+         * @description Store the certificate as a document, fill the vehicle, keep X.1 as the
+         *     vehicle's inspection deadline, and create the suggested tax records named
+         *     in ``tax_codes``.
+         *
+         *     Owner only: it writes the vehicle row. The file is kept under the
+         *     vehicle's documents whatever the read found, so a certificate a model
+         *     could not read is still filed. With a ``parse_token`` from this user's
+         *     parse of this same file, that read is reused; otherwise (expired, another
+         *     file) the file is read again, consent included.
+         */
+        post: operations["import_registration_certificate_api_vehicles__vin__registration_certificate_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -7740,8 +7975,8 @@ export interface paths {
          *
          *     Absent keys stay; null clears one, except the date. 404 when the reading
          *     isn't this tire's, 409 when the change makes a mount period newly contradict
-         *     it, 422 when it would measure nothing or carries a figure the vehicle doesn't
-         *     track. Returns the whole tire.
+         *     it or moves its date past the tire's retirement, 422 when it would measure
+         *     nothing or carries a figure the vehicle doesn't track. Returns the whole tire.
          */
         put: operations["update_tire_reading_api_vehicles__vin__tires__tire_id__readings__reading_id__put"];
         post?: never;
@@ -9244,6 +9479,21 @@ export interface components {
              */
             skip_duplicates: boolean;
         };
+        /** Body_import_registration_certificate_api_vehicles__vin__registration_certificate_post */
+        Body_import_registration_certificate_api_vehicles__vin__registration_certificate_post: {
+            /** File */
+            file: string;
+            /**
+             * Parse Token
+             * @description The parse route's token for this same file: reuse that read
+             */
+            parse_token?: string | null;
+            /**
+             * Tax Codes
+             * @description The suggested tax records to create, by code (Y.1, Y.3, Y.6)
+             */
+            tax_codes?: string[] | null;
+        };
         /** Body_import_service_csv_api_import_vehicles__vin__service_csv_post */
         Body_import_service_csv_api_import_vehicles__vin__service_csv_post: {
             /**
@@ -9353,6 +9603,11 @@ export interface components {
         };
         /** Body_parse_insurance_pdf_api_insurance_parse_pdf_post */
         Body_parse_insurance_pdf_api_insurance_parse_pdf_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_parse_registration_certificate_api_registration_certificate_parse_post */
+        Body_parse_registration_certificate_api_registration_certificate_parse_post: {
             /** File */
             file: string;
         };
@@ -9853,7 +10108,7 @@ export interface components {
             notes?: string | null;
             /**
              * Status
-             * @description Maintenance status (overdue, due_soon, etc.)
+             * @description Reminder due status (overdue, due_soon, on_track, snoozed)
              */
             status?: string | null;
             /**
@@ -9861,6 +10116,16 @@ export interface components {
              * @description Event title/description
              */
             title: string;
+            /**
+             * Tread Depth Mm
+             * @description Low-tread reminder's tread depth (mm); null for other events
+             */
+            tread_depth_mm?: string | null;
+            /**
+             * Tread Threshold Mm
+             * @description Low-tread reminder's minimum tread (mm); null for other events
+             */
+            tread_threshold_mm?: string | null;
             /**
              * Type
              * @description Event type
@@ -9961,6 +10226,28 @@ export interface components {
              */
             period2_value: string;
         };
+        /** ComplianceResponse */
+        ComplianceResponse: {
+            /** Country */
+            country?: string | null;
+            /** Euro Class */
+            euro_class?: number | null;
+            /**
+             * Euro Class Estimated
+             * @default false
+             */
+            euro_class_estimated: boolean;
+            inspection?: components["schemas"]["InspectionStatus"] | null;
+            lez?: components["schemas"]["LezStatus"] | null;
+            /** Profile Country */
+            profile_country?: string | null;
+            /** Reason */
+            reason?: ("no_country" | "no_profile") | null;
+            /** Sources */
+            sources?: components["schemas"]["ProfileSource"][];
+            /** Vin */
+            vin: string;
+        };
         /**
          * CostAnalysis
          * @description Overall cost analysis.
@@ -9988,6 +10275,8 @@ export interface components {
              * @default 0
              */
             fuel_count: number;
+            /** Km Driven */
+            km_driven?: string | null;
             /**
              * Monthly Breakdown
              * @default []
@@ -10072,6 +10361,52 @@ export interface components {
             twelve_month_projection: string;
         };
         /**
+         * CountryProfile
+         * @description A country's profile after ``extends`` has been resolved.
+         */
+        CountryProfile: {
+            /** Country */
+            country: string;
+            /** Currency */
+            currency?: string | null;
+            data_sources?: components["schemas"]["DataSources"];
+            /** Default Reminder Packs */
+            default_reminder_packs?: string[];
+            /** Extends */
+            extends?: string | null;
+            fuel?: components["schemas"]["FuelRules"];
+            inspection?: components["schemas"]["InspectionRules"] | null;
+            insurance?: components["schemas"]["InsuranceRules"];
+            lez?: components["schemas"]["LezRules"];
+            /** Names */
+            names?: {
+                [key: string]: string;
+            };
+            registration_certificate?: components["schemas"]["RegistrationCertificateRules"];
+            /** Sources */
+            sources?: components["schemas"]["ProfileSource"][];
+            taxes?: components["schemas"]["TaxRules"];
+            tolls?: components["schemas"]["TollRules"];
+        };
+        /**
+         * CountryProfileSummary
+         * @description What the list endpoint returns: enough to build a picker.
+         */
+        CountryProfileSummary: {
+            /** Country */
+            country: string;
+            /** Has Inspection */
+            has_inspection: boolean;
+            /** Lez Scheme */
+            lez_scheme: string | null;
+            /** Names */
+            names: {
+                [key: string]: string;
+            };
+            /** Octane Scale */
+            octane_scale: string;
+        };
+        /**
          * CoverageEntry
          * @description One standard coverage on one vehicle.
          *
@@ -10092,7 +10427,7 @@ export interface components {
              * Coverage Key
              * @enum {string}
              */
-            coverage_key: "bodily_injury" | "property_damage" | "uninsured_bodily_injury" | "uninsured_property_damage" | "personal_injury_protection" | "medical_payments" | "comprehensive" | "collision" | "glass" | "rental_reimbursement" | "roadside_assistance" | "loan_lease_gap" | "custom_equipment";
+            coverage_key: "bodily_injury" | "property_damage" | "uninsured_bodily_injury" | "uninsured_property_damage" | "personal_injury_protection" | "medical_payments" | "comprehensive" | "collision" | "glass" | "rental_reimbursement" | "roadside_assistance" | "loan_lease_gap" | "custom_equipment" | "third_party_liability" | "driver_protection" | "theft" | "fire" | "natural_disasters" | "all_accidents_damage" | "legal_protection" | "assistance" | "replacement_vehicle";
             /** Deductible */
             deductible?: number | string | null;
             /** Limit Primary */
@@ -10115,7 +10450,7 @@ export interface components {
              * Coverage Key
              * @enum {string}
              */
-            coverage_key: "bodily_injury" | "property_damage" | "uninsured_bodily_injury" | "uninsured_property_damage" | "personal_injury_protection" | "medical_payments" | "comprehensive" | "collision" | "glass" | "rental_reimbursement" | "roadside_assistance" | "loan_lease_gap" | "custom_equipment";
+            coverage_key: "bodily_injury" | "property_damage" | "uninsured_bodily_injury" | "uninsured_property_damage" | "personal_injury_protection" | "medical_payments" | "comprehensive" | "collision" | "glass" | "rental_reimbursement" | "roadside_assistance" | "loan_lease_gap" | "custom_equipment" | "third_party_liability" | "driver_protection" | "theft" | "fire" | "natural_disasters" | "all_accidents_damage" | "legal_protection" | "assistance" | "replacement_vehicle";
             /** Deductible */
             deductible?: string | null;
             /** Limit Primary */
@@ -10520,6 +10855,13 @@ export interface components {
             /** Vehicles */
             vehicles: components["schemas"]["VehicleStatistics"][];
         };
+        /** DataSources */
+        DataSources: {
+            /** Fuel Prices */
+            fuel_prices?: string | null;
+            /** Recalls */
+            recalls?: string[];
+        };
         /**
          * DeviceCommandRequest
          * @description Schema for sending a command to a WiCAN device via MQTT.
@@ -10633,7 +10975,7 @@ export interface components {
             device_id: string;
             /**
              * Online
-             * @description Whether the device is reporting now: the integrations card's own rule, so a device with no status topic counts as online while it has reported within the offline timeout.
+             * @description Whether the device is reporting now, by the integrations card's rule: a device whose device_status is 'online' counts as online until the offline sweep flips it, one that never reports a status (Torque) keeps 'unknown' and counts as online while it has reported within the offline timeout, and a disabled device is never online.
              * @default false
              */
             online: boolean;
@@ -11550,6 +11892,67 @@ export interface components {
             title: string;
         };
         /**
+         * FuelGradePreset
+         * @description A pump name as drivers know it, mapped to its EN 16942 label.
+         */
+        FuelGradePreset: {
+            /** Fuel Type */
+            fuel_type: string;
+            /** Grade */
+            grade: string;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Octane */
+            octane?: number | null;
+        };
+        /**
+         * FuelPriceResponse
+         * @description One pump price at one station.
+         */
+        FuelPriceResponse: {
+            /** Currency */
+            currency: string;
+            /**
+             * Grade
+             * @description EN 16942 label (E5, E10, B7, E85, LPG…)
+             */
+            grade: string;
+            /**
+             * Octane
+             * @description RON where the label alone is ambiguous
+             */
+            octane?: number | null;
+            /**
+             * Price
+             * @description Per litre (per kilogram for a gas)
+             */
+            price: string;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /**
+         * FuelPricesResponse
+         * @description The stations near a point, from the provider the country names.
+         *
+         *     `provider` is null when no profile applies to the country, when the
+         *     profile names no source, or when the source is turned off: the form then
+         *     shows nothing rather than an error.
+         */
+        FuelPricesResponse: {
+            /** Country */
+            country?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Provider */
+            provider?: string | null;
+            /** Stations */
+            stations?: components["schemas"]["StationPricesResponse"][];
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
          * FuelReceiptDraft
          * @description Draft fuel fields extracted from a receipt (never persisted automatically).
          */
@@ -11660,6 +12063,11 @@ export interface components {
              */
             filled_at?: string | null;
             /**
+             * Fuel Grade
+             * @description EN 16942 pump label of the fuel dispensed (E5, E10, E85, B7, B10, XTL, LPG, CNG…)
+             */
+            fuel_grade?: string | null;
+            /**
              * Fuel Type Used
              * @description Actual fuel dispensed for this fill-up (canonical enum). Only surfaced in UI when the vehicle has a secondary fuel capability.
              */
@@ -11717,6 +12125,11 @@ export interface components {
              * @description Octane rating for gasoline/E85 fill-ups (AKI or RON)
              */
             octane?: number | null;
+            /**
+             * Octane Scale
+             * @description The scale `octane` was read on: 'RON' or 'AKI'; null when unknown
+             */
+            octane_scale?: string | null;
             /**
              * Odometer Km
              * @description Odometer reading in kilometers
@@ -11938,6 +12351,11 @@ export interface components {
              */
             filled_at?: string | null;
             /**
+             * Fuel Grade
+             * @description EN 16942 pump label of the fuel dispensed (E5, E10, E85, B7, B10, XTL, LPG, CNG…)
+             */
+            fuel_grade?: string | null;
+            /**
              * Fuel Type Used
              * @description Actual fuel dispensed for this fill-up (canonical enum). Only surfaced in UI when the vehicle has a secondary fuel capability.
              */
@@ -12007,6 +12425,11 @@ export interface components {
              * @description Octane rating for gasoline/E85 fill-ups (AKI or RON)
              */
             octane?: number | null;
+            /**
+             * Octane Scale
+             * @description The scale `octane` was read on: 'RON' or 'AKI'; null when unknown
+             */
+            octane_scale?: string | null;
             /**
              * Odometer Km
              * @description Odometer reading in kilometers
@@ -12135,6 +12558,11 @@ export interface components {
              */
             filled_at?: string | null;
             /**
+             * Fuel Grade
+             * @description EN 16942 pump label of the fuel dispensed (E5, E10, E85, B7, B10, XTL, LPG, CNG…)
+             */
+            fuel_grade?: string | null;
+            /**
              * Fuel Type Used
              * @description Actual fuel dispensed (canonical enum)
              */
@@ -12180,6 +12608,11 @@ export interface components {
              * @description Octane rating for gasoline/E85 fill-ups (AKI or RON)
              */
             octane?: number | null;
+            /**
+             * Octane Scale
+             * @description The scale `octane` was read on: 'RON' or 'AKI'; null when unknown
+             */
+            octane_scale?: string | null;
             /**
              * Odometer Km
              * @description Odometer reading in kilometers
@@ -12231,6 +12664,22 @@ export interface components {
             tank_size_kg?: number | string | null;
             /** Trip Type */
             trip_type?: string | null;
+        };
+        /** FuelRules */
+        FuelRules: {
+            /**
+             * Diesel Dyed Distinction
+             * @default true
+             */
+            diesel_dyed_distinction: boolean;
+            /** Grades */
+            grades?: components["schemas"]["FuelGradePreset"][];
+            /**
+             * Octane Scale
+             * @default AKI
+             * @enum {string}
+             */
+            octane_scale: "RON" | "AKI";
         };
         /**
          * GarageAnalytics
@@ -12570,15 +13019,13 @@ export interface components {
          *     is better, mirroring the L/100km convention — less fuel burned per hour
          *     of engine operation).
          *
-         *     The hours mirror of :class:`FuelEconomyTrend`. ``average_l_per_hr`` /
-         *     ``average_cost_per_hr`` are the canonical vehicle-level averages from
-         *     :func:`app.services.fuel_service.calculate_average_hours_economy`
-         *     (``exclude_hauling=True``) — this is where ``average_l_per_100km`` lives
-         *     on the distance side, so the two hours averages live in the equivalent
-         *     place here. ``best``/``worst``/``recent``/``trend`` come from the trend's
-         *     own full-tank-endpoint pass (``exclude_hauling=False``), matching the
-         *     distance trend's internal convention. All are ``None`` for a vehicle with
-         *     no ``engine_hours``-bearing fuel records (pure-distance vehicle).
+         *     The hours mirror of :class:`FuelEconomyTrend`. Every figure, the two
+         *     averages included, comes from the tanks the trend plots, towing tanks too.
+         *     Unlike the distance side, which drops implausible tanks before plotting and
+         *     averaging, there's no plausibility filter here: every scored tank counts.
+         *     The vehicle card and dashboard averages leave hauling out, so they can
+         *     differ. All are ``None`` for a vehicle with no ``engine_hours``-bearing fuel
+         *     records (pure-distance vehicle).
          */
         HoursEconomyTrend: {
             /** Average Cost Per Hr */
@@ -12927,6 +13374,61 @@ export interface components {
              */
             status: "green" | "yellow" | "red" | "not_inspected";
         };
+        /** InspectionRules */
+        InspectionRules: {
+            /**
+             * Lead Window Months
+             * @default 0
+             */
+            lead_window_months: number;
+            /** Name */
+            name: string;
+            /** Retest Window Months */
+            retest_window_months?: number | null;
+            /** Schedules */
+            schedules: components["schemas"]["InspectionSchedule"][];
+        };
+        /**
+         * InspectionSchedule
+         * @description A cadence and the vehicles it applies to.
+         */
+        InspectionSchedule: {
+            /** Fuel Types */
+            fuel_types?: string[];
+            /** Note */
+            note?: string | null;
+            /** Steps */
+            steps: components["schemas"]["InspectionStep"][];
+            /** Vehicle Types */
+            vehicle_types: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment")[];
+        };
+        /**
+         * InspectionStatus
+         * @description The periodic inspection as the automatic engine (#211) tracks it.
+         */
+        InspectionStatus: {
+            /** Anchor Kind */
+            anchor_kind?: ("service" | "completion" | "baseline") | null;
+            /** Automatic */
+            automatic: boolean;
+            /**
+             * From Registration
+             * @default false
+             */
+            from_registration: boolean;
+            /** Lead Days */
+            lead_days?: number | null;
+            /** Name */
+            name: string;
+            /** Next Due Date */
+            next_due_date?: string | null;
+            /** Reminder Id */
+            reminder_id?: number | null;
+            /** Rule Id */
+            rule_id?: number | null;
+            /** Window Opens On */
+            window_opens_on?: string | null;
+        };
         /**
          * InspectionStatusCounts
          * @description How many checklist points, tread bands and brake bands landed in each status.
@@ -12952,6 +13454,25 @@ export interface components {
              * @default 0
              */
             yellow: number;
+        };
+        /**
+         * InspectionStep
+         * @description One step of a roadworthiness cadence.
+         *
+         *     The first step says when the first inspection is due (``first_after_years``
+         *     after first registration); every later step says how often it recurs
+         *     (``every_years``) and, optionally, until what vehicle age that rhythm
+         *     applies (``until_age_years``, exclusive). The next due date is the
+         *     previous one plus ``every_years`` of the first step whose ``until_age_years``
+         *     is null or above the vehicle's age at the previous due date.
+         */
+        InspectionStep: {
+            /** Every Years */
+            every_years?: number | null;
+            /** First After Years */
+            first_after_years?: number | null;
+            /** Until Age Years */
+            until_age_years?: number | null;
         };
         /**
          * InsurancePolicyCreate
@@ -13141,6 +13662,14 @@ export interface components {
              */
             vehicles?: components["schemas"]["PolicyVehicleUpsert"][] | null;
         };
+        /** InsuranceRules */
+        InsuranceRules: {
+            /** Coverage Keys */
+            coverage_keys?: string[];
+            no_claims?: components["schemas"]["NoClaimsScheme"] | null;
+            /** Policy Types */
+            policy_types?: string[];
+        };
         /**
          * IntegrationListResponse
          * @description The whole tab strip, in display order.
@@ -13270,6 +13799,44 @@ export interface components {
              */
             timestamp: string;
         };
+        /** LezRules */
+        LezRules: {
+            /** Name */
+            name?: string | null;
+            /** Scheme */
+            scheme?: ("critair" | "umweltplakette" | "lez_registration" | "ztl" | "dgt_label") | null;
+            /** Url */
+            url?: string | null;
+        };
+        /**
+         * LezStatus
+         * @description The country's low-emission scheme and the class this vehicle has in it.
+         */
+        LezStatus: {
+            /** Basis */
+            basis?: ("override" | "euro_class" | "first_registration" | "fuel") | null;
+            /**
+             * Computed
+             * @default false
+             */
+            computed: boolean;
+            /** Name */
+            name?: string | null;
+            /**
+             * Overridden
+             * @default false
+             */
+            overridden: boolean;
+            /**
+             * Scheme
+             * @enum {string}
+             */
+            scheme: "critair" | "umweltplakette" | "lez_registration" | "ztl" | "dgt_label";
+            /** Url */
+            url?: string | null;
+            /** Value */
+            value?: string | null;
+        };
         /**
          * LinkOIDCAccountRequest
          * @description Request to link OIDC account with password verification.
@@ -13289,7 +13856,7 @@ export interface components {
             devices: components["schemas"]["LiveLinkDeviceResponse"][];
             /**
              * Online Count
-             * @description Number of devices currently online
+             * @description Number of devices currently online, by each device's `online`
              * @default 0
              */
             online_count: number;
@@ -13315,7 +13882,10 @@ export interface components {
             device_id: string;
             /** Kind */
             kind: string;
-            /** Label */
+            /**
+             * Label
+             * @description User-friendly device name, stored stripped. Blank is no name.
+             */
             label?: string | null;
             /** Vin */
             vin?: string | null;
@@ -13409,6 +13979,12 @@ export interface components {
              * @description Declared odometer units ('km'/'mi'); None means inferred from the key
              */
             odometer_unit?: string | null;
+            /**
+             * Online
+             * @description Whether the device is reporting now, by the integrations card's rule: a device whose device_status is 'online' counts as online until the offline sweep flips it, one that never reports a status (Torque) keeps 'unknown' and counts as online while it has reported within the offline timeout, and a disabled device is never online. Read this, not device_status.
+             * @default false
+             */
+            online: boolean;
             /**
              * Preset Key
              * @description The preset that created this device, if any. A preset device's tab is named by its preset, and its mappings are the preset's, not hand-made.
@@ -13549,7 +14125,7 @@ export interface components {
             category?: string | null;
             /**
              * Critical Min
-             * @description Urgent alert if value drops below; must sit under warning_min
+             * @description Urgent alert if value drops below; must sit under warning_min. In the reading's canonical metric unit (°C, km/h, kPa, km); a raw-unit reading in its own unit
              */
             critical_min?: number | null;
             /**
@@ -13579,12 +14155,12 @@ export interface components {
             storage_interval_seconds?: number | null;
             /**
              * Warning Max
-             * @description Alert if value exceeds
+             * @description Alert if value exceeds, in the reading's canonical metric unit (°C, km/h, kPa, km); a raw-unit reading in its own unit
              */
             warning_max?: number | null;
             /**
              * Warning Min
-             * @description Alert if value drops below
+             * @description Alert if value drops below, in the reading's canonical metric unit (°C, km/h, kPa, km); a raw-unit reading in its own unit
              */
             warning_min?: number | null;
         };
@@ -13776,6 +14352,46 @@ export interface components {
             max_value?: number | null;
             /** Param Key */
             param_key: string;
+        };
+        /**
+         * LlmTestResponse
+         * @description What ``POST /api/settings/test/llm`` reports (#211).
+         *
+         *     ``vision_ok`` is null when the vision check did not run, which is the case
+         *     while document reading is off; ``valid`` is the single verdict the card's
+         *     button colours on.
+         */
+        LlmTestResponse: {
+            /**
+             * Message
+             * @description A sentence for the operator, the endpoint's error included
+             */
+            message: string;
+            /**
+             * Model
+             * @description The text model that was tested
+             */
+            model: string;
+            /**
+             * Text Ok
+             * @description The text completion with llm_model succeeded
+             */
+            text_ok: boolean;
+            /**
+             * Valid
+             * @description True when every check that ran succeeded
+             */
+            valid: boolean;
+            /**
+             * Vision Model
+             * @description The vision model that was (or would be) tested
+             */
+            vision_model: string;
+            /**
+             * Vision Ok
+             * @description The vision completion succeeded; null when document reading is off
+             */
+            vision_ok?: boolean | null;
         };
         /**
          * LocationPointOut
@@ -14072,6 +14688,8 @@ export interface components {
             interval_months: number | null;
             /** Is Active */
             is_active: boolean;
+            /** Lead Days */
+            lead_days?: number | null;
             /** Maintenance Type */
             maintenance_type: string | null;
             /** Notes */
@@ -14106,6 +14724,8 @@ export interface components {
             interval_months: number | null;
             /** Is Active */
             is_active: boolean;
+            /** Lead Days */
+            lead_days?: number | null;
             /** Maintenance Type */
             maintenance_type: string | null;
             /** Source */
@@ -14355,6 +14975,20 @@ export interface components {
             odometer_km: string;
             /** Source */
             source: string;
+        };
+        /** NoClaimsScheme */
+        NoClaimsScheme: {
+            /** Example */
+            example: string;
+            /** Name */
+            name: string;
+            /** Pattern */
+            pattern: string;
+            /**
+             * Scheme
+             * @enum {string}
+             */
+            scheme: "crm" | "sf_klasse" | "classe_di_merito" | "bonus_malus";
         };
         /**
          * NoteCreate
@@ -14788,6 +15422,97 @@ export interface components {
              * @description Odometer reading in kilometers
              */
             odometer_km?: number | string | null;
+        };
+        /**
+         * OwnershipStatistics
+         * @description At-a-glance ownership statistics (Overall / Fuel-Ups / Services & Expenses).
+         *
+         *     Metric canonical, like the rest of analytics: distances in km, volumes in
+         *     litres, money per km / per litre. The client converts to the reader's units.
+         *     Money is in the account currency, like the rest of analytics. Insurance is
+         *     accrued over each policy's elapsed days (cost to date), or, in the
+         *     `statistics_as_paid` copy, counted in full for each billing period that has
+         *     begun.
+         */
+        OwnershipStatistics: {
+            /** Avg Cost Per Fillup */
+            avg_cost_per_fillup?: string | null;
+            /** Avg Days Per Fillup */
+            avg_days_per_fillup?: string | null;
+            /** Avg Km Per Fillup */
+            avg_km_per_fillup?: string | null;
+            /** Avg L Per 100Km */
+            avg_l_per_100km?: string | null;
+            /** Avg Liters Per Fillup */
+            avg_liters_per_fillup?: string | null;
+            /** Avg Price Per Liter */
+            avg_price_per_liter?: string | null;
+            /** Best L Per 100Km */
+            best_l_per_100km?: string | null;
+            /** Days Owned */
+            days_owned?: number | null;
+            /** Expenses Cost Per Day */
+            expenses_cost_per_day?: string | null;
+            /** Expenses Cost Per Km */
+            expenses_cost_per_km?: string | null;
+            /**
+             * Expenses Total Cost
+             * @default 0.00
+             */
+            expenses_total_cost: string;
+            /** Fuel Cost Per Day */
+            fuel_cost_per_day?: string | null;
+            /** Fuel Cost Per Km */
+            fuel_cost_per_km?: string | null;
+            /**
+             * Fuel Count
+             * @default 0
+             */
+            fuel_count: number;
+            /**
+             * Fuel Total Cost
+             * @default 0.00
+             */
+            fuel_total_cost: string;
+            /** Fuel Total Liters */
+            fuel_total_liters?: string | null;
+            /** Km Driven */
+            km_driven?: string | null;
+            /** Km Per Currency Unit */
+            km_per_currency_unit?: string | null;
+            /** Km Per Day */
+            km_per_day?: string | null;
+            /** Last Price Per Liter */
+            last_price_per_liter?: string | null;
+            /** Liters Per Day */
+            liters_per_day?: string | null;
+            /** Max Price Per Liter */
+            max_price_per_liter?: string | null;
+            /** Min Price Per Liter */
+            min_price_per_liter?: string | null;
+            /** Ownership Cost Per Day */
+            ownership_cost_per_day?: string | null;
+            /** Ownership Cost Per Km */
+            ownership_cost_per_km?: string | null;
+            /** Purchase Price */
+            purchase_price?: string | null;
+            /** Recent L Per 100Km */
+            recent_l_per_100km?: string | null;
+            /** Running Cost Per Day */
+            running_cost_per_day?: string | null;
+            /** Running Cost Per Km */
+            running_cost_per_km?: string | null;
+            /** Sold Price */
+            sold_price?: string | null;
+            /** Total Ownership Cost */
+            total_ownership_cost?: string | null;
+            /**
+             * Total Running Cost
+             * @default 0.00
+             */
+            total_running_cost: string;
+            /** Worst L Per 100Km */
+            worst_l_per_100km?: string | null;
         };
         /**
          * POIProviderCreate
@@ -15489,13 +16214,18 @@ export interface components {
             deductible?: number | string | null;
             /** Fields */
             fields?: components["schemas"]["NamedField"][];
+            /**
+             * No Claims Class
+             * @description The no-claims class the vehicle is rated at: a bonus-malus coefficient (0.50), an SF-Klasse (SF 12), a classe di merito (1)… Ten characters of plain text
+             */
+            no_claims_class?: string | null;
             /** Notes */
             notes?: string | null;
             /**
              * Policy Type
              * @enum {string}
              */
-            policy_type: "Liability" | "Comprehensive" | "Collision" | "Full Coverage" | "Minimum" | "Other";
+            policy_type: "Liability" | "Comprehensive" | "Collision" | "Full Coverage" | "Minimum" | "Other" | "Third Party" | "Third Party Extended";
             /**
              * Premium Share
              * @description Per-period share; omit for an even split
@@ -15529,6 +16259,11 @@ export interface components {
             fields?: components["schemas"]["NamedFieldResponse"][];
             /** Id */
             id: number;
+            /**
+             * No Claims Class
+             * @description The no-claims class the vehicle is rated at: a bonus-malus coefficient (0.50), an SF-Klasse (SF 12), a classe di merito (1)… Ten characters of plain text
+             */
+            no_claims_class?: string | null;
             /** Notes */
             notes?: string | null;
             /** Policy Type */
@@ -15560,10 +16295,15 @@ export interface components {
             effective_to?: string | null;
             /** Fields */
             fields?: components["schemas"]["NamedField"][] | null;
+            /**
+             * No Claims Class
+             * @description The no-claims class the vehicle is rated at: a bonus-malus coefficient (0.50), an SF-Klasse (SF 12), a classe di merito (1)… Ten characters of plain text
+             */
+            no_claims_class?: string | null;
             /** Notes */
             notes?: string | null;
             /** Policy Type */
-            policy_type?: ("Liability" | "Comprehensive" | "Collision" | "Full Coverage" | "Minimum" | "Other") | null;
+            policy_type?: ("Liability" | "Comprehensive" | "Collision" | "Full Coverage" | "Minimum" | "Other" | "Third Party" | "Third Party Extended") | null;
             /** Premium Share */
             premium_share?: number | string | null;
         };
@@ -15587,13 +16327,18 @@ export interface components {
              * @description Omit to leave an existing vehicle's named fields alone
              */
             fields?: components["schemas"]["NamedField"][] | null;
+            /**
+             * No Claims Class
+             * @description The no-claims class the vehicle is rated at: a bonus-malus coefficient (0.50), an SF-Klasse (SF 12), a classe di merito (1)… Ten characters of plain text
+             */
+            no_claims_class?: string | null;
             /** Notes */
             notes?: string | null;
             /**
              * Policy Type
              * @enum {string}
              */
-            policy_type: "Liability" | "Comprehensive" | "Collision" | "Full Coverage" | "Minimum" | "Other";
+            policy_type: "Liability" | "Comprehensive" | "Collision" | "Full Coverage" | "Minimum" | "Other" | "Third Party" | "Third Party Extended";
             /** Premium Share */
             premium_share?: number | string | null;
             /** Vin */
@@ -15664,6 +16409,21 @@ export interface components {
             unit: string | null;
         };
         /**
+         * ProfileSource
+         * @description Where a figure in the profile comes from, so a reviewer can check it.
+         */
+        ProfileSource: {
+            /**
+             * Retrieved
+             * Format: date
+             */
+            retrieved: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+        };
+        /**
          * QuickEntryVehicle
          * @description Lightweight vehicle summary for the Quick Entry selector.
          */
@@ -15693,7 +16453,7 @@ export interface components {
              */
             usage_unit: ("distance" | "hours") | null;
             /** Vehicle Type */
-            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
+            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment") | null;
             /** Vin */
             vin: string;
             /** Year */
@@ -15706,6 +16466,36 @@ export interface components {
         QuickEntryVehicleList: {
             /** Vehicles */
             vehicles: components["schemas"]["QuickEntryVehicle"][];
+        };
+        /**
+         * RecallCheckResponse
+         * @description The list after a check of every source that covers the vehicle (#211).
+         */
+        RecallCheckResponse: {
+            /** Active Count */
+            active_count: number;
+            /**
+             * New Count
+             * @description How many recalls the check stored
+             * @default 0
+             */
+            new_count: number;
+            /**
+             * Providers Checked
+             * @description The sources asked, in order; empty when none covers the vehicle's country
+             */
+            providers_checked?: string[];
+            /** Recalls */
+            recalls: components["schemas"]["RecallResponse"][];
+            /** Resolved Count */
+            resolved_count: number;
+            /** Total */
+            total: number;
+            /**
+             * Warnings
+             * @description A source that could not be asked, and why
+             */
+            warnings?: string[];
         };
         /**
          * RecallCreate
@@ -15727,6 +16517,11 @@ export interface components {
              * @description Date recall was announced
              */
             date_announced?: string | null;
+            /**
+             * External Url
+             * @description Link to the recall notice online
+             */
+            external_url?: string | null;
             /**
              * Is Resolved
              * @description Whether recall has been resolved
@@ -15798,10 +16593,25 @@ export interface components {
              * @description Date recall was announced
              */
             date_announced?: string | null;
+            /**
+             * External Id
+             * @description The provider's own identifier
+             */
+            external_id?: string | null;
+            /**
+             * External Url
+             * @description Link to the recall notice online
+             */
+            external_url?: string | null;
             /** Id */
             id: number;
             /** Is Resolved */
             is_resolved: boolean;
+            /**
+             * Match Confidence
+             * @description 0 to 100: how surely the notice concerns this vehicle
+             */
+            match_confidence?: number | null;
             /**
              * Nhtsa Campaign Number
              * @description NHTSA campaign number
@@ -15819,6 +16629,11 @@ export interface components {
             remedy?: string | null;
             /** Resolved At */
             resolved_at?: string | null;
+            /**
+             * Source
+             * @description nhtsa, rappelconso or manual
+             */
+            source?: ("nhtsa" | "rappelconso" | "manual") | null;
             /**
              * Summary
              * @description Summary of the recall issue
@@ -15847,6 +16662,11 @@ export interface components {
              * @description Date recall was announced
              */
             date_announced?: string | null;
+            /**
+             * External Url
+             * @description Link to the recall notice online
+             */
+            external_url?: string | null;
             /**
              * Is Resolved
              * @description Whether recall has been resolved
@@ -15896,6 +16716,115 @@ export interface components {
             interval_km?: number | string | null;
             /** Interval Months */
             interval_months?: number | null;
+        };
+        /** RegistrationCertificateRules */
+        RegistrationCertificateRules: {
+            /** Energy Codes */
+            energy_codes?: {
+                [key: string]: string;
+            };
+            /** Markers */
+            markers?: string[];
+            /** National Categories */
+            national_categories?: string[];
+            /** Plate Patterns */
+            plate_patterns?: string[];
+        };
+        /**
+         * RegistrationImportResponse
+         * @description A certificate stored on a vehicle and applied to it.
+         */
+        RegistrationImportResponse: {
+            /**
+             * Applied
+             * @description The vehicle fields written
+             */
+            applied: string[];
+            document: components["schemas"]["DocumentResponse"];
+            /**
+             * Inspection Due Recorded
+             * @description Whether field X.1 became the vehicle's inspection deadline, which the inspection reminder is due no later than while no inspection is on record
+             */
+            inspection_due_recorded: boolean;
+            parse: components["schemas"]["RegistrationParseResponse"];
+            /**
+             * Skipped
+             * @description The vehicle fields left alone (already set, and overwrite was off)
+             */
+            skipped: string[];
+            /**
+             * Taxes Created
+             * @description The certificate codes (Y.1, Y.3, Y.6) whose suggested tax record was created
+             */
+            taxes_created?: string[];
+        };
+        /**
+         * RegistrationParseResponse
+         * @description A certificate read, before anything is applied.
+         */
+        RegistrationParseResponse: {
+            /**
+             * Confidence
+             * @description 0 to 100, from the fields found
+             */
+            confidence: number;
+            /**
+             * Country
+             * @description The issuing country, when recognised
+             */
+            country?: string | null;
+            /**
+             * Field Confidence
+             * @description high, medium or low per field that was read
+             */
+            field_confidence: {
+                [key: string]: string;
+            };
+            /**
+             * Fields
+             * @description Every harmonised field read, by name
+             */
+            fields: {
+                [key: string]: unknown;
+            };
+            /**
+             * Inspection Due Date
+             * @description Field X.1, the date the next periodic inspection is due by (a deadline)
+             */
+            inspection_due_date?: string | null;
+            /**
+             * Model
+             * @description The vision model that read it, on the llm path
+             */
+            model?: string | null;
+            /**
+             * Pages
+             * @description How many images were sent, on the llm path
+             * @default 0
+             */
+            pages: number;
+            /**
+             * Parse Token
+             * @description On the parse route: present it with the same file to the vehicle import within 30 minutes and the server reuses this read instead of reading again
+             */
+            parse_token?: string | null;
+            /**
+             * Source
+             * @description text: the PDF's own text layer; llm: images read by the vision model
+             * @enum {string}
+             */
+            source: "text" | "llm";
+            /** Suggested Tax Records */
+            suggested_tax_records?: components["schemas"]["SuggestedTaxRecord"][];
+            /**
+             * Vehicle Patch
+             * @description The vehicle fields the certificate fills, already validated
+             */
+            vehicle_patch: {
+                [key: string]: unknown;
+            };
+            /** Warnings */
+            warnings?: string[];
         };
         /**
          * ReminderCompleteRequest
@@ -16089,8 +17018,6 @@ export interface components {
             due_mileage_km: string | null;
             /** Due Status */
             due_status?: ("overdue" | "due_soon" | "on_track" | "snoozed") | null;
-            /** Duplicate Of */
-            duplicate_of?: number[];
             /** Estimated Due Date */
             estimated_due_date?: string | null;
             /** Hours Until Due */
@@ -16226,7 +17153,7 @@ export interface components {
              * Vehicle Types
              * @description Applicable vehicle types; empty means all types
              */
-            vehicle_types?: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike")[];
+            vehicle_types?: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment")[];
             /**
              * Vin
              * @description Vehicle to read the rules from
@@ -17376,6 +18303,55 @@ export interface components {
             /** Weekly Rate */
             weekly_rate?: number | string | null;
         };
+        /** StationPricesResponse */
+        StationPricesResponse: {
+            /** Address */
+            address?: string | null;
+            /** City */
+            city?: string | null;
+            /** Distance Km */
+            distance_km: number;
+            /** External Id */
+            external_id: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name?: string | null;
+            /** Postal Code */
+            postal_code?: string | null;
+            /** Prices */
+            prices?: components["schemas"]["FuelPriceResponse"][];
+        };
+        /**
+         * SuggestedTaxRecord
+         * @description A tax amount printed on the certificate (Y.1, Y.3, Y.6), offered as a
+         *     tax record the person may create; nothing is created unasked.
+         */
+        SuggestedTaxRecord: {
+            /**
+             * Amount
+             * @description The amount as printed
+             */
+            amount: string;
+            /**
+             * Code
+             * @description The certificate field the amount comes from (Y.1, Y.3, Y.6)
+             */
+            code: string;
+            /**
+             * Date
+             * Format: date
+             * @description The date of first registration (field B)
+             */
+            date: string;
+            /**
+             * Tax Type
+             * @description The tax type code the amount maps to
+             */
+            tax_type: string;
+        };
         /**
          * SupplyAdjustmentCreate
          * @description A standalone stock-out (not tied to a service line item).
@@ -17445,7 +18421,7 @@ export interface components {
             /**
              * At
              * Format: date-time
-             * @description Effective ledger date: purchase.date (midnight), a job usage's OWNING VISIT date, or a standalone adjustment's created_at (R1-H3 ordering)
+             * @description Effective ledger time on the household clock, with its offset: purchase.date (midnight), a job usage's OWNING VISIT date (midnight), or a standalone adjustment's created_at (R1-H3 ordering)
              */
             at: string;
             /**
@@ -17460,6 +18436,12 @@ export interface components {
             entry_type: "purchase" | "usage";
             /** Id */
             id: number;
+            /**
+             * Ledger Date
+             * Format: date
+             * @description The household calendar day the entry falls on (the date of `at`)
+             */
+            ledger_date: string;
             /**
              * Notes
              * @description A purchase entry's notes
@@ -17773,7 +18755,7 @@ export interface components {
          *       "date": "2025-01-15",
          *       "notes": "Annual vehicle registration renewal",
          *       "renewal_date": "2026-01-15",
-         *       "tax_type": "Registration",
+         *       "tax_type": "registration",
          *       "vin": "ML32A5HJ9KH009478"
          *     }
          */
@@ -17798,9 +18780,9 @@ export interface components {
             renewal_date?: string | null;
             /**
              * Tax Type
-             * @description Type of tax/fee
+             * @description Type of tax/fee, as a code. The pre-146 display strings (Registration, Inspection, Property Tax, Tolls) are accepted as their codes.
              */
-            tax_type?: ("Registration" | "Inspection" | "Property Tax" | "Tolls") | null;
+            tax_type?: ("registration" | "registration_tax" | "co2_malus" | "weight_malus" | "circulation_tax" | "company_vehicle_tax" | "inspection" | "property_tax" | "tolls" | "vignette" | "lez_sticker" | "parking_permit" | "other") | null;
             /** Vin */
             vin: string;
         };
@@ -17816,7 +18798,7 @@ export interface components {
          *           "id": 1,
          *           "notes": "Annual vehicle registration renewal",
          *           "renewal_date": "2026-01-15",
-         *           "tax_type": "Registration",
+         *           "tax_type": "registration",
          *           "vin": "ML32A5HJ9KH009478"
          *         }
          *       ],
@@ -17839,7 +18821,7 @@ export interface components {
          *       "id": 1,
          *       "notes": "Annual vehicle registration renewal",
          *       "renewal_date": "2026-01-15",
-         *       "tax_type": "Registration",
+         *       "tax_type": "registration",
          *       "vin": "ML32A5HJ9KH009478"
          *     }
          */
@@ -17871,9 +18853,9 @@ export interface components {
             renewal_date?: string | null;
             /**
              * Tax Type
-             * @description Type of tax/fee
+             * @description Type of tax/fee, as a code. The pre-146 display strings (Registration, Inspection, Property Tax, Tolls) are accepted as their codes.
              */
-            tax_type?: ("Registration" | "Inspection" | "Property Tax" | "Tolls") | null;
+            tax_type?: ("registration" | "registration_tax" | "co2_malus" | "weight_malus" | "circulation_tax" | "company_vehicle_tax" | "inspection" | "property_tax" | "tolls" | "vignette" | "lez_sticker" | "parking_permit" | "other") | null;
             /** Vin */
             vin: string;
         };
@@ -17891,7 +18873,16 @@ export interface components {
             /** Renewal Date */
             renewal_date?: string | null;
             /** Tax Type */
-            tax_type?: ("Registration" | "Inspection" | "Property Tax" | "Tolls") | null;
+            tax_type?: ("registration" | "registration_tax" | "co2_malus" | "weight_malus" | "circulation_tax" | "company_vehicle_tax" | "inspection" | "property_tax" | "tolls" | "vignette" | "lez_sticker" | "parking_permit" | "other") | null;
+        };
+        /** TaxRules */
+        TaxRules: {
+            /** Names */
+            names?: {
+                [key: string]: string;
+            };
+            /** Types */
+            types?: string[];
         };
         /**
          * TelegramFuelStatus
@@ -18228,10 +19219,10 @@ export interface components {
              */
             can_project: number;
             /**
-             * Can Report Distance
+             * Can Report Usage
              * @default 0
              */
-            can_report_distance: number;
+            can_report_usage: number;
             /**
              * Can Trend
              * @default 0
@@ -18248,10 +19239,10 @@ export interface components {
              */
             needs_mount_odometer: number;
             /**
-             * Needs Reading Odometer
+             * Needs Reading Usage
              * @default 0
              */
-            needs_reading_odometer: number;
+            needs_reading_usage: number;
             /**
              * Needs Second Reading
              * @default 0
@@ -18311,8 +19302,6 @@ export interface components {
             engine_hours?: string | null;
             /** Id */
             id: number;
-            /** Mount Period Id */
-            mount_period_id?: number | null;
             /** Notes */
             notes: string | null;
             /** Odometer Km */
@@ -18647,6 +19636,11 @@ export interface components {
              * @description Masked token for display (e.g., 'abc***xyz')
              */
             masked_token: string;
+        };
+        /** TollRules */
+        TollRules: {
+            /** Systems */
+            systems?: string[];
         };
         /**
          * TollTagCreate
@@ -19608,6 +20602,8 @@ export interface components {
              * @default local
              */
             auth_method: string;
+            /** Country */
+            country?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -19638,6 +20634,11 @@ export interface components {
             full_name?: string | null;
             /** Id */
             id: number;
+            /**
+             * Inspection Auto Schedule
+             * @default true
+             */
+            inspection_auto_schedule: boolean;
             /** Is Active */
             is_active: boolean;
             /** Is Admin */
@@ -19743,6 +20744,8 @@ export interface components {
         UserSelfUpdate: {
             /** Accent Color */
             accent_color?: string | null;
+            /** Country */
+            country?: string | null;
             /** Currency Code */
             currency_code?: string | null;
             /** Dashboard Sort */
@@ -19755,6 +20758,8 @@ export interface components {
             email?: string | null;
             /** Full Name */
             full_name?: string | null;
+            /** Inspection Auto Schedule */
+            inspection_auto_schedule?: boolean | null;
             /** Language */
             language?: string | null;
             /** Mobile Quick Entry Enabled */
@@ -19812,6 +20817,11 @@ export interface components {
              */
             body_class?: string | null;
             /**
+             * Decode Quality
+             * @description How much NHTSA itself decoded, before the WMI table fills anything. full: make and model; partial: make only; wmi_only: NHTSA named no make and the VIN's first three characters did; none: nothing
+             */
+            decode_quality?: ("full" | "partial" | "wmi_only" | "none") | null;
+            /**
              * Doors
              * @description Number of doors
              */
@@ -19849,6 +20859,11 @@ export interface components {
              */
             make?: string | null;
             /**
+             * Make Source
+             * @description Where `make` came from: NHTSA's answer or the bundled WMI table
+             */
+            make_source?: ("nhtsa" | "wmi") | null;
+            /**
              * Manufacturer
              * @description Manufacturer name
              */
@@ -19859,6 +20874,11 @@ export interface components {
              */
             model?: string | null;
             /**
+             * Notes
+             * @description Why the answer is partial: eu_vin_no_model, year_unreliable, check_digit_not_applicable
+             */
+            notes?: string[];
+            /**
              * Plant City
              * @description Manufacturing plant city
              */
@@ -19868,6 +20888,11 @@ export interface components {
              * @description Manufacturing plant country
              */
             plant_country?: string | null;
+            /**
+             * Region
+             * @description Region of the first character (ISO 3780): AF, AS, EU, NA, OC, SA
+             */
+            region?: string | null;
             /**
              * Series
              * @description Vehicle series
@@ -19895,6 +20920,11 @@ export interface components {
              * @description The decoded VIN
              */
             vin: string;
+            /**
+             * Wmi Country
+             * @description Country of manufacture from the WMI (ISO 3166-1 alpha-2)
+             */
+            wmi_country?: string | null;
             /**
              * Year
              * @description Model year
@@ -19959,12 +20989,14 @@ export interface components {
             spot_rental_analysis?: {
                 [key: string]: unknown;
             } | null;
+            statistics?: components["schemas"]["OwnershipStatistics"] | null;
+            statistics_as_paid?: components["schemas"]["OwnershipStatistics"] | null;
             /** Total Km Driven */
             total_km_driven?: string | null;
             /** Vehicle Name */
             vehicle_name: string;
             /** Vehicle Type */
-            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
+            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment") | null;
             /** Vin */
             vin: string;
         };
@@ -20056,6 +21088,11 @@ export interface components {
              */
             brake_fluid_type?: string | null;
             /**
+             * Co2 G Km
+             * @description CO₂ emissions in g/km, field V.7
+             */
+            co2_g_km?: number | null;
+            /**
              * Color
              * @description Vehicle color
              */
@@ -20101,6 +21138,26 @@ export interface components {
              */
             drive_type?: string | null;
             /**
+             * Eu Category
+             * @description EU vehicle category, field J (M1, N1, L3e)
+             */
+            eu_category?: string | null;
+            /**
+             * Euro Emission Class
+             * @description Euro emission class, field V.9 of an EU registration certificate (Euro 6d-TEMP)
+             */
+            euro_emission_class?: string | null;
+            /**
+             * First Registration Date
+             * @description Date of first registration (field B of an EU registration certificate)
+             */
+            first_registration_date?: string | null;
+            /**
+             * Fiscal Power
+             * @description National fiscal power, field P.6 (French CV)
+             */
+            fiscal_power?: number | null;
+            /**
              * Fuel Filter Part Number
              * @description Fuel filter part number
              */
@@ -20120,6 +21177,23 @@ export interface components {
              * @description GVWR class
              */
             gvwr_class?: string | null;
+            /**
+             * Identifier
+             * @description The serial / HIN / chassis number / asset tag (not used for 'vin' or 'none')
+             */
+            identifier?: string | null;
+            /**
+             * Identifier Type
+             * @description What identifies this vehicle: its VIN, or for equipment and vehicles without one a serial number, HIN, chassis number, asset tag, or none (#226)
+             * @default vin
+             * @enum {string}
+             */
+            identifier_type: "vin" | "serial" | "hin" | "chassis" | "asset_tag" | "none";
+            /**
+             * Lez Class
+             * @description Low-emission-zone class set by hand (Crit'Air 0-5, Umweltplakette 2-4); overrides the class computed from the fuel and the Euro class
+             */
+            lez_class?: string | null;
             /**
              * License Plate
              * @description License plate number
@@ -20146,6 +21220,11 @@ export interface components {
              */
             model?: string | null;
             /**
+             * National Category
+             * @description National vehicle kind, field J.1 (VP, CTTE, MTL)
+             */
+            national_category?: string | null;
+            /**
              * Nickname
              * @description User-friendly display name
              */
@@ -20166,6 +21245,11 @@ export interface components {
              */
             oil_viscosity?: string | null;
             /**
+             * Power Kw
+             * @description Maximum net power in kW, field P.2
+             */
+            power_kw?: number | null;
+            /**
              * Purchase Date
              * @description Date purchased
              */
@@ -20175,6 +21259,11 @@ export interface components {
              * @description Purchase price
              */
             purchase_price?: number | string | null;
+            /**
+             * Registration Country
+             * @description Country the vehicle is registered in (ISO 3166-1 alpha-2) when it differs from the owner's; drives inspection cadence, fuel pump names and tax types
+             */
+            registration_country?: string | null;
             /**
              * Secondary Usage Enabled
              * @description Also track the non-primary usage dimension (distance+hours dual tracking)
@@ -20223,12 +21312,12 @@ export interface components {
              * @description Type of vehicle
              * @enum {string}
              */
-            vehicle_type: "Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike";
+            vehicle_type: "Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment";
             /**
              * Vin
-             * @description 17-character Vehicle Identification Number
+             * @description 17-character Vehicle Identification Number. Required when identifier_type is 'vin'; omitted otherwise (the server generates the vehicle's key).
              */
-            vin: string;
+            vin?: string | null;
             /**
              * Year
              * @description Model year
@@ -20705,7 +21794,7 @@ export interface components {
             device_id?: string | null;
             /**
              * Device Status
-             * @description Device: online/offline
+             * @description 'online' when `online` is true, else 'offline'
              * @default offline
              * @enum {string}
              */
@@ -20719,7 +21808,7 @@ export interface components {
             ecu_status: "online" | "offline" | "unknown";
             /**
              * Kind
-             * @description Source kind of the reporting device
+             * @description Source kind of the device this status describes: the most recently seen one that drives sessions, else the most recently seen of any kind. device_id, ecu_status, rssi, battery_voltage and the session fields come from the same device.
              */
             kind?: string | null;
             /**
@@ -20734,7 +21823,7 @@ export interface components {
             latest_values?: components["schemas"]["TelemetryLatestValue"][];
             /**
              * Online
-             * @description Whether the reporting device is reporting now, by the integrations card's rule: a source with no status topic (a Mopeka sensor) keeps device_status 'unknown' and counts as online while it has reported within the offline timeout. Read this, not device_status.
+             * @description Whether any device linked to this vehicle is reporting now, each by the integrations card's rule: a device whose device_status is 'online' counts as online until the offline sweep flips it, one that never reports a status (Torque) keeps 'unknown' and counts as online while it has reported within the offline timeout, and a disabled device is never online.
              * @default false
              */
             online: boolean;
@@ -20808,6 +21897,11 @@ export interface components {
              */
             brake_fluid_type?: string | null;
             /**
+             * Co2 G Km
+             * @description CO₂ emissions in g/km, field V.7
+             */
+            co2_g_km?: number | null;
+            /**
              * Color
              * @description Vehicle color
              */
@@ -20863,8 +21957,28 @@ export interface components {
             environmental_rating_ghg?: string | null;
             /** Environmental Rating Smog */
             environmental_rating_smog?: string | null;
+            /**
+             * Eu Category
+             * @description EU vehicle category, field J (M1, N1, L3e)
+             */
+            eu_category?: string | null;
+            /**
+             * Euro Emission Class
+             * @description Euro emission class, field V.9 of an EU registration certificate (Euro 6d-TEMP)
+             */
+            euro_emission_class?: string | null;
             /** Exterior Color */
             exterior_color?: string | null;
+            /**
+             * First Registration Date
+             * @description Date of first registration (field B of an EU registration certificate)
+             */
+            first_registration_date?: string | null;
+            /**
+             * Fiscal Power
+             * @description National fiscal power, field P.6 (French CV)
+             */
+            fiscal_power?: number | null;
             /** Fuel Economy City L Per 100Km */
             fuel_economy_city_l_per_100km?: string | null;
             /** Fuel Economy Combined L Per 100Km */
@@ -20891,8 +22005,29 @@ export interface components {
              * @description GVWR class
              */
             gvwr_class?: string | null;
+            /**
+             * Has Vin
+             * @description Whether `vin` is a real VIN (decode, recalls and VIN display apply).
+             */
+            readonly has_vin: boolean;
+            /**
+             * Identifier
+             * @description Serial / HIN / chassis number / asset tag
+             */
+            identifier?: string | null;
+            /**
+             * Identifier Type
+             * @description What identifies this vehicle
+             * @default vin
+             */
+            identifier_type: ("vin" | "serial" | "hin" | "chassis" | "asset_tag" | "none") | null;
             /** Interior Color */
             interior_color?: string | null;
+            /**
+             * Lez Class
+             * @description Low-emission-zone class set by hand (Crit'Air 0-5, Umweltplakette 2-4); overrides the class computed from the fuel and the Euro class
+             */
+            lez_class?: string | null;
             /**
              * License Plate
              * @description License plate number
@@ -20932,6 +22067,11 @@ export interface components {
             /** Msrp Total */
             msrp_total?: string | null;
             /**
+             * National Category
+             * @description National vehicle kind, field J.1 (VP, CTTE, MTL)
+             */
+            national_category?: string | null;
+            /**
              * Nickname
              * @description User-friendly display name
              */
@@ -20956,6 +22096,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
+             * Power Kw
+             * @description Maximum net power in kW, field P.2
+             */
+            power_kw?: number | null;
+            /**
              * Purchase Date
              * @description Date purchased
              */
@@ -20965,6 +22110,11 @@ export interface components {
              * @description Purchase price
              */
             purchase_price?: string | null;
+            /**
+             * Registration Country
+             * @description Country the vehicle is registered in (ISO 3166-1 alpha-2) when it differs from the owner's; drives inspection cadence, fuel pump names and tax types
+             */
+            registration_country?: string | null;
             /**
              * Secondary Usage Enabled
              * @description Also track the non-primary usage dimension (distance+hours dual tracking)
@@ -21025,8 +22175,11 @@ export interface components {
              * Vehicle Type
              * @description Type of vehicle
              */
-            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
-            /** Vin */
+            vehicle_type: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment") | null;
+            /**
+             * Vin
+             * @description The vehicle's key. The VIN when identifier_type is 'vin'; otherwise a generated key that is not a VIN and must not be shown (#226).
+             */
             vin: string;
             /** Warranty Basic */
             warranty_basic?: string | null;
@@ -21141,6 +22294,13 @@ export interface components {
             distance_unit?: ("km" | "mi") | null;
             /** Due Soon Maintenance Count */
             due_soon_maintenance_count: number;
+            /** Identifier */
+            identifier?: string | null;
+            /**
+             * Identifier Type
+             * @default vin
+             */
+            identifier_type: ("vin" | "serial" | "hin" | "chassis" | "asset_tag" | "none") | null;
             /**
              * Is Shared With Me
              * @default false
@@ -21162,6 +22322,8 @@ export interface components {
             make?: string | null;
             /** Model */
             model?: string | null;
+            /** Nickname */
+            nickname?: string | null;
             /** Overdue Maintenance Count */
             overdue_maintenance_count: number;
             /** Owner Relationship */
@@ -21208,7 +22370,7 @@ export interface components {
              */
             usage_unit: ("distance" | "hours") | null;
             /** Vehicle Type */
-            vehicle_type?: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
+            vehicle_type?: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment") | null;
             /** Vin */
             vin: string;
             /** Year */
@@ -21294,6 +22456,11 @@ export interface components {
              */
             brake_fluid_type?: string | null;
             /**
+             * Co2 G Km
+             * @description CO₂ emissions in g/km, field V.7
+             */
+            co2_g_km?: number | null;
+            /**
              * Color
              * @description Vehicle color
              */
@@ -21344,10 +22511,30 @@ export interface components {
              */
             drive_type?: string | null;
             /**
+             * Eu Category
+             * @description EU vehicle category, field J (M1, N1, L3e)
+             */
+            eu_category?: string | null;
+            /**
+             * Euro Emission Class
+             * @description Euro emission class, field V.9 of an EU registration certificate (Euro 6d-TEMP)
+             */
+            euro_emission_class?: string | null;
+            /**
              * Exterior Color
              * @description Exterior color
              */
             exterior_color?: string | null;
+            /**
+             * First Registration Date
+             * @description Date of first registration (field B of an EU registration certificate)
+             */
+            first_registration_date?: string | null;
+            /**
+             * Fiscal Power
+             * @description National fiscal power, field P.6 (French CV)
+             */
+            fiscal_power?: number | null;
             /**
              * Fuel Filter Part Number
              * @description Fuel filter part number
@@ -21369,10 +22556,25 @@ export interface components {
              */
             gvwr_class?: string | null;
             /**
+             * Identifier
+             * @description Serial / HIN / chassis number / asset tag
+             */
+            identifier?: string | null;
+            /**
+             * Identifier Type
+             * @description vin, serial, hin, chassis, asset_tag or none (omit to leave unchanged)
+             */
+            identifier_type?: ("vin" | "serial" | "hin" | "chassis" | "asset_tag" | "none") | null;
+            /**
              * Interior Color
              * @description Interior color
              */
             interior_color?: string | null;
+            /**
+             * Lez Class
+             * @description Low-emission-zone class set by hand (Crit'Air 0-5, Umweltplakette 2-4); overrides the class computed from the fuel and the Euro class
+             */
+            lez_class?: string | null;
             /**
              * License Plate
              * @description License plate number
@@ -21414,6 +22616,11 @@ export interface components {
              */
             msrp_total?: number | string | null;
             /**
+             * National Category
+             * @description National vehicle kind, field J.1 (VP, CTTE, MTL)
+             */
+            national_category?: string | null;
+            /**
              * Nickname
              * @description User-friendly display name
              */
@@ -21441,6 +22648,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
+             * Power Kw
+             * @description Maximum net power in kW, field P.2
+             */
+            power_kw?: number | null;
+            /**
              * Purchase Date
              * @description Date purchased
              */
@@ -21450,6 +22662,11 @@ export interface components {
              * @description Purchase price
              */
             purchase_price?: number | string | null;
+            /**
+             * Registration Country
+             * @description Country the vehicle is registered in (ISO 3166-1 alpha-2) when it differs from the owner's; drives inspection cadence, fuel pump names and tax types
+             */
+            registration_country?: string | null;
             /**
              * Secondary Usage Enabled
              * @description Dual distance+hours tracking (omit to leave unchanged)
@@ -21521,7 +22738,7 @@ export interface components {
              * Vehicle Type
              * @description Type of vehicle
              */
-            vehicle_type?: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike") | null;
+            vehicle_type?: ("Car" | "Truck" | "SUV" | "Motorcycle" | "ATV" | "RV" | "Trailer" | "FifthWheel" | "TravelTrailer" | "Electric" | "Hybrid" | "Boat" | "UTV" | "Snowmobile" | "Bicycle" | "EBike" | "Tractor" | "Mower" | "Generator" | "SmallEngine" | "Attachment" | "Equipment") | null;
             /**
              * Warranty Basic
              * @description Basic warranty
@@ -21932,8 +23149,10 @@ export interface components {
         WebhookCompleteReminderPayload: {
             /** Reminder Id */
             reminder_id: number;
+            /** Vehicle */
+            vehicle?: string | null;
             /** Vin */
-            vin: string;
+            vin?: string | null;
         };
         /**
          * WebhookFuelPayload
@@ -21959,6 +23178,8 @@ export interface components {
             date?: string | null;
             /** Diesel Grade */
             diesel_grade?: string | null;
+            /** Fuel Grade */
+            fuel_grade?: string | null;
             /** Fuel Type Used */
             fuel_type_used?: string | null;
             /**
@@ -21984,8 +23205,10 @@ export interface components {
             soc_end_pct?: number | string | null;
             /** Soc Start Pct */
             soc_start_pct?: number | string | null;
+            /** Vehicle */
+            vehicle?: string | null;
             /** Vin */
-            vin: string;
+            vin?: string | null;
         };
         /** WebhookOdometerPayload */
         WebhookOdometerPayload: {
@@ -21995,8 +23218,10 @@ export interface components {
             notes?: string | null;
             /** Odometer Km */
             odometer_km: number | string;
+            /** Vehicle */
+            vehicle?: string | null;
             /** Vin */
-            vin: string;
+            vin?: string | null;
         };
         /**
          * WiCANConfigEntry
@@ -22022,7 +23247,8 @@ export interface components {
          * @description Schema for complete WiCAN HTTPS POST payload.
          *
          *     WiCAN devices send two types of payloads:
-         *     1. Status payloads (include device info) - sent periodically
+         *     1. Status payloads (include device info), with `config` on the first POST
+         *        after a cold boot (upstream v1.2 sends `status` + `config` once per boot)
          *     2. Telemetry-only payloads (just autopid_data) - sent every cycle
          *
          *     Example with status:
@@ -22051,7 +23277,7 @@ export interface components {
             config?: {
                 [key: string]: components["schemas"]["WiCANConfigEntry"];
             };
-            /** @description Device status (optional, sent periodically) */
+            /** @description Device status (optional; sent with config once per cold boot) */
             status?: components["schemas"]["WiCANStatus"] | null;
             /**
              * Timestamp
@@ -22664,6 +23890,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    address_book_fuel_prices_api_address_book__entry_id__fuel_prices_get: {
+        parameters: {
+            query?: {
+                radius_km?: number;
+                limit?: number;
+                country?: string | null;
+            };
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FuelPricesResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -24167,6 +25428,57 @@ export interface operations {
             };
         };
     };
+    list_country_profiles_api_country_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountryProfileSummary"][];
+                };
+            };
+        };
+    };
+    get_country_profile_api_country_profiles__country__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                country: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountryProfile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_dashboard_api_dashboard_get: {
         parameters: {
             query?: never;
@@ -24993,6 +26305,41 @@ export interface operations {
             };
         };
     };
+    fuel_prices_nearby_api_fuel_prices_nearby_get: {
+        parameters: {
+            query: {
+                lat: number;
+                lon: number;
+                radius_km?: number;
+                limit?: number;
+                country?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FuelPricesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     api_health_check_api_health_get: {
         parameters: {
             query?: never;
@@ -25641,6 +26988,8 @@ export interface operations {
             query?: {
                 /** @description Optional provider hint (progressive, statefarm, geico, allstate) */
                 provider?: string | null;
+                /** @description Consent to send the document to a vision model outside the network */
+                allow_external_vision?: boolean;
             };
             header?: never;
             path?: never;
@@ -27663,6 +29012,44 @@ export interface operations {
             };
         };
     };
+    parse_registration_certificate_api_registration_certificate_parse_post: {
+        parameters: {
+            query?: {
+                /** @description A hint for the plate format and the energy codes; the document wins */
+                country?: string | null;
+                /** @description Consent to send the document to a vision model outside the network */
+                allow_external_vision?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_parse_registration_certificate_api_registration_certificate_parse_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationParseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_reminder_packs_api_reminder_packs_get: {
         parameters: {
             query?: {
@@ -28224,6 +29611,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemInfoResponse"];
+                };
+            };
+        };
+    };
+    test_llm_endpoint_api_settings_test_llm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmTestResponse"];
                 };
             };
         };
@@ -29955,6 +31362,37 @@ export interface operations {
             };
         };
     };
+    get_vehicle_compliance_api_vehicles__vin__compliance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_def_records_api_vehicles__vin__def_get: {
         parameters: {
             query?: {
@@ -30585,7 +32023,7 @@ export interface operations {
     obc_suggestion_api_vehicles__vin__fuel_obc_suggestion_get: {
         parameters: {
             query: {
-                /** @description Fill-up timestamp (naive local). Returns the most recent DriveSession that ended on or before this time within a 24-hour window. */
+                /** @description Fill-up timestamp, naive in the household's zone (or with an offset). Returns the most recent DriveSession that ended on or before this time within a 24-hour window. */
                 at: string;
             };
             header?: never;
@@ -33069,6 +34507,37 @@ export interface operations {
             };
         };
     };
+    check_recalls_api_vehicles__vin__recalls_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecallCheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     check_nhtsa_recalls_api_vehicles__vin__recalls_check_nhtsa_post: {
         parameters: {
             query?: never;
@@ -33186,6 +34655,46 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_registration_certificate_api_vehicles__vin__registration_certificate_post: {
+        parameters: {
+            query?: {
+                /** @description Replace values already set on the vehicle (never the VIN) */
+                overwrite?: boolean;
+                /** @description Consent to send the document to a vision model outside the network */
+                allow_external_vision?: boolean;
+            };
+            header?: never;
+            path: {
+                vin: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_registration_certificate_api_vehicles__vin__registration_certificate_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationImportResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

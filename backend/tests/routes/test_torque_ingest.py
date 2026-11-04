@@ -2,7 +2,7 @@
 GET|POST /api/v1/torque/{token}/upload.
 
 Integration keystone — composes T4 parse_torque_query, T5
-TorqueService.resolve_by_token, T6 TelemetryService.store_torque_telemetry, T7
+TorqueService.resolve_by_token, T6 the Torque storage policy (store_readings), T7
 SessionService.resolve_torque_session, T8 LocationService.record_point, and T3
 Vehicle.location_tracking_enabled. See task-9-brief.md.
 
@@ -527,7 +527,7 @@ async def test_readings_register_with_their_units_and_names(
         )
     ).scalars()
     assert {p.param_key: (p.unit, p.display_name) for p in rows} == {
-        "INTAKE_PRESSURE": ("kPa", "Intake Pressure"),
+        "INTAKE_PRESSURE": ("kPa", "Intake manifold pressure"),
         "KFF1238": ("V", "OBD adapter voltage"),
     }
 

@@ -29,7 +29,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import app.routes.import_data as import_data_module
 from app.database import get_db
 from app.main import app
 from app.models import (
@@ -50,6 +49,7 @@ from app.models import (
 from app.models.supply import Supply, SupplyPurchase, SupplyVehicle
 from app.models.vehicle import Vehicle
 from app.services.vehicle_lock import lock_vehicle_for_write
+from tests._importer_source import importer_modules
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -233,18 +233,6 @@ async def _committed_rows(sessionmaker: async_sessionmaker[AsyncSession], vin: s
         return await _rows_for(fresh, vin)
 
 
-@pytest.fixture(autouse=True)
-def _reset_import_rate_limit():
-    """Clear the shared import limiter; one test here posts to every import route."""
-    from app.routes.import_data import limiter
-
-    storage = limiter._storage
-    storage.storage.clear()
-    storage.expirations.clear()
-    if hasattr(storage, "events"):
-        storage.events.clear()
-
-
 @pytest_asyncio.fixture
 async def vin(db_session: AsyncSession, test_user, test_sessionmaker) -> AsyncIterator[str]:
     """A committed diesel vehicle of the test user's, and every row imported into it removed."""
@@ -377,7 +365,10 @@ class TestJsonSectionsAreCheckedBeforeAnyWrite:
         assert response.status_code == 200, response.text
         assert response.json()["service_records"]["success_count"] == 2
         assert response.json()["fuel_records"]["success_count"] == 0
-        assert await _committed_rows(test_sessionmaker, vin) == {"service_visits": 2}
+        assert await _committed_rows(test_sessionmaker, vin) == {
+            "service_visits": 2,
+            "odometer_records": 2,
+        }
 
     async def test_a_file_that_is_not_an_object_is_refused(
         self, vin, auth_headers, test_sessionmaker
@@ -429,7 +420,11 @@ def lock_calls(monkeypatch) -> list[str]:
         calls.append(vin)
         await real(db, vin)
 
-    monkeypatch.setattr(import_data_module, "lock_vehicle_for_write", recording)
+    # Each route module binds the lock for itself once the importer is a
+    # package (B3-9), so every module that binds it gets the patch.
+    for module in importer_modules():
+        if getattr(module, "lock_vehicle_for_write", None) is real:
+            monkeypatch.setattr(module, "lock_vehicle_for_write", recording)
     return calls
 
 

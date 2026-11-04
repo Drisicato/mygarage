@@ -81,7 +81,9 @@ def test_076_create_all_matches_migration(engine_for_migration):
     model = inspect(model_engine)
 
     for table in ("supplies", "supply_purchases", "supply_usages", "supply_vehicles"):
-        mig_cols = {c["name"] for c in mig.get_columns(table)} - unmapped_leftovers.get(table, set())
+        mig_cols = {c["name"] for c in mig.get_columns(table)} - unmapped_leftovers.get(
+            table, set()
+        )
         model_cols = {c["name"] for c in model.get_columns(table)}
         assert mig_cols == model_cols, f"{table}: migration {mig_cols} != model {model_cols}"
     assert {c["name"]: c for c in mig.get_columns("supplies")}["is_active"]["default"] is not None

@@ -10,6 +10,7 @@ import {
   toDisplay,
   toEditableDisplay,
   unitCostToDisplay,
+  unitLabel,
   type SupplyUnit,
   type SupplyVolumeUnit,
 } from '../supplyUnits'
@@ -26,9 +27,12 @@ it.each(FACTORS)('%s uses the exact factor and round-trips', (unit, litres) => {
   expect(toDisplay(toCanonical(12.34, unit), unit)).toBeCloseTo(12.34, 9)
 })
 
-it('12 fl oz survives Numeric(12,3) storage as 12.00', () => {
-  const stored = Math.round(toCanonical(12, 'fl_oz_us') * 1000) / 1000  // 0.355, the column's rounding
-  expect(toDisplay(stored, 'fl_oz_us').toFixed(2)).toBe('12.00')
+// A conversion guard, not a storage test: it rounds to 13 places by hand, so a
+// column at the wrong scale can't fail it. The backend integration tests check
+// what the database really keeps (at the old 3 places, 1 fl oz read back 1.01).
+it.each([1, 1.03, 12])('%s fl oz still reads back after rounding litres to 13 places', (typed) => {
+  const rounded = Number(toCanonical(typed, 'fl_oz_us').toFixed(13))
+  expect(toDisplay(rounded, 'fl_oz_us').toFixed(2)).toBe(typed.toFixed(2))
 })
 
 describe('supplyDisplayUnit', () => {
@@ -71,7 +75,7 @@ describe('formatSupplyAmount', () => {
     expect(formatSupplyAmount(4, 'count', 'en-US')).toBe('4')
   })
 
-  // Smallest storable amount is 0.001 L; at two decimals every unit but mL reads it as 0.00.
+  // The smallest entry the API takes is 0.001 L; at two decimals every unit but mL reads it as 0.00.
   it.each([
     [0.003, 'L', '0.003'],
     [0.001, 'qt_us', '0.001'],
@@ -133,4 +137,22 @@ describe('toEditableDisplay', () => {
   it('leaves counts alone', () => {
     expect(toEditableDisplay(3, 'count')).toBe(3)
   })
+})
+
+// D3: the UK supply units say so. The US and metric ones keep their labels.
+it.each([
+  ['qt_uk', 'qt (UK)'], ['fl_oz_uk', 'fl oz (UK)'], ['gal_uk', 'gal (UK)'],
+] as [SupplyUnit, string][])('unitLabel(%s) is %s', (unit, label) => {
+  expect(unitLabel(unit)).toBe(label)
+})
+
+it.each([
+  ['qt_us', 'qt'], ['fl_oz_us', 'fl oz'], ['gal_us', 'gal'], ['L', 'L'], ['mL', 'mL'], ['count', ''],
+] as [SupplyUnit, string][])('unitLabel(%s) stays %s (guard)', (unit, label) => {
+  expect(unitLabel(unit)).toBe(label)
+})
+
+it('formatSupplyQuantity names a UK quart', () => {
+  // 1.1365225 L is one UK quart.
+  expect(formatSupplyQuantity(1.1365225, 'qt_uk', 'en-US')).toBe('1.00 qt (UK)')
 })

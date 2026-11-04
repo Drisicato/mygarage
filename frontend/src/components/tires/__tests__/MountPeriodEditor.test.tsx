@@ -23,14 +23,19 @@ vi.mock('../../../hooks/queries/useHoursRecords', () => ({
 /** Overridden per test; defaults to metric, matching every pre-existing
  *  test's fixed odometers. */
 let units: UnitSet = METRIC_UNITS
-vi.mock('../../../hooks/useUnitPreference', () => ({
-  useUnitPreference: () => ({
+vi.mock('../../../hooks/useUnitPreference', () => {
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({
     system: units.distance === 'km' ? 'metric' : 'imperial',
     showBoth: false,
     gallonStandard: units.secondary_gallon,
     units,
-  }),
-}))
+  })
+  return {
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
+  }
+})
 
 import MountPeriodEditor from '../MountPeriodEditor'
 
@@ -55,9 +60,9 @@ describe('MountPeriodEditor', () => {
   it('seeds every field from a closed period and sends all five', () => {
     render(<MountPeriodEditor vin={VIN} tire={TIRE as never} period={CLOSED as never} open onClose={vi.fn()} labelFor={labelFor} />)
     expect(input('period-mount-date')).toHaveValue('2026-01-10')
-    expect(input('period-mount-odometer')).toHaveValue(10000)
+    expect(input('period-mount-odometer')).toHaveValue('10000')
     expect(input('period-dismount-date')).toHaveValue('2026-03-10')
-    expect(input('period-dismount-odometer')).toHaveValue(12000)
+    expect(input('period-dismount-odometer')).toHaveValue('12000')
     expect(input('period-notes')).toHaveValue('first winter')
     fireEvent.change(input('period-mount-odometer'), { target: { value: '10500' } })
     fireEvent.click(drawer().getByText('common:save'))
@@ -133,7 +138,7 @@ describe('MountPeriodEditor', () => {
       <MountPeriodEditor vin={VIN} tire={TIRE as never} period={HOURS_CLOSED as never} open onClose={vi.fn()} labelFor={labelFor} tracksDistance={false} tracksHours />
     )
     expect(document.getElementById('period-mount-odometer')).toBeNull()
-    expect(input('period-mount-hours')).toHaveValue(100)
+    expect(input('period-mount-hours')).toHaveValue('100.0')
     fireEvent.change(input('period-dismount-hours'), { target: { value: '155' } })
     fireEvent.click(drawer().getByText('common:save'))
     expect(mutate.mock.calls[0][0]).toEqual({
@@ -145,5 +150,18 @@ describe('MountPeriodEditor', () => {
       dismounted_hours: 155,
       notes: 'first winter',
     })
+  })
+
+  it('groups each half under its own name, so the two odometers and hour meters are told apart', () => {
+    render(
+      <MountPeriodEditor vin={VIN} tire={TIRE as never} period={CLOSED as never} open onClose={vi.fn()} labelFor={labelFor} tracksHours />
+    )
+    const mount = drawer().getByRole('group', { name: 'tireList.periodMount' })
+    const dismount = drawer().getByRole('group', { name: 'tireList.periodDismount' })
+    expect(mount).toContainElement(input('period-mount-odometer'))
+    expect(mount).toContainElement(input('period-mount-hours'))
+    expect(mount).not.toContainElement(input('period-dismount-odometer'))
+    expect(dismount).toContainElement(input('period-dismount-odometer'))
+    expect(dismount).toContainElement(input('period-dismount-hours'))
   })
 })

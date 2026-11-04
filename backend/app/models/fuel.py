@@ -13,7 +13,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
 )
@@ -21,6 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
 
 
 class FuelRecord(Base):
@@ -37,29 +37,29 @@ class FuelRecord(Base):
     # When set, application code mirrors `filled_at.date()` into `date` so
     # legacy date-only consumers (lists, reports, CSV export) keep working.
     filled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    odometer_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2))
     # Engine-hours reading at this fill-up (hour-metered vehicles). Dimensionless
     # — no unit conversion. Migration 083.
-    engine_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 1))
-    liters: Mapped[Decimal | None] = mapped_column(Numeric(9, 3))
-    propane_liters: Mapped[Decimal | None] = mapped_column(Numeric(9, 3))
-    tank_size_kg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    engine_hours: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 1))
+    liters: Mapped[Decimal | None] = mapped_column(ScaledNumeric(9, 3))
+    propane_liters: Mapped[Decimal | None] = mapped_column(ScaledNumeric(9, 3))
+    tank_size_kg: Mapped[Decimal | None] = mapped_column(ScaledNumeric(7, 3))
     tank_quantity: Mapped[int | None] = mapped_column(Integer)
-    kwh: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    kwh: Mapped[Decimal | None] = mapped_column(ScaledNumeric(8, 3))
     # EV / PHEV charge-session fields (migration 086). Optional; gasoline
     # fill-ups leave these null. price_per_unit + price_basis='per_kwh' is the
     # energy rate — no separate rate column.
-    soc_start_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    soc_end_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    soc_start_pct: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2))
+    soc_end_pct: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2))
     charge_level: Mapped[str | None] = mapped_column(String(10))  # L1 / L2 / DCFC
     charge_location: Mapped[str | None] = mapped_column(String(20))  # home / public
-    battery_soh_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    battery_soh_pct: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2))
+    cost: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     # Rebate/discount/points redeemed on this fill-up. `cost` stores the NET
     # (price × volume − rebate); this keeps the redeemed amount for display and
     # export/import round-trips.
-    rebate: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    price_per_unit: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    rebate: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
+    price_per_unit: Mapped[Decimal | None] = mapped_column(ScaledNumeric(13, 4))
     # Per-row classifier added by migration 053. Drives unit-aware price math.
     price_basis: Mapped[str | None] = mapped_column(String(12))
     # Per-fillup actual fuel dispensed. Surfaced in UI only when the vehicle
@@ -69,7 +69,15 @@ class FuelRecord(Base):
     # inputs accept 50-150); diesel_grade is the US clear-vs-dyed distinction
     # ('onroad' | 'offroad'). Both prefilled client-side from the last fillup.
     octane: Mapped[int | None] = mapped_column(Integer)
+    # B4 — the scale that octane was read on, 'RON' or 'AKI' (migration 151).
+    # NULL on every pre-existing row and never inferred: the form defaults a
+    # NEW fill-up to the country profile's scale and an edit keeps the pair.
+    octane_scale: Mapped[str | None] = mapped_column(String(3))
     diesel_grade: Mapped[str | None] = mapped_column(String(10))
+    # #211 — the EN 16942 pump label (E10, B7, XTL…), a FuelGradeEnum value
+    # validated by Pydantic (migration 144). Prefilled from the last fill-up
+    # like the two above; NULL on every pre-existing row.
+    fuel_grade: Mapped[str | None] = mapped_column(String(10))
     is_full_tank: Mapped[bool] = mapped_column(Boolean, default=True)
     missed_fillup: Mapped[bool] = mapped_column(Boolean, default=False)
     is_hauling: Mapped[bool] = mapped_column(
@@ -96,11 +104,11 @@ class FuelRecord(Base):
     payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
     trip_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Outside temperature in Celsius (canonical, per migration 053 metric pattern).
-    outside_temp_c: Mapped[Decimal | None] = mapped_column(Numeric(4, 1), nullable=True)
+    outside_temp_c: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 2), nullable=True)
     # On-board computer reported metrics. Optional manual entry; can be
     # auto-suggested from a matching DriveSession when filled_at is set.
-    obc_l_per_100km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
-    obc_avg_speed_kmh: Mapped[Decimal | None] = mapped_column(Numeric(5, 1), nullable=True)
+    obc_l_per_100km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(7, 4), nullable=True)
+    obc_avg_speed_kmh: Mapped[Decimal | None] = mapped_column(ScaledNumeric(5, 1), nullable=True)
     obc_trip_duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships

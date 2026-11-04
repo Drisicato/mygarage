@@ -13,7 +13,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
 )
@@ -21,6 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
 
 if TYPE_CHECKING:
     from app.models.service_visit import ServiceVisit
@@ -42,7 +42,7 @@ class ServiceLineItem(Base):
     # client or classified from `description` at write time, then matched by
     # code only. Migration 101 classified existing rows.
     maintenance_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    cost: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     notes: Mapped[str | None] = mapped_column(Text)
     is_inspection: Mapped[bool] = mapped_column(Boolean, default=False)
     inspection_result: Mapped[str | None] = mapped_column(
@@ -56,11 +56,18 @@ class ServiceLineItem(Base):
 
     # Relationships
     visit: Mapped[ServiceVisit] = relationship("ServiceVisit", back_populates="line_items")
-    triggered_repairs: Mapped[list[ServiceLineItem]] = relationship(
+    # The inspection a repair came from, and the repairs an inspection set off.
+    # Deleting an inspection nulls its repairs' link through triggered_repairs.
+    triggered_by_inspection: Mapped[ServiceLineItem | None] = relationship(
         "ServiceLineItem",
         foreign_keys=[triggered_by_inspection_id],
         remote_side=[id],
-        backref="triggered_by_inspection",
+        back_populates="triggered_repairs",
+    )
+    triggered_repairs: Mapped[list[ServiceLineItem]] = relationship(
+        "ServiceLineItem",
+        foreign_keys=[triggered_by_inspection_id],
+        back_populates="triggered_by_inspection",
     )
     supply_usages: Mapped[list[SupplyUsage]] = relationship(
         "SupplyUsage",

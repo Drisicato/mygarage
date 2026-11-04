@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'sonner'
 import { render } from '../../../__tests__/test-utils'
+import { registeredFieldNames, validationError, whereA422Lands, dropQueuedOnces } from '../../../__tests__/serverErrors'
 import type { InsurancePDFParseResponse, InsurancePolicy } from '../../../types/insurance'
 
 const createMutateAsync = vi.fn().mockResolvedValue({})
@@ -24,6 +26,15 @@ vi.mock('../../../hooks/useCurrencyPreference', () => ({
   useCurrencyPreference: () => ({ currencyCode: 'USD', locale: 'en-US', formatCurrency: vi.fn() }),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+// #211: the country profile orders the formulas and coverages and names the
+// no-claims field; the tests below set it, the others run without a country.
+const profileState: {
+  country: string | null
+  policyTypes: string[]
+  coverageKeys: string[]
+  noClaims: { scheme: string; name: string; pattern: string; example: string } | null
+} = { country: null, policyTypes: [], coverageKeys: [], noClaims: null }
+vi.mock('../../../hooks/useInsuranceProfile', () => ({ useInsuranceProfile: () => profileState }))
 
 // The upload dialog is its own tested unit; here it is a button that hands
 // back a canned parse, so the FORM's handling of that parse is what is tested.
@@ -39,6 +50,9 @@ vi.mock('../../InsurancePDFUpload', () => ({
 import PolicyForm from '../PolicyForm'
 
 beforeEach(() => vi.clearAllMocks())
+
+// A rejection a failed test queued but never used mustn't reach the next one.
+afterEach(dropQueuedOnces(createMutateAsync, updateMutateAsync, replaceMutateAsync))
 
 const RAM = 'RAMVIN00000000001'
 const MIRAGE = 'MIRAGEVIN00000002'
@@ -82,7 +96,7 @@ const existing = (over: Partial<InsurancePolicy> = {}): InsurancePolicy => ({
     },
     {
       id: 2, vin: MIRAGE, vehicle_name: 'Mirage', policy_type: 'Liability', premium_share: '200.00',
-      effective_share: '200.00', deductible: null, notes: null,
+      effective_share: '200.00', deductible: null, no_claims_class: null, notes: null,
       effective_to: null, coverages: [], fields: [], can_edit: true,
     },
   ],
@@ -114,9 +128,9 @@ describe('PolicyForm — create', () => {
       notes: null,
       fields: [],
       vehicles: [
-        { vin: RAM, policy_type: 'Full Coverage', premium_share: 400, deductible: 500, notes: null, coverages: [], fields: [] },
+        { vin: RAM, policy_type: 'Full Coverage', premium_share: 400, deductible: 500, no_claims_class: null, notes: null, coverages: [], fields: [] },
         // No share typed: null, so the backend splits what the Ram leaves.
-        { vin: MIRAGE, policy_type: 'Liability', premium_share: null, deductible: null, notes: null, coverages: [], fields: [] },
+        { vin: MIRAGE, policy_type: 'Liability', premium_share: null, deductible: null, no_claims_class: null, notes: null, coverages: [], fields: [] },
       ],
     })
     expect(updateMutateAsync).not.toHaveBeenCalled()
@@ -218,7 +232,7 @@ describe('PolicyForm — create', () => {
       data: {
         provider: 'Progressive', policy_number: 'P-PDF', policy_type: 'Full Coverage',
         start_date: '2026-01-01', end_date: '2026-07-01', premium_amount: '600.00',
-        premium_frequency: 'Semi-Annual', deductible: null,  notes: null,
+        premium_frequency: 'Semi-Annual', deductible: null,  no_claims_class: null,  notes: null,
       },
       vehicles: [
         { vin: RAM, matched: true, vehicle_name: 'Ram', premium_share: '320.00', deductible: '500.00', coverages: [{ coverage_key: 'collision', deductible: '500.00' }] },
@@ -235,7 +249,7 @@ describe('PolicyForm — create', () => {
     const payload = createMutateAsync.mock.calls[0][0]
     expect(payload.policy_number).toBe('P-PDF')
     expect(payload.vehicles).toEqual([
-      { vin: RAM, policy_type: 'Full Coverage', premium_share: 320, deductible: 500, notes: null,
+      { vin: RAM, policy_type: 'Full Coverage', premium_share: 320, deductible: 500, no_claims_class: null, notes: null,
         coverages: [{ coverage_key: 'collision', limit_primary: null, limit_secondary: null, deductible: '500', premium: null }], fields: [] },
     ])
   })
@@ -310,6 +324,7 @@ describe('PolicyForm — edit and replace', () => {
     expect(payload.vehicles).toEqual([
       {
         vin: RAM, policy_type: 'Full Coverage', premium_share: 400, deductible: 500,
+        no_claims_class: null,
         notes: null, effective_to: null,
         coverages: [
           {
@@ -324,6 +339,7 @@ describe('PolicyForm — edit and replace', () => {
       },
       {
         vin: MIRAGE, policy_type: 'Liability', premium_share: 200, deductible: null,
+        no_claims_class: null,
         notes: null, effective_to: null, coverages: [], fields: [],
       },
     ])
@@ -368,8 +384,8 @@ describe('PolicyForm — edit and replace', () => {
       // The vehicles go with their coverage TYPE prefilled and everything else
       // blank: a new insurer's deductibles and limits are not the old one's.
       vehicles: [
-        { vin: RAM, policy_type: 'Full Coverage', premium_share: null, deductible: null, notes: null, coverages: [], fields: [] },
-        { vin: MIRAGE, policy_type: 'Liability', premium_share: null, deductible: null, notes: null, coverages: [], fields: [] },
+        { vin: RAM, policy_type: 'Full Coverage', premium_share: null, deductible: null, no_claims_class: null, notes: null, coverages: [], fields: [] },
+        { vin: MIRAGE, policy_type: 'Liability', premium_share: null, deductible: null, no_claims_class: null, notes: null, coverages: [], fields: [] },
       ],
       end_old_on: '2026-06-15',
     })
@@ -474,7 +490,7 @@ describe('PolicyForm — code-review regressions', () => {
       data: {
         provider: 'Progressive', policy_number: 'P-PDF', policy_type: 'Liability',
         start_date: '2026-01-01', end_date: '2026-07-01', premium_amount: '280.00',
-        premium_frequency: 'Semi-Annual', deductible: null,  notes: null,
+        premium_frequency: 'Semi-Annual', deductible: null,  no_claims_class: null,  notes: null,
       },
       vehicles: [{ vin: MIRAGE, matched: true, vehicle_name: 'Mirage', premium_share: '280.00', deductible: '250.00', coverages: [] }],
       confidence: {}, confidence_score: 90, parser_used: 'progressive', warnings: [],
@@ -486,7 +502,7 @@ describe('PolicyForm — code-review regressions', () => {
 
     await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1))
     expect(createMutateAsync.mock.calls[0][0].vehicles).toEqual([
-      { vin: MIRAGE, policy_type: 'Liability', premium_share: 280, deductible: 250, notes: null, coverages: [], fields: [] },
+      { vin: MIRAGE, policy_type: 'Liability', premium_share: 280, deductible: 250, no_claims_class: null, notes: null, coverages: [], fields: [] },
     ])
   })
 
@@ -520,3 +536,205 @@ describe('PolicyForm — code-review regressions', () => {
   })
 })
 
+describe('PolicyForm: a rejected submit (G1b-69)', () => {
+  const premiumRejected = validationError({ premium_amount: 'Input should be a valid decimal' })
+  // The policy form's failures toast; a stand-in element lets the shared guard read it.
+  const banner = (): HTMLElement | null => (vi.mocked(toast.error).mock.calls.length > 0 ? document.body : null)
+
+  it('toasts on a non-422 failure instead of staying silent', async () => {
+    createMutateAsync.mockRejectedValueOnce(new Error('Network Error'))
+    const user = userEvent.setup()
+    render(<PolicyForm mode="create" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await fillPolicy(user)
+    await addVehicle(user, RAM, 'Full Coverage', 0)
+    await user.click(screen.getByRole('button', { name: 'common:create' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.error).toHaveBeenCalledWith('Failed to insurance.saveAction. Network Error')
+    expect(document.getElementById('premium_amount-error')).toBeNull()
+  })
+
+  it('shows a bad premium under its own field and does not toast', async () => {
+    createMutateAsync.mockRejectedValueOnce(premiumRejected)
+    const user = userEvent.setup()
+    render(<PolicyForm mode="create" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await fillPolicy(user)
+    await addVehicle(user, RAM, 'Full Coverage', 0)
+    await user.click(screen.getByRole('button', { name: 'common:create' }))
+
+    await waitFor(() => expect(document.getElementById('premium_amount-error')).not.toBeNull())
+    expect(document.getElementById('premium_amount-error')).toHaveTextContent('Input should be a valid decimal')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('saves a comma-decimal premium as a number', async () => {
+    const user = userEvent.setup()
+    render(<PolicyForm mode="create" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await fillPolicy(user, '1234,50')
+    await addVehicle(user, RAM, 'Full Coverage', 0)
+    await user.click(screen.getByRole('button', { name: 'common:create' }))
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1))
+    expect(createMutateAsync.mock.calls[0][0]).toMatchObject({ premium_amount: 1234.5 })
+  })
+
+  // Named controls that aren't payload fields go here. None today.
+  const UI_ONLY: string[] = []
+  // Coverage checkboxes have no inline error, so they stay out of knownFields
+  // and a 422 on one toasts.
+  const BANNER_ROUTED = /^vehicles\.\d+\.coverages\.\d+\.included$/
+
+  // Guard for knownFields drift and silent fields: a 422 on any field the form
+  // registers has to show up under that field, or toast for a checkbox.
+  // Mutants: drop a name from knownFields (it toasts), or drop a field's error
+  // (it goes silent).
+  it('guard: a 422 on each field shows under it, or toasts for a coverage checkbox', async () => {
+    const user = userEvent.setup()
+    render(<PolicyForm mode="create" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await fillPolicy(user)
+    await addVehicle(user, RAM, 'Full Coverage', 0)
+    const form = document.getElementById('insurance-form') as HTMLFormElement
+    const names = registeredFieldNames(form, UI_ONLY)
+    // An empty sweep would pass, so pin a few names it must contain.
+    expect(names).toEqual(expect.arrayContaining(['provider', 'premium_amount', 'premium_frequency']))
+
+    // A vehicle row's own inputs have to be in the sweep too, or it proves nothing about them.
+    expect(names).toEqual(
+      expect.arrayContaining(['notes', 'vehicles.0.policy_type', 'vehicles.0.premium_share', 'vehicles.0.deductible'])
+    )
+
+    const wrong: string[] = []
+    for (const name of names) {
+      vi.mocked(toast.error).mockClear()
+      const want = BANNER_ROUTED.test(name) ? 'banner' : 'field'
+      const got = await whereA422Lands(form, createMutateAsync, name, `bad ${name}`, banner)
+      if (got !== want) wrong.push(`${name}: ${got}`)
+    }
+    expect(wrong).toEqual([])
+  })
+})
+
+describe('PolicyForm — Europe (#211)', () => {
+  beforeEach(() => {
+    profileState.country = 'FR'
+    profileState.policyTypes = ['Third Party', 'Third Party Extended', 'Full Coverage', 'Other']
+    profileState.coverageKeys = ['third_party_liability', 'glass', 'theft']
+    profileState.noClaims = { scheme: 'crm', name: 'Bonus-malus (CRM)', pattern: '^[0-3][.,][0-9]{2}$', example: '0.50' }
+  })
+  afterEach(() => {
+    profileState.country = null
+    profileState.policyTypes = []
+    profileState.coverageKeys = []
+    profileState.noClaims = null
+  })
+
+  it("offers the profile's formulas first, names the bonus-malus field after its scheme and sends the class", async () => {
+    const user = userEvent.setup()
+    render(<PolicyForm mode="create" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await fillPolicy(user)
+    await addVehicle(user, RAM, 'Third Party', 0)
+    const select = screen.getAllByLabelText('insurance.policyType *')[0] as HTMLSelectElement
+    const values = Array.from(select.options).map((option) => option.value).filter(Boolean)
+    expect(values.slice(0, 4)).toEqual(['Third Party', 'Third Party Extended', 'Full Coverage', 'Other'])
+    expect(values).toContain('Liability')
+    const noClaims = screen.getByLabelText('Bonus-malus (CRM)') as HTMLInputElement
+    expect(noClaims.placeholder).toBe('0.50')
+    await user.type(noClaims, '0.50')
+    await user.click(screen.getByRole('button', { name: 'common:create' }))
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1))
+    expect(createMutateAsync.mock.calls[0][0].vehicles[0]).toMatchObject({
+      vin: RAM, policy_type: 'Third Party', no_claims_class: '0.50',
+    })
+  })
+
+  it("shows the profile's coverages first and the rest behind « more coverages »", async () => {
+    const user = userEvent.setup()
+    render(<PolicyForm mode="create" initialVin={RAM} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect(screen.getByLabelText('forms:insuranceCoverages.thirdPartyLiability')).toBeInTheDocument()
+    expect(screen.getByLabelText('forms:insuranceCoverages.theft')).toBeInTheDocument()
+    expect(screen.queryByLabelText('forms:insuranceCoverages.collision')).not.toBeInTheDocument()
+    const more = screen.getByRole('button', { name: 'insuranceCoverages.moreCoverages' })
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    await user.click(more)
+    expect(screen.getByLabelText('forms:insuranceCoverages.collision')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'insuranceCoverages.lessCoverages' })).toBeInTheDocument()
+  })
+
+  it('a vehicle a French document named by its plate is attached with the document’s class and coverages', async () => {
+    const user = userEvent.setup()
+    cannedParse = {
+      success: true,
+      source: 'text',
+      data: {
+        provider: 'MAIF', policy_number: '1234567', policy_type: 'Third Party Extended',
+        start_date: '2026-01-01', end_date: '2026-12-31', premium_amount: '612.40',
+        premium_frequency: 'Annual', deductible: '300', no_claims_class: '0.50', notes: null,
+      },
+      vehicles: [
+        { vin: RAM, plate: 'AB-123-CD', matched: true, matched_by: 'plate', vehicle_name: 'Ram', premium_share: null, deductible: '300', no_claims_class: '0.50', coverages: [{ coverage_key: 'glass', deductible: '80' }] },
+        { vin: null, plate: 'EF-456-GH', matched: false, matched_by: 'plate', vehicle_name: null, premium_share: null, deductible: null, no_claims_class: null, coverages: [] },
+      ],
+      plates: ['AB-123-CD', 'EF-456-GH'],
+      coverages: [{ coverage_key: 'glass', deductible: '80' }],
+      confidence: {}, confidence_score: 85, parser_used: 'FrenchInsurance', warnings: [],
+    }
+    render(<PolicyForm mode="create" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'insuranceForm.importFromPdf' }))
+    await user.click(screen.getByRole('button', { name: 'fake-use-parse' }))
+    await user.click(screen.getByRole('button', { name: 'common:create' }))
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1))
+    const payload = createMutateAsync.mock.calls[0][0]
+    expect(payload.provider).toBe('MAIF')
+    expect(payload.vehicles).toHaveLength(1)
+    expect(payload.vehicles[0]).toMatchObject({
+      vin: RAM, policy_type: 'Third Party Extended', deductible: 300, no_claims_class: '0.50',
+      coverages: [{ coverage_key: 'glass', deductible: '80', premium: null }],
+    })
+  })
+
+  it('a document naming no vehicle the garage knows still fills the one vehicle whose tab opened the form', async () => {
+    const user = userEvent.setup()
+    cannedParse = {
+      success: true,
+      source: 'llm',
+      data: {
+        provider: 'MACIF', policy_number: 'M-77', policy_type: 'Third Party',
+        start_date: '2026-01-01', end_date: '2026-12-31', premium_amount: '480',
+        premium_frequency: 'Annual', deductible: null, no_claims_class: '0.64', notes: null,
+      },
+      vehicles: [
+        { vin: null, plate: 'EF-456-GH', matched: false, matched_by: 'plate', vehicle_name: null, premium_share: null, deductible: null, no_claims_class: '0.64', coverages: [] },
+      ],
+      plates: ['EF-456-GH'],
+      coverages: [{ coverage_key: 'theft', deductible: '300' }],
+      confidence: {}, confidence_score: 70, parser_used: 'vision:llava', warnings: [],
+    }
+    render(<PolicyForm mode="create" initialVin={MIRAGE} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'insuranceForm.importFromPdf' }))
+    await user.click(screen.getByRole('button', { name: 'fake-use-parse' }))
+    await user.click(screen.getByRole('button', { name: 'common:create' }))
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1))
+    const payload = createMutateAsync.mock.calls[0][0]
+    expect(payload.vehicles).toHaveLength(1)
+    expect(payload.vehicles[0]).toMatchObject({
+      vin: MIRAGE, policy_type: 'Third Party', no_claims_class: '0.64',
+      coverages: [{ coverage_key: 'theft', deductible: '300' }],
+    })
+  })
+
+  it('edit shows the stored class even without a country, and keeps it on save', async () => {
+    profileState.noClaims = null
+    const user = userEvent.setup()
+    const [first] = existing().vehicles ?? []
+    if (!first) throw new Error('fixture has no vehicle')
+    const policy = existing({ vehicles: [{ ...first, no_claims_class: 'SF 12' }] })
+    render(<PolicyForm mode="edit" policy={policy} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect((screen.getByLabelText('insurance.noClaimsClass') as HTMLInputElement).value).toBe('SF 12')
+    await user.click(screen.getByRole('button', { name: 'common:update' }))
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
+    expect(updateMutateAsync.mock.calls[0][0].vehicles[0]).toMatchObject({ vin: RAM, no_claims_class: 'SF 12' })
+  })
+})

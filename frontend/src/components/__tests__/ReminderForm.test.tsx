@@ -16,13 +16,16 @@ vi.mock('../../hooks/useReminders', () => ({
 // exercised in ReminderForm.mixedUnits.test.tsx.
 vi.mock('../../hooks/useUnitPreference', async () => {
   const { IMPERIAL_UNITS } = await import('@/__tests__/factories')
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({
+    system: 'imperial',
+    showBoth: false,
+    units: IMPERIAL_UNITS,
+    gallonStandard: 'us',
+  })
   return {
-    useUnitPreference: () => ({
-      system: 'imperial',
-      showBoth: false,
-      units: IMPERIAL_UNITS,
-      gallonStandard: 'us',
-    }),
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
   }
 })
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -132,7 +135,7 @@ describe('ReminderForm — server-side error wiring (Task 10 addendum)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common:create' }))
 
     await vi.waitFor(() => expect(createMock).toHaveBeenCalledTimes(1))
-    await vi.waitFor(() => expect(screen.getByText('Failed to {{action}}. {{message}}')).toBeInTheDocument())
+    await vi.waitFor(() => expect(screen.getByText('Failed to reminder.saveAction. Network Error')).toBeInTheDocument())
   })
 
   // Final-review I4 regression fence: a 422 naming a field with NO render
@@ -167,7 +170,7 @@ describe('ReminderForm — server-side error wiring (Task 10 addendum)', () => {
     )
     // ...AND the unmapped reminder_type problem must not vanish silently —
     // it has to surface via the generic action-failed banner.
-    expect(screen.getByText('Failed to {{action}}. Please check your input.')).toBeInTheDocument()
+    expect(screen.getByText('Failed to reminder.saveAction. Please check your input.')).toBeInTheDocument()
   })
 
   it('a 422 naming ONLY an unmapped field shows the banner, not silence (fails if attached.length===0 check regresses)', async () => {
@@ -186,7 +189,7 @@ describe('ReminderForm — server-side error wiring (Task 10 addendum)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common:create' }))
 
     await vi.waitFor(() => expect(createMock).toHaveBeenCalledTimes(1))
-    expect(await screen.findByText('Failed to {{action}}. Please check your input.')).toBeInTheDocument()
+    expect(await screen.findByText('Failed to reminder.saveAction. Please check your input.')).toBeInTheDocument()
   })
 })
 

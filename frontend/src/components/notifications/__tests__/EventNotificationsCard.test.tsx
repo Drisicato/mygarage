@@ -1,13 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-
-// The card reads `useUnitFormat()` for the service-reminder lead-distance
-// suffix, and that reaches `useAuth()`, which throws without a provider. An
-// anonymous client is the shape these tests have always assumed.
-vi.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ user: null, isAuthenticated: false, defaultUnitPrefs: null }),
-}))
-
 import { EventNotificationsCard } from '../EventNotificationsCard'
 
 describe('EventNotificationsCard — DEF-low event (Task 17)', () => {
@@ -19,6 +11,7 @@ describe('EventNotificationsCard — DEF-low event (Task 17)', () => {
         settings={{ notify_def_low: 'true' }}
         onSettingChange={noop}
         onTextChange={noop}
+        onNumberValidity={noop}
         saving={false}
         hasEnabledService
       />,
@@ -37,6 +30,7 @@ describe('EventNotificationsCard — DEF-low event (Task 17)', () => {
         settings={{}}
         onSettingChange={noop}
         onTextChange={noop}
+        onNumberValidity={noop}
         saving={false}
         hasEnabledService
       />,
@@ -48,10 +42,10 @@ describe('EventNotificationsCard — DEF-low event (Task 17)', () => {
     const checkbox = screen.getByRole('checkbox', { name: 'events.defLow.label' })
     expect(checkbox).not.toBeChecked()
 
-    const percentInput = screen.getByDisplayValue('25')
-    expect(percentInput).toHaveAttribute('type', 'number')
-    expect(percentInput).toHaveAttribute('min', '1')
-    expect(percentInput).toHaveAttribute('max', '99')
+    // Typed text with its own range check (G1b-21), named for its event.
+    const percentInput = screen.getByRole('textbox', { name: 'events.defLow.label: %' })
+    expect(percentInput).toHaveValue('25')
+    expect(percentInput).not.toHaveAttribute('max')
     // No setting yet -> toggle off -> percent field disabled.
     expect(percentInput).toBeDisabled()
   })
@@ -62,6 +56,7 @@ describe('EventNotificationsCard — DEF-low event (Task 17)', () => {
         settings={{ notify_def_low: 'true', notify_def_low_threshold_percent: '10' }}
         onSettingChange={noop}
         onTextChange={noop}
+        onNumberValidity={noop}
         saving={false}
         hasEnabledService
       />,
@@ -81,6 +76,7 @@ describe('EventNotificationsCard — DEF-low event (Task 17)', () => {
         settings={{ notify_def_low: 'false' }}
         onSettingChange={onSettingChange}
         onTextChange={noop}
+        onNumberValidity={noop}
         saving={false}
         hasEnabledService
       />,
@@ -98,13 +94,44 @@ describe('EventNotificationsCard — DEF-low event (Task 17)', () => {
         settings={{ notify_def_low: 'true', notify_def_low_threshold_percent: '25' }}
         onSettingChange={noop}
         onTextChange={onTextChange}
+        onNumberValidity={noop}
         saving={false}
         hasEnabledService
       />,
     )
 
-    fireEvent.change(screen.getByDisplayValue('25'), { target: { value: '15' } })
+    const percent = screen.getByDisplayValue('25')
+    fireEvent.change(percent, { target: { value: '15' } })
+    fireEvent.blur(percent)
 
     expect(onTextChange).toHaveBeenCalledWith('notify_def_low_threshold_percent', '15')
+  })
+})
+
+describe('EventNotificationsCard: Service due has no lead-time fields (D1c)', () => {
+  const noop = (): void => {}
+
+  it('renders no number inputs for Service due and the once-when-due-soon description', () => {
+    render(
+      <EventNotificationsCard
+        settings={{ notify_service_due: 'true', notify_service_days: '30', notify_service_miles: '500' }}
+        onSettingChange={noop}
+        onTextChange={noop}
+        onNumberValidity={noop}
+        saving={false}
+        hasEnabledService
+      />,
+    )
+
+    // Only insurance days, warranty days and the DEF percent are left.
+    const inputs = screen.getAllByRole('textbox')
+    expect(inputs.map((i) => (i as HTMLInputElement).value)).toStrictEqual(['30', '30', '25'])
+    expect(screen.getAllByText('events.card.daysBefore')).toHaveLength(2)
+    expect(screen.queryByText('events.card.milesBefore')).not.toBeInTheDocument()
+
+    // The switch stays; the heads-up fires once, when a reminder turns due soon.
+    expect(screen.getByRole('checkbox', { name: 'events.card.serviceDueLabel' })).toBeChecked()
+    expect(screen.getByText('events.card.serviceDueSoonDesc')).toBeInTheDocument()
+    expect(screen.queryByText('events.card.serviceDueDesc')).not.toBeInTheDocument()
   })
 })

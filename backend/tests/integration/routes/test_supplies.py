@@ -830,9 +830,7 @@ async def _second_vehicle(client: AsyncClient, auth_headers) -> str:
     return _SECOND_VIN
 
 
-async def test_supply_shared_with_several_vehicles(
-    client: AsyncClient, auth_headers, test_vehicle
-):
+async def test_supply_shared_with_several_vehicles(client: AsyncClient, auth_headers, test_vehicle):
     first = test_vehicle["vin"]
     second = await _second_vehicle(client, auth_headers)
     r = await client.post(
@@ -869,11 +867,15 @@ async def test_update_supply_vins_replaces_keeps_and_clears(
         )
     ).json()["id"]
 
-    r = await client.patch(f"/api/supplies/{sid}", json={"vins": [first, second]}, headers=auth_headers)
+    r = await client.patch(
+        f"/api/supplies/{sid}", json={"vins": [first, second]}, headers=auth_headers
+    )
     assert r.status_code == 200
     assert sorted(r.json()["vins"]) == sorted([first, second])
 
-    r = await client.patch(f"/api/supplies/{sid}", json={"name": "Coolant 50/50"}, headers=auth_headers)
+    r = await client.patch(
+        f"/api/supplies/{sid}", json={"name": "Coolant 50/50"}, headers=auth_headers
+    )
     assert sorted(r.json()["vins"]) == sorted([first, second])  # omitted keeps them
 
     r = await client.patch(f"/api/supplies/{sid}", json={"vins": [second]}, headers=auth_headers)

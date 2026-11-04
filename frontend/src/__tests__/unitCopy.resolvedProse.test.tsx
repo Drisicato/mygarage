@@ -2,12 +2,13 @@
  * Copy that names a unit must name the READER'S unit. RESOLVED PROSE.
  *
  * ★ WHY THIS FILE EXISTS. `setup.ts` mocks react-i18next with
- * `t: (key) => key`, so every existing test reads `'events.card.milesBefore'`
- * and calls it correct. The defect was entirely in the STRING that key
- * resolves to: "miles before", shown to a kilometre account beside a number it
- * had typed in kilometres. A test that never resolves a key cannot see that,
- * and a test written against the mock would CERTIFY it. So this file resolves
- * against the real bundles on disk and asserts what a reader actually sees.
+ * `t: (key) => key`, so every existing test read `'events.card.milesBefore'`
+ * (a key since removed, with its field) and called it correct. The defect was
+ * entirely in the STRING that key resolved to: "miles before", shown to a
+ * kilometre account beside a number it had typed in kilometres. A test that
+ * never resolves a key cannot see that, and a test written against the mock
+ * would CERTIFY it. So this file resolves against the real bundles on disk and
+ * asserts what a reader actually sees.
  *
  * ★ THE BUNDLE LIST IS ENUMERATED FROM DISK, NEVER TYPED. There are seven
  * bundles (`src/locales/en` plus six under `public/locales`), and this task's
@@ -140,7 +141,7 @@ const FIXED: readonly { ns: string; key: string }[] = [
   { ns: 'forms', key: 'fuel.mpgTip' },
   { ns: 'forms', key: 'fuel.electricTip' },
   { ns: 'settings', key: 'units.showBothDescription' },
-  { ns: 'settings', key: 'events.card.milesBefore' },
+  // events.card.milesBefore left with the Service due distance field (D1c).
   { ns: 'settings', key: 'events.card.milestonesDesc' },
   { ns: 'analytics', key: 'vehicleHelp.costAnalysis.costPerDistanceLabel' },
   { ns: 'analytics', key: 'vehicleHelp.costAnalysis.costPerDistanceDesc' },
@@ -187,11 +188,11 @@ const NAMES_A_UNIT_DELIBERATELY: readonly { ns: string; key: string }[] = [
  * ★ CASE-INSENSITIVE, and the flag is the whole finding. The first version of
  * this line had no `i`, and German capitalises every noun, so `meilen?` and
  * `gallonen?` were dead alternatives: review round 1 put
- * `events.card.milesBefore = "Meilen vorher"` and
  * `events.card.milestonesDesc = "Benachrichtigen bei 100k Meilen"` back into
- * `de/settings.json` and this file passed 10 of 10. A guard whose stated
- * subject is cross-bundle coverage and which cannot fire on the language it
- * names alternatives for is not a guard.
+ * `de/settings.json` and this file passed. (That round also restored
+ * `events.card.milesBefore`, which has since left with its field, D1c.)
+ * A guard whose stated subject is cross-bundle coverage and which cannot fire
+ * on the language it names alternatives for is not a guard.
  *
  * No term here is a single letter, so `i` costs nothing: the `Löschen`-style
  * false positive that forced case-SENSITIVE matching in
@@ -306,7 +307,7 @@ describe('AnalyticsHelpModal names the reader\'s own consumption unit', () => {
   })
 })
 
-describe('EventNotificationsCard names the reader\'s own distance unit', () => {
+describe('EventNotificationsCard names no unit it does not resolve', () => {
   const noop = (): void => {}
   const renderCard = (): void => {
     render(
@@ -314,26 +315,15 @@ describe('EventNotificationsCard names the reader\'s own distance unit', () => {
         settings={{ notify_service_due: 'true' }}
         onSettingChange={noop}
         onTextChange={noop}
+        onNumberValidity={noop}
         saving={false}
         hasEnabledService
       />,
     )
   }
 
-  it('★ says "km before" to a kilometre account, where it said "miles before"', () => {
-    auth.user = makeUser({ unit_preference: 'custom', resolved_units: METRIC_UNITS })
-    renderCard()
-
-    expect(screen.getByText('km before')).toBeInTheDocument()
-    expect(screen.queryByText('miles before')).not.toBeInTheDocument()
-  })
-
-  it('says "mi before" to a mile account, so the fix is not a blanket rename', () => {
-    auth.user = makeUser({ unit_preference: 'custom', resolved_units: IMPERIAL_UNITS })
-    renderCard()
-
-    expect(screen.getByText('mi before')).toBeInTheDocument()
-  })
+  // The "km before" / "mi before" renders went with the Service due distance
+  // field, which no longer exists (D1c).
 
   it('★ no longer claims a milestone magnitude, in miles or at all', () => {
     // It said "(e.g., 100k miles)". The scheduled job fires every 10,000 km

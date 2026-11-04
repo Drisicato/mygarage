@@ -10,14 +10,21 @@ import type { FuelRecord, FuelRecordCreate, FuelRecordUpdate } from '../types/fu
 import type { Vehicle } from '../types/vehicle'
 import type { UnitSet } from '../types/units'
 import type { AddressBookEntry } from '../types/addressBook'
-import { makeFuelRecordSchema, type FuelRecordFormData } from '../schemas/fuel'
+import { isOctaneScale, makeFuelRecordSchema, type FuelRecordFormData } from '../schemas/fuel'
 import {
   FUEL_TYPE_VALUES,
   PAYMENT_METHOD_VALUES,
   TRIP_TYPE_VALUES,
+  gradesForFuelType,
   isDieselFuelType,
+  isFuelGrade,
   isFuelType,
+  type FuelGrade,
 } from '../constants/fuel'
+import { useResolvedCountry } from '../hooks/useResolvedCountry'
+import { useCountryProfile } from '../hooks/queries/useCountryProfile'
+import { useFuelPrices, type FuelPrice } from '../hooks/queries/useFuelPrices'
+import FuelPriceHint from './FuelPriceHint'
 import { FormError } from './FormError'
 import api from '../services/api'
 import { isSettingOn } from '../utils/settingSwitch'
@@ -34,6 +41,7 @@ import {
 } from '../utils/decimalSafe'
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import {
+  canonicalFromTypedUnitField,
   canonicalFromUnitField,
   seedUnitField,
   NOT_AVAILABLE,
@@ -47,8 +55,13 @@ import { Button, Field, Input, NumberInput, Select, Textarea, Checkbox, register
 import { formatDateForInput } from '../utils/dateUtils'
 import TimeInput24, { normalizeTime, formatTimeForInput } from './common/TimeInput24'
 import { useTimeFormat } from '../hooks/useTimeFormat'
+import { useDateLocale } from '../hooks/useDateLocale'
 import { applyServerErrors } from '../hooks/useApiFormErrors'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { withUnitSession } from '../contexts/UnitSession'
+import { getActiveLocale } from '../constants/i18n'
+import { parseDecimalInput } from '../utils/decimalInput'
+import { INVALID_NUMBER } from '../schemas/shared'
 
 const MORE_DETAILS_KEY = 'fuel_form:more_details_expanded'
 
@@ -114,7 +127,7 @@ interface FuelRecordFormProps {
   onSuccess: () => void
 }
 
-export default function FuelRecordForm({ vin, record, onClose, onSuccess }: FuelRecordFormProps) {
+function FuelRecordForm({ vin, record, onClose, onSuccess }: FuelRecordFormProps) {
   const { t } = useTranslation('forms')
   const isEdit = !!record
   const [error, setError] = useState<string | null>(null)
@@ -123,6 +136,13 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
   const parseReceiptMutation = useParseFuelReceipt(vin)
   const [vehicleFuelType, setVehicleFuelType] = useState<string>('')
   const [vehicleFuelTypeSecondary, setVehicleFuelTypeSecondary] = useState<string>('')
+  // #211 — the country whose pump names and octane scale apply: the
+  // vehicle's registration country first, then the person's, then the
+  // instance's. No country, or a country without a profile, means the
+  // form stays exactly as it was (octane as AKI or RON, US diesel grades).
+  const [vehicleRegistrationCountry, setVehicleRegistrationCountry] = useState<string | null>(null)
+  const country = useResolvedCountry({ registration_country: vehicleRegistrationCountry })
+  const { data: countryProfile } = useCountryProfile(country)
   // Task 13 — which usage dimension(s) this vehicle tracks, driving the
   // odometer vs. engine-hours field visibility below. Defaults mirror
   // getUsageTracking's own distance-primary default so the form doesn't
@@ -130,6 +150,7 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
   const [vehicleUsageUnit, setVehicleUsageUnit] = useState<string>('distance')
   const [vehicleSecondaryUsageEnabled, setVehicleSecondaryUsageEnabled] = useState<boolean>(false)
   const { units } = useUnitPreference()
+  const locale = useDateLocale()
   // Per-quantity adapters. The binary `system` is D8-collapsed from VOLUME, so
   // it cannot answer for the odometer or the outside temperature: a client
   // resolving `{volume: 'L', distance: 'mi'}` reads 'metric' out of it for a
@@ -229,7 +250,8 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
   // the language changes. Only the resolver depends on it — no fetch, no
   // reset() — so a rebuild can't discard what the user typed. `units` is in
   // there too: the price cap converts the typed price to $/L or $/kg first.
-  const schema = useMemo(() => makeFuelRecordSchema(t, units), [t, units])
+  // The temperature formatter lets the outside temp's range read in the user's unit.
+  const schema = useMemo(() => makeFuelRecordSchema(t, units, u.temperature), [t, units, u.temperature])
 
   /**
    * The canonical origin of each unit-bearing field this form seeds.
@@ -312,6 +334,7 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
     getValues,
     subscribe,
     setError: setFieldError,
+    clearErrors,
   } = useForm<FuelRecordFormData>({
     resolver: zodResolver(schema) as Resolver<FuelRecordFormData>,
     defaultValues: {
@@ -344,7 +367,13 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
       // #164 — octane is dimensionless; the grade is an enum. Create-mode
       // prefill from the last fill-up happens in an effect below.
       octane: readNumber((record as { octane?: number | null })?.octane),
+      // B4 — an edit keeps the stored pair; a legacy null stays null until the
+      // person picks a scale. A new fill-up gets the profile's in an effect.
+      octane_scale: isOctaneScale(record?.octane_scale) ? record.octane_scale : undefined,
       diesel_grade: (record as { diesel_grade?: 'onroad' | 'offroad' | null })?.diesel_grade ?? undefined,
+      // #211 — only a label the vocabulary knows; anything else is left
+      // blank rather than failing validation on a field the user never saw.
+      fuel_grade: isFuelGrade(record?.fuel_grade) ? record.fuel_grade : undefined,
       is_full_tank: record?.is_full_tank ?? true,
       missed_fillup: record?.missed_fillup ?? false,
       is_hauling: record?.is_hauling ?? false,
@@ -409,6 +438,7 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         // Store fuel_type for conditional rendering
         setVehicleFuelType(vehicleData.fuel_type || '')
         setVehicleFuelTypeSecondary(vehicleData.fuel_type_secondary || '')
+        setVehicleRegistrationCountry(vehicleData.registration_country ?? null)
         // Task 13 — usage-dimension fields, for odometer/engine-hours field visibility.
         setVehicleUsageUnit(vehicleData.usage_unit || 'distance')
         setVehicleSecondaryUsageEnabled(!!vehicleData.secondary_usage_enabled)
@@ -439,11 +469,16 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
   // (codex code review R1-M4). The subscription marks any octane/diesel_grade
   // change, including the form's own setValue calls, which is fine: those all
   // happen after (prefill itself, and the hidden-field clears below).
-  const gradeTouchedRef = useRef({ octane: false, diesel_grade: false })
+  const gradeTouchedRef = useRef({ octane: false, diesel_grade: false, fuel_grade: false })
+  // B4 — set only by the person picking a scale, never by the form's own
+  // seeding, so the profile default and the last fill-up's pair can still
+  // fill an untouched scale whichever of the two arrives first.
+  const scaleChosenRef = useRef(false)
   useEffect(() => {
     const subscription = watch((_, { name }) => {
       if (name === 'octane') gradeTouchedRef.current.octane = true
       if (name === 'diesel_grade') gradeTouchedRef.current.diesel_grade = true
+      if (name === 'fuel_grade') gradeTouchedRef.current.fuel_grade = true
     })
     return () => subscription.unsubscribe()
   }, [watch])
@@ -456,11 +491,20 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
       .then((res) => {
         if (cancelled) return
         const last = (res.data?.records ?? [])[0] as
-          | { octane?: number | null; diesel_grade?: 'onroad' | 'offroad' | null }
+          | {
+              octane?: number | null
+              octane_scale?: string | null
+              diesel_grade?: 'onroad' | 'offroad' | null
+              fuel_grade?: string | null
+            }
           | undefined
         if (!last) return
         if (last.octane != null && !gradeTouchedRef.current.octane && getValues('octane') == null) {
           setValue('octane', last.octane)
+          // B4 — the number and its scale travel together.
+          if (isOctaneScale(last.octane_scale) && !scaleChosenRef.current) {
+            setValue('octane_scale', last.octane_scale)
+          }
         }
         if (
           last.diesel_grade != null &&
@@ -468,6 +512,14 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
           !getValues('diesel_grade')
         ) {
           setValue('diesel_grade', last.diesel_grade)
+        }
+        // #211 — same pump, same label.
+        if (
+          isFuelGrade(last.fuel_grade) &&
+          !gradeTouchedRef.current.fuel_grade &&
+          !getValues('fuel_grade')
+        ) {
+          setValue('fuel_grade', last.fuel_grade)
         }
       })
       .catch(() => {
@@ -494,6 +546,15 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
       : null,
   )
   const hasLinkedStation = !!watch('station_address_book_id')
+  const linkedStationId = watch('station_address_book_id')
+  // #211 — the pump prices at the linked station, where the country profile
+  // names a source (France today). Asked only with a station and a source.
+  const fuelPriceSource = countryProfile?.data_sources?.fuel_prices ?? null
+  const fuelPrices = useFuelPrices(
+    typeof linkedStationId === 'number' ? linkedStationId : null,
+    country,
+    !!fuelPriceSource && hasLinkedStation
+  )
   // Phase 3.4 quick-add modal — opened from the autocomplete's "+ Add"
   // footer when the user types a station name not in the address book.
   const [quickAddOpen, setQuickAddOpen] = useState(false)
@@ -503,7 +564,8 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
   // (`outside_temp_c`) and the form's own field holds that canonical value;
   // this string is what the user reads and types, in `units.temperature`.
   // Fahrenheit is the one AFFINE token in the set, so its conversion is the
-  // adapter's business and never a local `9/5 + 32`.
+  // adapter's business and never a local `9/5 + 32`. It lives up here, not in
+  // More details, so unreadable text is still there when that section reopens.
   const [outsideTempDisplay, setOutsideTempDisplay] = useState<string>(
     () => unitOrigins.outside_temp_c.display
   )
@@ -629,6 +691,30 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
     if (display === undefined) return
     setValue('price_per_unit', display, { shouldValidate: true })
     setPriceOrigin(origin)
+  }
+
+  /** A pump price from the station's own report: per litre, in the
+   *  provider's currency, which is the household's in the country it serves. */
+  const acceptStationPrice = (price: FuelPrice) => {
+    const amount = Number(price.price)
+    if (!Number.isFinite(amount)) return
+    setValue('price_basis', 'per_volume', { shouldValidate: true })
+    acceptPriceField(amount)
+  }
+
+  /** A station price as money per the household's volume unit: the same
+   *  conversion the price field itself goes through, so a gallon account
+   *  reads a per-gallon figure beside its per-gallon field. */
+  const formatStationPrice = (price: FuelPrice) => {
+    const perLitre = Number(price.price)
+    const display = readNumber(seedPriceField(perLitre, units, 'per_volume').display) ?? perLitre
+    const money = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: fuelPrices.data?.currency ?? 'EUR',
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    }).format(display)
+    return `${money} / ${UnitFormatter.getVolumeUnit(units)}`
   }
 
   const acceptObcSuggestion = () => {
@@ -836,7 +922,10 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         // #164 — null, not undefined, so a cleared value clears on update
         // (exclude_unset drops omitted keys; the issue-#108 convention).
         octane: data.octane ?? null,
+        // B4 — the scale only beside its number; null clears it on update.
+        octane_scale: data.octane != null ? (data.octane_scale ?? null) : null,
         diesel_grade: data.diesel_grade ?? null,
+        fuel_grade: data.fuel_grade ?? null,
         is_full_tank: data.is_full_tank,
         missed_fillup: data.missed_fillup,
         is_hauling: data.is_hauling,
@@ -899,7 +988,8 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
     } catch (err) {
       // attached.length === 0 catches a non-422 failure (network drop, 500):
       // it carries no field problems at all, so `unhandled` alone would stay
-      // empty and this banner would never show.
+      // empty and this banner would never show. The checkboxes aren't listed:
+      // they have nowhere to show an error, so theirs go to the banner.
       const { attached, unhandled } = applyServerErrors<FuelRecordFormData>(setFieldError, err, [
         'date',
         'odometer_km',
@@ -908,17 +998,20 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         'kwh',
         'propane_liters',
         'price_per_unit',
+        'soc_start_pct',
+        'soc_end_pct',
+        'battery_soh_pct',
+        'charge_level',
+        'charge_location',
         'price_basis',
         'rebate',
         'cost',
-        'is_full_tank',
-        'missed_fillup',
-        'is_hauling',
         'def_fill_level',
         'fuel_type_used',
         'octane',
+        'octane_scale',
         'diesel_grade',
-        'one_time_visit',
+        'fuel_grade',
         'driver_name_freetext',
         'payment_method',
         'trip_type',
@@ -960,21 +1053,106 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
   const effectiveFuelType = watch('fuel_type_used') || vehicleFuelType
   const effectiveFuelLower = (effectiveFuelType || '').toLowerCase()
   const showOctane = effectiveFuelLower.includes('gasoline') || effectiveFuelLower === 'e85'
-  const showDieselGrade = isDieselFuelType(effectiveFuelType)
+  // #211 — the clear-vs-dyed diesel grade is a North-American distinction;
+  // a profile that says so hides it rather than asking a European driver
+  // a question their pump cannot answer.
+  const showDieselGrade =
+    isDieselFuelType(effectiveFuelType) && countryProfile?.fuel?.diesel_dyed_distinction !== false
+  // The EN 16942 label only makes sense where a profile applies (the label
+  // is printed on every EU nozzle, not on a US one) and for a fuel type
+  // that carries one: electricity has no label.
+  const allowedGrades = gradesForFuelType(effectiveFuelType)
+  const showFuelGrade = !!countryProfile && allowedGrades.length > 0
+  // B4 — the profile's scale is only the DEFAULT for a new fill-up; the label
+  // follows the scale the record carries, so an old AKI fill-up stays AKI.
+  const profileOctaneScale = isOctaneScale(countryProfile?.fuel?.octane_scale)
+    ? countryProfile.fuel.octane_scale
+    : undefined
+  const watchedOctaneScale = watch('octane_scale')
+  const octaneIsRon = watchedOctaneScale === 'RON'
+  useEffect(() => {
+    if (record || !profileOctaneScale || scaleChosenRef.current) return
+    if (getValues('octane_scale')) return
+    setValue('octane_scale', profileOctaneScale)
+  }, [record, profileOctaneScale, getValues, setValue])
+
+  // The pump names of the profile for the fuel dispensed (SP95-E10, Super
+  // Plus…). Picking one writes the EN 16942 label and, for petrol, the
+  // octane; the select's own value is DERIVED from those two fields so a
+  // label chosen by hand, prefilled or edited stays in step with it.
+  const fuelPresets = useMemo(
+    () =>
+      showFuelGrade
+        ? (countryProfile?.fuel?.grades ?? []).filter(
+            (preset) => preset.fuel_type === effectiveFuelType && isFuelGrade(preset.grade)
+          )
+        : [],
+    [countryProfile, effectiveFuelType, showFuelGrade]
+  )
+  const watchedFuelGrade = watch('fuel_grade')
+  const watchedOctane = watch('octane')
+  const [presetOther, setPresetOther] = useState(false)
+  const matchedPreset = useMemo(() => {
+    if (!watchedFuelGrade) return undefined
+    const octane = typeof watchedOctane === 'number' && !Number.isNaN(watchedOctane) ? watchedOctane : null
+    return (
+      fuelPresets.find((p) => p.grade === watchedFuelGrade && p.octane != null && p.octane === octane) ??
+      fuelPresets.find((p) => p.grade === watchedFuelGrade && p.octane == null)
+    )
+  }, [fuelPresets, watchedFuelGrade, watchedOctane])
+  // An explicit "Other" wins over a coincidental match, so the plain select
+  // stays open while the person picks a label by hand.
+  const presetValue = presetOther ? 'other' : matchedPreset ? matchedPreset.id : watchedFuelGrade ? 'other' : ''
+  const showPlainGradeSelect = showFuelGrade && (fuelPresets.length === 0 || presetValue === 'other')
+
+  const handlePresetChange = (id: string) => {
+    if (id === 'other') {
+      setPresetOther(true)
+      return
+    }
+    setPresetOther(false)
+    const preset = fuelPresets.find((p) => p.id === id)
+    if (!preset) {
+      setValue('fuel_grade', undefined, { shouldDirty: true })
+      return
+    }
+    setValue('fuel_grade', preset.grade as FuelGrade, { shouldDirty: true, shouldValidate: true })
+    if (showOctane) {
+      setValue('octane', preset.octane ?? undefined, { shouldDirty: true, shouldValidate: true })
+      // A pump name's octane is printed on the profile's scale.
+      if (preset.octane != null && profileOctaneScale) {
+        setValue('octane_scale', profileOctaneScale, { shouldDirty: true })
+      }
+    }
+  }
 
   // Switching the fuel dispensed hides a grade field; clear it, or a stale
   // hidden value keeps failing validation with an error the user cannot see
   // and blocks the save (codex code review R1-M3). Only a true->false FLIP
   // clears: on mount prev is null, so a legacy value on a record whose type
   // never showed the field this session is left alone.
-  const prevGradeVisibilityRef = useRef<{ octane: boolean; grade: boolean } | null>(null)
+  const prevGradeVisibilityRef = useRef<{ octane: boolean; grade: boolean; label: boolean } | null>(
+    null
+  )
   useEffect(() => {
     const prev = prevGradeVisibilityRef.current
-    prevGradeVisibilityRef.current = { octane: showOctane, grade: showDieselGrade }
+    prevGradeVisibilityRef.current = { octane: showOctane, grade: showDieselGrade, label: showFuelGrade }
     if (!prev) return
-    if (prev.octane && !showOctane) setValue('octane', undefined)
+    if (prev.octane && !showOctane) {
+      setValue('octane', undefined)
+      setValue('octane_scale', undefined)
+    }
     if (prev.grade && !showDieselGrade) setValue('diesel_grade', undefined)
-  }, [showOctane, showDieselGrade, setValue])
+    if (prev.label && !showFuelGrade) setValue('fuel_grade', undefined)
+  }, [showOctane, showDieselGrade, showFuelGrade, setValue])
+
+  // A label that the NEW fuel type cannot carry (E10 after switching the
+  // fill to diesel) is cleared too, for the same reason.
+  useEffect(() => {
+    if (!showFuelGrade) return
+    const current = getValues('fuel_grade')
+    if (current && !allowedGrades.includes(current)) setValue('fuel_grade', undefined)
+  }, [showFuelGrade, allowedGrades, getValues, setValue])
 
   // Dynamic labels. The denominator follows the PRICE BASIS, not the volume
   // unit alone: `priceToDisplay` scales a `per_weight` price by the resolved
@@ -1008,7 +1186,7 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
         </>
       }
     >
-        <form id="fuel-record-form" onSubmit={handleSubmit(onSubmit, (validationErrors) => {
+        <form id="fuel-record-form" noValidate onSubmit={handleSubmit(onSubmit, (validationErrors) => {
           const fields = Object.keys(validationErrors).join(', ')
           setError(t('common:checkFields', { fields }))
         })} className="p-6 space-y-4">
@@ -1021,7 +1199,7 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
           {!isEdit && llmReceiptEnabled && (
             <div className="rounded-lg border border-garage-border bg-garage-bg/40 p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary" />
+                <Sparkles className="w-4 h-4 text-(--accent-fg)" />
                 <h4 className="text-sm font-semibold text-garage-text">{t('fuel.parseReceipt')}</h4>
               </div>
               <p className="text-xs text-garage-text-muted">{t('fuel.parseReceiptHint')}</p>
@@ -1172,6 +1350,19 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
               />
             </Field>
           </div>
+
+          {/* #211 — the prices the linked station reports, where a source covers the country */}
+          {fuelPriceSource && hasLinkedStation && !isElectric && (
+            <FuelPriceHint
+              prices={fuelPrices.data}
+              loading={fuelPrices.isLoading}
+              grade={watchedFuelGrade ?? null}
+              octane={watchedOctane ?? null}
+              onUsePrice={acceptStationPrice}
+              formatPrice={formatStationPrice}
+              disabled={isSubmitting}
+            />
+          )}
 
           {showKwh && (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -1333,12 +1524,69 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
             </Field>
           )}
 
+          {/* #211 — the pump name and EN 16942 label, only where a country profile applies */}
+          {showFuelGrade && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {fuelPresets.length > 0 && (
+                <Field id="fuel_preset" label={t('fuel.fuelPreset')} hint={t('fuel.fuelPresetHint')}>
+                  <Select
+                    id="fuel_preset"
+                    value={presetValue}
+                    onChange={(e) => handlePresetChange(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder={t('common:select') || '—'}
+                    options={[
+                      ...fuelPresets.map((preset) => ({ value: preset.id, label: preset.label })),
+                      { value: 'other', label: t('fuel.fuelPresetOther') },
+                    ]}
+                  />
+                </Field>
+              )}
+              {showPlainGradeSelect && (
+                <Field id="fuel_grade" label={t('fuel.fuelGrade')} error={errors.fuel_grade} hint={t('fuel.fuelGradeHint')}>
+                  <Select
+                    id="fuel_grade"
+                    {...register('fuel_grade')}
+                    disabled={isSubmitting}
+                    invalid={!!errors.fuel_grade}
+                    placeholder={t('common:select') || '—'}
+                    options={allowedGrades.map((grade) => ({ value: grade, label: t(`fuel.fuelGrades.${grade}`) }))}
+                  />
+                </Field>
+              )}
+            </div>
+          )}
+
           {/* #164 — grade of the fuel dispensed, gated on the effective type */}
           {(showOctane || showDieselGrade) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {showOctane && (
-                <Field id="octane" label={t('fuel.octane')} error={errors.octane} hint={t('fuel.octaneHint')}>
+                <Field
+                  id="octane"
+                  label={octaneIsRon ? t('fuel.octaneRon') : t('fuel.octane')}
+                  error={errors.octane}
+                  hint={octaneIsRon ? t('fuel.octaneRonHint') : t('fuel.octaneHint')}
+                >
                   <NumberInput id="octane" {...registerDecimal(register, 'octane')} invalid={!!errors.octane} disabled={isSubmitting} />
+                </Field>
+              )}
+              {showOctane && (
+                <Field id="octane_scale" label={t('fuel.octaneScale')} error={errors.octane_scale}>
+                  <Select
+                    id="octane_scale"
+                    {...register('octane_scale', {
+                      onChange: () => {
+                        scaleChosenRef.current = true
+                      },
+                    })}
+                    disabled={isSubmitting}
+                    invalid={!!errors.octane_scale}
+                    placeholder={t('fuel.octaneScaleUnknown')}
+                    options={[
+                      { value: 'RON', label: t('fuel.octaneScaleRon') },
+                      { value: 'AKI', label: t('fuel.octaneScaleAki') },
+                    ]}
+                  />
                 </Field>
               )}
               {showDieselGrade && (
@@ -1419,8 +1667,8 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
                 </div>
 
                 {/* Driver freetext */}
-                <Field id="driver_name_freetext" label={t('fuel.driver')}>
-                  <Input type="text" id="driver_name_freetext" {...register('driver_name_freetext')} placeholder={t('fuel.driverFreetextPlaceholder')} disabled={isSubmitting} />
+                <Field id="driver_name_freetext" label={t('fuel.driver')} error={errors.driver_name_freetext}>
+                  <Input type="text" id="driver_name_freetext" {...register('driver_name_freetext')} placeholder={t('fuel.driverFreetextPlaceholder')} invalid={!!errors.driver_name_freetext} disabled={isSubmitting} />
                 </Field>
 
                 {/* Payment method + trip type — native selects, retokenized */}
@@ -1447,52 +1695,39 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
                   </Field>
                 </div>
 
-                {/* Outside temp — controlled input (value/onChange). M1: compose <Input>
-                    (it forwards value/onChange/step/id via ...rest). This IS a real
-                    display-boundary field: the label, the step and the conversion all
-                    come from `units.temperature`, which is an independent choice from
-                    the volume `system` collapses.
-
-                    ★ AND IT IS NOW THE ONLY ONE OF FOUR SHAPED THIS WAY, which is a
-                    deferral rather than an oversight. The odometer and the two OBC
-                    fields are react-hook-form NUMBER fields holding a display value the
-                    origin arbitrates at submit, matching every sibling form in the repo;
-                    this one keeps its canonical Celsius in react-hook-form and its
-                    display in a separate string state, converting on each keystroke. It
-                    is therefore the one origin `acceptUnitField` cannot take. Unifying
-                    it is task-sized, not a rider: `makeFuelRecordSchema` bounds
-                    `outside_temp_c` at -60..70 CANONICAL degrees, so moving the field to
-                    display values changes what that range means, and
-                    FuelRecordForm.mixedUnits.test.tsx pins the current behaviour. */}
+                {/* Outside temp. The backend stores Celsius, and RHF holds that
+                    canonical value while this box holds the text in
+                    `units.temperature`, read in the user's language on each change.
+                    It's still the one origin `acceptUnitField` can't take: the other
+                    three hold display values the origin settles at submit, and
+                    moving this one over would change what the schema's -60..70
+                    range means. Text that isn't a number goes in as INVALID_NUMBER
+                    so the error shows instead of the reading quietly going away. */}
                 <Field id="outside_temp_display" label={t('fuel.outsideTemp')} unit={u.temperature.label} error={errors.outside_temp_c}>
-                  <Input
-                    type="number"
+                  <NumberInput
                     id="outside_temp_display"
-                    mono
-                    step={u.temperature.step}
                     value={outsideTempDisplay}
                     onChange={(e) => {
                       const raw = e.target.value
                       setOutsideTempDisplay(raw)
-                      if (raw === '') {
-                        setValue('outside_temp_c', undefined as unknown as number)
+                      // A lone sign is a negative on its way, so no error yet. It's
+                      // still not a number, so a save with it left there is refused.
+                      if (/^\s*[+-]\s*$/.test(raw)) {
+                        clearErrors('outside_temp_c')
+                        setValue('outside_temp_c', INVALID_NUMBER as unknown as number)
                         return
                       }
-                      if (Number.isNaN(parseFloat(raw))) return
-                      // Re-typing the seeded reading is not an edit of the
-                      // quantity, so it returns the stored Celsius rather than
-                      // a value round-tripped through the display precision.
-                      const canonical = canonicalFromUnitField(
-                        raw,
-                        unitOrigins.outside_temp_c,
-                        u.temperature
-                      )
-                      setValue('outside_temp_c', canonical ?? (undefined as unknown as number), {
-                        shouldValidate: true,
-                      })
+                      // Re-typing the seeded reading isn't an edit of the quantity,
+                      // so it hands back the stored Celsius, not a round trip.
+                      const next =
+                        parseDecimalInput(raw, getActiveLocale()).kind === 'invalid'
+                          ? INVALID_NUMBER
+                          : (canonicalFromTypedUnitField(raw, unitOrigins.outside_temp_c, u.temperature) ?? undefined)
+                      setValue('outside_temp_c', next as unknown as number, { shouldValidate: true })
                     }}
                     invalid={!!errors.outside_temp_c}
                     disabled={isSubmitting}
+                    parsedOnChange
                   />
                 </Field>
 
@@ -1559,14 +1794,14 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
                   {obcMessage && <p className="text-xs text-text-mute">{obcMessage}</p>}
 
                   <div className="grid grid-cols-3 gap-2">
-                    <Field id="obc_l_per_100km" label={t('fuel.obcConsumption')} unit={u.consumption.label}>
-                      <NumberInput id="obc_l_per_100km" {...registerDecimal(register, 'obc_l_per_100km')} disabled={isSubmitting} />
+                    <Field id="obc_l_per_100km" label={t('fuel.obcConsumption')} unit={u.consumption.label} error={errors.obc_l_per_100km}>
+                      <NumberInput id="obc_l_per_100km" {...registerDecimal(register, 'obc_l_per_100km')} invalid={!!errors.obc_l_per_100km} disabled={isSubmitting} />
                     </Field>
-                    <Field id="obc_avg_speed_kmh" label={t('fuel.obcAvgSpeed')} unit={u.speed.label}>
-                      <NumberInput id="obc_avg_speed_kmh" {...registerDecimal(register, 'obc_avg_speed_kmh')} disabled={isSubmitting} />
+                    <Field id="obc_avg_speed_kmh" label={t('fuel.obcAvgSpeed')} unit={u.speed.label} error={errors.obc_avg_speed_kmh}>
+                      <NumberInput id="obc_avg_speed_kmh" {...registerDecimal(register, 'obc_avg_speed_kmh')} invalid={!!errors.obc_avg_speed_kmh} disabled={isSubmitting} />
                     </Field>
-                    <Field id="obc_trip_duration_s" label={t('fuel.obcDuration')}>
-                      <Input type="text" id="obc_trip_duration_s" inputMode="text" placeholder={t('fuelRecordForm.obcDurationPlaceholder')} {...register('obc_trip_duration_s')} disabled={isSubmitting} />
+                    <Field id="obc_trip_duration_s" label={t('fuel.obcDuration')} error={errors.obc_trip_duration_s}>
+                      <Input type="text" id="obc_trip_duration_s" inputMode="text" placeholder={t('fuelRecordForm.obcDurationPlaceholder')} {...register('obc_trip_duration_s')} invalid={!!errors.obc_trip_duration_s} disabled={isSubmitting} />
                     </Field>
                   </div>
                 </div>
@@ -1594,3 +1829,6 @@ export default function FuelRecordForm({ vin, record, onClose, onSuccess }: Fuel
     </FormModalWrapper>
   )
 }
+
+// Pins its units for as long as it is open (R4).
+export default withUnitSession(FuelRecordForm)

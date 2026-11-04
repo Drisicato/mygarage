@@ -60,7 +60,6 @@ from app.services.reminder_service import (
     validate_reminder_state,
 )
 from app.services.vehicle_lock import lock_vehicle_for_write
-from app.utils.cache import invalidate_cache_for_vehicle
 from app.utils.datetime_utils import utc_now
 from app.utils.household_time import household_today
 from app.utils.logging_utils import sanitize_for_log
@@ -124,6 +123,26 @@ def apply_intervals(rule: MaintenanceRule, spec: HasIntervals) -> bool:
     return changed
 
 
+#: The `source` of a rule the country-profile inspection engine manages (#211).
+ENGINE_RULE_SOURCE = "inspection"
+
+
+async def _take_over(db: AsyncSession, rule: MaintenanceRule, source: str) -> None:
+    """A person changed the engine's rule: from now on it is theirs (B7, F-1).
+
+    The rule takes the caller's source, and its pending reminder loses the
+    engine's mark, so the inspection engine leaves both alone and never
+    rewrites the intervals or the title the person chose. Switching the rule
+    off is not a change of this kind: the caller does not call this for it.
+    """
+    if rule.source != ENGINE_RULE_SOURCE or source == ENGINE_RULE_SOURCE:
+        return
+    rule.source = source
+    pending = await _pending_reminder(db, rule.id)
+    if pending is not None and pending.source == ENGINE_RULE_SOURCE:
+        pending.source = None
+
+
 @dataclass(frozen=True)
 class RuleResolution:
     """What `ensure_rule` did: 'create', 'reuse' or 'reactivate'."""
@@ -167,6 +186,9 @@ async def ensure_rule(
     because the caller is the only one that knows whether the user typed an
     override. `apply_intervals` compares before assigning, so handing back a
     rule's existing values writes nothing and does not touch `updated_at`.
+
+    A rule the inspection engine made, reused by any other caller (the
+    reminder form, a pack, a line item's follow-up), becomes that caller's.
     """
     if maintenance_type is not None:
         existing = await rules_of_type(db, vin, maintenance_type)
@@ -176,9 +198,11 @@ async def ensure_rule(
             rule = existing[0]
             if rule.is_active:
                 apply_intervals(rule, intervals)
+                await _take_over(db, rule, source)
                 return RuleResolution(rule, "reuse")
             rule.is_active = True
             apply_intervals(rule, intervals)
+            await _take_over(db, rule, source)
             if source_pack_id is not None:
                 rule.source_pack_id = source_pack_id
                 rule.source_pack_key = source_pack_key
@@ -237,18 +261,27 @@ async def _retype(db: AsyncSession, rule: MaintenanceRule, maintenance_type: str
 
 
 async def update_rule(db: AsyncSession, rule: MaintenanceRule, data: MaintenanceRuleUpdate) -> None:
-    """Patch a rule and recompute its pending reminder from its own anchor."""
+    """Patch a rule and recompute its pending reminder from its own anchor.
+
+    A changed interval, title or type on the inspection engine's rule makes
+    it the person's (F-11); switching it on or off, or its notes, does not.
+    """
     fields = data.model_fields_set
+    edited = False
     if "title" in fields and data.title is not None:
+        edited |= rule.title != data.title
         rule.title = data.title
     if "maintenance_type" in fields:
+        edited |= rule.maintenance_type != data.maintenance_type
         await _retype(db, rule, data.maintenance_type)
     if "notes" in fields:
         rule.notes = data.notes
     if "recurrence" in fields and data.recurrence is not None:
-        apply_intervals(rule, data.recurrence)
+        edited |= apply_intervals(rule, data.recurrence)
     if "is_active" in fields and data.is_active is not None:
         rule.is_active = data.is_active
+    if edited:
+        await _take_over(db, rule, "manual")
     await db.flush()
     if rule.is_active:
         await reconcile_rule(db, rule)
@@ -589,6 +622,14 @@ async def _reanchor(
     return resolved
 
 
+async def reanchor_pending(
+    db: AsyncSession, reminder: Reminder, rule: HasIntervals, anchor: Anchor
+) -> Anchor:
+    """`_reanchor` for the inspection engine, which computes its own anchor
+    (a theoretical due date) rather than reading one off the history."""
+    return await _reanchor(db, reminder, rule, anchor)
+
+
 def _complete(reminder: Reminder, anchor: Anchor) -> None:
     reminder.status = "done"
     reminder.completed_at = utc_now()
@@ -608,6 +649,11 @@ async def _pending_reminder(db: AsyncSession, rule_id: int) -> Reminder | None:
         .order_by(Reminder.id)
     )
     return result.scalars().first()
+
+
+async def pending_reminder(db: AsyncSession, rule_id: int) -> Reminder | None:
+    """The rule's pending reminder, if any (the inspection engine's read)."""
+    return await _pending_reminder(db, rule_id)
 
 
 async def _anchor_from_line_item(
@@ -799,8 +845,17 @@ async def reconcile_rule(
     return pending
 
 
-async def reconcile_vehicle_unlocked(db: AsyncSession, vin: str) -> None:
-    """Reconcile every active rule; the caller holds the lock and commits."""
+async def reconcile_vehicle_unlocked(
+    db: AsyncSession, vin: str, *, inspection_force_reactivate: bool = False
+) -> None:
+    """Reconcile every active rule; the caller holds the lock and commits.
+
+    Then the country-profile inspection engine (#211) has its turn, so a
+    service visit, an import or an explicit reconcile also brings the
+    periodic inspection reminder up to date. Its failure is logged, never
+    raised: a profile data error must not cost the other rules their
+    reconcile.
+    """
     result = await db.execute(
         select(MaintenanceRule)
         .where(MaintenanceRule.vin == vin, MaintenanceRule.is_active.is_(True))
@@ -810,17 +865,43 @@ async def reconcile_vehicle_unlocked(db: AsyncSession, vin: str) -> None:
         await reconcile_rule(db, rule)
     await db.flush()
 
+    from app.services.inspection_schedule_service import sync_vehicle_by_vin
 
-async def reconcile_vehicle(db: AsyncSession, vin: str) -> None:
-    """The hook every service-visit write calls: lock, reconcile, commit.
+    # Its own savepoint: a service-visit write runs this inside the visit's
+    # transaction, so a failed statement here must not abort that transaction
+    # on PostgreSQL and take the visit down with it.
+    try:
+        async with db.begin_nested():
+            await sync_vehicle_by_vin(db, vin, force_reactivate=inspection_force_reactivate)
+    except Exception as exc:  # noqa: BLE001 - the other rules are already reconciled
+        logger.error(
+            "Inspection schedule sync failed for %s: %s",
+            sanitize_for_log(vin),
+            sanitize_for_log(exc),
+        )
+    await db.flush()
 
-    Runs after the visit's own commits. A failure here is logged and does
-    not fail the request that already persisted the visit; the next hook or
-    `POST .../reminders/reconcile` repairs from the same state.
+
+async def reconcile_vehicle(
+    db: AsyncSession, vin: str, *, inspection_force_reactivate: bool = False
+) -> None:
+    """Lock, reconcile, commit, for the reconcile route and the two imports.
+
+    Service-visit writes don't come through here: they call
+    `reconcile_vehicle_unlocked` inside their own transaction. An import runs
+    this after its rows are committed, so a failure is logged and the import
+    stands; the next write or `POST .../reminders/reconcile` repairs from the
+    same state.
+
+    `inspection_force_reactivate` is for the writes that may turn the
+    inspection engine back on (a country, a first registration date, the
+    owner's preference): see `inspection_schedule_service.sync_vehicle`.
     """
     try:
         await lock_vehicle_for_write(db, vin)
-        await reconcile_vehicle_unlocked(db, vin)
+        await reconcile_vehicle_unlocked(
+            db, vin, inspection_force_reactivate=inspection_force_reactivate
+        )
         await db.commit()
     except HTTPException:
         raise
@@ -969,17 +1050,24 @@ async def update_reminder_recurrence(
     """
     fields = data.model_fields_set
     rule = reminder.rule
+    # A changed interval, title or type on the inspection engine's rule
+    # makes it the person's (F-1); stopping the repeat does not.
+    edited = False
     if "maintenance_type" in fields:
         if rule is not None and rule.is_active and reminder.status == ACTIVE_STATUS:
+            edited |= rule.maintenance_type != data.maintenance_type
             # The rule's pending reminder and the rule track one type.
             await _retype(db, rule, data.maintenance_type)
         reminder.maintenance_type = data.maintenance_type
     if "recurrence" not in fields:
         if rule is not None and rule.is_active and ("title" in fields or "notes" in fields):
             if data.title is not None:
+                edited |= rule.title != data.title
                 rule.title = data.title
             if "notes" in fields:
                 rule.notes = data.notes
+            if edited:
+                await _take_over(db, rule, "manual")
         return
     if data.recurrence is None:
         if rule is not None and rule.is_active:
@@ -1005,12 +1093,16 @@ async def update_reminder_recurrence(
         reminder.rule_id = rule.id
         reminder.rule = rule
     else:
-        apply_intervals(rule, data.recurrence)
+        edited |= apply_intervals(rule, data.recurrence)
         rule.is_active = True
     if data.title is not None:
+        edited |= rule.title != data.title
         rule.title = data.title
     if "maintenance_type" in fields:
+        edited |= rule.maintenance_type != data.maintenance_type
         await _retype(db, rule, data.maintenance_type)
+    if edited:
+        await _take_over(db, rule, "manual")
     current = anchor_of(reminder)
     if current is not None:
         await _reanchor(db, reminder, rule, current)
@@ -1183,7 +1275,6 @@ async def complete_reminder(
         await reconcile_vehicle_unlocked(db, vin)
 
     await db.commit()
-    await invalidate_cache_for_vehicle(vin)
     await db.refresh(reminder)
     if successor is not None:
         await db.refresh(successor)
@@ -1589,7 +1680,6 @@ async def apply_pack(
         if reminder is not None:
             results.append(reminder)
     await db.commit()
-    await invalidate_cache_for_vehicle(vin)
     for reminder in results:
         await db.refresh(reminder)
     return results
@@ -1630,21 +1720,6 @@ async def duplicate_groups(db: AsyncSession, vin: str) -> list[DuplicateGroup]:
             )
         )
     return groups
-
-
-def duplicate_map(reminders: list[Reminder]) -> dict[int, list[int]]:
-    """For each pending typed reminder, the ids of the others of its type."""
-    by_type: dict[str, list[int]] = {}
-    for r in reminders:
-        if r.status == ACTIVE_STATUS and r.maintenance_type is not None:
-            by_type.setdefault(r.maintenance_type, []).append(r.id)
-    out: dict[int, list[int]] = {}
-    for ids in by_type.values():
-        if len(ids) < 2:
-            continue
-        for rid in ids:
-            out[rid] = [other for other in ids if other != rid]
-    return out
 
 
 async def reconcile_duplicates(
@@ -1700,7 +1775,6 @@ async def reconcile_duplicates(
     if keeper.rule is not None and keeper.rule.is_active:
         await reconcile_rule(db, keeper.rule)
     await db.commit()
-    await invalidate_cache_for_vehicle(vin)
     for reminder in [keeper, *losers]:
         await db.refresh(reminder)
     return [keeper, *losers]

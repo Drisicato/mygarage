@@ -6,6 +6,7 @@ All components use the design system from pdf_styles.py.
 import logging
 from datetime import datetime
 from typing import Any
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -21,6 +22,8 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.config import settings
+from app.utils.household_time import household_zone
 from app.utils.pdf_styles import (
     ACCENT_AMBER,
     ACCENT_BAR_HEIGHT,
@@ -92,10 +95,11 @@ def draw_branded_header(
     canvas.setFont(body, 13)
     canvas.drawString(text_x, icon_y + icon_size - 38, subtitle)
 
-    # Date/time (right-aligned)
-    now = datetime.now()
+    # Date/time (right-aligned), in the household's zone with its real label.
+    # This used to be the container's clock with "CST" stuck on the end.
+    now = datetime.now(household_zone())
     date_str = now.strftime("%B %d, %Y")
-    time_str = now.strftime("%I:%M %p CST")
+    time_str = now.strftime("%I:%M %p %Z")
 
     x_right = PAGE_WIDTH - MARGIN
     canvas.setFillColor(TEXT_SECONDARY)
@@ -145,12 +149,13 @@ def draw_branded_footer(canvas: Any, doc: Any) -> None:  # pyright: ignore[repor
     canvas.setFillColor(TEXT_MUTED)
     canvas.drawString(x_left + text_w + bold_w, y + 5, " · homelabforge.io")
 
-    # Right: version + report ID
-    now = datetime.now()
+    # Right: version + report ID. Household time, like the header, so the two
+    # dates on the page agree.
+    now = datetime.now(household_zone())
     report_id = f"MG-{now.strftime('%Y%m%d-%H%M%S')}"
     canvas.setFont(mono, 11)
     canvas.setFillColor(TEXT_MUTED)
-    canvas.drawRightString(x_right, y + 5, f"v2.21 · {report_id}")
+    canvas.drawRightString(x_right, y + 5, f"v{settings.app_version} · {report_id}")
 
     canvas.restoreState()
 
@@ -182,13 +187,13 @@ def make_section_header(
             fontSize=13,
             leading=17,
         )
-        title_para = Paragraph(title, compact_style)
+        title_para = Paragraph(escape(title), compact_style)
     else:
-        title_para = Paragraph(title, styles["SectionTitle"])
+        title_para = Paragraph(escape(title), styles["SectionTitle"])
 
     # The line is implemented via table border styling
     if annotation:
-        ann_para = Paragraph(annotation, styles["Annotation"])
+        ann_para = Paragraph(escape(annotation), styles["Annotation"])
         data = [[title_para, "", ann_para]]
         col_widths = [None, None, 1.5 * inch]
     else:
@@ -296,8 +301,11 @@ def make_vehicle_banner(
     tracking_text = f"{months} months tracked" if months > 0 else "New"
 
     # Vehicle info (left side)
-    name_para = Paragraph(vehicle_name, styles["VehicleName"])
-    vin_para = Paragraph(f"VIN {vin}", styles["VIN"])
+    # Both are typed by people; Paragraph parses <, > and & as markup.
+    name_para = Paragraph(escape(vehicle_name), styles["VehicleName"])
+    # `vin` is the printed identifier line ("VIN …" / "Serial …"), never a
+    # generated key (#226); an empty one prints nothing.
+    vin_para = Paragraph(escape(vin), styles["VIN"])
 
     # Badges (right side)
     # reportlab can't measure None, and the PDFs are English-only.
@@ -512,7 +520,7 @@ def make_kpi_row(
 
         # Build card content as stacked paragraphs
         label_text = card["label"].upper()
-        label = Paragraph(label_text, styles["KPILabel"])
+        label = Paragraph(escape(label_text), styles["KPILabel"])
 
         # Value with accent color, shrunk to fit if the string is long
         base_value_style = styles["KPIValue"]
@@ -524,10 +532,11 @@ def make_kpi_row(
             fontSize=font_size,
             leading=leading,
         )
-        value = Paragraph(card["value"], value_style)
+        value = Paragraph(escape(card["value"]), value_style)
 
         # Sub-detail
-        sub_text = card.get("sub_html", card.get("sub", ""))
+        # sub_html is the report's own markup (a coloured badge); sub is text.
+        sub_text = card.get("sub_html") or escape(card.get("sub") or "")
         sub = Paragraph(sub_text, styles["KPISub"])
 
         # Stack vertically
@@ -597,7 +606,7 @@ def make_vendor_list(
     flowables = []
 
     for i, vendor in enumerate(vendors):
-        name = vendor.get("vendor_name", "Unknown")
+        name = vendor.get("vendor_name") or "Unknown"
         total = format_currency(vendor.get("total_spent", 0), currency_code, locale)
         count = vendor.get("service_count", 0)
 
@@ -612,8 +621,8 @@ def make_vendor_list(
         detail_text = " · ".join(details)
 
         # Left side: name + detail
-        name_para = Paragraph(name, styles["VendorName"])
-        detail_para = Paragraph(detail_text, styles["VendorDetail"])
+        name_para = Paragraph(escape(str(name)), styles["VendorName"])
+        detail_para = Paragraph(escape(detail_text), styles["VendorDetail"])
         left = Table([[name_para], [detail_para]])
         left.setStyle(
             TableStyle(
@@ -627,7 +636,7 @@ def make_vendor_list(
         )
 
         # Right side: amount
-        amount_para = Paragraph(total, styles["VendorAmount"])
+        amount_para = Paragraph(escape(total), styles["VendorAmount"])
 
         row = Table(
             [[left, amount_para]],
@@ -698,11 +707,11 @@ def make_season_row(
             cell_items.append(Spacer(1, 4))
 
         # Season name
-        cell_items.append(Paragraph(name, styles["SeasonName"]))
+        cell_items.append(Paragraph(escape(str(name)), styles["SeasonName"]))
         cell_items.append(Spacer(1, 6))
 
         # Amount
-        cell_items.append(Paragraph(total, styles["SeasonAmount"]))
+        cell_items.append(Paragraph(escape(total), styles["SeasonAmount"]))
 
         # Service count
         cell_items.append(
@@ -835,7 +844,7 @@ def make_data_table(
 
     # Build header row
     header_style = styles["TableHeaderCompact"] if compact else styles["TableHeader"]
-    header_paras = [Paragraph(h.upper(), header_style) for h in headers]
+    header_paras = [Paragraph(escape(h.upper()), header_style) for h in headers]
     table_data = [header_paras] + rows
 
     t = Table(table_data, colWidths=col_widths)

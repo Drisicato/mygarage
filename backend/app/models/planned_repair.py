@@ -14,7 +14,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
 )
@@ -22,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
 
 if TYPE_CHECKING:
     from app.models.service_visit import ServiceVisit
@@ -46,9 +46,9 @@ class PlannedRepair(Base):
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="planning")
     priority: Mapped[str] = mapped_column(String(10), nullable=False, default="medium")
-    estimated_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    estimated_cost: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     target_date: Mapped[dt.date | None] = mapped_column(Date)
-    target_odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    target_odometer_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2))
     vendor_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("vendors.id", ondelete="SET NULL")
     )
@@ -109,7 +109,7 @@ class PlannedRepairPart(Base):
         Integer, ForeignKey("planned_repairs.id", ondelete="CASCADE"), nullable=False
     )
     description: Mapped[str] = mapped_column(String(200), nullable=False)
-    cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    cost: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     #: A part taken from the supplies inventory (migration 126). Nothing is
     #: consumed while the repair is planned; completing it logs the usage on
     #: the service visit's line item, like one picked in the service form.
@@ -117,7 +117,7 @@ class PlannedRepairPart(Base):
         Integer, ForeignKey("supplies.id", ondelete="SET NULL")
     )
     #: Canonical units (L or count), the same as a supply usage.
-    supply_quantity: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    supply_quantity: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 3))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     repair: Mapped[PlannedRepair] = relationship("PlannedRepair", back_populates="parts")

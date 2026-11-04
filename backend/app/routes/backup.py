@@ -13,9 +13,12 @@ from app.config import settings
 from app.database import engine, get_db, is_sqlite, sqlite_database_path
 from app.models.user import User
 from app.services.auth import get_current_admin_user
+from app.services.auth_settings import AuthSettingsConflictError
 from app.services.backup_service import BackupService
 from app.services.restore_staging import RestoreInProgressError
 from app.services.settings_secrets import ensure_secrets_encrypted
+from app.utils.backup_names import backup_stamp
+from app.utils.datetime_utils import utc_from_timestamp
 from app.utils.logging_utils import sanitize_for_log
 
 router = APIRouter(prefix="/api/backup", tags=["Backup"])
@@ -268,6 +271,9 @@ async def restore_backup(
     restarts. 503 while a secret setting is still stored as plaintext and can't be encrypted first,
     since the safety backup would copy it.
 
+    409 when a settings backup would leave sign-in set to SSO without usable SSO; nothing is
+    restored then.
+
     A settings restore that skipped secret keys (ciphertext no key in the keyring opens, or
     plaintext with no keyring to encrypt it) lists them in `details.skipped_secret_keys` and names
     them in `warning`; those keys keep their current values.
@@ -328,6 +334,8 @@ async def restore_backup(
         raise
     except RestoreInProgressError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except AuthSettingsConflictError as e:
+        raise HTTPException(status_code=409, detail=e.detail)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -378,8 +386,6 @@ async def upload_backup(
     Returns:
         Metadata about the uploaded backup file
     """
-    from datetime import datetime
-
     try:
         backup_service = get_backup_service()
         backup_service.ensure_backup_dir()
@@ -409,13 +415,13 @@ async def upload_backup(
 
         # Determine backup type and generate standardized filename
         # This ensures uploaded files appear in the backup list
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        stamp = backup_stamp()
         if file.filename.endswith(".json"):
             backup_type = "settings"
-            safe_filename = f"mygarage-settings-uploaded-{timestamp}.json"
+            safe_filename = f"mygarage-settings-uploaded-{stamp}.json"
         else:
             backup_type = "full"
-            safe_filename = f"mygarage-full-uploaded-{timestamp}.tar.gz"
+            safe_filename = f"mygarage-full-uploaded-{stamp}.tar.gz"
 
         backup_path = BACKUP_DIR / safe_filename
 
@@ -426,15 +432,20 @@ async def upload_backup(
         if backup_type == "settings":
             import json
 
+            # ValueError, not JSONDecodeError: non-UTF-8 bytes and an int past
+            # 4300 digits raise its other subclasses.
             try:
                 backup_data = json.loads(content)
-                if "settings" not in backup_data or not isinstance(backup_data["settings"], list):
-                    raise HTTPException(status_code=400, detail="Invalid backup file structure")
-            except json.JSONDecodeError:
+            except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid JSON file")
+            # The shape the restore checks for, so a bad file never lands in the list.
+            if not isinstance(backup_data, dict) or not isinstance(
+                backup_data.get("settings"), list
+            ):
+                raise HTTPException(status_code=400, detail="Invalid backup file structure")
 
-        # Write to backup directory
-        with open(backup_path, "wb") as f:
+        # Write to backup directory; "x" so a clash fails instead of overwriting
+        with open(backup_path, "xb") as f:
             f.write(content)
 
         logger.info(
@@ -451,7 +462,7 @@ async def upload_backup(
                 "filename": safe_filename,
                 "type": backup_type,
                 "size_mb": round(stat.st_size / 1024 / 1024, 4 if backup_type == "settings" else 2),
-                "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "created": utc_from_timestamp(stat.st_mtime).isoformat(),
             },
         }
     except HTTPException:

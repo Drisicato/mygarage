@@ -7,22 +7,27 @@ import secrets
 import socket
 from collections.abc import Sequence
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.drive_session import DriveSession
 from app.models.livelink_device import LiveLinkDevice
 from app.models.livelink_topic_map import LiveLinkTopicMap
-from app.models.vehicle_telemetry import VehicleTelemetry
+from app.models.odometer import OdometerRecord
+from app.models.vehicle_telemetry import VehicleTelemetry, VehicleTelemetryLatest
 from app.schemas.livelink import DeviceStatusType, ECUStatusType
+from app.services.livelink_sources.base import Capability
 from app.services.livelink_sources.presets.sensors import delete_sensor_readings
+from app.services.livelink_sources.registry import default_registry
+from app.services.session_service import SessionService
 from app.services.settings_service import SettingsService, parse_bool
-from app.utils.datetime_utils import utc_now
+from app.utils.datetime_utils import to_naive_utc, utc_now
 from app.utils.logging_utils import sanitize_for_log
 from app.utils.movement_keys import is_parked_heartbeat_key, is_speed_param_key
-from app.utils.odometer_units import is_odometer_param_key
+from app.utils.odometer_units import is_odometer_param_key, is_recorded_odometer_key
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,51 @@ def enqueue_sd_backfill(device_id: str) -> None:
     task = asyncio.create_task(run_sd_backfill(device_id))
     _sd_backfill_tasks.add(task)
     task.add_done_callback(_sd_backfill_tasks.discard)
+
+
+def _stored_odometer_unit(requested: str) -> str | None:
+    """The column value for a requested unit: 'auto' clears the override."""
+    return None if requested == "auto" else requested
+
+
+def _stored_odometer_param_key(requested: str) -> str | None:
+    """The column value for a requested key, normalised the way stored keys are; "" clears it."""
+    return requested.upper().replace(" ", "_") or None
+
+
+def _refuse_torque_odometer_in_miles(device: LiveLinkDevice, changes: dict[str, Any]) -> None:
+    """Refuse a Torque device into, or out of, `mi` with TORQUE_ODOMETER (O-T6).
+
+    Torque sends that total in km, always, so `mi` stores every reading 1.609x
+    high. Leaving the pair through the API is refused too: the inflated history
+    stays behind either way, and the repair tool fixes it and clears the unit.
+    A request that keeps the pair as it is (a rename) goes through.
+
+    Runs before the history guards, so this message wins over their generic one.
+    """
+    if device.kind != "torque":
+        return
+    unit = changes.get("odometer_unit")
+    key = changes.get("odometer_param_key")
+    after_unit = device.odometer_unit if unit is None else _stored_odometer_unit(unit)
+    after_key = device.odometer_param_key if key is None else _stored_odometer_param_key(key)
+    in_pair = device.odometer_unit == "mi" and device.odometer_param_key == "TORQUE_ODOMETER"
+    if in_pair == (after_unit == "mi" and after_key == "TORQUE_ODOMETER"):
+        return
+
+    message = "Torque sends TORQUE_ODOMETER in km, so a Torque device can't read it as miles."
+    # Only a device already in the pair has inflated history. On `mi` with
+    # another key, its TORQUE_ODOMETER rows went in undeclared, so as km.
+    if in_pair:
+        message += (
+            " This device has been reading it as miles, so what it stored since it was"
+            " set that way is 1.609x high. Repair it with python tools/repair_wican_odometer_unit.py"
+            f" --device-id {device.device_id} --key TORQUE_ODOMETER --to km (a dry run"
+            " unless you add --apply), which also clears the unit."
+        )
+    else:
+        message += " Use auto or km as the odometer unit with this parameter."
+    raise ValueError(message)
 
 
 class LiveLinkService:
@@ -303,18 +353,28 @@ class LiveLinkService:
     def is_private_address(address: str) -> bool:
         """True only if `address` points exclusively to a private/LAN host.
 
+        See `address_reach`, which this answers ``== "private"`` from.
+        """
+        return LiveLinkService.address_reach(address) == "private"
+
+    @staticmethod
+    def address_reach(address: str) -> Literal["private", "not_private", "unresolved"]:
+        """Where `address` points: only private/LAN hosts, anything else, or nowhere.
+
         Parses the host with urlsplit (same URL semantics the HTTP client uses;
         handles IPv6 brackets, userinfo, ports), rejects loopback/link-local/
         reserved/unspecified, and for non-IP hostnames resolves EVERY address
-        and requires them all to be private — closing the over-broad-hostname
-        SSRF class. Admin-only setter; defence in depth.
+        and requires them all to be private, closing the over-broad-hostname
+        SSRF class. Admin-only setter; defence in depth. A hostname that won't
+        resolve is "unresolved", so the SD pull can say a lookup failed rather
+        than that the address went public (wave B review M-6).
         """
         if not address:
-            return False
+            return "not_private"
         raw = address if "://" in address else f"http://{address}"
         host = urlsplit(raw).hostname  # lowercased; strips scheme/userinfo/port/[]
         if not host or host == "localhost":
-            return False
+            return "not_private"
 
         def _ip_ok(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
             return (
@@ -326,21 +386,43 @@ class LiveLinkService:
             )
 
         try:
-            return _ip_ok(ipaddress.ip_address(host))
+            return "private" if _ip_ok(ipaddress.ip_address(host)) else "not_private"
         except ValueError:
-            pass  # not a literal IP — resolve the hostname and check every result
+            pass  # not a literal IP: resolve the hostname and check every result
 
         try:
             infos = socket.getaddrinfo(host, None)
         except socket.gaierror:
-            return False
+            return "unresolved"
         resolved = {info[4][0] for info in infos}
-        return bool(resolved) and all(_ip_ok(ipaddress.ip_address(a)) for a in resolved)
+        if not resolved:
+            return "unresolved"
+        return (
+            "private" if all(_ip_ok(ipaddress.ip_address(a)) for a in resolved) else "not_private"
+        )
 
     async def update_device_address(
         self, device_id: str, address: str | None, enabled: bool
     ) -> None:
-        """Set device_address and sd_backfill_enabled on a LiveLinkDevice."""
+        """Set device_address and sd_backfill_enabled on a LiveLinkDevice.
+
+        Raises LookupError for no such device and ValueError for a kind with
+        no SD card to pull (Fable F5-1), unless the call only clears both
+        fields. Checked here rather than in the route so the route's tests can
+        keep patching this class whole.
+        """
+        kind = (
+            await self.db.execute(
+                select(LiveLinkDevice.kind).where(LiveLinkDevice.device_id == device_id)
+            )
+        ).scalar_one_or_none()
+        if kind is None:
+            raise LookupError(f"Device {device_id} not found")
+        # A pure clear always goes through, so a stray saved before this check
+        # can still be removed.
+        clearing = not address and not enabled
+        if not clearing and Capability.SD_BACKFILL not in default_registry().capabilities_for(kind):
+            raise ValueError(f"A {kind} device has no SD card to pull")
         await self.db.execute(
             update(LiveLinkDevice)
             .where(LiveLinkDevice.device_id == device_id)
@@ -352,7 +434,9 @@ class LiveLinkService:
         """Resolve device ID from a telemetry-only payload (no status.device_id).
 
         Resolution order:
-        1. If a per-device token matches, return that device (authoritative).
+        1. If a WiCAN's per-device token matches, return that device, enabled
+           or not (authoritative). Only a WiCAN: this is the WiCAN ingest, and
+           a Torque phone's token must not name the phone here (carry 8).
         2. If using global token and exactly one enabled device exists, return it.
         3. Otherwise return None (ambiguous — caller should reject).
 
@@ -369,13 +453,15 @@ class LiveLinkService:
             if len(parts) == 2 and parts[0].lower() == "bearer":
                 token = parts[1]
 
-        # Step 1: Try per-device token match (authoritative)
+        # Step 1: Try per-device token match (authoritative). A disabled
+        # device's own token still names it, so the pipeline can answer
+        # "disabled" and keep the units it declares (A-4).
         if token:
             token_hash = self.hash_token(token)
             result = await self.db.execute(
                 select(LiveLinkDevice).where(
-                    LiveLinkDevice.enabled.is_(True),
                     LiveLinkDevice.device_token_hash == token_hash,
+                    LiveLinkDevice.kind == "wican",
                 )
             )
             device = result.scalar_one_or_none()
@@ -456,35 +542,14 @@ class LiveLinkService:
         if not device:
             return False
 
+        if vin != device.vin:
+            await self._end_drive_for_relink(device)
         device.vin = vin
         device.updated_at = utc_now()
         await self.db.commit()
 
         logger.info(
             "Linked device %s to vehicle %s", sanitize_for_log(device_id), sanitize_for_log(vin)
-        )
-        return True
-
-    async def unlink_device(self, device_id: str) -> bool:
-        """Unlink a device from its vehicle (ready for re-linking).
-
-        Historical data stays with the vehicle.
-        Returns True if successful, False if device not found.
-        """
-        device = await self.get_device_by_id(device_id)
-        if not device:
-            return False
-
-        old_vin = device.vin
-        device.vin = None
-        device.current_session_id = None  # Clear any active session
-        device.updated_at = utc_now()
-        await self.db.commit()
-
-        logger.info(
-            "Unlinked device %s from vehicle %s",
-            sanitize_for_log(device_id),
-            sanitize_for_log(old_vin),
         )
         return True
 
@@ -496,7 +561,9 @@ class LiveLinkService:
         separate parameters defaulting to None couldn't tell that from omitted,
         so a cleared label said saved and stayed. A name is stored stripped.
 
-        ``vin``: ``""`` unlinks, None leaves the link alone.
+        ``vin``: ``""`` unlinks, None leaves the link alone. Changing it ends
+        a drive in progress on the old vehicle and drops a warm-up
+        (`_end_drive_for_relink`).
 
         ``odometer_unit`` accepts 'km', 'mi', or 'auto' to clear the override
         back to key-shape inference. None leaves the current value untouched.
@@ -512,6 +579,8 @@ class LiveLinkService:
         if not device:
             return None
 
+        _refuse_torque_odometer_in_miles(device, changes)
+
         if "label" in changes:
             # An emptied name box is no name. Stored as blanks it beat the
             # device id fallback, so the sensor showed up nameless.
@@ -519,39 +588,47 @@ class LiveLinkService:
         vin = changes.get("vin")
         if vin is not None:
             # "" is the unlink sentinel (schemas.livelink.LiveLinkDeviceUpdate.vin).
-            device.vin = vin or None
+            new_vin = vin or None
+            if new_vin != device.vin:
+                await self._end_drive_for_relink(device)
+            device.vin = new_vin
         if "enabled" in changes:
             device.enabled = changes["enabled"]
         odometer_unit = changes.get("odometer_unit")
         if odometer_unit is not None:
-            resolved = None if odometer_unit == "auto" else odometer_unit
-            if resolved != device.odometer_unit and await self._has_odometer_history(
-                device_id, device.odometer_param_key
-            ):
+            resolved = _stored_odometer_unit(odometer_unit)
+            if resolved != device.odometer_unit and await self.device_has_odometer_history(device):
                 raise ValueError(
-                    "This device has already recorded odometer readings under its current "
-                    "unit. Changing the unit now would leave that history in one unit and "
-                    "write new readings in the other, and an inflated odometer record is "
-                    "kept as a floor rather than corrected by later readings. Convert the "
-                    "stored data first with backend/tools/normalize_telemetry_odometer_units.py "
-                    "and fix_session_odometer_units.py, then set the unit."
+                    "Odometer readings have already been recorded under this device's "
+                    "current unit, by this device, or another device on this vehicle since "
+                    "this one was added. Changing the unit now would leave that history in "
+                    "one unit and write new readings in the other, and an inflated odometer "
+                    "record is kept as a floor rather than corrected by later readings. If "
+                    "the history holds raw miles from before the v2.26 conversion, convert "
+                    "it first with python tools/normalize_telemetry_odometer_units.py and "
+                    "tools/fix_session_odometer_units.py, then set the unit. If a WiCAN with no "
+                    "unit set was read in the wrong unit, repair that key instead with "
+                    "python tools/repair_wican_odometer_unit.py: --to km if it really "
+                    "reports km but was read as miles, --to mi if it really reports miles "
+                    "but was read as km."
                 )
             device.odometer_unit = resolved
 
         odometer_param_key = changes.get("odometer_param_key")
         if odometer_param_key is not None:
-            resolved_key = odometer_param_key.upper().replace(" ", "_") or None
+            resolved_key = _stored_odometer_param_key(odometer_param_key)
             # Same reasoning as the unit guard above: changing which parameter
             # IS the odometer mid-stream splits the history between two keys.
-            # Checked against the CURRENT declaration, or the predicate falls
-            # back to name matching and answers False for exactly the devices
-            # this feature serves.
-            if resolved_key != device.odometer_param_key and await self._has_odometer_history(
-                device_id, device.odometer_param_key
+            # The predicate reads the CURRENT declaration, or it falls back to
+            # name matching and answers False for exactly the devices this
+            # feature serves.
+            if resolved_key != device.odometer_param_key and await self.device_has_odometer_history(
+                device
             ):
                 raise ValueError(
-                    "This device has already recorded odometer readings under its "
-                    "current parameter. Changing it now would split that history. "
+                    "Odometer readings have already been recorded under this device's "
+                    "current parameter, by this device, or another device on this vehicle "
+                    "since this one was added. Changing it now would split that history. "
                     "Normalise the stored data first, then change the parameter."
                 )
             device.odometer_param_key = resolved_key
@@ -561,24 +638,91 @@ class LiveLinkService:
 
         return device
 
-    async def _has_odometer_history(self, device_id: str, declared: str | None = None) -> bool:
-        """Whether this device has stored any odometer reading.
+    async def _end_drive_for_relink(self, device: LiveLinkDevice) -> None:
+        """Let go of the old vehicle's drive state before the device moves (R8).
 
-        `declared` is the device's `odometer_param_key`. It MUST be passed by
-        every caller that guards a change, or the predicate falls back to name
-        matching and answers False forever for a device whose odometer key the
-        patterns do not recognise. That silently disables the guard for exactly
-        the devices the declaration exists to serve.
+        An open session is ended at its last movement, or the last contact when
+        it has none, the way the timeout clocks would have closed it. Left open,
+        it never closed, and the device's next movement on the new vehicle
+        reopened a drive belonging to the old one. A pointer held on a closed
+        session (awaiting a reopen) is just dropped.
+
+        A warm-up in progress is dropped too, session or not: its baseline is
+        the old car's odometer, so the new car's first reading would be judged
+        against it. `pending_offline_at` stays. It's the ECU going quiet, a fact
+        about the device, and its finalizer still has to mark the device offline;
+        with the pointer gone it has no session to close.
+
+        The ECU status goes back to unknown: it was the old car's, and an
+        unlinked device's isn't written (carry 7). Kept `online`, the new car's
+        first drive never opened in contact mode, since the detector only acts
+        on a change (wave B review M-5).
         """
-        from app.models.vehicle_telemetry import VehicleTelemetry
-        from app.utils.odometer_units import is_odometer_param_key
+        SessionService.clear_movement_state(device)
+        device.ecu_status = "unknown"
+        if not device.current_session_id:
+            return
+        session = await self.db.get(DriveSession, device.current_session_id)
+        if session is not None and session.ended_at is None:
+            end_at = session.movement_ended_at or device.last_seen or utc_now()
+            # Never before it started, or the duration goes negative.
+            end_at = max(to_naive_utc(end_at), to_naive_utc(session.started_at))
+            await SessionService(self.db).end_session(device, end_at)
+        device.current_session_id = None
 
-        result = await self.db.execute(
+    async def device_has_odometer_history(self, device: LiveLinkDevice) -> bool:
+        """Whether odometer readings were recorded that this device could have written.
+
+        Any of: an odometer-key `vehicle_telemetry` row from the device; an
+        odometer-key `vehicle_telemetry_latest` row on its VIN; a
+        `source='livelink'` odometer record on its VIN. The last two survive
+        `prune_old_telemetry`, so a car parked past the 90-day retention keeps
+        its guard (Fable F3-1). They're keyed by VIN, so they only count from
+        the device's `created_at` on: a replacement dongle isn't blocked by a
+        dead one's history (Fable F4-2). A second device live on the same VIN
+        still blocks it; accepted.
+
+        Odometer keys match by the device's `odometer_param_key` when it has
+        one, by name otherwise, the way the device's kind records odometers
+        (`is_recorded_odometer_key`): a WiCAN by the scan, so `ODOMETER_KM`
+        history counts (FW-A-r2), any other kind only its declared key, so a
+        Torque phone's undeclared `TORQUE_ODOMETER` doesn't (FW-A-r3). Nor
+        does the phone's declared one count for a WiCAN on the same car: the
+        scan skips another source's own keys (FW-A-r4a).
+        """
+        declared = device.odometer_param_key
+        kind = device.kind
+        raw = await self.db.execute(
             select(VehicleTelemetry.param_key)
-            .where(VehicleTelemetry.device_id == device_id)
+            .where(VehicleTelemetry.device_id == device.device_id)
             .distinct()
         )
-        return any(is_odometer_param_key(key, declared) for (key,) in result.all())
+        if any(is_recorded_odometer_key(key, kind, declared) for (key,) in raw.all()):
+            return True
+        if not device.vin:
+            return False
+
+        since = device.created_at
+        latest = select(VehicleTelemetryLatest.param_key).where(
+            VehicleTelemetryLatest.vin == device.vin
+        )
+        if since is not None:
+            latest = latest.where(VehicleTelemetryLatest.timestamp >= since)
+        if any(
+            is_recorded_odometer_key(key, kind, declared)
+            for (key,) in (await self.db.execute(latest))
+        ):
+            return True
+
+        # No key or kind filter here, on purpose. The repair tool's Torque record
+        # branch counts on this refusing a declaration whenever any livelink
+        # record landed on the VIN since the device arrived.
+        record = select(OdometerRecord.id).where(
+            OdometerRecord.vin == device.vin, OdometerRecord.source == "livelink"
+        )
+        if since is not None:
+            record = record.where(OdometerRecord.created_at >= since)
+        return (await self.db.execute(record.limit(1))).first() is not None
 
     async def device_reported_param_keys(self, device_id: str) -> list[str]:
         """Distinct parameter keys THIS device has reported.
@@ -636,8 +780,13 @@ class LiveLinkService:
         rssi: int | None = None,
         battery_voltage: float | None = None,
         sta_ip: str | None = None,
+        touch_last_seen: bool = True,
     ) -> None:
-        """Update device status fields from payload."""
+        """Update device status fields from payload.
+
+        `touch_last_seen=False` is for a retained LWT `offline`: the broker
+        replaying it is not the device talking, so `last_seen` stays put.
+        """
         # Read prior state only when transitioning to "online" — keeps the extra
         # SELECT off every non-online status update.  Capture scalar values
         # before the bulk UPDATE runs so the SQLAlchemy identity-map expiry
@@ -646,20 +795,25 @@ class LiveLinkService:
         if device_status == "online":
             row = await self.db.execute(
                 select(
+                    LiveLinkDevice.kind,
                     LiveLinkDevice.device_status,
                     LiveLinkDevice.device_address,
                     LiveLinkDevice.sd_backfill_enabled,
                 ).where(LiveLinkDevice.device_id == device_id)
             )
             prior_row = row.one_or_none()
+            # The kind check matters now that a generic reading says 'online':
+            # a stray address on a sensor would queue a pull it can't answer.
             if (
                 prior_row is not None
                 and prior_row.device_status != "online"
                 and prior_row.device_address
                 and prior_row.sd_backfill_enabled
+                and Capability.SD_BACKFILL in default_registry().capabilities_for(prior_row.kind)
             ):
                 should_backfill = True
 
+        now = utc_now()
         await self.db.execute(
             update(LiveLinkDevice)
             .where(LiveLinkDevice.device_id == device_id)
@@ -671,24 +825,25 @@ class LiveLinkService:
                 if battery_voltage is not None
                 else LiveLinkDevice.battery_voltage,
                 sta_ip=sta_ip or LiveLinkDevice.sta_ip,
-                last_seen=utc_now(),
-                updated_at=utc_now(),
+                last_seen=now if touch_last_seen else LiveLinkDevice.last_seen,
+                updated_at=now,
             )
         )
 
         if should_backfill:
             enqueue_sd_backfill(device_id)
 
-    async def set_device_offline(self, device_id: str) -> None:
-        """Mark a device and its ECU as offline."""
+    async def set_device_offline(self, device_id: str, clear_ecu: bool = True) -> None:
+        """Mark a device offline, and its ECU too unless `clear_ecu` is False.
+
+        The sweep passes False for a kind without DRIVE_SESSION: a sensor has
+        no ECU, and none of its batches would ever reset one.
+        """
+        values: dict[str, Any] = {"device_status": "offline", "updated_at": utc_now()}
+        if clear_ecu:
+            values["ecu_status"] = "offline"
         await self.db.execute(
-            update(LiveLinkDevice)
-            .where(LiveLinkDevice.device_id == device_id)
-            .values(
-                device_status="offline",
-                ecu_status="offline",
-                updated_at=utc_now(),
-            )
+            update(LiveLinkDevice).where(LiveLinkDevice.device_id == device_id).values(**values)
         )
 
     # =========================================================================

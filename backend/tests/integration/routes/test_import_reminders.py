@@ -6,10 +6,10 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Reminder, Vehicle
+from app.models import Note, Reminder, Vehicle
 from app.utils.household_time import household_date, household_today
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
@@ -423,3 +423,267 @@ async def test_a_blank_due_date_imports_on_the_mileage(
         None,
         Decimal("160000.00"),
     )
+
+
+async def test_a_repeating_legacy_reminder_keeps_its_exported_due_point(  # S3-02, J3
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    """Due at 45,000 mi with the odometer at 43,000: R8 would count 5,000 mi on from
+    43,000 and land 3,000 mi late. 45,000 mi is 72,420.48 km."""
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216113")
+    due = (household_today() + timedelta(days=30)).isoformat()
+    data = await _import(
+        client,
+        non_admin_headers,
+        vin,
+        {
+            "odometer_records": [
+                {"date": (household_today() - timedelta(days=3)).isoformat(), "reading": 43000}
+            ],
+            "reminders": [
+                {
+                    "description": "Oil change",
+                    "due_date": due,
+                    "due_mileage": 45000,
+                    "is_recurring": True,
+                    "recurrence_days": 180,
+                    "recurrence_miles": 5000,
+                }
+            ],
+        },
+    )
+    assert data["reminders"]["success_count"] == 1, data
+    (reminder,) = await _reminders(db_session, vin)
+    # main: ("both", today + 180 days, 77248.51)
+    assert (reminder.reminder_type, reminder.due_date.isoformat(), reminder.due_mileage_km) == (
+        "both",
+        due,
+        Decimal("72420.48"),
+    )
+
+
+async def test_a_date_and_mileage_interval_with_no_reading_warns_that_it_kept_the_date(  # D9
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216114")
+    data = await _import(
+        client,
+        non_admin_headers,
+        vin,
+        {
+            "reminders": [
+                {
+                    "description": "Service",
+                    "is_recurring": True,
+                    "recurrence_days": 180,
+                    "recurrence_miles": 5000,
+                }
+            ]
+        },
+    )
+    assert data["reminders"]["success_count"] == 1, data
+    # main: KeyError, the response had no warnings
+    assert data["warnings"] == [
+        "Reminder 0: no odometer reading to count the mileage from, imported with its date only"
+    ]
+
+
+_METRIC = {"export_version": "3", "units": "metric"}
+
+
+@pytest.mark.parametrize(
+    ("vin", "marker", "due_mileage", "reason"),
+    [
+        ("5NPE24AF0FH216120", _METRIC, "sNaN", "due_mileage_km must be a number"),
+        (
+            "5NPE24AF0FH216121",
+            _METRIC,
+            1e26,
+            "due_mileage_km must be at most 99999999.99, not 100000000000000000000000000",
+        ),
+        ("5NPE24AF0FH216122", {}, "sNaN", "due_mileage_km must be a number"),
+        (
+            "5NPE24AF0FH216123",
+            {},
+            1e26,
+            "due_mileage_km must be at most 99999999.99, not 160934400000000000000000000",
+        ),
+        ("5NPE24AF0FH216125", _METRIC, "abc", "due_mileage is not a number"),
+        ("5NPE24AF0FH216126", {}, "abc", "due_mileage is not a number"),
+    ],
+    ids=["metric-snan", "metric-1e26", "legacy-snan", "legacy-1e26", "metric-abc", "legacy-abc"],
+)
+async def test_a_due_mileage_that_cannot_be_rounded_gets_the_bounds_message(  # S3-03
+    client: AsyncClient,
+    non_admin_headers,
+    non_admin_user,
+    db_session: AsyncSession,
+    vin: str,
+    marker: dict,
+    due_mileage: object,
+    reason: str,
+):
+    await _seed_vehicle(db_session, non_admin_user["id"], vin)
+    data = await _import(
+        client,
+        non_admin_headers,
+        vin,
+        {
+            **marker,
+            "reminders": [
+                {"description": "Odd", "due_mileage": due_mileage, "is_recurring": False}
+            ],
+        },
+    )
+    # main: "Reminder 0: could not be imported" (InvalidOperation from == 0 or quantize)
+    assert data["errors"] == [f"Reminder 0: {reason}"], data
+
+
+async def test_reimporting_a_backup_does_not_double_its_notes_or_reminders(  # N-1
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216115")
+    due = (household_today() + timedelta(days=30)).isoformat()
+    payload = {
+        "export_version": "8",
+        "units": "metric",
+        "notes": [{"date": "2026-01-05", "title": "Tyres", "content": "Bought winters"}],
+        "reminders": [
+            {"description": "Plates", "due_date": due, "is_recurring": False},
+        ],
+    }
+    await _import(client, non_admin_headers, vin, payload)
+    again = await _import(client, non_admin_headers, vin, payload)
+    # main: (1, 0) for both, every row a second time
+    assert (again["notes"]["success_count"], again["notes"]["skipped_count"]) == (0, 1), again
+    assert (again["reminders"]["success_count"], again["reminders"]["skipped_count"]) == (
+        0,
+        1,
+    ), again
+    assert len(await _reminders(db_session, vin)) == 1
+    notes = (await db_session.execute(select(Note).where(Note.vin == vin))).scalars().all()
+    assert len(notes) == 1
+
+
+async def test_a_recurrence_miles_that_is_not_a_number_names_its_field(
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216127")
+    data = await _import(
+        client,
+        non_admin_headers,
+        "5NPE24AF0FH216127",
+        {"reminders": [{"description": "Odd", "is_recurring": True, "recurrence_miles": "abc"}]},
+    )
+    # main: "Reminder 0: could not be imported", Decimal() raised InvalidOperation
+    assert data["errors"] == ["Reminder 0: recurrence_miles is not a number"], data
+
+
+async def test_a_reimport_matches_a_due_mileage_stored_off_the_cent(
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    """A legacy SQLite row can hold 16093.444 km; the file's 16093.44 is the same reminder.
+
+    The ORM rounds at bind since #245, so the figure goes in through raw SQL. On
+    PostgreSQL the column rounds it, so there the test passes either way.
+    """
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216124")
+    stored = Reminder(
+        vin=vin,
+        title="Timing belt",
+        reminder_type="mileage",
+        due_mileage_km=Decimal("16093.44"),
+        status="pending",
+    )
+    db_session.add(stored)
+    await db_session.flush()
+    await db_session.execute(
+        text("UPDATE vehicle_reminders SET due_mileage_km = 16093.444 WHERE id = :id"),
+        {"id": stored.id},
+    )
+    await db_session.commit()
+    payload = {
+        **_METRIC,
+        "reminders": [
+            {"description": "Timing belt", "due_mileage": 16093.44, "is_recurring": False}
+        ],
+    }
+
+    data = await _import(client, non_admin_headers, vin, payload)
+    assert (data["reminders"]["success_count"], data["reminders"]["skipped_count"]) == (
+        0,
+        1,
+    ), data
+    assert len(await _reminders(db_session, vin)) == 1
+
+
+async def test_a_note_needs_content_but_not_a_title(  # S1d-07
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216116")
+    data = await _import(
+        client,
+        non_admin_headers,
+        vin,
+        {
+            "export_version": "8",
+            "units": "metric",
+            "notes": [
+                {"date": "2026-01-06", "content": "No title"},
+                {"date": "2026-01-07", "title": "No content"},
+                {"date": "2026-01-08", "title": "Blank", "content": "  "},
+            ],
+        },
+    )
+    # main: 0 imported, "Note 0: could not be imported" (a KeyError on title)
+    assert data["notes"]["success_count"] == 1, data
+    assert data["errors"] == ["Note 1: content is missing", "Note 2: content is missing"]
+    await db_session.rollback()
+    (note,) = (await db_session.execute(select(Note).where(Note.vin == vin))).scalars().all()
+    assert (note.title, note.content) == (None, "No title")
+
+
+async def test_a_note_title_is_keyed_only_when_the_row_has_one_and_blank_is_null(
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    """T-16: a note with no title key matches a stored note that has one; "" stores NULL (F-7)."""
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216128")
+    db_session.add(Note(vin=vin, date=date(2026, 1, 9), title="Tyres", content="Rotated"))
+    await db_session.commit()
+    data = await _import(
+        client,
+        non_admin_headers,
+        vin,
+        {
+            **_METRIC,
+            "notes": [
+                {"date": "2026-01-09", "content": "Rotated"},
+                {"date": "2026-01-10", "title": "", "content": "Washed"},
+            ],
+        },
+    )
+    # c304a690: (2, 0), the absent title read as NULL; the blank one stored ""
+    assert (data["notes"]["success_count"], data["notes"]["skipped_count"]) == (1, 1), data
+    await db_session.rollback()
+    titles = (
+        await db_session.execute(select(Note.title).where(Note.vin == vin).order_by(Note.date))
+    ).all()
+    assert [title for (title,) in titles] == ["Tyres", None]
+
+
+async def test_a_note_title_that_is_not_text_is_a_row_error(
+    client: AsyncClient, non_admin_headers, non_admin_user, db_session: AsyncSession
+):
+    """R2: the file's own bad type is the row's error. PostgreSQL would refuse it anyway."""
+    vin = await _seed_vehicle(db_session, non_admin_user["id"], "5NPE24AF0FH216129")
+    data = await _import(
+        client,
+        non_admin_headers,
+        vin,
+        {**_METRIC, "notes": [{"date": "2026-01-11", "title": 42, "content": "Numbered"}]},
+    )
+    # c304a690: (1, []), SQLite stored the 42
+    assert (data["notes"]["success_count"], data["errors"]) == (
+        0,
+        ["Note 0: title must be text"],
+    ), data

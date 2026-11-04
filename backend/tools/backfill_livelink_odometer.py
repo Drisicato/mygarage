@@ -15,6 +15,9 @@ It will NOT touch a day that already has any odometer record — a manual or
 fuel-sourced entry is more authoritative than a reconstruction, and this is
 exactly the kind of script that should never overwrite a human's number.
 
+It refuses a Torque phone reading TORQUE_ODOMETER as miles: Torque sends it in
+km, so its records would come out 1.609x high. Repair that phone first.
+
 Usage (dry run is the default; nothing is written without --apply):
 
     python tools/backfill_livelink_odometer.py --db /data/mygarage.db
@@ -31,17 +34,30 @@ import sys
 from collections import defaultdict
 from datetime import date
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 sys.path.insert(0, ".")
 
 from app.utils.odometer_units import (  # noqa: E402
     ODOMETER_UNIT_KM,
-    is_odometer_param_key,
+    ODOMETER_UNIT_MI,
+    WICAN_DEVICE_KIND,
+    is_recorded_odometer_key,
     odometer_value_to_km,
     resolve_odometer_unit,
 )
-from tools._tool_db import as_date, resolve_sync_url  # noqa: E402
+from tools._tool_db import (  # noqa: E402
+    as_date,
+    create_tool_engine,
+    declared_odometer_keys,
+    device_key_units,
+    migrated_odometer_mi_devices,
+    print_unreadable_note,
+)
+from tools.repair_wican_odometer_unit import (  # noqa: E402
+    TORQUE_DEVICE_KIND,
+    TORQUE_ODOMETER_KEY,
+)
 
 #: Below this, a "mi" device's stored telemetry already sits in the same range
 #: as the vehicle's kilometre odometer records, so it has been converted and
@@ -70,15 +86,58 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     """Reconstruct and optionally write the missing odometer records."""
     args = _parse_args()
-    engine = create_engine(resolve_sync_url(args.db))
+    engine = create_tool_engine(args.db)
 
     with engine.begin() as conn:
+        # Its device query needs these columns; without them it can't tell a
+        # WiCAN from anything else, so it stops rather than guess.
+        if print_unreadable_note(conn):
+            return 2
         devices = {
             row.device_id: (row.vin, row.odometer_unit, row.kind)
             for row in conn.execute(
                 text("SELECT device_id, vin, odometer_unit, kind FROM livelink_devices")
             )
         }
+
+        # Units as live ingest resolves them: a legacy row keeps a bare
+        # ODOMETER in miles, where the key rule alone now says km.
+        key_units = device_key_units(conn)
+        # Raw miles main never recorded from, and km once migration 133 has run.
+        skip_odometer_mi = migrated_odometer_mi_devices(conn)
+        # The keys live ingest records from: the scan, or the device's declared key.
+        declared = declared_odometer_keys(conn)
+
+        # Torque sends TORQUE_ODOMETER in km, so a phone on mi with it declared
+        # would get records 1.609x high (O-T6). The repair fixes its history
+        # and clears the unit; then this reads it right.
+        torque_in_miles = sorted(
+            row.device_id
+            for row in conn.execute(
+                text(
+                    "SELECT DISTINCT device_id FROM vehicle_telemetry WHERE param_key = :k"
+                    + (" AND vin = :v" if args.vin else "")
+                ),
+                {"k": TORQUE_ODOMETER_KEY, "v": args.vin},
+            )
+            if row.device_id in devices
+            and devices[row.device_id][1:] == (ODOMETER_UNIT_MI, TORQUE_DEVICE_KIND)
+            and declared.get(row.device_id) == TORQUE_ODOMETER_KEY
+        )
+        if torque_in_miles:
+            print(
+                "✗ Torque sends TORQUE_ODOMETER in km, but these Torque devices read it as\n"
+                "  miles, so this tool would write their odometer records 1.609x high:"
+            )
+            for device_id in torque_in_miles:
+                print(f"    {device_id}")
+            print("\n  Repair each one first, then run this again:")
+            for device_id in torque_in_miles:
+                print(
+                    f"    python tools/repair_wican_odometer_unit.py --device-id {device_id} "
+                    f"--key {TORQUE_ODOMETER_KEY} --to km"
+                )
+            return 2
 
         # Refuse if the telemetry has already been converted. This reads
         # `value` as the device reported it and applies the device's declared
@@ -88,28 +147,49 @@ def main() -> int:
         # forever, so the damage outlives the run. Reconstruct first, convert
         # second: the documented upgrade order says so, and this enforces it.
         already_canonical: list[str] = []
-        for device_id, (dev_vin, unit, kind) in devices.items():
-            if not dev_vin:
-                continue
+        # --vin limits the refusal too, to what the reconstruction reads: rows
+        # on that VIN, by each row's own VIN. A device since relinked to
+        # another car still has its rows here, and its current VIN says
+        # nothing about them. Another vehicle's history says nothing either.
+        if args.vin:
+            scoped = [
+                (row.device_id, args.vin)
+                for row in conn.execute(
+                    text("SELECT DISTINCT device_id FROM vehicle_telemetry WHERE vin = :v"),
+                    {"v": args.vin},
+                )
+                if row.device_id in devices
+            ]
+        else:
+            scoped = [(d, vin) for d, (vin, _unit, _kind) in devices.items() if vin]
+        for device_id, scope_vin in scoped:
+            _dev_vin, unit, kind = devices[device_id]
+            row_vin = " AND vin = :v" if args.vin else ""
             for key_row in conn.execute(
-                text("SELECT DISTINCT param_key FROM vehicle_telemetry WHERE device_id = :d"),
-                {"d": device_id},
+                text(
+                    "SELECT DISTINCT param_key FROM vehicle_telemetry WHERE device_id = :d"
+                    + row_vin
+                ),
+                {"d": device_id, "v": scope_vin},
             ):
                 param_key = key_row.param_key
-                if not is_odometer_param_key(param_key):
+                if not is_recorded_odometer_key(param_key, kind, declared.get(device_id)):
                     continue
-                if resolve_odometer_unit(param_key, unit, kind) == ODOMETER_UNIT_KM:
+                if param_key == "ODOMETER_MI" and device_id in skip_odometer_mi:
+                    continue
+                key_unit = key_units.get((device_id, param_key))
+                if resolve_odometer_unit(param_key, unit, kind, key_unit) == ODOMETER_UNIT_KM:
                     continue  # nothing would be converted for this key anyway
                 stored_max = conn.execute(
                     text(
                         "SELECT MAX(value) FROM vehicle_telemetry "
-                        "WHERE device_id = :d AND param_key = :p"
+                        "WHERE device_id = :d AND param_key = :p" + row_vin
                     ),
-                    {"d": device_id, "p": param_key},
+                    {"d": device_id, "p": param_key, "v": scope_vin},
                 ).scalar()
                 record_max = conn.execute(
                     text("SELECT MAX(odometer_km) FROM odometer_records WHERE vin = :v"),
-                    {"v": dev_vin},
+                    {"v": scope_vin},
                 ).scalar()
                 if not stored_max or not record_max:
                     continue
@@ -137,7 +217,12 @@ def main() -> int:
                 "FROM vehicle_telemetry WHERE value IS NOT NULL"
             )
         ):
-            if not is_odometer_param_key(row.param_key):
+            # A deleted device's rows have no kind on file; the conversion below
+            # reads them by WiCAN's rules, so the key match does too.
+            row_kind = devices[row.device_id][2] if row.device_id in devices else WICAN_DEVICE_KIND
+            if not is_recorded_odometer_key(row.param_key, row_kind, declared.get(row.device_id)):
+                continue
+            if row.param_key == "ODOMETER_MI" and row.device_id in skip_odometer_mi:
                 continue
             if args.vin and row.vin != args.vin:
                 continue
@@ -178,7 +263,9 @@ def main() -> int:
             if (vin, day) in taken:
                 continue
             _dev_vin, unit, kind = devices.get(device_id, (None, None, None))
-            km = odometer_value_to_km(value, param_key, unit, kind)
+            km = odometer_value_to_km(
+                value, param_key, unit, kind, key_units.get((device_id, param_key))
+            )
             if km is None or km <= 0:
                 continue
             rounded = int(round(km))

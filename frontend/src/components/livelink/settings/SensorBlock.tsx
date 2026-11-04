@@ -83,13 +83,18 @@ export default function SensorBlock({ device, vehicles, onChanged }: Props): Rea
     }
   }
 
-  // Short: the line under the header says what not being linked costs.
-  const status = !device.vin
-    ? t('integrations.sourceVehicleUnset')
-    : readings?.online
-      ? t('integrations.statusReceiving')
-      : t('integrations.sensorNoData')
-  const tone = !device.vin || !readings?.online ? 'text-warning' : 'text-success'
+  // Short: the line under the header says what not being linked costs. Until
+  // the readings arrive nothing is known, and a failed load isn't a quiet
+  // sensor, so neither may read "no recent readings".
+  const [status, tone] = !device.vin
+    ? [t('integrations.sourceVehicleUnset'), 'text-warning']
+    : readingsFailed
+      ? [t('integrations.sensorStatusFailed'), 'text-warning']
+      : !readings
+        ? [t('integrations.sensorStatusLoading'), 'text-text-mute']
+        : readings.online
+          ? [t('integrations.statusReceiving'), 'text-success']
+          : [t('integrations.sensorNoData'), 'text-warning']
   const name = device.label || device.device_id
 
   return (
@@ -133,7 +138,7 @@ export default function SensorBlock({ device, vehicles, onChanged }: Props): Rea
         <span className={`text-xs ${tone}`}>{status}</span>
         <div className="ml-auto flex items-center gap-1">
           <Select
-            aria-label={t('integrations.sourceVehicle')}
+            aria-label={t('integrations.sourceVehicleFor', { name })}
             size="sm"
             value={device.vin ?? ''}
             disabled={busy}
@@ -146,7 +151,9 @@ export default function SensorBlock({ device, vehicles, onChanged }: Props): Rea
           />
           <IconButton
             icon={SlidersHorizontal}
-            label={t('integrations.advancedMappings')}
+            label={t('integrations.advancedMappingsFor', { name })}
+            title={t('integrations.advancedMappings')}
+            aria-expanded={showMappings}
             variant="ghost"
             size="sm"
             onClick={() => setShowMappings((shown) => !shown)}

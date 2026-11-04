@@ -22,11 +22,11 @@ def _make_supplies(engine):
                 "vin VARCHAR(17) REFERENCES vehicles(vin) ON DELETE CASCADE)"
             )
         )
-        conn.execute(text("INSERT INTO vehicles (vin) VALUES ('1HGBH41JXMN109186')"))
+        conn.execute(text("INSERT INTO vehicles (vin) VALUES ('2T1BURHE0JC013300')"))
         conn.execute(
             text(
                 "INSERT INTO supplies (id, name, vin) VALUES "
-                "(1, 'Oil', '1HGBH41JXMN109186'), (2, 'Wiper Fluid', NULL)"
+                "(1, 'Oil', '2T1BURHE0JC013300'), (2, 'Wiper Fluid', NULL)"
             )
         )
 
@@ -41,10 +41,12 @@ def test_133_moves_pinned_vins_into_links(engine_for_migration):
     _make_supplies(engine)
     _load("133_add_supply_vehicles").upgrade(engine)
 
-    assert _links(engine) == [(1, "1HGBH41JXMN109186")]
+    assert _links(engine) == [(1, "2T1BURHE0JC013300")]
     with engine.connect() as conn:
         # Cleared, so deleting the vehicle no longer cascades the supply away.
-        assert conn.execute(text("SELECT COUNT(*) FROM supplies WHERE vin IS NOT NULL")).scalar() == 0
+        assert (
+            conn.execute(text("SELECT COUNT(*) FROM supplies WHERE vin IS NOT NULL")).scalar() == 0
+        )
 
 
 def test_133_idempotent(engine_for_migration):
@@ -53,7 +55,7 @@ def test_133_idempotent(engine_for_migration):
     mod = _load("133_add_supply_vehicles")
     mod.upgrade(engine)
     mod.upgrade(engine)  # must not raise or duplicate
-    assert _links(engine) == [(1, "1HGBH41JXMN109186")]
+    assert _links(engine) == [(1, "2T1BURHE0JC013300")]
 
 
 def test_133_skips_when_table_missing(engine_for_migration):

@@ -64,9 +64,7 @@ class TestPlannedRepairPhotos:
     ):
         vin = test_vehicle["vin"]
         repair_id = await _repair(client, auth_headers, vin)
-        up = await _upload(
-            client, auth_headers, vin, repair_id, data=_png("RGBA", (100, 100))
-        )
+        up = await _upload(client, auth_headers, vin, repair_id, data=_png("RGBA", (100, 100)))
         assert up.status_code == 201, up.text
 
     async def test_delete_photo_removes_file(self, client: AsyncClient, auth_headers, test_vehicle):
@@ -80,7 +78,9 @@ class TestPlannedRepairPhotos:
         )
         assert response.status_code == 204
         assert not _stored(vin, repair_id)
-        again = await client.get(f"{_base(vin)}/{repair_id}/photos/{photo_id}", headers=auth_headers)
+        again = await client.get(
+            f"{_base(vin)}/{repair_id}/photos/{photo_id}", headers=auth_headers
+        )
         assert again.status_code == 404
 
     async def test_deleting_repair_removes_photos(
@@ -103,15 +103,15 @@ class TestPlannedRepairPhotos:
         assert response.status_code == 400
         assert not _stored(vin, repair_id)
 
-    async def test_photo_limit(
-        self, client: AsyncClient, auth_headers, test_vehicle, monkeypatch
-    ):
+    async def test_photo_limit(self, client: AsyncClient, auth_headers, test_vehicle, monkeypatch):
         monkeypatch.setattr(planned_repair_service, "MAX_PHOTOS_PER_REPAIR", 2)
         vin = test_vehicle["vin"]
         repair_id = await _repair(client, auth_headers, vin)
         small = _png(size=(20, 20))
         for _ in range(2):
-            assert (await _upload(client, auth_headers, vin, repair_id, data=small)).status_code == 201
+            assert (
+                await _upload(client, auth_headers, vin, repair_id, data=small)
+            ).status_code == 201
         response = await _upload(client, auth_headers, vin, repair_id, data=small)
         assert response.status_code == 400
         assert len(_stored(vin, repair_id)) == 2

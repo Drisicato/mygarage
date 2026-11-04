@@ -3,12 +3,16 @@
 Extracted verbatim in behavior from `routes/torque.py:_ingest`.
 
 Declares ODOMETER as a CAPABILITY but leaves `sync_odometer` False. Torque
-historically recorded no odometer at all: `store_torque_telemetry` never called
-`_sync_odometer_from_telemetry`, and nothing Torque sends matches
-`ODOMETER_PID_PATTERNS`. Flipping the storage policy would have started syncing
-for every Torque user AND replaced the newer-only latest write. Instead the
-capability opens the door and each DEVICE decides by naming its own
-`odometer_param_key`; a device that names nothing behaves exactly as before.
+historically recorded no odometer at all: the old Torque writer never called
+`_sync_odometer_from_telemetry`, and a Torque device records no key by name:
+its `TORQUE_ODOMETER` would match WiCAN's `ODOMETER_NAME_PATTERNS` scan, but
+that scan is WiCAN's alone (`is_recorded_odometer_key`), and it skips
+Torque's own keys (`own_param_keys`, FW-A-r4a), so on a car with both the
+WiCAN never reads the phone's total as its own. Flipping the storage policy
+would have started syncing for every Torque user AND replaced the newer-only
+latest write. Instead the capability opens the door and each DEVICE decides
+by naming its own `odometer_param_key`; a device that names nothing behaves
+exactly as before.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from app.services.livelink_sources.base import (
 )
 from app.services.torque_pid_map import (
     TORQUE_DEFAULT_UNITS,
+    TORQUE_OWN_KEYS,
     TORQUE_PID_NAMES,
     parse_torque_query,
 )
@@ -61,21 +66,24 @@ class TorqueModule(BaseSourceModule):
             Capability.ODOMETER,
         }
     )
-    #: Exactly store_torque_telemetry's behavior: newer-only latest updates so a
-    #: backfilled row never clobbers a fresher live one, and no storage-interval
-    #: check because that method never performed one.
+    #: Newer-only latest updates so a backfilled row never clobbers a fresher
+    #: live one. The storage interval applies like it does for every other
+    #: source; the old Torque writer just never checked it (G5b-12).
     storage_policy = StoragePolicy(
         latest="if_newer",
-        apply_storage_interval=False,
         sync_odometer=False,
         observe_movement=False,
     )
+    #: Its extended PIDs are Torque's alone; the standard ones are shared aliases.
+    own_param_keys = TORQUE_OWN_KEYS
 
-    async def resolve_device(self, db: AsyncSession, device_key: str) -> LiveLinkDevice | None:
-        """Torque's device_key is a path token, not a device id."""
+    async def resolve_device(
+        self, db: AsyncSession, batch: IngestBatch
+    ) -> tuple[LiveLinkDevice | None, bool]:
+        """Torque's device_key is a path token, not a device id. Never discovers."""
         from app.services.torque_service import TorqueService
 
-        return await TorqueService(db).resolve_by_token(device_key)
+        return await TorqueService(db).resolve_by_token(batch.device_key), False
 
     async def parse(self, env) -> IngestBatch | None:
         if not isinstance(env, HttpEnvelope):
@@ -121,17 +129,21 @@ class TorqueModule(BaseSourceModule):
                 )
                 for key, value in reading.obd.items()
             ],
-            declared_units=reading.default_units,
+            # The static unit wins here too, so a unit-less row gets the unit
+            # its values are actually stored in (TQ-L6).
+            declared_units={
+                key: TORQUE_DEFAULT_UNITS.get(key, unit)
+                for key, unit in reading.default_units.items()
+            },
             # `_ingest` returns OK! and does nothing at all for an unlinked
             # device, so Torque never touched status for one.
             requires_link=True,
-            # Torque has no pending-offline concept and has NEVER sent
-            # threshold alerts (zero check_thresholds calls in routes/torque.py).
+            # Torque has no pending-offline concept and never sent threshold
+            # alerts (the route had no check_thresholds call before the pipeline).
             clear_pending_offline=False,
             alert_on_thresholds=False,
-            # An actively-uploading device is online. resolve_torque_session may
-            # have just ended a stale prior trip and set ecu_status offline, so
-            # re-assert it whenever real data arrives.
+            # Data arriving means the engine's on. Ending a stale trip doesn't
+            # touch ecu_status any more, so this just records it.
             ecu_status="online" if (reading.obd or reading.gps) else None,
             # None: LEAVE device_status as it is (the route never wrote it, so a
             # Torque source stays 'unknown'). "online" here would enrol every

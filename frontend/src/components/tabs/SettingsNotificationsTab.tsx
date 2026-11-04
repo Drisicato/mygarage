@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle, AlertCircle } from 'lucide-react'
-import { useSettings } from '@/contexts/SettingsContext'
+import { SaveRefusedError, useSettings } from '@/contexts/SettingsContext'
 import api from '@/services/api'
 import { isSettingOn } from '@/utils/settingSwitch'
 import {
@@ -47,7 +47,7 @@ const NOTIFICATION_SETTINGS_KEYS = [
   // Event toggles
   'notify_recalls', 'notify_service_due', 'notify_service_overdue',
   'notify_insurance_expiring', 'notify_warranty_expiring', 'notify_milestones',
-  'notify_insurance_days', 'notify_warranty_days', 'notify_service_days', 'notify_service_miles',
+  'notify_insurance_days', 'notify_warranty_days',
   'notify_def_low', 'notify_def_low_threshold_percent',
   // Retry settings
   'notification_retry_attempts', 'notification_retry_delay',
@@ -93,8 +93,6 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   notify_milestones: 'false',
   notify_insurance_days: '30',
   notify_warranty_days: '30',
-  notify_service_days: '30',
-  notify_service_miles: '500',
   notify_def_low: 'true',
   notify_def_low_threshold_percent: '25',
   notification_retry_attempts: '3',
@@ -111,6 +109,22 @@ export default function SettingsNotificationsTab() {
 
   const [formData, setFormData] = useState<Record<string, string>>(DEFAULT_SETTINGS)
   const [loadedFormData, setLoadedFormData] = useState<Record<string, string> | null>(null)
+  // Number boxes on screen that hold text that can't be saved, by id.
+  const [invalidBoxes, setInvalidBoxes] = useState<ReadonlySet<string>>(() => new Set())
+  // A save was turned away for a bad box. Once the boxes are fine it goes again,
+  // since fixing a box back to its stored value changes nothing that would trigger one.
+  const refusedRef = useRef(false)
+
+  const handleNumberValidity = useCallback((id: string, valid: boolean) => {
+    setInvalidBoxes(prev => {
+      // Already where it should be: keep the same set so nothing re-renders.
+      if (prev.has(id) === !valid) return prev
+      const next = new Set(prev)
+      if (valid) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const loadSettings = useCallback(async () => {
     try {
@@ -145,6 +159,10 @@ export default function SettingsNotificationsTab() {
   }, [loadSettings])
 
   const handleSave = useCallback(async () => {
+    if (invalidBoxes.size > 0) {
+      refusedRef.current = true
+      throw new SaveRefusedError(t('notifications.fixNumbers'))
+    }
     try {
       await api.post('/settings/batch', {
         settings: formData,
@@ -152,7 +170,7 @@ export default function SettingsNotificationsTab() {
     } catch {
       throw new Error('Failed to save settings')
     }
-  }, [formData])
+  }, [formData, invalidBoxes, t])
 
   // Register save handler
   useEffect(() => {
@@ -169,6 +187,12 @@ export default function SettingsNotificationsTab() {
       setLoadedFormData(formData)
     }
   }, [formData, loadedFormData, triggerSave])
+
+  useEffect(() => {
+    if (invalidBoxes.size > 0 || !refusedRef.current) return
+    refusedRef.current = false
+    triggerSave()
+  }, [invalidBoxes, triggerSave])
 
   const handleSettingChange = (key: string, value: boolean) => {
     setFormData(prev => ({ ...prev, [key]: value ? 'true' : 'false' }))
@@ -326,6 +350,7 @@ export default function SettingsNotificationsTab() {
               settings={formData}
               onSettingChange={handleSettingChange}
               onTextChange={handleTextChange}
+              onNumberValidity={handleNumberValidity}
               onTest={() => handleTestService('email')}
               testing={testingService === 'email'}
               saving={false}
@@ -339,6 +364,7 @@ export default function SettingsNotificationsTab() {
             settings={formData}
             onSettingChange={handleSettingChange}
             onTextChange={handleTextChange}
+            onNumberValidity={handleNumberValidity}
             saving={false}
             hasEnabledService={hasAnyServiceEnabled}
           />

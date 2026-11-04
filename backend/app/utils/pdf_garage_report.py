@@ -7,6 +7,7 @@ matching the branded design system.
 import logging
 from io import BytesIO
 from typing import Any
+from xml.sax.saxutils import escape
 
 from reportlab.lib.units import inch
 from reportlab.platypus import (
@@ -232,7 +233,7 @@ def generate_garage_analytics_pdf(
             )
             table_rows.append(
                 [
-                    Paragraph(display_name, name_style),
+                    Paragraph(escape(display_name), name_style),
                     fc_compact(v.get("purchase_price", 0)),
                     fc_compact(v.get("total_maintenance", 0)),
                     fc_compact(v.get("total_upgrades", 0)),
@@ -272,8 +273,14 @@ def generate_garage_analytics_pdf(
         story.append(Spacer(1, SECTION_SPACING))
 
     # ── 5. Monthly Spending Trends Chart ──────────────────────
+    # The API sends 12 months even when they're all zero, so look for real
+    # running costs. The chart only draws service, fuel and DEF.
     monthly_trends = garage_data.get("monthly_trends", [])
-    if monthly_trends:
+    if any(
+        _safe_float(m.get("service")) + _safe_float(m.get("fuel")) + _safe_float(m.get("def_cost"))
+        > 0
+        for m in monthly_trends
+    ):
         story.append(make_section_header("Monthly Spending Trends"))
         story.append(Spacer(1, 6))
 

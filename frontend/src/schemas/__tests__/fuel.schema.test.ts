@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next'
 import { makeFuelRecordSchema } from '../fuel'
 import { INVALID_NUMBER, MONEY_MAX, UNIT_PRICE_MAX } from '../shared'
 import { IMPERIAL_UNITS, METRIC_UNITS } from '@/__tests__/factories'
+import { makeUnitFormat } from '@/utils/unitFormat'
 
 // Same shape as the global react-i18next mock in src/__tests__/setup.ts:
 // messages come back as their i18n key, which is all these tests need.
@@ -12,7 +13,7 @@ import { IMPERIAL_UNITS, METRIC_UNITS } from '@/__tests__/factories'
 // makeFuelRecordSchema. This file tests the actual production schema.
 const t = ((key: string) => key) as unknown as TFunction
 
-const fuelRecordSchema = makeFuelRecordSchema(t, METRIC_UNITS)
+const fuelRecordSchema = makeFuelRecordSchema(t, METRIC_UNITS, makeUnitFormat(METRIC_UNITS).temperature)
 
 const REQUIRED = {
   date: '2026-04-30',
@@ -77,7 +78,7 @@ describe('Fuel Record Schema — def_fill_level / obc fields (Task 8)', () => {
 // is per. So the cap is an object-level check that reads the basis off the
 // same parse, not a number baked into the field.
 describe('Fuel Record Schema: the unit-price cap follows the price basis', () => {
-  const imperial = makeFuelRecordSchema(t, IMPERIAL_UNITS)
+  const imperial = makeFuelRecordSchema(t, IMPERIAL_UNITS, makeUnitFormat(IMPERIAL_UNITS).temperature)
   const priceMessages = (
     schema: ReturnType<typeof makeFuelRecordSchema>,
     input: Record<string, unknown>,
@@ -87,10 +88,10 @@ describe('Fuel Record Schema: the unit-price cap follows the price basis', () =>
   }
   const TOO_LARGE = 'price_per_unit: common:validation.price.tooLarge'
 
-  it('a litre price takes UNIT_PRICE_MAX and refuses a tenth of a cent more', () => {
+  it('a litre price takes UNIT_PRICE_MAX and refuses a hundredth of a cent more', () => {
     expect(priceMessages(fuelRecordSchema, { price_per_unit: UNIT_PRICE_MAX, price_basis: 'per_volume' })).toEqual([])
     expect(
-      priceMessages(fuelRecordSchema, { price_per_unit: UNIT_PRICE_MAX + 0.001, price_basis: 'per_volume' }),
+      priceMessages(fuelRecordSchema, { price_per_unit: UNIT_PRICE_MAX + 0.0001, price_basis: 'per_volume' }),
     ).toEqual([TOO_LARGE])
   })
 
@@ -113,7 +114,7 @@ describe('Fuel Record Schema: the unit-price cap follows the price basis', () =>
   it('per_kwh and per_tank convert nothing', () => {
     for (const basis of ['per_kwh', 'per_tank']) {
       expect(priceMessages(imperial, { price_per_unit: UNIT_PRICE_MAX, price_basis: basis })).toEqual([])
-      expect(priceMessages(imperial, { price_per_unit: UNIT_PRICE_MAX + 0.001, price_basis: basis })).toEqual([
+      expect(priceMessages(imperial, { price_per_unit: UNIT_PRICE_MAX + 0.0001, price_basis: basis })).toEqual([
         TOO_LARGE,
       ])
     }

@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from '../../__tests__/test-utils'
+import { registeredFieldNames, submitAndSettle, validationError, whereA422Lands, dropQueuedOnces } from '../../__tests__/serverErrors'
 import type { TaxRecord } from '../../types/tax'
 
 const createMutateAsync = vi.fn().mockResolvedValue({})
@@ -15,10 +16,17 @@ vi.mock('../../hooks/queries/useTaxRecords', () => ({
 // useCurrencyPreference — the SAME deterministic mock T4/T6 use — to break the chain to useAuth; without
 // it the suite throws `useAuth must be used within an AuthProvider` before reaching any assertion.
 vi.mock('../../hooks/useCurrencyPreference', () => ({ useCurrencyPreference: () => ({ currencyCode: 'USD', locale: 'en-US', formatCurrency: vi.fn() }) }))
+// #211: the type select reads the vehicle's country profile; none here.
+vi.mock('../../hooks/useResolvedCountry', () => ({ useResolvedCountry: () => null }))
+vi.mock('../../hooks/queries/useCountryProfile', () => ({ useCountryProfile: () => ({ data: undefined }) }))
+vi.mock('../../services/api', () => ({ default: { get: vi.fn().mockResolvedValue({ data: {} }) } }))
 
 import TaxRecordForm from '../TaxRecordForm'
 
 beforeEach(() => vi.clearAllMocks())
+
+// A rejection a failed test queued but never used mustn't reach the next one.
+afterEach(dropQueuedOnces(createMutateAsync, updateMutateAsync))
 
 describe('TaxRecordForm — routing + exact payload (SDQ-C)', () => {
   it('create submits the COMPLETE payload INCLUDING vin (amount coerced to a number), and NEVER calls update (fails if a field is dropped, vin is omitted, the amount stays a string, or it misroutes)', async () => {
@@ -26,7 +34,7 @@ describe('TaxRecordForm — routing + exact payload (SDQ-C)', () => {
     render(<TaxRecordForm vin="V1" onClose={vi.fn()} onSuccess={vi.fn()} />)
     await user.clear(screen.getByLabelText('tax.datePaid *'))
     await user.type(screen.getByLabelText('tax.datePaid *'), '2026-03-01')
-    await user.selectOptions(screen.getByLabelText('taxRecordForm.type'), 'Registration')
+    await user.selectOptions(screen.getByLabelText('taxRecordForm.type'), 'registration')
     await user.clear(screen.getByLabelText('common:amount *'))
     await user.type(screen.getByLabelText('common:amount *'), '85.50')
     // renewal_date is an optional date whose default is '' — fill a valid date so the date schema
@@ -42,7 +50,7 @@ describe('TaxRecordForm — routing + exact payload (SDQ-C)', () => {
     expect(payload).toStrictEqual({
       vin: 'V1',
       date: '2026-03-01',
-      tax_type: 'Registration',
+      tax_type: 'registration',
       amount: 85.5,
       renewal_date: '2027-03-01',
       notes: 'note',
@@ -70,7 +78,8 @@ describe('TaxRecordForm — routing + exact payload (SDQ-C)', () => {
       id: 6,
       vin: 'V1',
       date: '2026-01-10',
-      tax_type: 'Inspection',
+      // The record carried the pre-146 spelling; the form reads it as its code.
+      tax_type: 'inspection',
       amount: 75.25,
       renewal_date: '2027-01-10',
       notes: 'y',
@@ -96,7 +105,7 @@ describe('TaxRecordForm — amount field on NumberInput (Task 8)', () => {
 
     await user.clear(screen.getByLabelText('tax.datePaid *'))
     await user.type(screen.getByLabelText('tax.datePaid *'), '2026-03-01')
-    await user.selectOptions(screen.getByLabelText('taxRecordForm.type'), 'Registration')
+    await user.selectOptions(screen.getByLabelText('taxRecordForm.type'), 'registration')
     // renewal_date defaults to '' (not undefined), which fails makeDateSchema's
     // min(1) even though the field is .optional() — same edge the pre-existing
     // create test above deliberately avoids by filling it.
@@ -114,7 +123,7 @@ describe('TaxRecordForm — amount field on NumberInput (Task 8)', () => {
     render(<TaxRecordForm vin="V1" onClose={vi.fn()} onSuccess={vi.fn()} />)
     await user.clear(screen.getByLabelText('tax.datePaid *'))
     await user.type(screen.getByLabelText('tax.datePaid *'), '2026-03-01')
-    await user.selectOptions(screen.getByLabelText('taxRecordForm.type'), 'Registration')
+    await user.selectOptions(screen.getByLabelText('taxRecordForm.type'), 'registration')
     await user.type(screen.getByLabelText('common:amount *'), 'abc')
     await user.click(screen.getByRole('button', { name: 'common:create' }))
 
@@ -159,5 +168,53 @@ describe('TaxRecordForm: the renewal date and type are optional and can be clear
     await user.click(screen.getByRole('button', { name: 'common:update' }))
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1))
     expect(updateMutateAsync.mock.calls[0][0]).toMatchObject({ renewal_date: null, tax_type: null })
+  })
+})
+
+describe('TaxRecordForm: a rejected save', () => {
+  const taxForm = (): HTMLFormElement => document.getElementById('tax-record-form') as HTMLFormElement
+  const banner = (): HTMLElement | null => screen.queryByText(/^Failed to tax\.saveAction\./)
+  const openFilled = (): void => {
+    render(<TaxRecordForm vin="V1" onClose={vi.fn()} onSuccess={vi.fn()} />)
+    fireEvent.change(document.getElementById('date')!, { target: { value: '2026-03-01' } })
+    fireEvent.change(document.getElementById('amount')!, { target: { value: '85.50' } })
+  }
+
+  it('a non-422 failure shows the banner and no field error', async () => {
+    createMutateAsync.mockRejectedValueOnce(new Error('Network Error'))
+    openFilled()
+    await submitAndSettle(taxForm())
+
+    expect(screen.getByText('Failed to tax.saveAction. Network Error')).toBeInTheDocument()
+    expect(document.getElementById('amount-error')).toBeNull()
+  })
+
+  it('a 422 on amount shows under amount and no banner', async () => {
+    createMutateAsync.mockRejectedValueOnce(validationError({ amount: 'Input should be greater than or equal to 0' }))
+    openFilled()
+    await submitAndSettle(taxForm())
+
+    expect(document.getElementById('amount-error')).toHaveTextContent('Input should be greater than or equal to 0')
+    expect(banner()).toBeNull()
+  })
+
+  // Named controls that aren't payload fields go here. None today.
+  const UI_ONLY: string[] = []
+
+  // Guard for knownFields drift and silent fields: a 422 on any field the form
+  // registers has to show under that field. Mutant: drop a name from
+  // knownFields and it banners.
+  it('guard: a 422 on each field shows under it', async () => {
+    openFilled()
+    const names = registeredFieldNames(taxForm(), UI_ONLY)
+    // An empty sweep would pass, so pin the names it must contain.
+    expect(names).toEqual(expect.arrayContaining(['date', 'tax_type', 'amount', 'renewal_date', 'notes']))
+
+    const wrong: string[] = []
+    for (const name of names) {
+      const got = await whereA422Lands(taxForm(), createMutateAsync, name, `bad ${name}`, banner)
+      if (got !== 'field') wrong.push(`${name}: ${got}`)
+    }
+    expect(wrong).toEqual([])
   })
 })

@@ -15,7 +15,7 @@ from collections.abc import Callable
 from datetime import date
 from typing import Any
 
-import fitz  # PyMuPDF
+import pymupdf
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, text
@@ -160,7 +160,7 @@ async def test_the_analytics_pdf_of_a_vehicle_with_an_unknown_type_still_exports
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/pdf"
-    with fitz.open(stream=response.content, filetype="pdf") as doc:
+    with pymupdf.open(stream=response.content, filetype="pdf") as doc:
         text = "".join(page.get_text() for page in doc)
     assert "Unknown" in text
     assert "Hovercraft" not in text
@@ -207,7 +207,10 @@ async def test_a_device_status_outside_its_vocabulary_reads_as_unknown(
         await _drop_device(db_session, device_id)
 
 
-@pytest.mark.parametrize("column", ["ecu_status", "device_status"])
+# ecu_status only: the vehicle status's device_status is computed from
+# `online` now (R7), so a stored value never reaches it. A stored 'melted' just
+# isn't online, and reads 'offline'.
+@pytest.mark.parametrize("column", ["ecu_status"])
 async def test_a_vehicle_livelink_status_outside_its_vocabulary_reads_as_unknown(
     client, auth_headers, db_session, own_vehicle, caplog, column
 ):

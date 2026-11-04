@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.10.0-rc1] - 2026-11-02
+
+_Pre-release; promoting to stable will keep these entries._
+
 ### Upgrade note
 
 Back up `settings.key` after you upgrade, and keep it apart from your backups. Secret settings (the SSO client secret, the notification tokens, webhook URLs and SMTP password, the LLM and POI provider keys, the LiveLink MQTT password, and the webhook ingest token) are now encrypted at rest. The key is generated on the first start at `/data/settings.key`, unless `MYGARAGE_SETTINGS_KEY` holds it or `MYGARAGE_SETTINGS_KEY_FILE` names the absolute path of a file that does. Neither settings backups nor full backups include it, on purpose: on a new host without it, a full restore brings every secret back unreadable and a settings restore skips them, so you re-enter them. Once either variable is set, MyGarage uses it instead of the file, even when its key is wrong, so put the key already in use into it.
@@ -15,7 +19,7 @@ Don't downgrade without a plan for the secrets. An older version reads the encry
 
 Keep every key you retire. To rotate, put a new key first in the keyring (the file or the variable, with keys separated by commas or newlines) and the old one after it, restart, and check that the log line `Encrypted N, re-keyed M, unreadable: ...` says `unreadable: none`. Then remove the old key and restart again. Removing a key makes every backup taken under it unreadable for secrets, even though the live settings moved to the new key, so keep old keys somewhere safe outside the keyring if you may restore an old backup. A key is a base64url-encoded 32-byte value, such as the output of Python's `secrets.token_urlsafe(32)`.
 
-There is no migration and nothing else to do. The first start encrypts the stored secrets and logs how many. If MyGarage can't write `/data/settings.key` and neither variable is set, the secrets stay unencrypted and keep working, but saving one answers 503, and so does creating or restoring a backup while any of them is unencrypted, until you set `MYGARAGE_SETTINGS_KEY` or make the data directory writable. Settings shows a banner while the key is unavailable or a secret can't be decrypted.
+The encryption needs no migration and nothing else from you. The first start encrypts the stored secrets and logs how many. If MyGarage can't write `/data/settings.key` and neither variable is set, the secrets stay unencrypted and keep working, but saving one answers 503, and so does creating or restoring a backup while any of them is unencrypted, until you set `MYGARAGE_SETTINGS_KEY` or make the data directory writable. Settings shows a banner while the key is unavailable or a secret can't be decrypted.
 
 The old plaintext can outlive the encryption inside the database files. On SQLite the first start zeroes the old copies of the rows it rewrites (`secure_delete`) and truncates the WAL, but plaintext freed by edits made before the upgrade can stay in free space, which a full backup copies, until a `VACUUM`. On PostgreSQL the pre-upgrade values stay in the table's files (VACUUM frees that space but doesn't zero it) and in the WAL until both are reused; `pg_dump`, and so a full backup, doesn't carry them.
 
@@ -23,20 +27,257 @@ The encryption protects the secret settings in every copy that leaves without th
 
 The scheduled recall check now follows the Recall Check Interval in Settings > Integrations instead of running every Sunday. Upload size limits are set with `MYGARAGE_MAX_UPLOAD_SIZE_MB` (photos and attachments) and `MYGARAGE_MAX_DOCUMENT_SIZE_MB` (documents), not in Settings; the Files tab shows the limits in force.
 
+Back up before you upgrade. Migration 133 is FATAL: if it fails, MyGarage refuses to start. Make a full backup from Settings > Backup > Create Full Backup, or as an admin call `POST /api/backup/create-full`. Migration 133 records how each odometer key was read before (km for a standard PID key like `A6-ODOMETER`, miles for a named one like `ODOMETER` or `MILEAGE`) on each WiCAN with no odometer unit set that already sent it, so its odometer reads as it did before, whatever its config declares now.
+
+Migrations 134 and 135 are FATAL too, so the same backup covers them. A full backup on PostgreSQL runs `pg_dump`; to back up by hand, use `sqlite3 /data/mygarage.db ".backup /path/to/copy.db"` on SQLite (never a plain copy of the live file) or `pg_dump` on PostgreSQL.
+
+Migrations 143 to 152 are FATAL as well, all but 146, so the same backup covers them.
+
+On PostgreSQL, MyGarage now pins every database session to UTC. Before, a server whose timezone wasn't UTC (a `TZ` on its container is enough) stored the times the database stamps itself, like most created and updated times, in its own zone, hours off. Migration 134 converts those stored times to UTC once, apart from seven columns the app also writes itself (such as users' and vehicles' updated times): it can't tell those rows apart, so it leaves them alone. A UTC server has nothing to convert. If the session zone came from MyGarage's side instead (`PGTZ`, `PGOPTIONS` or a connection option), nothing is converted, the log warns and names the zone, and the migration doesn't run again: times stamped before the upgrade stay in that zone and new ones are UTC. To have them converted, restore the backup you took, take the zone setting out of MyGarage's environment so 134 reads the server's own zone (the one the app wrote in, since its driver ignores `PGTZ` and `PGOPTIONS`), and start this version again.
+
+On PostgreSQL, any migration that fails before 134 has run now stops startup, FATAL or not, and so does a failure to switch the migration run to UTC once 134 has run. Starting with the conversion still pending would write UTC times that it then shifts. Fix the logged error and restart.
+
+If you ran an unreleased build of main from commit b241336e on, against PostgreSQL in a non-UTC zone, that build already stored the created times of LiveLink devices, their declared units and odometer readings in UTC, and 134 shifts those by the server's offset. Released versions aren't affected.
+
+Migration 135 widens 14 columns on PostgreSQL, so prices keep four decimal places and temperatures, consumption, tank sizes, trailer sizes and supply quantities keep what you type. On PostgreSQL a fuel or DEF price saved before this version was already rounded to three places and keeps that rounding: a UK 6.000/gal saved before still reads 6.001 until you re-enter it.
+
+On SQLite, migration 136 rounds the numbers already stored to their column's places once, so older rows compare like new ones. It isn't FATAL: if it fails, MyGarage starts anyway and it tries again on the next start.
+
+If you still have the 3.3.0 odometer repair to run, make this version's first start a maintenance-mode one (`MYGARAGE_MAINTENANCE_MODE=1`: it runs the migrations and takes no readings), run the repair then in the 3.3.0 order (backfill, normalize, fix sessions, recompute), and restart without the variable.
+
+Rerunning `tools/recompute_session_aggregates.py` changes the figures on a drive that starts exactly where the device's previous drive ended, since the reading they share now counts toward the earlier one only.
+
+A speed a device declares in mph (in a WiCAN HTTPS config or a topic map's unit) is stored as km/h from now on. Earlier history from those devices stays in raw mph. A parameter labelled mph is relabelled km/h, and its alert lines are rescaled to km/h, when its first mph reading on this version arrives.
+
+Migration 137 closes any duplicate active DTC rows a vehicle has for one code, keeping the newest, before it adds the index that allows one active row per code. The closed rows stay in the history with a note saying why. It isn't FATAL.
+
+Torque sends `TORQUE_ODOMETER` in km, so a Torque device set to odometer unit `mi` with `TORQUE_ODOMETER` as its odometer has stored that odometer 1.609x high since the switch. Migration 139 logs a WARNING naming each such device. Back up first, then run `python tools/repair_wican_odometer_unit.py --device-id <id> --key TORQUE_ODOMETER --to km` inside the container, with MyGarage stopped or in maintenance mode. It's a dry run until you add `--apply`, and it rescales the readings, odometer records, trips and daily summaries from the switch on and clears the unit. `tools/backfill_livelink_odometer.py` refuses such a device until it's repaired.
+
+### Added
+- Advanced statistics on a vehicle's Analytics page: running and ownership cost, fuel-ups and expenses, with insurance counted over its days in force or as paid
+- South African Rand (ZAR) currency
+- LiveLink offline alerts cover sensors with no status topic, such as a Mopeka gateway: a live reading marks the sensor online, and it alerts once when it goes quiet
+- LiveLink device responses carry `online`, and the device list's status reads it
+- `tools/repair_wican_odometer_unit.py` repairs a WiCAN odometer read in the wrong unit, either way (`--to km` or `--to mi`), or a Torque odometer read as miles (`--key TORQUE_ODOMETER --to km`), and the 409 on a unit change names it. Repaired readings, latest values and trip odometers keep their fraction, and the daily summaries are rescaled too
+- The vehicle JSON backup (schema 9) also carries financing, tax, toll tags and toll transactions, warranties, and spot rentals with their bills, and writes the whole vehicle record, exterior and interior colours included. A restore reads the new sections back; it never overwrites the vehicle record
+- Imports report warnings beside errors, for rows that came in but not whole: a fuel station or driver this instance doesn't have (kept as text), a toll whose tag didn't import, or an old reminder that kept its date but not its mileage
+- The JSON import's message lists its errors and warnings, not only counts, and the fuel and odometer CSV imports list their warnings beside their errors. Each list shows the first five and how many more
+- A JSON import that refused rows shows a warning instead of a success, and the fuel and odometer CSV messages stay up longer while they list errors or warnings
+- The vehicle JSON backup (schema 9) also carries tires with their sets, mount periods and readings, brakes (axle setup, jobs and measurements), the maintenance rules with their reminders, your own reminders in every status, recalls, DTCs, and the supplies kept for the vehicle with their purchases and usages
+- A service visit in the JSON backup carries the supplies it used, so a restored visit's total includes them again. A supply shared across vehicles, or kept for another vehicle, is found by its name, part number and unit, or added with no stock and a warning
+- Restoring a vehicle whose supply was used on another vehicle's visit counts that use once, in either restore order, and that visit's total includes it
+- Restoring only the supply's vehicle warns about the use it can't count
+- The fuel CSV (schema 8) carries kWh, Propane Volume, Tank Size, Tank Quantity and Price Basis, so an EV charge or a propane fill-up round-trips
+- Number fields say how they read a value like 1,234: "Read as 1,234" shows under the field
+- Vehicles without a VIN (#226): tractors, mowers, generators, small engines, attachments and other equipment go in with a serial number, HIN, chassis number, asset tag or nothing; the VIN step has a No VIN tab
+- Tractor, Mower, Generator, Small Engine, Attachment and Equipment vehicle types, hour-tracked by default, with Small Engine & Tractor Service and Attachment Lubrication reminder packs (#226)
+- A vehicle entered with a made-up VIN can switch to its real serial number in Basic Information (#226)
+- Country setting (#211): per person, per vehicle (registration country and first registration date) and an instance default, with profiles for France, Luxembourg, Germany, Belgium, Italy, the Netherlands, Spain and an EU baseline
+- Periodic technical inspection reminders from the country profile (#211)
+- EU registration certificate import in Add Vehicle and on existing vehicles (#211); the holder's name is never read
+- A French registration certificate's next inspection date (X.1) sets when the inspection reminder is due (#211)
+- Optional document reading with a vision model for scanned certificates and insurance papers (#211); text PDFs stay offline, and MyGarage asks before sending a document to a model outside your network
+- European VINs: a bundled WMI table fills in what NHTSA leaves out (#211)
+- EN 16942 fuel labels on fill-ups, and octane recorded as RON or AKI (#211)
+- Euro class, fiscal power, CO₂, power and Crit'Air on the vehicle (#211)
+- Extensible tax types with EU codes (#211)
+- European insurance policy types, coverages and a no-claims class, plus a French policy reader (#211)
+- RappelConso recalls for vehicles registered in France (#211)
+- French fuel prices near a saved station (#211)
+- French, Spanish and Portuguese toll systems (#211)
+- Reminder pack names and descriptions are translated (French: « Vidange et filtre à huile », « Permutation des pneus »…); packs you saved keep the name you typed.
+
 ### Changed
-- The NHTSA recalls switch in Settings > Integrations is honoured. Off, the scheduled recall check skips, Check NHTSA on the Recalls tab is disabled with a line saying where to switch it on, and the API answers 409
+- An engine-off stop shorter than the drive gap no longer splits a drive
+- The NHTSA recalls switch in Settings > Integrations is honoured. Off, NHTSA isn't asked: the Recalls tab says where to switch it on, the scheduled check skips NHTSA, and the old check-nhtsa endpoint answers 409
 - The Recall Check Interval is honoured. The scheduled check runs daily at 2 AM UTC and checks your vehicles once the interval has passed since the last check. If NHTSA fails to answer for any vehicle (no connection, an error status, or a response that can't be read), the last check time stays put and the next day's run tries again
-- The window sticker upload switch in Settings > Files is honoured. Off, uploading or replacing a sticker and the OCR test answer 409, and the vehicle's edit drawer hides upload and replace. The sticker already saved can still be viewed and downloaded
+- The window sticker upload switch in Settings > File Management is honoured. Off, uploading or replacing a sticker and the OCR test answer 409, and the vehicle's edit drawer hides upload and replace. The sticker already saved can still be viewed and downloaded
 - The window sticker OCR switch is honoured. Off, an upload saves the file without a scan and says so, and leaves the sticker's details (MSRP, options and so on) as they are. Every such upload clears the previous scan's parser, confidence score and extracted VIN, since they would describe a file that wasn't scanned. The OCR test answers 409
 - Every on/off setting is read the same way by the backend and the UI: true, 1, yes and on, in any case, are on, so they no longer disagree about a switch stored as "1" or "yes". A switch saved through the settings API or a settings restore as true/false, 1/0, yes/no or on/off is stored as "true" or "false"
-- Settings > Files shows the upload limits in force, read-only: the size cap and file types for photos, attachments and documents, the two environment variables that set the sizes, and the storage directories. Admins can read the same from `GET /api/settings/upload-limits`
+- Settings > File Management shows the upload limits in force, read-only: the size cap and file types for photos, attachments and documents, the two environment variables that set the sizes, and the storage directories. Admins can read the same from `GET /api/settings/upload-limits`
 - The NHTSA, CarComplaints and window sticker switches are readable from `/api/settings/public`, so non-admins see the CarComplaints link on the Recalls tab, and the UI follows the switches for them too
+- WiCAN odometers follow upstream: `ODOMETER` is km and `ODOMETER_MI` is mi, and a unit the device declares in its HTTPS config wins. Existing devices keep their reading of every odometer key (migration 133)
+- `ODOMETER_MI` is read as miles and stored as km from every source, not just a WiCAN, so a topic mapped to it shows what was sent. Readings stored raw before are moved to km (migration 133); a vehicle where another device may also have sent it keeps its latest value and daily summaries as they were
+- An odometer's parameter is labelled km, the unit it's stored in, and one labelled miles by an earlier version is relabelled
+- Odometer keys a WiCAN records, like `ODOMETER_KM`, count for the unit-change guard, session odometers and the repair tools too, and LiveLink shows an odometer as a distance when its parameter says km, which MyGarage now labels for the odometers it converts, unless another device sends the same key unconverted
+- An SD card odometer is stored like a live one: in whole km, and dropped past 1.6 million km or more than 16,000 km above the vehicle's records
+- LiveLink threshold alerts show the value and the line in your units. Alert lines are stored in metric, and a reading with no known quantity prints as stored
+- A sensor's offline alert says to check the device instead of the vehicle battery, and offline alerts name the vehicle by its nickname first
+- SD settings refuse an address, and the manual SD pull answers 422, for devices without an SD card, and device commands are refused for devices that don't take them
+- Saving the Mosquitto settings applies them at once: switching MQTT off stops the subscriber, switching it on starts it, and a broker change restarts it
+- Topic discovery answers 409 when MQTT is off or has no broker, and 502 with the broker's reason when it refuses, instead of an empty list or an error
+- Retained MQTT messages are ignored, so a reconnect no longer restamps a dead device's last values as new. A retained LWT `offline` still counts
+- The units a WiCAN declares at boot are kept per device, so they survive a MyGarage restart
+- Deleting a preset sensor is admin-only
+- Device and broker statuses, preset descriptions and reading labels are translated, and refused device and SD actions show the server's reason
+- A reminder's Service due notification is a heads-up sent once, when the reminder turns due soon: 30 days before it's expected, or 90% of the way to its target when there's no driving rate to project a date from. Changing its due date, distance or hours arms a new one
+- The first reminder check after upgrading sends a heads-up for each reminder already due soon that hasn't been notified before, as long as Service due is switched on and a notification service is set up. A smart reminder an earlier release already notified in its last week gets none. After that, each reminder gets one when it turns due soon
+- An overdue reminder is sent as Service overdue, at high priority, at most once a day until it's done, dismissed or snoozed
+- Settings > Notifications no longer has the Service due lead-time fields (days and distance before), which nothing read; the heads-up follows the reminder's own due status. The settings API refuses (422) `notify_service_days` and `notify_service_miles`
+- The notification bell lists reminders due soon by that same rule, so up to 30 days out instead of 14
+- A reminder with two or three targets shows what's left on each in the reminder list, the progress bar's own first
+- Low-tread reminders show the tread and the minimum in the notification bell, on the calendar and in the PDF report's Due column
+- A reminder's calendar description, in the app and in the iCal export, is "Reminder" instead of naming its type ("Reminder (smart)")
+- The reminder list refreshes every minute while it's open, so a fill-up logged from Telegram or LiveLink moves it without a reload
+- The service CSV (schema 8) numbers each visit in a new Visit column, keeps item notes and visit notes apart, and adds Tax, Shop Supplies, Misc Fees and Insurance Claim. Rows that share a number import as one visit with its line items; rows of an older file are grouped by date, odometer, engine hours, shop and category
+- The JSON backup writes service visits with every line item (category, maintenance type, cost, notes, the inspection result and the repair it led to), every fuel column (fill time, engine hours, propane, kWh and charging, station, driver, payment, trip type, outside temperature and trip computer), the DEF entry type, and where each odometer reading came from
+- A MyGarage CSV or JSON import updates the odometer and engine hours from its fill-ups, service visits and DEF records, one reading a day, without taking over a reading already there, and refreshes the analytics
+- A repeating reminder from an old (v2) backup keeps the due date and mileage it was exported with, instead of counting a new interval from the import
+- Imported odometer and hours readings drop their "[AUTO-SYNC ...]" note and import as manual, LiveLink or webhook readings, so a fill-up or delete on this instance no longer treats it as its own reading
+- A JSON restore brings in tires, brakes, maintenance rules and the vehicle's supplies, each only when the vehicle has none of that kind yet, and says so when it skips one. A section with a bad row is refused whole, with the row named
+- A JSON restore raises the low-tread and brake reminders its tires and brakes call for straight away, instead of at the next morning's check
+- A restored recall that the NHTSA check already brought back takes the backup's resolution and notes, unless the one here has its own
+- A service CSV whose rows of one visit disagree on the date, shop, odometer, fees or another visit column refuses that visit, naming the column and two of the rows, instead of taking the first row's values. A sheet with one Notes column instead of Item Notes and Visit Notes can still have a different note on each row
+- The JSON import is rate limited like the other imports
+- The import message lists the new sections, reusing the app's translated list titles where there is one, and its reminders line reads Reminders instead of Maintenance (from reminders)
+- Shared LiveLink parameters get readable names, such as "Coolant temperature", "Engine RPM" and "Odometer (Torque)", instead of their key title-cased. Migration 139 (not FATAL) renames the ones still on their old automatic name, Torque's "Kff1238"-style ones included, and never touches a name you set
+- Torque's two L/100km economy parameters read "(L/100km)", like their unit
+- Durations in LiveLink (trips, sessions and the live session timer) follow the selected language
+- Fitting a tire set again the same day with a lower odometer or hour meter no longer lowers that day's reading. To fix a mistyped fit, Edit the mount period of every tire in the set; the day drops only once the last one is edited
+- The Garage page hides Insurance and Taxes at $0, like DEF and Financing
+- The garage monthly trend is the last 12 calendar months, zeros included; a record dated in a future month counts in the totals but not the trend
+- The hours economy trend's average, which the vehicle PDF's Hours Economy card shows, includes towing tanks like its chart
+- UK gallons, quarts, fl oz and MPG are labelled (UK); US labels don't change
+- The supplies list names the unit of its average cost, like the cards ("$5.00/qt")
+- The vehicle PDF's cost per distance card puts the scale in its label ("Cost Per 100 km"), like the screen
+- English text uses US spelling (kilometers, recognizes)
+- The phone tab bar fits a phone: Home, Calendar, Supplies, Analytics and More, which opens Contacts, Insurance, POI and Settings
+- On a phone, the vehicle page has Log Service, Add Fuel and Reminder buttons beside Actions, like the desktop row
+- Accent text and icons are readable in all six accents, light and dark, at 4.5:1 contrast
+- The Reports tab has one Select year for the Annual Cost Summary, Tax Deduction Report and All Records CSV. All Years only applies to the CSV, so the two yearly PDFs wait for a year
+- **BREAKING (API):** `GET /api/analytics/vehicles/{vin}/tires` renames the readiness counts `can_report_distance` to `can_report_usage` and `needs_reading_odometer` to `needs_reading_usage`
+- **BREAKING (API):** `GET /api/analytics/garage` `monthly_trends[].total` no longer includes insurance, and `monthly_trends` always lists 12 months (still empty with no vehicles)
+- French translation brought up to date and revised for French typography and vouvoiement (#211)
+- **BREAKING (API):** tax records use type codes (`registration`, `registration_tax`, ...) instead of display names; the old names are still accepted on input (#211)
+- Export downloads are named Year_Make_Model with unknown parts skipped and spaces as hyphens, falling back to the nickname
 
 ### Removed
 - The Files settings for max upload size, allowed photo types and allowed attachment types, and the `date_format`, `distance_unit` and `fuel_unit` settings. None of them ever did anything. They are no longer seeded and the settings API refuses them (422); rows already stored stay and do nothing. A browser still running the old page gets a 422 when it saves the Files tab, until the page is reloaded
 - The `MYGARAGE_RECALL_CHECK_INTERVAL_DAYS` environment variable, which nothing read. The interval is the Recall Check Interval setting
+- `duplicate_of` on the reminder API response. `GET /api/vehicles/{vin}/reminders/duplicates` returns the same groups, and is what the app reads
+- `mount_period_id` on tire readings in the API, which only older readings carried
+
+### Fixed
+- Garage analytics stops counting a sold vehicle's insurance on its sale date, even when its policy was never ended
+- DTCs from a WiCAN are recorded over MQTT as well as HTTPS, and only codes shaped like a DTC are kept
+- The new-device notification is sent when a WiCAN is discovered
+- Replayed and SD-backfilled readings no longer replace a newer latest value, pull a drive's end back, or reopen drives wrongly, and they are rate-checked against their own time
+- A device clock set in the future no longer freezes a latest value
+- An SD-card drive that overlaps an open drive is kept, and no closed drive is written inside an open one
+- A drive that starts where the previous one ended no longer counts their shared reading twice
+- A drive starts from the newest odometer reading
+- A drive waiting to be reopened is no longer ended again at the current time when the ECU goes offline
+- A drive a WiCAN uploads from its buffer is recorded as a drive of its own, from its readings, instead of joining or holding open the drive in progress
+- A car creeping under 5 km/h, or a parked car whose odometer reading has moved on, no longer opens a drive
+- A threshold alert no notification service accepts retries once per cooldown instead of on every reading, so a notification outage no longer stalls MQTT ingest
+- A `nan` or `inf` MQTT reading is dropped instead of failing every publish (SQLite) or being stored (PostgreSQL)
+- A WiCAN frame with no usable value or only codes no longer marks the ECU online
+- A disabled WiCAN's HTTPS uploads are no longer stored, and an HTTPS telemetry upload clears a pending offline and marks the ECU on
+- An unlinked HTTPS WiCAN stays online between boots, so onboarding no longer sends a false offline alert
+- Units a WiCAN declares over HTTPS apply to mixed-case keys, and a unit that names a class (rpm, km/h) wins over the class declared with it
+- A vehicle with a WiCAN and a sensor takes its drive status from the WiCAN, and is online when any of its devices is
+- Changing a device's vehicle ends its open drive at the last movement, and the old vehicle's movement state doesn't carry over
+- An offline alert for a vehicle with no year, make or model no longer reads "None None None"
+- One device of an unknown kind no longer stops the offline check for every device
+- A topic the broker refuses on connect no longer drops the MQTT connection
+- Two preset applies at once answer 409 instead of 500
+- A session CSV export keeps a zero instead of leaving the cell blank
+- Device labels and topic-map parameter keys are trimmed, so a key of only spaces no longer registers a parameter named `_`
+- The odometer unit and parameter selects go back to the device's value when the change is refused
+- A sensor's block no longer says "No recent readings" while it loads or when loading fails
+- The nightly telemetry prune logs the rows it actually deleted, once
+- A threshold alert is sent in the background once its reading is stored, so a slow notification service no longer slows LiveLink ingest
+- Two devices on one vehicle no longer rate-check each other's readings: each reading is compared with its own device's last one
+- A drive's details list every parameter it recorded, and count only its own device's readings inside its own window
+- A vehicle's LiveLink status no longer comes from a device that's switched off while an enabled one is linked
+- The manual SD pull answers 404 for a device that doesn't exist, instead of an empty result
+- On PostgreSQL, created and updated times the database stamps itself are stored in UTC whatever the server's timezone, and earlier ones are converted once (migration 134)
+- A setting's updated time, including the computed timezone entry, and an address book entry's last-used time are stored and served in UTC instead of the container's local time
+- The PDF header shows the household's date and time with its real zone (GMT, CDT and so on) instead of the container's clock labelled CST
+- The PDF footer's report ID and an imported insurance policy's "Auto-imported on" note use the household's date, not the container's
+- The PDF footer shows the running version instead of v2.21
+- The "Report Generated" time in the service history, sale, cost summary and tax PDFs is the household's, like the header, instead of the container's clock
+- Auto-fill from last drive on the fuel form reads the fill-up time in the household's zone, so it finds the drive that just ended instead of missing it (west of UTC) or offering one that ended after the fill-up (east of UTC)
+- Backup and database times in Settings > Backup no longer read hours off when the container has a timezone set
+- A fuel or DEF price typed per gallon comes back as typed: a UK 6.000/gal no longer reads 6.001, a US 3.999/gal no longer 3.997
+- A tire reading dated after the tire's retirement is refused, and so is a retire dated before the tire's newest reading
+- Deleting a tire reading no longer takes the odometer or hour meter of a same-day retire or dismount of that tire with it
+- Deleting a tire or moving a mount period's date keeps the odometer or hour meter another tire or mount period recorded that day, instead of leaving the day without it, and deleting a tire reading falls back to a same-day mount or dismount figure
+- The tread chart in Analytics draws one line per tire, so a stored set of identical tires no longer draws as one; tires with the same label get their DOT code, or #2, #3
+- Two readings of a tire on one day are ordered by entry everywhere, so the wear projection no longer reads the older one as the newest
+- A tire can only have one pending low-tread reminder. Migration 140 (not FATAL) marks any extra ones done, keeping the oldest
+- An outside temperature typed in Fahrenheit comes back as typed (72.2 F no longer reads 72.1)
+- OBC and window sticker fuel economy keep four places in L/100km, so a typed MPG comes back as typed (a 58 MPG sticker no longer reads 57.9)
+- A propane tank size and a trailer's dimensions and GVWR keep a third decimal place, so a value typed in pounds or feet comes back as typed
+- A supply quantity typed in US fl oz is stored exactly: 1.00 fl oz no longer reads 1.01, and buying 32 fl oz then logging 32 uses of 1 fl oz leaves none on hand instead of a shortage
+- A supply's history dates an adjustment logged near midnight on the household's day, so it no longer sorts before that morning's purchase with a false negative balance or shows the UTC date
+- On SQLite, every number is rounded to its column's places when it's written, as PostgreSQL does, so a tank's fuel economy no longer takes in the previous full tank's fuel and the widget's MPG no longer drops its oldest tank when the odometer was typed in miles
+- On SQLite, an import that skips duplicates now skips a row matching a stored one at the column's places (1234.56 h against a stored 1234.6 h) instead of adding it again
+- A value exactly halfway between two of its column's places, like 1.005 in a cost, rounds up on both databases; PostgreSQL could store 1.00
+- Fuel economy per tank, its averages, the Analytics figures and the OBC suggestion from a drive are worked out to four places in L/100km, the precision it's stored at, instead of two
+- A CSV export in km/L carries six decimal places, so economy past 31.6 L/100km (under 3.16 km/L) re-imports as it was
+- The homepage widget counts a mileage reminder overdue as soon as the odometer passes it, like the dashboard, instead of up to 1 km later
+- Deleting a vehicle with odometer or engine-hours readings synced from its fuel records or service visits no longer logs a SQLAlchemy warning
+- The Service due and Service overdue switches in Settings > Notifications work; reminder notifications went out whatever they were set to
+- Reminder notifications follow the same due status as the reminder list. Before, only a smart reminder got a heads-up, and only inside a week, and a target the reminder's type didn't check (a date reminder's distance target) never sent a notification
+- Archived vehicles no longer send reminder notifications
+- A reminder notification that no provider delivered (none set up, or every provider failed) is no longer marked as sent, so the next check tries again
+- The notification bell lists the same overdue and due-soon reminders the vehicle's due counts show; one due soon by its distance or hours share was missing
+- The calendar shows a reminder's due status, with a Snoozed chip for a snoozed reminder instead of On Track or Due Soon, and its urgency matches the chip
+- A reminder due soon with no expected date (no driving rate to project one from) shows on today on the calendar, marked estimated, instead of not at all
+- Low-tread reminders follow their tire: dismounting it dismisses the reminder, retiring it completes it, a rotation or set fit renames it to the new corner or closes it, and deleting the tire dismisses it. A tire in storage raises none. On the tire's next save (a reading added, edited or deleted, an edit, a restore, a retire, a mount, a rotation or a set fit), an older "(in storage)" reminder is dismissed if the tire stays off the vehicle, completed if the tire is retired or goes back on above the minimum, and becomes that corner's reminder if it goes back on still below the minimum
+- The reminder list's type chip shows a translated label instead of the stored value (such as "smart")
+- Overdue reminder, insurance and warranty expiry notifications no longer skip a day when the daily check starts a moment earlier than the day before, or on the day the clocks spring forward
+- A 0 km reading and a $0 amount export as 0 instead of blank, in every CSV and the JSON backup, and import back as 0
+- The fuel CSV import reads every column its export writes: fill time, towing, station, driver, payment method, trip type, trip duration and the charging columns
+- Importing the same JSON backup twice no longer doubles its notes and old reminders
+- A row already stored twice no longer errors on import (engine hours, warranty, tax and notes CSVs)
+- A note with no title imports, and one with no content says so
+- A blank premium frequency in a backup imports as none instead of failing the policy
+- A backup figure that isn't a number (a fuel, DEF, odometer, service or hours reading, volume or price, or an old reminder's due mileage or interval) names its field, and a due mileage too large to store says why, instead of "could not be imported"
+- On PostgreSQL, an imported value longer than its column says so instead of a generic error
+- A CSV cell typed with a quote before =, +, - or @ comes back as typed, instead of losing its quote on import
+- An imported service visit's total matches its stored items and fees when an amount has fractions of a cent
+- Re-importing a service CSV skips a visit whose item description has leading or trailing spaces instead of adding it again
+- A backup restores a spot rental bill dated outside the stay, which editing the rental's dates can leave, instead of refusing the rental
+- A reading or volume converted from miles or gallons is stored at the column's precision, so SQLite and PostgreSQL hold the same figure
+- A fuel CSV price that isn't per volume (per kWh, per weight or per tank) is written by its basis instead of as a price per gallon or litre, and comes back with its basis
+- A fill-up saved with a driver who isn't a user answers 422 "driver_user_id: no such user". Before, it was a 409 that read as a duplicate, or on a SQLite install older than 2.27.0 the id was stored as is
+- On a SQLite install older than 2.27.0, deleting a user clears them as the driver on their fill-ups, as every other install already did, and migration 138 (not FATAL) clears the ones already left behind
+- A recall component up to 200 characters saves on PostgreSQL, which refused anything past 100 and failed the whole NHTSA refresh (migration 137, not FATAL)
+- A vehicle keeps one active row per DTC code: a device report that races another report or an import updates the row that got there first, and an import that brings a second active copy skips it and says so
+- A DTC import never adds a second active copy of a code, even where migration 137 couldn't build its index
+- An old (v2) backup's reminder is only skipped as a copy of a reminder you made, never of a maintenance rule's, a tire's or a brake's
+- A Torque parameter's storage interval is honoured, as a WiCAN's is, so one with an interval set stores fewer history rows from now on
+- A Torque device can no longer read `TORQUE_ODOMETER` as miles: the API refuses odometer unit `mi` with it, and Device settings disables the unit while it's the odometer, with a hint saying why
+- Saving or deleting a service visit, or adding or deleting one of its items, is all or nothing: the odometer and hours readings and reminder updates it makes commit with it, and if one fails the whole change fails
+- Sign-in can only be set to SSO while SSO is on with an issuer URL and client ID, and SSO can't be turned off or lose either while sign-in uses it: the settings API, the SSO config and a settings restore all answer 409
+- A refused or malformed settings restore no longer leaves a stray safety backup, restoring or uploading a file that isn't a settings JSON object answers 400 instead of 500, and settings safety backups made in the same second no longer collide
+- The settings API's `encrypted` flag says whether the key is a secret, for every key. Before, some plain settings read true
+- The receipt parser reads the units printed on the receipt and converts gallons, miles and price per gallon itself, and leaves a value blank when its unit is unclear
+- The receipt parser leaves a zero or negative odometer, volume or price, a negative cost or kWh, a value too large to store, and a per-kWh price blank, and a field of the wrong type or an overlong number no longer fails with a 500
+- A repair can only be linked to an inspection on its own visit: any other link is dropped on save, unticking or removing an inspection clears its repairs' links, and migration 142 (not FATAL) clears the stray links already stored
+- DTCs P251D, P251E and P251F (PTO engine shutdown circuit) are warnings, not critical, and migration 141 (not FATAL) moves their stored definitions and the vehicle DTCs still marked critical
+- A $0 record counts in the analytics counts, averages and months; only a missing cost is left out
+- The vehicle PDF prints $0.00 for a $0 cost per distance instead of N/A
+- An open form keeps the units it opened with when they change in another tab or on the vehicle, and no longer closes and loses its draft when the vehicle's distance unit changes
+- The vehicle specs editor keeps your draft when the vehicle refetches or the units change while it's open
+- Tire, brake, service visit and vehicle numbers, the fuel form's outside temperature and the notification settings read a comma decimal instead of dropping the value, text that isn't a number shows an error instead of saving a blank, and a 21.25 outside temperature no longer blocks saving the fuel form
+- The notification numbers and SMTP port only save a value inside their range and say the range when one is outside it, the settings don't save while one is, a model year like 1850 is refused, and auto-archive days refuses 12.5 instead of saving 125
+- Switching vehicles while the page is still loading no longer shows the previous vehicle's details on the new one, or saves them to it
+- The station and vendor searches no longer say "No matches" before the search has answered, and a failed search says so
+- Screen reader and keyboard fixes: the station, vendor and line item suggestions are comboboxes you can arrow through, drawers take focus on their first field even when kept mounted or when their fields load late, the device token dialog traps focus and closes on Escape, window sticker and sign-up errors are alerts tied to their fields, the phone More tab says when you're on one of its pages, and icon buttons, report downloads, family cards, DTC notes, the vendor clear button, and the LiveLink, Torque and tire controls have names that say which one
+- Two backups uploaded or created in the same second no longer overwrite each other, and a backup never writes over an existing file
+- Deleting a service visit, a vehicle or a user also deletes the attachment files and rows that belonged to it, including receipts for supplies kept for a deleted vehicle
+- Analytics no longer shows numbers from before an edit for up to 10 minutes
+- Deleting a user takes their vehicles off shared insurance policies the way deleting a vehicle does, so the premium drops by their share instead of still counting it
+- On an insurance policy, a server error on the notes or on a covered vehicle's type, premium share or deductible shows under that field instead of a generic save error
+- A server error on the odometer unit, an EV charging field or a supply barcode shows under that field instead of a generic save error
+- On a fill-up, an error on the driver or the OBC trip duration shows under that field, and a server error on one of the checkboxes shows the save error instead of nothing
+- Logging a supply purchase shows errors on the date, supplier and part number under the field (an empty date says it's required), and a server error on a recall's resolved checkbox shows the save error instead of nothing
 
 ### Security
+- A sign-in token with no expiry, or with one that isn't a finite number, is refused instead of never expiring (a text expiry used to error)
 - Secret settings are encrypted at rest: AES-256-GCM, 17 keys, and a keyring that supports key rotation (see the Upgrade note)
 - The Google Places, Yelp and Foursquare API keys are masked in `GET /api/settings` like the other secrets
 - Sending the `********` placeholder back never overwrites a stored secret, even one that can't be decrypted, and the POI provider and LiveLink forms now honour it too instead of saving it as the value
@@ -48,6 +289,20 @@ The scheduled recall check now follows the Recall Check Interval in Settings > I
 - Validation error logs no longer include the rejected input, and a 422 body leaves it out for fields named like a password, secret, token or key
 - POI provider key masks show `********` instead of the key's first 8 characters
 - A secret setting's default value is logged as `<secret>` when it is seeded
+- LiveLink ingest only takes a device of its own kind: a WiCAN upload or topic naming a sensor or a Torque phone, or a Torque token sent to the WiCAN endpoint, is refused, and a new topic map naming a device that isn't generic MQTT answers 422
+- An SD pull checks the device address is still private when it connects, not only when it was saved, and skips it if not
+- Map markers are served by MyGarage itself, so maps no longer contact cdnjs.cloudflare.com, and it's out of the Content-Security-Policy
+- OIDC token, JWKS and userinfo requests fetch the URL the SSRF check validated, not the raw string
+- OIDC logs no longer include the full state, a raw exception or a provider URL
+
+### Build
+- Python 3.15 in the Docker image, CI and `requires-python`
+- Bun 1.4.4; type-checking runs `bun check` instead of `tsc`
+- Backend dependencies bumped, including fastapi 0.162.0, granian 2.8.7, pydantic 2.14.2, sqlalchemy 2.1.6, starlette 1.10.0, asyncpg 0.32.0 and pandas 3.1.0
+- Frontend dependencies bumped within range, including react 19.3.1, vite 8.3.5, vitest 5.0.5, eslint 10.14.0 and Playwright 1.64.1
+- `python-dateutil` held below 3 (pandas breaks on its 3.0 timezones) and `pymupdf` below 2 (2.0 pulls in onnxruntime)
+- The PDF code imports `pymupdf` instead of its old `fitz` alias
+- CI: actions/setup-node 7.1.0
 
 ## [3.9.0] - 2026-10-18
 

@@ -4,18 +4,36 @@ Integration tests for SD-card backfill admin endpoints.
 Tests admin-only SD config + backfill trigger routes, including SSRF validation.
 """
 
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.livelink_device import LiveLinkDevice
+from app.models.vehicle import Vehicle
 
 # LiveLink's master switch gates the ingest pipeline and SD backfill, and it is
 # off by default. Explicit, not inherited from whatever an earlier test left in
 # the shared database.
 pytestmark = pytest.mark.usefixtures("livelink_enabled")
+
+
+@pytest_asyncio.fixture
+async def vin(own_vehicle: Vehicle, db_session: AsyncSession) -> AsyncIterator[str]:
+    """The VIN every device here links to. Its devices go with it.
+
+    Deleting the vehicle only nulls a device's VIN, so they're deleted here,
+    before own_vehicle goes.
+    """
+    vin = own_vehicle.vin  # a rollback expires the object, so read it now
+    yield vin
+    await db_session.rollback()
+    await db_session.execute(delete(LiveLinkDevice).where(LiveLinkDevice.vin == vin))
+    await db_session.commit()
 
 
 @pytest.mark.integration
@@ -28,9 +46,10 @@ class TestSdConfigAdmin:
         client: AsyncClient,
         auth_headers: dict[str, str],
         db_session: AsyncSession,
+        vin: str,
     ) -> None:
         """SSRF guard: a public IP (8.8.8.8) must be rejected with 422."""
-        device = LiveLinkDevice(device_id="sdtest000001", vin="1HGBH41JXMN109186")
+        device = LiveLinkDevice(device_id="sdtest000001", vin=vin)
         db_session.add(device)
         await db_session.commit()
         await db_session.refresh(device)
@@ -47,9 +66,10 @@ class TestSdConfigAdmin:
         client: AsyncClient,
         auth_headers: dict[str, str],
         db_session: AsyncSession,
+        vin: str,
     ) -> None:
         """A private LAN address (10.x.x.x) must be accepted with 200."""
-        device = LiveLinkDevice(device_id="sdtest000002", vin="1HGBH41JXMN109186")
+        device = LiveLinkDevice(device_id="sdtest000002", vin=vin)
         db_session.add(device)
         await db_session.commit()
         await db_session.refresh(device)
@@ -70,13 +90,168 @@ class TestSdConfigAdmin:
         data = response.json()
         assert data.get("status") == "ok"
 
+    async def test_set_sd_config_refuses_a_source_without_sd_backfill(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        vin: str,
+    ) -> None:
+        """Fable F5-1: a generic device has no SD card to pull, so a stray
+        address can't be saved for it. Main wrote it blind (200)."""
+        device = LiveLinkDevice(device_id="sdtest000010", vin=vin, kind="generic_mqtt")
+        db_session.add(device)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/livelink/devices/{device.device_id}/sd-config",
+            headers=auth_headers,
+            json={"device_address": "10.10.20.244", "sd_backfill_enabled": True},
+        )
+
+        assert response.status_code == 422
+        db_session.expire_all()
+        stored = (
+            await db_session.execute(
+                select(LiveLinkDevice).where(LiveLinkDevice.device_id == "sdtest000010")
+            )
+        ).scalar_one()
+        assert stored.device_address is None
+        assert stored.sd_backfill_enabled is False
+
+    async def test_set_sd_config_lets_a_clear_through_on_a_source_without_sd_backfill(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        vin: str,
+    ) -> None:
+        """A stray address saved before the kind check has to be removable."""
+        device = LiveLinkDevice(
+            device_id="sdtest000012",
+            vin=vin,
+            kind="generic_mqtt",
+            device_address="10.10.20.245",
+            sd_backfill_enabled=True,
+        )
+        db_session.add(device)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/livelink/devices/{device.device_id}/sd-config",
+            headers=auth_headers,
+            json={"device_address": None, "sd_backfill_enabled": False},
+        )
+
+        assert response.status_code == 200
+        db_session.expire_all()
+        stored = (
+            await db_session.execute(
+                select(LiveLinkDevice).where(LiveLinkDevice.device_id == "sdtest000012")
+            )
+        ).scalar_one()
+        assert stored.device_address is None
+        assert stored.sd_backfill_enabled is False
+
+    async def test_set_sd_config_refuses_switching_on_a_source_without_sd_backfill(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        vin: str,
+    ) -> None:
+        """Regression guard: no address but the switch on is still a refusal."""
+        device = LiveLinkDevice(device_id="sdtest000013", vin=vin, kind="generic_mqtt")
+        db_session.add(device)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/livelink/devices/{device.device_id}/sd-config",
+            headers=auth_headers,
+            json={"device_address": None, "sd_backfill_enabled": True},
+        )
+
+        assert response.status_code == 422
+
+    async def test_set_sd_config_refuses_an_address_with_the_switch_off_on_a_source_without_sd(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        vin: str,
+    ) -> None:
+        """Regression guard (carry 5): only a pure clear (no address, switch
+        off) goes through on a kind with no SD card. An address with the switch
+        off is still saving an address. Kills `clearing = not enabled`."""
+        device = LiveLinkDevice(device_id="sdtest000015", vin=vin, kind="torque")
+        db_session.add(device)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/livelink/devices/{device.device_id}/sd-config",
+            headers=auth_headers,
+            json={"device_address": "10.10.20.247", "sd_backfill_enabled": False},
+        )
+
+        assert response.status_code == 422
+        db_session.expire_all()
+        stored = (
+            await db_session.execute(
+                select(LiveLinkDevice).where(LiveLinkDevice.device_id == "sdtest000015")
+            )
+        ).scalar_one()
+        assert stored.device_address is None
+
+    async def test_set_sd_config_unknown_device_is_404(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Main ran a blind UPDATE that matched nothing and answered 200."""
+        response = await client.put(
+            "/api/livelink/devices/sdtestmissing1/sd-config",
+            headers=auth_headers,
+            json={"device_address": "10.10.20.244", "sd_backfill_enabled": True},
+        )
+        assert response.status_code == 404
+
+    async def test_set_sd_config_saves_for_a_wican(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        vin: str,
+    ) -> None:
+        """Regression guard: the real service (the test above mocks it whole)
+        still saves a WiCAN's address."""
+        device = LiveLinkDevice(device_id="sdtest000011", vin=vin, kind="wican")
+        db_session.add(device)
+        await db_session.commit()
+
+        response = await client.put(
+            f"/api/livelink/devices/{device.device_id}/sd-config",
+            headers=auth_headers,
+            json={"device_address": "10.10.20.244", "sd_backfill_enabled": True},
+        )
+
+        assert response.status_code == 200
+        db_session.expire_all()
+        stored = (
+            await db_session.execute(
+                select(LiveLinkDevice).where(LiveLinkDevice.device_id == "sdtest000011")
+            )
+        ).scalar_one()
+        assert stored.device_address == "10.10.20.244"
+        assert stored.sd_backfill_enabled is True
+
     async def test_set_sd_config_unauthorized(
         self,
         client: AsyncClient,
         db_session: AsyncSession,
+        vin: str,
     ) -> None:
         """Unauthenticated request must be rejected with 401."""
-        device = LiveLinkDevice(device_id="sdtest000003", vin="1HGBH41JXMN109186")
+        device = LiveLinkDevice(device_id="sdtest000003", vin=vin)
         db_session.add(device)
         await db_session.commit()
         await db_session.refresh(device)
@@ -98,9 +273,10 @@ class TestBackfillTriggerAdmin:
         client: AsyncClient,
         non_admin_headers: dict[str, str],
         db_session: AsyncSession,
+        vin: str,
     ) -> None:
         """Non-admin authenticated user must get 401 or 403."""
-        device = LiveLinkDevice(device_id="sdtest000004", vin="1HGBH41JXMN109186")
+        device = LiveLinkDevice(device_id="sdtest000004", vin=vin)
         db_session.add(device)
         await db_session.commit()
         await db_session.refresh(device)
@@ -116,11 +292,12 @@ class TestBackfillTriggerAdmin:
         client: AsyncClient,
         auth_headers: dict[str, str],
         db_session: AsyncSession,
+        vin: str,
     ) -> None:
         """Admin can trigger a backfill and receives a BackfillResultResponse."""
         from app.services.sd_backfill_service import BackfillResult
 
-        device = LiveLinkDevice(device_id="sdtest000005", vin="1HGBH41JXMN109186")
+        device = LiveLinkDevice(device_id="sdtest000005", vin=vin)
         db_session.add(device)
         await db_session.commit()
         await db_session.refresh(device)
@@ -145,17 +322,53 @@ class TestBackfillTriggerAdmin:
         assert data["errors"] == []
 
     @pytest.mark.asyncio
+    async def test_backfill_trigger_refuses_a_source_without_sd_backfill(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        vin: str,
+    ) -> None:
+        """Fable I1: 422 and the service is never asked, for a generic device
+        carrying a stray address and the switch on."""
+        device = LiveLinkDevice(
+            device_id="sdtest000014",
+            vin=vin,
+            kind="generic_mqtt",
+            device_address="10.10.20.246",
+            sd_backfill_enabled=True,
+        )
+        db_session.add(device)
+        await db_session.commit()
+
+        with patch("app.routes.livelink_admin.SdBackfillService") as mock_svc_cls:
+            from app.services.sd_backfill_service import BackfillResult
+
+            mock_svc = MagicMock()
+            mock_svc.backfill_device = AsyncMock(return_value=BackfillResult())
+            mock_svc_cls.return_value = mock_svc
+
+            response = await client.post(
+                f"/api/livelink/devices/{device.device_id}/backfill",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 422
+        mock_svc.backfill_device.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_backfill_trigger_is_refused_while_livelink_is_off(
         self,
         client: AsyncClient,
         auth_headers: dict[str, str],
         db_session: AsyncSession,
+        vin: str,
     ) -> None:
         """409, and the service is never asked: "pull now" doing nothing
         silently would look like a broken dongle."""
         from app.models.settings import Setting
 
-        device = LiveLinkDevice(device_id="sdtest000009", vin="1HGBH41JXMN109186")
+        device = LiveLinkDevice(device_id="sdtest000009", vin=vin)
         db_session.add(device)
         row = await db_session.get(Setting, "livelink_enabled")
         row.value = "false"  # the module's fixture put it on, and puts it back
@@ -170,13 +383,34 @@ class TestBackfillTriggerAdmin:
         assert response.status_code == 409
         mock_svc_cls.assert_not_called()
 
+    async def test_backfill_trigger_unknown_device_is_404(
+        self,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """FB-9: it answered 200 with an all-zero result, which the toast read
+        as "pulled nothing". 404, like `set_sd_config`, and the service isn't asked."""
+        from app.services.sd_backfill_service import BackfillResult
+
+        with patch("app.routes.livelink_admin.SdBackfillService") as mock_svc_cls:
+            mock_svc_cls.return_value.backfill_device = AsyncMock(return_value=BackfillResult())
+            response = await client.post(
+                "/api/livelink/devices/sdtestmissing2/backfill",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Device sdtestmissing2 not found"
+        mock_svc_cls.assert_not_called()
+
     async def test_backfill_trigger_unauthenticated(
         self,
         client: AsyncClient,
         db_session: AsyncSession,
+        vin: str,
     ) -> None:
         """Unauthenticated request must be rejected with 401."""
-        device = LiveLinkDevice(device_id="sdtest000006", vin="1HGBH41JXMN109186")
+        device = LiveLinkDevice(device_id="sdtest000006", vin=vin)
         db_session.add(device)
         await db_session.commit()
         await db_session.refresh(device)

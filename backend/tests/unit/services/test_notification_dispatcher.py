@@ -305,25 +305,6 @@ class TestConvenienceMethods:
         assert "3 new recall(s)" in call_kwargs.kwargs["message"]
 
     @pytest.mark.asyncio
-    async def test_notify_service_due(self, dispatcher):
-        """Test service due notification formatting."""
-        await dispatcher.notify_service_due("My Truck", "Oil Change", 7)
-
-        call_kwargs = dispatcher.dispatch.call_args
-        assert call_kwargs.kwargs["event_type"] == "service_due"
-        assert "Oil Change" in call_kwargs.kwargs["message"]
-        assert "7 day(s)" in call_kwargs.kwargs["message"]
-
-    @pytest.mark.asyncio
-    async def test_notify_service_overdue(self, dispatcher):
-        """Test service overdue notification formatting."""
-        await dispatcher.notify_service_overdue("My Truck", "Tire Rotation", 14)
-
-        call_kwargs = dispatcher.dispatch.call_args
-        assert call_kwargs.kwargs["event_type"] == "service_overdue"
-        assert "14 day(s) overdue" in call_kwargs.kwargs["message"]
-
-    @pytest.mark.asyncio
     async def test_notify_odometer_milestone(self, dispatcher):
         """Test odometer milestone notification formatting.
 
@@ -353,9 +334,19 @@ class TestConvenienceMethods:
 
     @pytest.mark.asyncio
     async def test_notify_livelink_threshold_alert(self, dispatcher):
-        """Test threshold alert notification formatting."""
+        """Test threshold alert notification formatting.
+
+        No quantity, so the value prints as stored with its own unit, whatever
+        the context's units are.
+        """
         await dispatcher.notify_livelink_threshold_alert(
-            "My Truck", "Engine Temp", 250.5, "high", 230.0, "°F"
+            "My Truck",
+            "Engine Temp",
+            250.5,
+            "high",
+            230.0,
+            "°F",
+            ctx=RenderContext(units=METRIC_PRESET, show_both=False),
         )
 
         call_kwargs = dispatcher.dispatch.call_args
@@ -371,11 +362,38 @@ class TestConvenienceMethods:
     async def test_notify_livelink_threshold_alert_below(self, dispatcher, band, direction):
         """A tank's low and critical lines read differently."""
         await dispatcher.notify_livelink_threshold_alert(
-            "KZ Durango", "Tank 1 level", 8.0, band, 10.0, "%"
+            "KZ Durango",
+            "Tank 1 level",
+            8.0,
+            band,
+            10.0,
+            "%",
+            ctx=RenderContext(units=IMPERIAL_PRESET, show_both=False),
         )
 
         message = dispatcher.dispatch.call_args.kwargs["message"]
-        assert f"Tank 1 level {direction} (8.0 % vs threshold 10.0 %)" in message
+        assert f"Tank 1 level {direction}: 8.0 % vs threshold 10.0 %." in message
+
+    @pytest.mark.asyncio
+    async def test_notify_livelink_threshold_alert_converts_with_a_quantity(self, dispatcher):
+        """With a quantity both numbers are canonical and read in the context's
+        unit, show-both counterpart included; the stored unit is ignored. The
+        counterpart's parentheses are the only ones: no nesting."""
+        await dispatcher.notify_livelink_threshold_alert(
+            "My Truck",
+            "Vehicle speed",
+            130.0,
+            "high",
+            120.0,
+            "km/h",
+            ctx=RenderContext(units=IMPERIAL_PRESET, show_both=True),
+            quantity="speed",
+        )
+
+        message = dispatcher.dispatch.call_args.kwargs["message"]
+        assert message.endswith(
+            "exceeded maximum: 81 mph (130 km/h) vs threshold 75 mph (120 km/h)."
+        )
 
     @pytest.mark.asyncio
     async def test_notify_livelink_firmware_update(self, dispatcher):
@@ -398,7 +416,7 @@ class TestConvenienceMethods:
         """
         await dispatcher.notify_def_low(
             vehicle_name="My Truck",
-            vin="1FTFW1ET5DFC10312",
+            identifier="1FTFW1ET5DFC10312",
             percent=Decimal("25"),
             remaining_liters=Decimal("2.50"),
             as_of_date=date(2026, 6, 15),

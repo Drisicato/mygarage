@@ -13,7 +13,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     text,
 )
@@ -21,6 +20,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models._types import ScaledNumeric
+from app.utils.datetime_utils import utc_now
 
 if TYPE_CHECKING:
     from app.models.drive_session import DriveSession
@@ -70,11 +71,12 @@ class LiveLinkDevice(Base):
     #: NULL means "declares nothing", the correct default and the reason
     #: existing installs are unaffected: odometer recording stays as it is.
     #:
-    #: Exists because name matching does not generalise. ODOMETER_PID_PATTERNS
-    #: matches WiCAN's `A6-ODOMETER` and nothing Torque sends, so a Torque-only
-    #: user gets no odometer records at all. Rather than grow a vendor pattern
-    #: list forever, a device declares its own, and that declaration REPLACES
-    #: the matching rather than filtering it (see `is_odometer_param_key`).
+    #: Exists because name matching does not generalise. Only a WiCAN records
+    #: odometers by the ODOMETER_NAME_PATTERNS scan; every other kind records
+    #: nothing until it declares a key, so a Torque-only user gets no odometer
+    #: records at all without one. Rather than grow a vendor pattern list
+    #: forever, a device declares its own, and that declaration REPLACES the
+    #: matching rather than filtering it (see `is_recorded_odometer_key`).
     #:
     #: Pairs with `odometer_unit`: there is no unit inference outside WiCAN, so
     #: a device setting this MUST also set `odometer_unit` or its value is read
@@ -109,7 +111,7 @@ class LiveLinkDevice(Base):
     )  # Per-device token hash (NULL = uses global)
     last_payload_hash: Mapped[str | None] = mapped_column(
         String(64)
-    )  # Hash of last autopid_data for dedup
+    )  # Dead: nothing writes or reads it; kept so dropping it doesn't need a migration
 
     # Session tracking
     current_session_id: Mapped[int | None] = mapped_column(
@@ -143,12 +145,16 @@ class LiveLinkDevice(Base):
     #: First of the two consecutive above-floor speed samples the debounce needs.
     movement_candidate_at: Mapped[datetime | None] = mapped_column(DateTime)
     #: Odometer at pending open, for the odometer-increase movement signal.
-    movement_baseline_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    movement_baseline_km: Mapped[Decimal | None] = mapped_column(ScaledNumeric(10, 2))
 
     # State
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    #: The app clock as well as the server default, so the odometer-history
+    #: bound compares it with telemetry timestamps on one clock (Fable F5-6).
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), default=utc_now
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
 
     # Relationships

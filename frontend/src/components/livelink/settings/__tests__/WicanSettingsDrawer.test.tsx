@@ -31,6 +31,7 @@ vi.mock('@/services/vehicleService', () => ({
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }))
 
+import { toast } from 'sonner'
 import WicanSettingsDrawer from '../WicanSettingsDrawer'
 
 const TAB = { id: 'wican', label: 'WiCAN', kind: 'wican' } as unknown as IntegrationTab
@@ -81,7 +82,7 @@ beforeEach(() => {
   })
   svc.getFirmwareLatest.mockResolvedValue({ latest_tag: 'v4.51p', release_url: null })
   svc.getDeviceFirmwareStatus.mockResolvedValue(FW(null))
-  svc.getMQTTSettings.mockResolvedValue({ topic_prefix: 'wican' })
+  svc.getMQTTSettings.mockResolvedValue({ enabled: true, topic_prefix: 'wican' })
   svc.getMQTTStatus.mockResolvedValue({ running: true, connection_status: 'connected' })
   svc.updateMQTTSettings.mockImplementation((u: object) => Promise.resolve({ topic_prefix: 'wican', ...u }))
   svc.restartMQTTSubscriber.mockResolvedValue({ running: true, connection_status: 'connecting' })
@@ -105,8 +106,9 @@ describe('WicanSettingsDrawer', () => {
     expect(screen.queryByText('rvgw')).not.toBeInTheDocument()
   })
 
-  it('saving the topic prefix restarts a running subscriber', async () => {
-    // Without the restart a changed prefix silently does nothing.
+  it('saving the topic prefix leaves the restart to the server', async () => {
+    // The settings PUT restarts a running subscriber itself when the prefix
+    // changes. A second restart from here would just bounce the connection.
     const { onChanged } = renderDrawer()
     const field = await screen.findByLabelText('settings:integrations.wicanTopicPrefix')
 
@@ -114,8 +116,23 @@ describe('WicanSettingsDrawer', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'modal.livelink.save' })[0])
 
     await waitFor(() => expect(svc.updateMQTTSettings).toHaveBeenCalledWith({ topic_prefix: 'garage' }))
-    await waitFor(() => expect(svc.restartMQTTSubscriber).toHaveBeenCalledTimes(1))
-    expect(onChanged).toHaveBeenCalled()
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    expect(svc.restartMQTTSubscriber).not.toHaveBeenCalled()
+  })
+
+  it("doesn't claim a restart with MQTT switched off", async () => {
+    // Switched off, the subscriber still runs (in its "disabled" wait), and the
+    // PUT stops it rather than restarting it.
+    svc.getMQTTSettings.mockResolvedValue({ enabled: false, topic_prefix: 'wican' })
+    svc.getMQTTStatus.mockResolvedValue({ running: true, connection_status: 'disabled' })
+    renderDrawer()
+    const field = await screen.findByLabelText('settings:integrations.wicanTopicPrefix')
+
+    fireEvent.change(field, { target: { value: 'garage' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'modal.livelink.save' })[0])
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('modal.mqttSettingsSaved'))
+    expect(toast.success).not.toHaveBeenCalledWith('modal.mqttRestarted')
   })
 
   it('does not start a stopped subscriber just to save the prefix', async () => {

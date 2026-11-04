@@ -5,7 +5,7 @@ from decimal import Decimal
 from io import BytesIO
 from typing import Any
 
-import fitz  # PyMuPDF
+import pymupdf
 import pytest
 from reportlab.platypus import SimpleDocTemplate
 
@@ -29,7 +29,7 @@ METRIC_CTX = RenderContext(units=METRIC_PRESET, show_both=False)
 
 def _extract_text(pdf_bytes: bytes) -> str:
     """Extract all text from PDF bytes using PyMuPDF."""
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     text = ""
     for page in doc:
         text += page.get_text()  # type: ignore[operator]
@@ -93,6 +93,8 @@ def _make_analytics_data(
 
     return {
         "vin": vin,
+        # The route adds the printed identifier line (#226).
+        "identifier_text": f"VIN {vin}",
         "vehicle_name": vehicle_name,
         "vehicle_type": "Car",
         "days_owned": 365,
@@ -261,10 +263,8 @@ class TestGenerateVehicleAnalyticsPdf:
         buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
         text = _extract_text(buf.read())
         assert "TOTAL COST" in text
-        # Renamed from "Cost Per km": the value now names its own
-        # denominator ("$42.00/100 km" / "$675.92/1,000 mi"), so a label
-        # hardcoding km would contradict it for an imperial reader.
-        assert "COST PER DISTANCE" in text
+        # The label carries the reader's scale, like the screen does.
+        assert "COST PER 100 KM" in text
         assert "AVG MONTHLY" in text
         assert "PROJECTED 12-MO" in text
 
@@ -337,7 +337,9 @@ def _make_reminder(
     due_date: str | None = None,
     due_mileage_km: Decimal | None = None,
     due_hours: Decimal | None = None,
-) -> dict:
+    tread_depth_mm: Decimal | None = None,
+    tread_threshold_mm: Decimal | None = None,
+) -> dict[str, Any]:
     """Build a reminder dict mirroring ``schemas.reminder.ReminderResponse``."""
     from datetime import date as date_type
 
@@ -347,7 +349,21 @@ def _make_reminder(
         "due_date": date_type.fromisoformat(due_date) if due_date else None,
         "due_mileage_km": due_mileage_km,
         "due_hours": due_hours,
+        "tread_depth_mm": tread_depth_mm,
+        "tread_threshold_mm": tread_threshold_mm,
     }
+
+
+def _make_low_tread_reminder(**overrides: Any) -> dict[str, Any]:
+    """A low-tread reminder as the tire sync writes it: a ``date`` reminder
+    carrying the tire's tread and minimum in canonical mm."""
+    fields: dict[str, Any] = {
+        "due_date": "2026-11-01",
+        "tread_depth_mm": Decimal("1.5"),
+        "tread_threshold_mm": Decimal("3.0"),
+    }
+    fields.update(overrides)
+    return _make_reminder("Tire tread low (FL)", "date", **fields)
 
 
 class TestUsageEfficiencySection:
@@ -518,9 +534,15 @@ class TestUsageEfficiencySection:
 
 IMPERIAL_CTX = RenderContext(units=IMPERIAL_PRESET, show_both=False)
 METRIC_BOTH_CTX = RenderContext(units=METRIC_PRESET, show_both=True)
+UK_CTX = RenderContext(
+    units=IMPERIAL_PRESET.model_copy(
+        update={"volume": "gal_uk", "consumption": "mpg_uk", "secondary_gallon": "uk"}
+    ),
+    show_both=False,
+)
 
 
-def _make_unit_bearing_data() -> dict:
+def _make_unit_bearing_data() -> dict[str, Any]:
     """Analytics data populating every unit-bearing figure this report renders.
 
     One fixture for the whole matrix so each expectation below differs only
@@ -572,8 +594,9 @@ class TestRenderContextDrivesUnits:
                     applied to EACH side, never to a composed string
         consumption 235.2145833... / 9.4 = 25.0228 -> "25.0 MPG" (precision 1)
         fuel rate   1.85 / 3.785411784 = 0.4887 -> "0.49 gal/hr" (precision 2)
-        cost/dist   0.42 * 1 * 100 = 42.00 -> "$42.00/100 km";
-                    0.42 * 1.609344 * 1000 = 675.9245 -> "$675.92/1,000 mi"
+        cost/dist   0.42 * 1 * 100 = 42.00 -> "$42.00" under "Cost Per 100 km";
+                    0.42 * 1.609344 * 1000 = 675.9245 -> "$675.92" under
+                    "Cost Per 1,000 mi"; a counterpart keeps its scale
         reminder    50,000 / 1.609344 = 31,068.5596 -> "31,069 mi"
     """
 
@@ -592,8 +615,10 @@ class TestRenderContextDrivesUnits:
         assert "7,456 mi" in text
         assert "Avg 621 mi/mo" in text
         assert "9.40 L/100km" in text
-        assert "$42.00/100 km" in text
-        assert "1,000 mi" not in text.replace("Avg 621 mi/mo", "")
+        assert "COST PER 100 KM $42.00" in text
+        # The label is uppercased, so the vehicle's scale would show as MI.
+        assert "1,000 MI" not in text
+        assert "1,000 mi" not in text
 
     def test_without_a_rate_context_the_rate_follows_the_render_context(self) -> None:
         """The parameter is what decides it: omitted, the cell reads the
@@ -605,7 +630,7 @@ class TestRenderContextDrivesUnits:
             generate_vehicle_analytics_pdf(data, render_context=vehicle_ctx).read()
         )
 
-        assert "$675.92/1,000 mi" in text
+        assert "COST PER 1,000 MI $675.92" in text
 
     def test_metric_context_renders_metric_figures(self) -> None:
         data = _make_unit_bearing_data()
@@ -620,7 +645,7 @@ class TestRenderContextDrivesUnits:
         assert "Avg 1,000 km/mo" in text
         assert "9.40 L/100km" in text
         assert "1.85 L/hr" in text
-        assert "$42.00/100 km" in text
+        assert "COST PER 100 KM $42.00" in text
         assert "50,000 km" in text
 
     def test_imperial_context_renders_imperial_figures(self) -> None:
@@ -636,7 +661,7 @@ class TestRenderContextDrivesUnits:
         assert "Avg 621 mi/mo" in text
         assert "25.0 MPG" in text
         assert "0.49 gal/hr" in text
-        assert "$675.92/1,000 mi" in text
+        assert "COST PER 1,000 MI $675.92" in text
         assert "31,069 mi" in text
 
     def test_imperial_context_leaks_no_metric_figure(self) -> None:
@@ -656,6 +681,26 @@ class TestRenderContextDrivesUnits:
         assert "12,000" not in text
         assert "50,000" not in text
 
+    def test_uk_reader_sees_uk_gallons_and_uk_mpg(self) -> None:
+        """D3: a UK reader's economy and fuel rate say (UK). 282.48... / 9.4 =
+        30.05 -> "30.1 MPG (UK)"; 1.85 / 4.54609 = 0.407 -> "0.41 gal (UK)/hr"."""
+        data = _make_unit_bearing_data()
+
+        text = _normalized_text(generate_vehicle_analytics_pdf(data, render_context=UK_CTX).read())
+
+        assert "30.1 MPG (UK)" in text
+        assert "0.41 gal (UK)/hr" in text
+
+    def test_us_reader_gets_no_uk_tag(self) -> None:
+        """Guard: the US labels stay bare."""
+        data = _make_unit_bearing_data()
+
+        text = _normalized_text(
+            generate_vehicle_analytics_pdf(data, render_context=IMPERIAL_CTX).read()
+        )
+
+        assert "(UK)" not in text
+
     def test_show_both_appends_the_counterpart_to_each_figure(self) -> None:
         data = _make_unit_bearing_data()
         reminders = [_make_reminder("Tire rotation", "mileage", due_mileage_km=Decimal("50000"))]
@@ -672,7 +717,8 @@ class TestRenderContextDrivesUnits:
         assert "Avg 1,000 km/mo (621 mi/mo)" in text
         assert "9.40 L/100km (25.0 MPG)" in text
         assert "1.85 L/hr (0.49 gal/hr)" in text
-        assert "$42.00/100 km ($675.92/1,000 mi)" in text
+        # The counterpart keeps its scale, nothing else on the card names it.
+        assert "COST PER 100 KM $42.00 ($675.92/1,000 mi)" in text
         assert "50,000 km (31,069 mi)" in text
 
     def test_hours_stay_dimensionless_under_an_imperial_context(self) -> None:
@@ -699,18 +745,76 @@ class TestRenderContextDrivesUnits:
             assert "250.0 hr" in text
             assert "100.0 hr" in text
 
-    def test_cost_per_distance_card_label_names_no_unit(self) -> None:
-        """The label must not hardcode a unit: D4c gives a km reader
-        "/100 km" and a mile reader "/1,000 mi", so "Cost Per km" would
-        contradict the value underneath it for every imperial reader."""
+    def test_low_tread_reminder_due_text_carries_metric_tread(self) -> None:
+        """D7a: the Due cell states the tread and its minimum, in mm on a
+        metric context (1.5 and 3.0 at precision 2). Main shows the date only."""
+        data = _make_unit_bearing_data()
+
+        text = _normalized_text(
+            generate_vehicle_analytics_pdf(
+                data, reminders_data=[_make_low_tread_reminder()], render_context=METRIC_CTX
+            ).read()
+        )
+
+        assert "Tread 1.50 mm, min 3.00 mm" in text
+
+    def test_low_tread_reminder_due_text_carries_imperial_tread(self) -> None:
+        """Same cell on an imperial context, in 32nds:
+        1.5 / (25.4 / 32) = 1.89 -> "2/32 in", 3.0 / (25.4 / 32) = 3.78 -> "4/32 in"."""
+        data = _make_unit_bearing_data()
+
+        text = _normalized_text(
+            generate_vehicle_analytics_pdf(
+                data, reminders_data=[_make_low_tread_reminder()], render_context=IMPERIAL_CTX
+            ).read()
+        )
+
+        assert "Tread 2/32 in, min 4/32 in" in text
+        assert "1.50 mm" not in text
+
+    def test_low_tread_reminder_due_text_shows_both_tread_units(self) -> None:
+        """show_both appends each figure's counterpart through the formatter.
+        The minimum is a comma clause, so the counterparts' brackets are the
+        only ones."""
+        data = _make_unit_bearing_data()
+
+        text = _normalized_text(
+            generate_vehicle_analytics_pdf(
+                data, reminders_data=[_make_low_tread_reminder()], render_context=METRIC_BOTH_CTX
+            ).read()
+        )
+
+        assert "Tread 1.50 mm (2/32 in), min 3.00 mm (4/32 in)" in text
+
+    @pytest.mark.parametrize("missing", ["tread_depth_mm", "tread_threshold_mm"])
+    def test_tread_needs_both_fields(self, missing: str) -> None:
+        """Control (passes on main by design): a reminder missing its tread or
+        its minimum gets no tread text, only its date."""
+        data = _make_unit_bearing_data()
+        reminder = _make_low_tread_reminder(**{missing: None})
+
+        text = _normalized_text(
+            generate_vehicle_analytics_pdf(
+                data, reminders_data=[reminder], render_context=METRIC_CTX
+            ).read()
+        )
+
+        assert "Tire tread low (FL)" in text
+        assert "Tread" not in text
+        assert ", min " not in text
+        assert "1.50 mm" not in text
+
+    def test_cost_per_distance_label_reaches_the_page(self) -> None:
+        """The card tests below read the dict; this one checks a mile
+        reader's scale actually prints."""
         data = _make_unit_bearing_data()
 
         text = _normalized_text(
             generate_vehicle_analytics_pdf(data, render_context=IMPERIAL_CTX).read()
         )
 
-        assert "COST PER DISTANCE" in text
-        assert "COST PER KM" not in text
+        assert "COST PER 1,000 MI" in text
+        assert "COST PER DISTANCE" not in text
 
     def test_null_figures_render_na_with_no_counterpart(self) -> None:
         """A null primary short-circuits before the counterpart: "N/A",
@@ -724,6 +828,80 @@ class TestRenderContextDrivesUnits:
 
         assert "N/A (N/A)" not in text
         assert "FUEL ECONOMY N/A" in text
+
+
+MILE_BOTH_CTX = RenderContext(units=IMPERIAL_PRESET, show_both=True)
+
+
+class TestCostPerDistanceCard:
+    """The headline cost-per-distance card reads like the screen: the scale is
+    in the label, the value is plain money (D5). Reads the card dict the
+    report hands `make_kpi_row`, not the PDF text.
+
+    Same 0.42/km fixture as above: 42.00 per 100 km, 675.92 per 1,000 mi.
+    """
+
+    @staticmethod
+    def _card(
+        monkeypatch: pytest.MonkeyPatch,
+        data: dict[str, Any],
+        render_context: RenderContext,
+        rate_context: RenderContext | None = None,
+    ) -> dict[str, Any]:
+        rows: list[list[dict[str, Any]]] = []
+        real_row = pdf_vehicle_report.make_kpi_row
+
+        def spy(cards: list[dict[str, Any]]) -> Any:
+            rows.append(cards)
+            return real_row(cards)
+
+        monkeypatch.setattr(pdf_vehicle_report, "make_kpi_row", spy)
+        generate_vehicle_analytics_pdf(
+            data, render_context=render_context, rate_context=rate_context
+        )
+        # The headline row is drawn first; the cost card sits second in it.
+        return rows[0][1]
+
+    def test_km_reader(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        card = self._card(monkeypatch, _make_unit_bearing_data(), METRIC_CTX)
+        assert card["label"] == "Cost Per 100 km"
+        assert card["value"] == "$42.00"
+
+    def test_mile_reader(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        card = self._card(monkeypatch, _make_unit_bearing_data(), IMPERIAL_CTX)
+        assert card["label"] == "Cost Per 1,000 mi"
+        assert card["value"] == "$675.92"
+
+    def test_mile_reader_show_both_keeps_the_counterpart_scale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        card = self._card(monkeypatch, _make_unit_bearing_data(), MILE_BOTH_CTX)
+        assert card["label"] == "Cost Per 1,000 mi"
+        assert card["value"] == "$675.92 ($42.00/100 km)"
+
+    def test_label_follows_the_rate_context(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """#172: a mi vehicle on a km account keeps the rate on the account,
+        so the label has to come from the same context as the value."""
+        vehicle_ctx = RenderContext(units=apply_vehicle_units(METRIC_PRESET, "mi"), show_both=False)
+        card = self._card(
+            monkeypatch, _make_unit_bearing_data(), vehicle_ctx, rate_context=METRIC_CTX
+        )
+        assert card["label"] == "Cost Per 100 km"
+        assert card["value"] == "$42.00"
+
+    def test_zero_rate_prints_zero_not_na(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """R8: a $0 rate is a real figure. Main read it as falsy and printed N/A."""
+        data = _make_unit_bearing_data()
+        data["cost_analysis"]["cost_per_km"] = Decimal("0")
+        card = self._card(monkeypatch, data, METRIC_CTX)
+        assert card["value"] == "$0.00"
+
+    def test_missing_rate_is_still_na(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Guard (passes on main): no distance, no rate, so N/A stays."""
+        data = _make_unit_bearing_data()
+        data["cost_analysis"]["cost_per_km"] = None
+        card = self._card(monkeypatch, data, METRIC_BOTH_CTX)
+        assert card["value"] == "N/A"
 
 
 class TestMonthlySpendingChartSkipsFinancingOnlyMonths:
@@ -792,3 +970,50 @@ def test_every_chart_labels_money_in_the_report_currency(
     for texts in drawn:
         assert any("Ft" in t for t in texts), texts
         assert not any("$" in t for t in texts), texts
+
+
+class TestBannerIdentifier:
+    """#226: the banner prints the VIN or the serial, never a generated key."""
+
+    def test_prints_the_identifier_line_and_not_the_key(self) -> None:
+        data = _make_analytics_data()
+        data["vin"] = "QABCDEFGH12345678"
+        data["identifier_text"] = "Serial BX23S-10234"
+        text = _extract_text(generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX).read())
+        assert "Serial BX23S-10234" in text
+        assert "QABCDEFGH12345678" not in text
+
+    def test_markup_in_typed_values_prints_as_text(self) -> None:
+        data = _make_analytics_data()
+        data["vehicle_name"] = "Mower <b>deck</b>"
+        data["identifier_text"] = "Serial <img src='/etc/passwd'/> & co"
+        text = _extract_text(generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX).read())
+        assert "Mower <b>deck</b>" in text
+        assert "Serial <img src='/etc/passwd'/> & co" in text
+
+    def test_markup_in_table_cells_prints_as_text(self) -> None:
+        """FB-1: the tables carry typed values too: a vendor, a service
+        type, a reminder title and an hours reading's note. An unbalanced
+        tag in any of them used to fail the whole build."""
+        data = _make_analytics_data()
+        data["cost_analysis"]["service_type_breakdown"][0]["service_type"] = "Brake <b>job"
+        data["hours_accumulated"] = [
+            {"date": "2025-01-01", "engine_hours": Decimal("10"), "notes": "Read <i>by hand"}
+        ]
+        vendors = _make_vendor_data()
+        vendors["vendors"][0]["vendor_name"] = "Bob <i>& Sons"
+        reminders = [_make_reminder("Check <font>belt", "date", due_date="2027-01-01")]
+        text = " ".join(
+            _extract_text(
+                generate_vehicle_analytics_pdf(
+                    data,
+                    vendor_data=vendors,
+                    reminders_data=reminders,
+                    render_context=METRIC_CTX,
+                ).read()
+            ).split()
+        )
+        assert "Brake <b>job" in text
+        assert "Bob <i>& Sons" in text
+        assert "Check <font>belt" in text
+        assert "Read <i>by hand" in text

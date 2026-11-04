@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from decimal import Decimal
 
-import fitz  # PyMuPDF
+import pymupdf
 
 from app.utils.pdf_garage_report import generate_garage_analytics_pdf
 
@@ -17,7 +17,7 @@ def _extract_text(pdf_bytes: bytes, normalize: bool = False) -> str:
         pdf_bytes: Raw PDF bytes.
         normalize: If True, collapse newlines to spaces for wrapped text matching.
     """
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     text = ""
     for page in doc:
         text += page.get_text()  # type: ignore[operator]
@@ -186,6 +186,13 @@ class TestGenerateGarageAnalyticsPdf:
         assert "Ram" in text
         assert "Mirage" in text
 
+    def test_markup_in_a_nickname_prints_as_text(self) -> None:
+        """FB-1: a nickname is typed; an unbalanced tag must not fail the build."""
+        data = _make_garage_data()
+        data["cost_by_vehicle"][0]["nickname"] = "<b>Ram"
+        text = _extract_text(generate_garage_analytics_pdf(data).read(), normalize=True)
+        assert "<b>Ram" in text.replace(" ", "")
+
     def test_contains_all_cost_category_headers(self) -> None:
         """Regression: all GarageVehicleCost fields must have column headers."""
         data = _make_garage_data(include_all_cost_fields=True)
@@ -317,3 +324,49 @@ def test_every_chart_labels_money_in_the_report_currency(
     for texts in drawn:
         assert any("Ft" in t for t in texts), texts
         assert not any("$" in t for t in texts), texts
+
+
+def _twelve_months(nonzero: dict[str, dict[str, Decimal]] | None = None) -> list[dict]:
+    """The 12-month window the API now sends, zeros included."""
+    nonzero = nonzero or {}
+    months = []
+    for i in range(12):
+        month = f"M{i + 1:02d} 2026"
+        row = {
+            "month": month,
+            "service": Decimal("0.00"),
+            "fuel": Decimal("0.00"),
+            "def_cost": Decimal("0.00"),
+            "insurance": Decimal("0.00"),
+            "financing": Decimal("0.00"),
+        }
+        row.update(nonzero.get(month, {}))
+        row["total"] = row["service"] + row["fuel"] + row["def_cost"]
+        months.append(row)
+    return months
+
+
+class TestMonthlyTrendsSectionGate:
+    """The API always sends 12 months now, so an empty list can't mean a quiet garage."""
+
+    def test_all_zero_window_omits_the_section(self) -> None:
+        data = _make_garage_data()
+        data["monthly_trends"] = _twelve_months()
+        text = _extract_text(generate_garage_analytics_pdf(data).read())
+        assert "Monthly Spending Trends" not in text
+
+    def test_insurance_and_financing_alone_omit_the_section(self) -> None:
+        """The chart only draws service, fuel and DEF, so these alone have nothing to show."""
+        data = _make_garage_data()
+        data["monthly_trends"] = _twelve_months(
+            {"M03 2026": {"insurance": Decimal("80.00"), "financing": Decimal("450.00")}}
+        )
+        text = _extract_text(generate_garage_analytics_pdf(data).read())
+        assert "Monthly Spending Trends" not in text
+
+    def test_one_nonzero_month_keeps_the_section(self) -> None:
+        """Guard: a single month of running costs still gets the chart."""
+        data = _make_garage_data()
+        data["monthly_trends"] = _twelve_months({"M06 2026": {"def_cost": Decimal("12.50")}})
+        text = _extract_text(generate_garage_analytics_pdf(data).read())
+        assert "Monthly Spending Trends" in text

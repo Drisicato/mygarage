@@ -7,10 +7,11 @@
  * (88,896 mi seeded from 143064.24 km returns 143064.24, not 143064.28).
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '../../__tests__/test-utils'
 import { fireEvent } from '@testing-library/react'
 import type { Reminder } from '../../types/reminder'
+import { setActiveLocale } from '@/constants/i18n'
 
 const completeMock = vi.fn()
 vi.mock('../../hooks/useReminders', () => ({
@@ -25,15 +26,19 @@ const FIRST_PAGE = {
   visits: [{ id: 7, date: '2026-06-13', odometer_km: '143064.24', line_items: [{ description: 'Labor' }], vendor: { name: 'Mavis' } }],
   total: 101,
 }
-vi.mock('../VendorSearch', () => ({ default: () => <div>vendor-search</div> }))
+// Keeps the id it's handed, so the Field label's htmlFor can be checked against it.
+vi.mock('../VendorSearch', () => ({ default: ({ id }: { id?: string }) => <input id={id} /> }))
 vi.mock('../../hooks/useDateLocale', () => ({ useDateLocale: () => 'en-US' }))
 vi.mock('../../hooks/useCurrencyPreference', () => ({
   useCurrencyPreference: () => ({ currencyCode: 'USD', locale: 'en-US', formatCurrency: (n: number) => `$${n}` }),
 }))
 vi.mock('../../hooks/useUnitPreference', async () => {
   const { IMPERIAL_UNITS } = await import('@/__tests__/factories')
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({ system: 'imperial', showBoth: false, units: IMPERIAL_UNITS, gallonStandard: 'us' })
   return {
-    useUnitPreference: () => ({ system: 'imperial', showBoth: false, units: IMPERIAL_UNITS, gallonStandard: 'us' }),
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
   }
 })
 const toastSuccess = vi.fn()
@@ -78,6 +83,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   completeMock.mockResolvedValue({ reminder, next_reminder: null, service_visit_id: 9, line_item_id: 61 })
   pagesMock.mockReturnValue({ data: { pages: [FIRST_PAGE] }, hasNextPage: true, fetchNextPage, isFetchingNextPage: false })
+})
+
+describe('CompleteReminderDialog vendor label (G-4)', () => {
+  it('the vendor box takes the Field id, so its label names it', () => {
+    // VendorSearch took no id, so the Field's htmlFor pointed at nothing.
+    renderDialog()
+    expect(screen.getByLabelText('completeReminder.vendor')).toBeInstanceOf(HTMLInputElement)
+  })
 })
 
 describe('CompleteReminderDialog — payloads', () => {
@@ -230,5 +243,35 @@ describe('CompleteReminderDialog: the visit cost', () => {
     fireEvent.submit(form())
     await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1))
     expect(completeMock.mock.calls[0][0].cost).toBeUndefined()
+  })
+})
+
+describe('CompleteReminderDialog: the odometer reads the user language', () => {
+  afterEach(() => setActiveLocale('en'))
+
+  it('en: "88,900" mi is 88,900 miles, not dropped as unreadable', async () => {
+    renderDialog()
+    fireEvent.change(screen.getByLabelText(/completeReminder\.odometer/), { target: { value: '88,900' } })
+    fireEvent.submit(form())
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1))
+    expect(completeMock.mock.calls[0][0].odometer_km).toBeCloseTo(143070.6816, 4)
+  })
+
+  it('de: "88.900" mi is 88,900 miles, not 88.9', async () => {
+    setActiveLocale('de')
+    renderDialog()
+    fireEvent.change(screen.getByLabelText(/completeReminder\.odometer/), { target: { value: '88.900' } })
+    fireEvent.submit(form())
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1))
+    expect(completeMock.mock.calls[0][0].odometer_km).toBeCloseTo(143070.6816, 4)
+  })
+
+  it('text that is not a number sends no odometer (guard)', async () => {
+    // Guard: passes on main, where NaN fell out as null. Mutation: return 0 for unreadable text in canonicalFromTypedUnitField.
+    renderDialog()
+    fireEvent.change(screen.getByLabelText(/completeReminder\.odometer/), { target: { value: 'abc' } })
+    fireEvent.submit(form())
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1))
+    expect(completeMock.mock.calls[0][0].odometer_km).toBeUndefined()
   })
 })

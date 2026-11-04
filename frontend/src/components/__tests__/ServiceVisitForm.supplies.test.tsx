@@ -29,13 +29,16 @@ vi.mock('../../services/api', () => ({
 // value under imperial — proving conversion actually ran, not just passed through.
 vi.mock('../../hooks/useUnitPreference', async () => {
   const { IMPERIAL_UNITS } = await import('@/__tests__/factories')
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({
+    system: 'imperial',
+    showBoth: false,
+    units: IMPERIAL_UNITS,
+    gallonStandard: 'us',
+  })
   return {
-    useUnitPreference: () => ({
-      system: 'imperial',
-      showBoth: false,
-      units: IMPERIAL_UNITS,
-      gallonStandard: 'us',
-    }),
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
   }
 })
 
@@ -126,7 +129,7 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
     // Add a supply usage row — the only fetched supply is auto-selected.
     fireEvent.click(screen.getByRole('button', { name: /suppliesAddRow/ }))
 
-    const quantityInput = screen.getByRole('spinbutton', { name: 'service.suppliesQuantity' })
+    const quantityInput = screen.getByRole('textbox', { name: 'service.suppliesQuantityOf' })
     fireEvent.change(quantityInput, { target: { value: '2' } })
 
     // The Total block now formats through the shared formatCurrency (SDQ-3), not a
@@ -158,10 +161,10 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
 
     fillRequiredDescription()
     fireEvent.click(screen.getByRole('button', { name: /suppliesAddRow/ }))
-    expect(screen.getByRole('spinbutton', { name: 'service.suppliesQuantity' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'service.suppliesQuantityOf' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'service.suppliesRemoveRow' }))
-    expect(screen.queryByRole('spinbutton', { name: 'service.suppliesQuantity' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'service.suppliesRemoveNamed' }))
+    expect(screen.queryByRole('textbox', { name: 'service.suppliesQuantityOf' })).not.toBeInTheDocument()
     expect(screen.queryByText('service.partsSupplies:')).not.toBeInTheDocument()
 
     fireEvent.submit(drawerForm())
@@ -234,8 +237,8 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
       // Rounded to what storage keeps (1 L reads 1.057 qt, not 1.0566882...).
       const expectedDisplayQty = toEditableDisplay(1, 'qt_us')
       await waitFor(() => {
-        const quantityInput = screen.getByRole('spinbutton', {
-          name: 'service.suppliesQuantity',
+        const quantityInput = screen.getByRole('textbox', {
+          name: 'service.suppliesQuantityOf',
         }) as HTMLInputElement
         expect(Number(quantityInput.value)).toBe(expectedDisplayQty)
       })
@@ -247,7 +250,7 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
       // Wait for hydration before submitting, otherwise the still-empty [] would
       // race the effect and falsely appear to "work".
       await waitFor(() => {
-        expect(screen.getByRole('spinbutton', { name: 'service.suppliesQuantity' })).toBeInTheDocument()
+        expect(screen.getByRole('textbox', { name: 'service.suppliesQuantityOf' })).toBeInTheDocument()
       })
 
       fireEvent.submit(drawerForm())
@@ -327,7 +330,7 @@ describe('ServiceVisitForm — supplies used (Task 17)', () => {
       render(<ServiceVisitForm {...DEFAULT_PROPS} visit={visit} />)
       await waitFor(() => {
         expect(
-          screen.getByRole('spinbutton', { name: 'service.suppliesQuantity' }),
+          screen.getByRole('textbox', { name: 'service.suppliesQuantityOf' }),
         ).toBeInTheDocument()
       })
       fireEvent.submit(drawerForm())
@@ -411,7 +414,7 @@ describe('ServiceVisitForm: each supply converts in its own unit', () => {
   })
 
   const quantityInputs = (): HTMLInputElement[] =>
-    screen.getAllByRole('spinbutton', { name: 'service.suppliesQuantity' }) as HTMLInputElement[]
+    screen.getAllByRole('textbox', { name: 'service.suppliesQuantityOf' }) as HTMLInputElement[]
 
   // The unit label sits beside its quantity input, in the same wrapper.
   const rowOf = (input: HTMLInputElement): HTMLElement => input.parentElement as HTMLElement

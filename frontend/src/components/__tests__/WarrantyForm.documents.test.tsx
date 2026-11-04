@@ -16,9 +16,9 @@ vi.mock('../../hooks/queries/useWarrantyRecords', () => ({
 }))
 vi.mock('../../hooks/useUnitPreference', async () => {
   const { IMPERIAL_UNITS } = await import('@/__tests__/factories')
-  return {
-    useUnitPreference: () => ({ system: 'imperial', showBoth: false, units: IMPERIAL_UNITS, gallonStandard: 'us' }),
-  }
+  const useUnitPreference = () => ({ system: 'imperial', showBoth: false, units: IMPERIAL_UNITS, gallonStandard: 'us' })
+  // UnitSession reads the account's preference through its own hook.
+  return { useUnitPreference, useAccountUnitPreference: useUnitPreference }
 })
 
 import WarrantyForm from '../WarrantyForm'

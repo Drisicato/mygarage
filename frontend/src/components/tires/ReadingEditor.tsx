@@ -5,15 +5,18 @@ import { toast } from 'sonner'
 
 import { useUpdateTireReading } from '../../hooks/queries/useTires'
 import { useUnitFormat } from '../../hooks/useUnitFormat'
+import { useRefuseUnreadableNumbers } from '../../hooks/useRefuseUnreadableNumbers'
 import type { Tire, TirePosition, TireReading } from '../../types/tire'
 import { formatDateForDisplay } from '../../utils/dateUtils'
 import { hoursFromField } from '../../utils/hoursFormat'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
 import { canonicalFromTreadField } from '../../utils/treadEntry'
-import { canonicalFromUnitField, seedUnitField, type UnitFieldOrigin } from '../../utils/unitFormat'
-import { Button, Drawer, Field, Input } from '../ui'
+import { canonicalFromTypedUnitField, seedUnitField, type UnitFieldOrigin } from '../../utils/unitFormat'
+import { num } from '../../utils/wireNumber'
+import { Button, Drawer, Field, Input, NumberInput } from '../ui'
 import MountEventFields, { type OdometerFieldValue } from './MountEventFields'
 import TreadField from './TreadField'
+import { withUnitSession } from '../../contexts/UnitSession'
 
 interface ReadingEditorProps {
   vin: string
@@ -45,7 +48,7 @@ interface EditorState {
  * one is deliberate; only the vehicle's own axes render, as in Log Reading.
  * Render with `key={reading.id}` so it seeds once per reading.
  */
-export default function ReadingEditor({
+function ReadingEditor({
   vin,
   tire,
   reading,
@@ -58,8 +61,12 @@ export default function ReadingEditor({
   const { t } = useTranslation('vehicles')
   const u = useUnitFormat()
   const update = useUpdateTireReading(vin)
-  const num = (v: number | string | null | undefined): number | null =>
-    v === null || v === undefined || v === '' ? null : Number(v)
+  const refuseUnreadable = useRefuseUnreadableNumbers()
+  const labels = {
+    odometer: t('tireList.odometerWithUnit', { unit: u.distance.label }),
+    tread: t('tireList.treadWithUnit', { unit: u.tread.label }),
+    pressure: t('tireList.pressureWithUnit', { unit: u.pressure.label }),
+  }
 
   const [form, setForm] = useState<EditorState>(() => {
     const odometer = seedUnitField(num(reading.odometer_km), u.distance)
@@ -81,8 +88,17 @@ export default function ReadingEditor({
       toast.error(t('tireList.eventDateRequired'))
       return
     }
+    if (
+      refuseUnreadable([
+        [labels.odometer, tracksDistance && form.odometer_km.typed],
+        [t('common:engineHours'), tracksHours && form.engine_hours],
+        [labels.tread, form.tread_depth_mm],
+        [labels.pressure, form.pressure_kpa],
+      ])
+    )
+      return
     const tread = canonicalFromTreadField(form.tread_depth_mm, form.origins.tread_depth_mm, u.tread)
-    const pressure = canonicalFromUnitField(form.pressure_kpa, form.origins.pressure_kpa, u.pressure)
+    const pressure = canonicalFromTypedUnitField(form.pressure_kpa, form.origins.pressure_kpa, u.pressure)
     // The server's rule, checked here so the user reads it before a round trip.
     if (tread === null && pressure === null) {
       toast.error(t('tireList.treadOrPressureRequired'))
@@ -95,7 +111,7 @@ export default function ReadingEditor({
         recorded_at: form.recorded_at,
         ...(tracksDistance
           ? {
-              odometer_km: canonicalFromUnitField(
+              odometer_km: canonicalFromTypedUnitField(
                 form.odometer_km.typed,
                 form.odometer_km.origin,
                 u.distance
@@ -148,7 +164,7 @@ export default function ReadingEditor({
           dateLabel={t('common:date')}
           date={form.recorded_at}
           onDateChange={(next) => setForm((prev) => ({ ...prev, recorded_at: next }))}
-          odometerLabel={t('tireList.odometerWithUnit', { unit: u.distance.label })}
+          odometerLabel={labels.odometer}
           odometer={form.odometer_km}
           onOdometerChange={(next) => setForm((prev) => ({ ...prev, odometer_km: next }))}
           tracksDistance={tracksDistance}
@@ -158,7 +174,7 @@ export default function ReadingEditor({
         />
         <TreadField
           id="reading-edit-tread"
-          label={t('tireList.treadWithUnit', { unit: u.tread.label })}
+          label={labels.tread}
           value={form.tread_depth_mm}
           onChange={(next) => setForm((prev) => ({ ...prev, tread_depth_mm: next }))}
           onConverted={() =>
@@ -168,14 +184,9 @@ export default function ReadingEditor({
             }))
           }
         />
-        <Field
-          id="reading-edit-pressure"
-          label={t('tireList.pressureWithUnit', { unit: u.pressure.label })}
-        >
-          <Input
+        <Field id="reading-edit-pressure" label={labels.pressure}>
+          <NumberInput
             id="reading-edit-pressure"
-            type="number"
-            step={u.pressure.step}
             value={form.pressure_kpa}
             onChange={(e) => setForm((prev) => ({ ...prev, pressure_kpa: e.target.value }))}
           />
@@ -191,3 +202,6 @@ export default function ReadingEditor({
     </Drawer>
   )
 }
+
+// Pins its units for as long as it is open (R4).
+export default withUnitSession(ReadingEditor)

@@ -15,7 +15,9 @@ import { useUnitFormat } from '../hooks/useUnitFormat'
 import { usePublicSettings } from '../hooks/usePublicSettings'
 import { isSettingOn } from '../utils/settingSwitch'
 import { seedUnitField, unitFieldUnchanged, type UnitFieldOrigin } from '../utils/unitFormat'
+import { num } from '../utils/wireNumber'
 import type { components } from '../types/api.generated'
+import { withUnitSession } from '../contexts/UnitSession'
 
 type StickerData = components['schemas']['WindowStickerResponse']
 
@@ -56,9 +58,6 @@ type ReviewField = TextField | MoneyField | EconomyField
 // error: it counts as attached, which suppresses the banner.
 const WINDOW_STICKER_KNOWN_FIELDS: readonly ReviewField[] = [...MONEY_FIELDS, ...ECONOMY_FIELDS, ...TEXT_KEYS]
 
-const toNumber = (value: string | number | null | undefined): number | null =>
-  value == null || value === '' ? null : Number(value)
-
 interface WindowStickerUploadProps {
   vin: string
   /** A sticker is already on file, so the upload asks whether to keep its values. */
@@ -70,7 +69,7 @@ interface WindowStickerUploadProps {
   onClose: (uploaded: boolean) => void
 }
 
-export default function WindowStickerUpload({
+function WindowStickerUpload({
   vin,
   hasExistingSticker = false,
   onSuccess,
@@ -172,7 +171,7 @@ export default function WindowStickerUpload({
 
       const data = response.data as StickerData
       const origins = Object.fromEntries(
-        ECONOMY_FIELDS.map((key) => [key, seedUnitField(toNumber(data[key]), u.consumption)])
+        ECONOMY_FIELDS.map((key) => [key, seedUnitField(num(data[key]), u.consumption)])
       ) as Record<EconomyField, UnitFieldOrigin>
       const seeded = {} as Record<ReviewField, string>
       for (const key of TEXT_KEYS) seeded[key] = data[key] ?? ''
@@ -227,7 +226,7 @@ export default function WindowStickerUpload({
       }
       const parsed = parseDecimalInput(typed[key], getActiveLocale())
       const value = parsed.kind === 'value' ? parsed.value : null
-      if (value !== toNumber(stored[key])) changes[key] = value
+      if (value !== num(stored[key])) changes[key] = value
     }
     for (const key of ECONOMY_FIELDS) {
       // Compared as a quantity: 7.84 L/100 km shows as 30.0 mpg, and 30.0 mpg
@@ -308,10 +307,11 @@ export default function WindowStickerUpload({
         disabled={!editMode}
         placeholder={placeholder}
         aria-invalid={fieldErrors[key] ? true : undefined}
+        aria-describedby={fieldErrors[key] ? `sticker-${key}-error` : undefined}
         className="w-full px-3 py-2 bg-garage-surface border border-garage-border rounded text-garage-text text-sm disabled:opacity-60"
       />
       {fieldErrors[key] && (
-        <p role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors[key]}</p>
+        <p id={`sticker-${key}-error`} role="alert" className="mt-1 text-xs text-danger-500">{fieldErrors[key]}</p>
       )}
     </div>
   )
@@ -333,19 +333,19 @@ export default function WindowStickerUpload({
     >
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
-          <div className="bg-danger-500/10 border border-danger-500 rounded-lg p-3">
+          <div role="alert" className="bg-danger-500/10 border border-danger-500 rounded-lg p-3">
             <p className="text-sm text-danger-500">{error}</p>
           </div>
         )}
 
         {success && (
-          <div className="bg-success-500/10 border border-success-500 rounded-lg p-3">
+          <div role="status" className="bg-success-500/10 border border-success-500 rounded-lg p-3">
             <p className="text-sm text-success-500">{success}</p>
           </div>
         )}
 
         {notice && (
-          <div className="bg-warning-500/10 border border-warning-500 rounded-lg p-3">
+          <div role="status" className="bg-warning-500/10 border border-warning-500 rounded-lg p-3">
             <p className="text-sm text-warning-500">{notice}</p>
           </div>
         )}
@@ -426,7 +426,7 @@ export default function WindowStickerUpload({
             {file && (
               <div className="bg-garage-bg rounded-lg p-4 border border-garage-border">
                 <div className="flex items-center gap-3">
-                  <FileText className="w-8 h-8 text-primary" />
+                  <FileText className="w-8 h-8 text-(--accent-fg)" />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-garage-text">{file.name}</p>
                     <p className="text-xs text-garage-text-muted">
@@ -494,7 +494,7 @@ export default function WindowStickerUpload({
                 {/* MSRP Section */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-garage-text font-medium">
-                    <DollarSign className="w-5 h-5 text-primary" />
+                    <DollarSign className="w-5 h-5 text-(--accent-fg)" />
                     <span>{t('windowSticker.msrpPricing')}</span>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ml-7">
@@ -509,7 +509,7 @@ export default function WindowStickerUpload({
                 {/* Colors Section */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-garage-text font-medium">
-                    <Palette className="w-5 h-5 text-primary" />
+                    <Palette className="w-5 h-5 text-(--accent-fg)" />
                     <span>{t('windowSticker.misc.colors')}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3 ml-7">
@@ -521,7 +521,7 @@ export default function WindowStickerUpload({
                 {/* Vehicle Specs Section */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-garage-text font-medium">
-                    <Cog className="w-5 h-5 text-primary" />
+                    <Cog className="w-5 h-5 text-(--accent-fg)" />
                     <span>{t('windowSticker.misc.vehicleSpecs')}</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 ml-7">
@@ -536,7 +536,7 @@ export default function WindowStickerUpload({
                 {/* Fuel Economy Section: always shown, so you can add what the OCR missed. */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-garage-text font-medium">
-                    <Fuel className="w-5 h-5 text-primary" />
+                    <Fuel className="w-5 h-5 text-(--accent-fg)" />
                     <span>{t('windowSticker.misc.fuelEconomyUnit', { unit: u.consumption.label })}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-3 ml-7">
@@ -549,7 +549,7 @@ export default function WindowStickerUpload({
                 {/* Warranty Section */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-garage-text font-medium">
-                    <Shield className="w-5 h-5 text-primary" />
+                    <Shield className="w-5 h-5 text-(--accent-fg)" />
                     <span>{t('detail.warranty')}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3 ml-7">
@@ -561,7 +561,7 @@ export default function WindowStickerUpload({
                 {/* Environmental Ratings Section: always shown, same as fuel economy. */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-garage-text font-medium">
-                    <Leaf className="w-5 h-5 text-primary" />
+                    <Leaf className="w-5 h-5 text-(--accent-fg)" />
                     <span>{t('windowSticker.misc.environmentalRatings')}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3 ml-7">
@@ -573,7 +573,7 @@ export default function WindowStickerUpload({
                 {/* Assembly Location */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-garage-text font-medium">
-                    <Car className="w-5 h-5 text-primary" />
+                    <Car className="w-5 h-5 text-(--accent-fg)" />
                     <span>{t('windowSticker.misc.assemblyAndVin')}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3 ml-7">
@@ -596,7 +596,7 @@ export default function WindowStickerUpload({
                 {Object.keys(optionsDetail).length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-garage-text font-medium">
-                      <DollarSign className="w-5 h-5 text-primary" />
+                      <DollarSign className="w-5 h-5 text-(--accent-fg)" />
                       <span>{t('windowSticker.misc.optionsDetail')}</span>
                     </div>
                     <div className="ml-7 bg-garage-surface rounded p-3 border border-garage-border">
@@ -621,7 +621,7 @@ export default function WindowStickerUpload({
                 {standardItems.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-garage-text font-medium">
-                      <FileText className="w-5 h-5 text-primary" />
+                      <FileText className="w-5 h-5 text-(--accent-fg)" />
                       <span>
                         {t('windowSticker.misc.standardEquipmentCount', {
                           count: standardItems.length,
@@ -634,7 +634,7 @@ export default function WindowStickerUpload({
                           <li key={i} className="truncate">{item}</li>
                         ))}
                         {standardItems.length > 20 && (
-                          <li className="text-primary">
+                          <li className="text-(--accent-fg)">
                             {t('windowSticker.misc.andMore', {
                               count: standardItems.length - 20,
                             })}
@@ -671,3 +671,6 @@ export default function WindowStickerUpload({
     </Drawer>
   )
 }
+
+// Pins its units for as long as it is open (R4).
+export default withUnitSession(WindowStickerUpload)

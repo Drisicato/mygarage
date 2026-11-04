@@ -144,6 +144,11 @@ def log_secret_key_status() -> None:
         )
 
 
+#: How long shutdown waits for post-commit jobs (alerts, the new-device notice).
+#: Well inside Docker's default 10 s stop grace.
+POST_COMMIT_SHUTDOWN_SECONDS = 5.0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
@@ -259,6 +264,11 @@ async def lifespan(app: FastAPI):
     # Stop MQTT subscriber on shutdown
     await stop_mqtt_subscriber()
     stop_scheduler()
+    # After ingest stops, so nothing queues behind it: a notification still
+    # being sent gets a few seconds to finish instead of dying with the loop.
+    from app.services import post_commit
+
+    await post_commit.shutdown(timeout=POST_COMMIT_SHUTDOWN_SECONDS)
     logger.info("Shutting down MyGarage application...")
 
 
@@ -394,18 +404,22 @@ async def api_health_check(request: Request):
 
 # Import and include routers
 from app.routes import (
+    address_book_fuel_prices_router,
     address_book_router,
     analytics_router,
     attachments_router,
     backup_router,
     brakes_router,
     calendar_router,
+    compliance_router,
+    country_profiles_router,
     dashboard_router,
     def_router,
     documents_router,
     export_router,
     external_vehicles_router,
     financing_router,
+    fuel_prices_router,
     fuel_router,
     garage_assistant_router,
     hours_router,
@@ -419,6 +433,7 @@ from app.routes import (
     photos_router,
     planned_repairs_router,
     recalls_router,
+    registration_certificate_router,
     reminder_packs_router,
     reminders_router,
     reports_router,
@@ -483,6 +498,8 @@ app.include_router(reports_router)
 app.include_router(toll_tags_router)
 app.include_router(toll_transactions_router)
 app.include_router(recalls_router)
+app.include_router(fuel_prices_router)
+app.include_router(address_book_fuel_prices_router)
 app.include_router(settings_router)
 app.include_router(backup_router)
 app.include_router(attachments_router)
@@ -503,6 +520,9 @@ app.include_router(planned_repairs_router)
 app.include_router(vehicle_inspections_router)
 app.include_router(reminders_router)
 app.include_router(reminder_packs_router)
+app.include_router(country_profiles_router)
+app.include_router(compliance_router)
+app.include_router(registration_certificate_router)
 app.include_router(maintenance_types_router)
 app.include_router(maintenance_rules_router)
 app.include_router(supplies_router)

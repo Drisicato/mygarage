@@ -56,6 +56,7 @@ from app.services.dtc_service import DTCService
 from app.services.livelink_alerts import alert_band
 from app.services.livelink_integrations import device_is_online
 from app.services.livelink_service import LiveLinkService
+from app.services.livelink_sources.base import Capability
 from app.services.livelink_sources.presets.sensors import live_sensors
 from app.services.livelink_sources.registry import default_registry
 from app.services.location_service import LocationService
@@ -66,6 +67,7 @@ from app.services.torque_service import TorqueService
 from app.utils.csv_safe import sanitize_csv_row
 from app.utils.datetime_utils import utc_now
 from app.utils.request_scheme import get_external_base_url
+from app.utils.vehicle_key import download_tag
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +129,26 @@ def _union_capabilities(devices: Sequence[LiveLinkDevice]) -> list[str]:
     return sorted(caps)
 
 
+def _drive_source(devices: Sequence[LiveLinkDevice]) -> LiveLinkDevice | None:
+    """The device a vehicle's status describes.
+
+    The most recently seen one that can drive a session (`devices` comes
+    newest first), else the most recently seen of any kind. Enabled ones
+    first: a dongle switched off mid-drive freezes at ECU on, and it may well
+    have been heard from after the one that replaced it (FB-6).
+    """
+    registry = default_registry()
+    for device in _enabled_first(devices):
+        if Capability.DRIVE_SESSION in registry.capabilities_for(device.kind):
+            return device
+    return next(iter(_enabled_first(devices)), None)
+
+
+def _enabled_first(devices: Sequence[LiveLinkDevice]) -> list[LiveLinkDevice]:
+    """`devices` with the enabled ones first, each group still newest first."""
+    return sorted(devices, key=lambda device: not device.enabled)
+
+
 # =============================================================================
 # Status Endpoint (for live dashboard polling)
 # =============================================================================
@@ -166,15 +188,19 @@ async def get_vehicle_livelink_status(
     # Every linked device, not just the most recent one: `capabilities` is a
     # union and a vehicle may carry more than one source.
     devices = await livelink_service.list_devices_by_vin(vin)
-    device = devices[0] if devices else None
+    # The ECU, signal, battery and drive chip come from the vehicle's drive
+    # source, the most recently seen DRIVE_SESSION device (R7). Taking them
+    # from whichever device reported last let a propane sensor that publishes
+    # every few seconds blank them between WiCAN frames.
+    device = _drive_source(devices)
     capabilities = _union_capabilities(devices)
-    # The integrations card's rule, not `device_status == 'online'`: a sensor
-    # with no status topic never leaves 'unknown', and read raw it showed the
-    # RV offline while its readings arrived every few seconds.
-    # No device, nothing to be online and no setting worth reading.
+    # The integrations card's rule, not `device_status == 'online'`: Torque
+    # never leaves 'unknown', and a disabled device freezes at its last status.
+    # Any linked device reporting means the vehicle is reachable. No device,
+    # nothing to be online and no setting worth reading.
     timeout = await livelink_service.get_device_offline_timeout_minutes() if devices else 0
     now = utc_now()
-    online = device_is_online(device, timeout, now) if device else False
+    online = any(device_is_online(d, timeout, now) for d in devices)
     sensors = await live_sensors(db, devices, timeout, now)
 
     # Get latest telemetry values
@@ -209,7 +235,9 @@ async def get_vehicle_livelink_status(
 
     if device and device.current_session_id:
         current_session = await session_service.get_session(device.current_session_id)
-        if current_session:
+        # The pointer can hold a closed session (one awaiting a reopen). That's
+        # not a drive in progress, so it isn't reported as one.
+        if current_session and current_session.ended_at is None:
             current_session_id = current_session.id
             session_started_at = current_session.started_at
             if session_started_at:
@@ -223,10 +251,12 @@ async def get_vehicle_livelink_status(
         device_id=device.device_id if device else None,
         kind=device.kind if device else None,
         capabilities=capabilities,
-        device_status=device.device_status if device else "offline",
+        # Follows `online`, so the two can't disagree on a multi-device vehicle.
+        device_status="online" if online else "offline",
         online=online,
         ecu_status=device.ecu_status if device else "unknown",
-        last_seen=device.last_seen if device else None,
+        # The vehicle's last contact, from whichever enabled device that was.
+        last_seen=_enabled_first(devices)[0].last_seen if devices else None,
         battery_voltage=device.battery_voltage if device else None,
         rssi=device.rssi if device else None,
         current_session_id=current_session_id,
@@ -450,26 +480,9 @@ async def get_session_detail(
     if session.vin != vin:
         raise HTTPException(status_code=404, detail="Session does not belong to this vehicle")
 
-    # Get additional details
-    telemetry_service = TelemetryService(db)
-
-    # Get parameters recorded during session
-    if session.started_at and session.ended_at:
-        telemetry_data = await telemetry_service.get_telemetry_range(
-            vin=vin,
-            start=session.started_at,
-            end=session.ended_at,
-            limit=1,  # Just need to know what params exist
-        )
-        parameters_recorded = list({t.param_key for t in telemetry_data})
-        data_points_count = len(
-            await telemetry_service.get_telemetry_range(
-                vin=vin, start=session.started_at, end=session.ended_at
-            )
-        )
-    else:
-        parameters_recorded = []
-        data_points_count = 0
+    # The drive's own window, the one its figures come from: this device's
+    # rows only, and a touching earlier drive keeps the sample they share.
+    parameters_recorded, data_points_count = await session_service.recorded_telemetry(session)
 
     # Get DTCs that appeared/cleared during session
     # This is a simplified implementation
@@ -695,8 +708,9 @@ async def export_telemetry(
     **Security:**
     - Requires authentication
     """
-    await verify_vehicle_access(db, vin, current_user)
+    vehicle = await verify_vehicle_access(db, vin, current_user)
     vin = vin.upper().strip()
+    tag = download_tag(vehicle, vehicle.nickname)
 
     telemetry_service = TelemetryService(db)
 
@@ -727,7 +741,7 @@ async def export_telemetry(
             iter([json.dumps(export_data, indent=2)]),
             media_type="application/json",
             headers={
-                "Content-Disposition": f"attachment; filename=telemetry_{vin}_{start.date()}_{end.date()}.json"
+                "Content-Disposition": f"attachment; filename=telemetry_{tag}_{start.date()}_{end.date()}.json"
             },
         )
 
@@ -745,7 +759,7 @@ async def export_telemetry(
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f"attachment; filename=telemetry_{vin}_{start.date()}_{end.date()}.csv"
+            "Content-Disposition": f"attachment; filename=telemetry_{tag}_{start.date()}_{end.date()}.csv"
         },
     )
 
@@ -770,8 +784,9 @@ async def export_sessions(
     **Security:**
     - Requires authentication
     """
-    await verify_vehicle_access(db, vin, current_user)
+    vehicle = await verify_vehicle_access(db, vin, current_user)
     vin = vin.upper().strip()
+    tag = download_tag(vehicle, vehicle.nickname)
 
     session_service = SessionService(db)
 
@@ -801,7 +816,7 @@ async def export_sessions(
         return StreamingResponse(
             iter([json.dumps(export_data, indent=2)]),
             media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename=sessions_{vin}.json"},
+            headers={"Content-Disposition": f"attachment; filename=sessions_{tag}.json"},
         )
 
     # CSV export
@@ -822,18 +837,22 @@ async def export_sessions(
     )
 
     for s in sessions:
+        # Blank only for None: a parked session's 0 s and 0.0 km are values (G4-05).
+        measured = [
+            s.duration_seconds,
+            s.distance_km,
+            s.avg_speed,
+            s.max_speed,
+            s.avg_rpm,
+            s.max_rpm,
+        ]
         writer.writerow(
             sanitize_csv_row(
                 [
                     s.id,
                     s.started_at.isoformat() if s.started_at else "",
                     s.ended_at.isoformat() if s.ended_at else "",
-                    s.duration_seconds or "",
-                    s.distance_km or "",
-                    s.avg_speed or "",
-                    s.max_speed or "",
-                    s.avg_rpm or "",
-                    s.max_rpm or "",
+                    *("" if v is None else v for v in measured),
                 ]
             )
         )
@@ -842,7 +861,7 @@ async def export_sessions(
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=sessions_{vin}.csv"},
+        headers={"Content-Disposition": f"attachment; filename=sessions_{tag}.csv"},
     )
 
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -18,7 +18,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 
-import { Select, Toggle } from '@/components/ui'
+import { IconButton, Select, Toggle } from '@/components/ui'
 import { livelinkService } from '@/services/livelinkService'
 import type {
   BackfillResultResponse,
@@ -29,6 +29,13 @@ import type {
 } from '@/types/livelink'
 import type { SourceInfo } from '@/types/livelinkTopicMap'
 import type { Vehicle } from '@/types/vehicle'
+import {
+  DEVICE_STATUS_LABEL,
+  ECU_STATUS_LABEL,
+  deviceStatusWord,
+  ecuStatusWord,
+} from '../integrationStatus'
+import type { DeviceStatusWord } from '../integrationStatus'
 
 /**
  * One device in a settings drawer's device table.
@@ -40,6 +47,12 @@ import type { Vehicle } from '@/types/vehicle'
  * wire features by kind (see `wicanWire`).
  */
 
+const STATUS_COLOR: Readonly<Record<DeviceStatusWord, string>> = {
+  online: 'text-green-500',
+  offline: 'text-red-500',
+  unknown: 'text-gray-500',
+}
+
 interface Props {
   device: LiveLinkDevice
   vehicles: Vehicle[]
@@ -49,7 +62,9 @@ interface Props {
   showFirmware: boolean
   deviceFirmware?: DeviceFirmwareStatus
   mqttConnected?: boolean
-  onUpdate: (deviceId: string, update: LiveLinkDeviceUpdate) => void
+  /** Resolves false when the server refused the change, so a control that
+   *  shows its own copy of the value can put the device's back. */
+  onUpdate: (deviceId: string, update: LiveLinkDeviceUpdate) => Promise<boolean>
   onDelete: (deviceId: string) => void
   onGenerateToken: (deviceId: string) => void
   onRevokeToken: (deviceId: string) => void
@@ -78,14 +93,14 @@ export default function DeviceRow({
   onUnskipFirmware,
 }: Props): ReactElement {
   const { t } = useTranslation('forms')
+  const idBase = useId()
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(device.label ?? '')
   const [showSdConfig, setShowSdConfig] = useState(false)
   const [sdAddress, setSdAddress] = useState(device.device_address ?? '')
   const [sdEnabled, setSdEnabled] = useState(device.sd_backfill_enabled ?? false)
-  const [odometerUnit, setOdometerUnit] = useState<'km' | 'mi' | 'auto'>(
-    (device.odometer_unit as 'km' | 'mi' | null) ?? 'auto'
-  )
+  const savedOdometerUnit = (device.odometer_unit as 'km' | 'mi' | null) ?? 'auto'
+  const [odometerUnit, setOdometerUnit] = useState<'km' | 'mi' | 'auto'>(savedOdometerUnit)
   const [odometerParamKey, setOdometerParamKey] = useState<string>(
     device.odometer_param_key ?? '',
   )
@@ -105,6 +120,10 @@ export default function DeviceRow({
   // wire protocol; no Capability names them. A Torque source's token IS its
   // upload URL, so offering to regenerate it here would break the phone.
   const wicanWire = device.kind === 'wican'
+  // Torque sends TORQUE_ODOMETER in km, always; read as miles every reading
+  // lands 1.609x high. The server refuses that pair both ways, so the unit is
+  // locked while it's the saved key.
+  const torqueKmOdometer = device.kind === 'torque' && device.odometer_param_key === 'TORQUE_ODOMETER'
 
   useEffect(() => {
     if (!choosesOdometerParam) return
@@ -119,8 +138,23 @@ export default function DeviceRow({
 
   const handleSaveLabel = (): void => {
     // null clears; undefined would be dropped from the JSON and keep the old label.
-    onUpdate(device.device_id, { label: label || null })
+    void onUpdate(device.device_id, { label: label || null })
     setEditing(false)
+  }
+
+  // The select moves first so it feels instant. A refusal (409 once readings
+  // depend on the unit) puts the device's own value back rather than leaving
+  // the refused one on screen.
+  const changeOdometerUnit = async (next: 'km' | 'mi' | 'auto'): Promise<void> => {
+    setOdometerUnit(next)
+    if (!(await onUpdate(device.device_id, { odometer_unit: next }))) setOdometerUnit(savedOdometerUnit)
+  }
+
+  const changeOdometerParamKey = async (next: string): Promise<void> => {
+    setOdometerParamKey(next)
+    if (!(await onUpdate(device.device_id, { odometer_param_key: next }))) {
+      setOdometerParamKey(device.odometer_param_key ?? '')
+    }
   }
 
   const handleSaveSdConfig = async (): Promise<void> => {
@@ -142,16 +176,14 @@ export default function DeviceRow({
     deviceFirmware?.skipped_version != null &&
     deviceFirmware.skipped_version === deviceFirmware.latest_version
 
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case 'online':
-        return 'text-green-500'
-      case 'offline':
-        return 'text-red-500'
-      default:
-        return 'text-gray-500'
-    }
-  }
+  // `online` is the server's rule, not `device_status`: a Torque phone never
+  // reports a status, and a disabled device freezes at its last one.
+  const status = deviceStatusWord(device)
+  const ecu = ecuStatusWord(device.ecu_status)
+  // Every row has the same buttons, so each name says which device it's for.
+  // The tooltip keeps the short action.
+  const name = device.label || device.device_id
+  const forDevice = (actionKey: string): string => t('modal.livelink.actionFor', { action: t(actionKey), name })
 
   return (
     <>
@@ -164,15 +196,20 @@ export default function DeviceRow({
                 type="text"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
+                aria-label={t('modal.livelink.labelPlaceholder')}
                 placeholder={t('modal.livelink.labelPlaceholder')}
                 className="px-2 py-1 bg-garage-surface border border-garage-border rounded text-xs text-garage-text w-24"
               />
-              <button onClick={handleSaveLabel} className="text-green-500 hover:text-green-400">
-                <CheckCircle className="w-4 h-4" />
-              </button>
+              <IconButton
+                icon={CheckCircle}
+                label={t('modal.livelink.save')}
+                size="sm"
+                className="text-green-500! hover:text-green-400!"
+                onClick={handleSaveLabel}
+              />
             </div>
           ) : (
-            <button onClick={() => setEditing(true)} className="text-garage-text hover:text-primary text-sm">
+            <button onClick={() => setEditing(true)} className="text-garage-text hover:text-(--accent-fg) text-sm">
               {device.label || device.device_id.substring(0, 8) + '...'}
             </button>
           )}
@@ -181,14 +218,14 @@ export default function DeviceRow({
       </td>
       <td className="py-2 px-3">
         <div className="flex flex-col gap-0.5">
-          <span className={`flex items-center gap-1 text-xs ${getStatusColor(device.device_status)}`}>
-            {device.device_status === 'online' ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {device.device_status}
+          <span className={`flex items-center gap-1 text-xs ${STATUS_COLOR[status]}`}>
+            {status === 'online' ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            {t(DEVICE_STATUS_LABEL[status].labelKey)}
           </span>
           {wicanWire && (
-            <span className={`flex items-center gap-1 text-xs ${getStatusColor(device.ecu_status)}`}>
-              {device.ecu_status === 'online' ? <Link2 className="w-3 h-3" /> : <Link2Off className="w-3 h-3" />}
-              {t('modal.livelink.ecuLabel')} {device.ecu_status}
+            <span className={`flex items-center gap-1 text-xs ${STATUS_COLOR[ecu]}`}>
+              {ecu === 'online' ? <Link2 className="w-3 h-3" /> : <Link2Off className="w-3 h-3" />}
+              {t('modal.livelink.ecuLabel')} {t(ECU_STATUS_LABEL[ecu].labelKey)}
             </span>
           )}
         </div>
@@ -197,9 +234,9 @@ export default function DeviceRow({
         {/* The empty option UNLINKS: the API reads vin "" as "clear the link",
             where null would mean "leave it" and never unlinked anything. */}
         <Select
-          aria-label={t('modal.vehicle')}
+          aria-label={forDevice('modal.vehicle')}
           value={device.vin ?? ''}
-          onChange={(e) => onUpdate(device.device_id, { vin: e.target.value })}
+          onChange={(e) => void onUpdate(device.device_id, { vin: e.target.value })}
           placeholder={t('modal.livelink.unlinked')}
           options={vehicles.map((v) => ({
             value: v.vin,
@@ -217,13 +254,14 @@ export default function DeviceRow({
               <span className="ml-1 px-1 py-0.5 bg-garage-border/50 text-garage-text-muted text-xs rounded">
                 {t('modal.livelink.skippedBadge', { version: deviceFirmware.latest_version })}
               </span>
-              <button
-                onClick={() => onUnskipFirmware(device.device_id)}
-                className="ml-1 p-0.5 text-garage-text-muted hover:text-yellow-500"
+              <IconButton
+                icon={Bell}
+                label={forDevice('modal.livelink.unskip')}
                 title={t('modal.livelink.unskip')}
-              >
-                <Bell className="w-3 h-3" />
-              </button>
+                size="sm"
+                className="ml-1 hover:text-yellow-500!"
+                onClick={() => onUnskipFirmware(device.device_id)}
+              />
             </>
           )}
           {deviceFirmware?.update_available && !firmwareSkipped && (
@@ -231,78 +269,86 @@ export default function DeviceRow({
               <span className="ml-1 px-1 py-0.5 bg-yellow-500/20 text-yellow-500 text-xs rounded">
                 {t('modal.livelink.updateBadge')}
               </span>
-              <button
+              <IconButton
+                icon={BellOff}
+                label={forDevice('modal.livelink.skipVersion')}
+                title={t('modal.livelink.skipVersion')}
+                size="sm"
+                className="ml-1 hover:text-yellow-500!"
                 onClick={() =>
                   deviceFirmware.latest_version &&
                   onSkipFirmware(device.device_id, deviceFirmware.latest_version)
                 }
-                className="ml-1 p-0.5 text-garage-text-muted hover:text-yellow-500"
-                title={t('modal.livelink.skipVersion')}
-              >
-                <BellOff className="w-3 h-3" />
-              </button>
+              />
             </>
           )}
         </td>
       )}
       <td className="py-2 px-3 text-right">
         <div className="flex items-center justify-end gap-1">
-          {capabilities.has('commands') && mqttConnected && device.device_status === 'online' && (
-            <button
-              onClick={() => onSendCommand(device.device_id, 'get_vbatt')}
-              className="p-1 text-garage-text-muted hover:text-green-500"
+          {capabilities.has('commands') && mqttConnected && device.online && (
+            <IconButton
+              icon={Battery}
+              label={forDevice('modal.livelink.checkBatteryVoltage')}
               title={t('modal.livelink.checkBatteryVoltage')}
-            >
-              <Battery className="w-4 h-4" />
-            </button>
+              size="sm"
+              className="hover:text-green-500!"
+              onClick={() => onSendCommand(device.device_id, 'get_vbatt')}
+            />
           )}
           {device.sta_ip && (
             <a
               href={`http://${device.sta_ip}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1 text-garage-text-muted hover:text-primary"
+              className="p-1 text-garage-text-muted hover:text-(--accent-fg)"
               title={t('modal.livelink.openDeviceUi')}
+              aria-label={forDevice('modal.livelink.openDeviceUi')}
             >
-              <ExternalLink className="w-4 h-4" />
+              <ExternalLink aria-hidden="true" className="w-4 h-4" />
             </a>
           )}
           {wicanWire &&
             (device.has_device_token ? (
-              <button
-                onClick={() => onRevokeToken(device.device_id)}
-                className="p-1 text-yellow-500 hover:text-yellow-400"
+              // Yellow says the device has its own token. The ! beats the ghost
+              // variant's own colour, which would otherwise win or lose by CSS order.
+              <IconButton
+                icon={Key}
+                label={forDevice('modal.livelink.revokeDeviceToken')}
                 title={t('modal.livelink.revokeDeviceToken')}
-              >
-                <Key className="w-4 h-4" />
-              </button>
+                size="sm"
+                className="text-yellow-500! hover:text-yellow-400!"
+                onClick={() => onRevokeToken(device.device_id)}
+              />
             ) : (
-              <button
-                onClick={() => onGenerateToken(device.device_id)}
-                className="p-1 text-garage-text-muted hover:text-primary"
+              <IconButton
+                icon={Key}
+                label={forDevice('modal.livelink.generateDeviceToken')}
                 title={t('modal.livelink.generateDeviceToken')}
-              >
-                <Key className="w-4 h-4" />
-              </button>
+                size="sm"
+                className="hover:text-(--accent-fg)!"
+                onClick={() => onGenerateToken(device.device_id)}
+              />
             ))}
           {(hasSd || hasOdometer) && (
-            <button
-              onClick={() => setShowSdConfig(!showSdConfig)}
-              className={`p-1 ${showSdConfig ? 'text-primary' : 'text-garage-text-muted hover:text-primary'}`}
+            <IconButton
+              icon={SlidersHorizontal}
+              label={forDevice('modal.livelink.deviceSettings')}
               title={t('modal.livelink.deviceSettings')}
-              aria-label={t('modal.livelink.deviceSettings')}
+              size="sm"
+              className={showSdConfig ? 'text-(--accent-fg)!' : 'hover:text-(--accent-fg)!'}
               aria-expanded={showSdConfig}
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
+              onClick={() => setShowSdConfig(!showSdConfig)}
+            />
           )}
-          <button
-            onClick={() => onDelete(device.device_id)}
-            className="p-1 text-garage-text-muted hover:text-red-500"
+          <IconButton
+            icon={Trash2}
+            label={forDevice('modal.livelink.deleteDevice')}
             title={t('modal.livelink.deleteDevice')}
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+            variant="danger"
+            size="sm"
+            onClick={() => onDelete(device.device_id)}
+          />
         </div>
       </td>
     </tr>
@@ -313,10 +359,11 @@ export default function DeviceRow({
             {hasSd && (
               <>
                 <div>
-                  <label className="block text-xs font-medium text-garage-text mb-1">
+                  <label htmlFor={`${idBase}-address`} className="block text-xs font-medium text-garage-text mb-1">
                     {t('modal.livelink.deviceAddress')}
                   </label>
                   <input
+                    id={`${idBase}-address`}
                     type="text"
                     value={sdAddress}
                     onChange={(e) => setSdAddress(e.target.value)}
@@ -335,39 +382,47 @@ export default function DeviceRow({
             )}
             {hasOdometer && (
               <div>
-                <label className="block text-xs font-medium text-garage-text mb-1">
+                <label htmlFor={`${idBase}-odometer-unit`} className="block text-xs font-medium text-garage-text mb-1">
                   {t('modal.livelink.odometerUnit')}
                 </label>
                 <Select
+                  id={`${idBase}-odometer-unit`}
                   value={odometerUnit}
-                  onChange={(e) => {
-                    const next = e.target.value as 'km' | 'mi' | 'auto'
-                    setOdometerUnit(next)
-                    onUpdate(device.device_id, { odometer_unit: next })
-                  }}
+                  onChange={(e) => void changeOdometerUnit(e.target.value as 'km' | 'mi' | 'auto')}
+                  disabled={torqueKmOdometer}
                   options={[
                     { value: 'auto', label: t('modal.livelink.odometerUnitAuto') },
                     { value: 'km', label: t('modal.livelink.odometerUnitKm') },
                     { value: 'mi', label: t('modal.livelink.odometerUnitMi') },
                   ]}
                 />
-                <p className="mt-1 text-[11px] text-garage-text-muted max-w-56">
-                  {t('modal.livelink.odometerUnitHelp')}
-                </p>
+                {torqueKmOdometer ? (
+                  <>
+                    <p className="mt-1 text-[11px] text-garage-text-muted max-w-56">
+                      {t('modal.livelink.odometerUnitTorqueKm')}
+                    </p>
+                    {savedOdometerUnit === 'mi' && (
+                      <p className="mt-1 text-[11px] text-yellow-500 max-w-56 break-words">
+                        {t('modal.livelink.odometerUnitTorqueMiRepair', { deviceId: device.device_id })}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-1 text-[11px] text-garage-text-muted max-w-56">
+                    {t('modal.livelink.odometerUnitHelp')}
+                  </p>
+                )}
               </div>
             )}
             {choosesOdometerParam && (
               <div>
-                <label className="block text-xs font-medium text-garage-text mb-1">
+                <label htmlFor={`${idBase}-odometer-param`} className="block text-xs font-medium text-garage-text mb-1">
                   {t('modal.livelink.odometerParam')}
                 </label>
                 <Select
+                  id={`${idBase}-odometer-param`}
                   value={odometerParamKey}
-                  onChange={(e) => {
-                    const next = e.target.value
-                    setOdometerParamKey(next)
-                    onUpdate(device.device_id, { odometer_param_key: next })
-                  }}
+                  onChange={(e) => void changeOdometerParamKey(e.target.value)}
                   options={[
                     { value: '', label: t('modal.livelink.odometerParamNone') },
                     ...paramKeys.map((k) => ({ value: k, label: k })),

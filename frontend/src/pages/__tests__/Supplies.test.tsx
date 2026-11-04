@@ -4,6 +4,9 @@ import { render, screen, fireEvent, within, waitFor, act } from '../../__tests__
 import type { Supply } from '../../types/supplies'
 import { presetUnitsFor, type UnitSet } from '../../types/units'
 import { setActiveLocale } from '../../constants/i18n'
+import i18next from 'i18next'
+import commonEn from '../../locales/en/common.json'
+import { registeredFieldNames, validationError, whereA422Lands, dropQueuedOnces } from '../../__tests__/serverErrors'
 
 // Mock the supplies query hooks so this stays a unit test — no real network
 // calls needed. The api layer itself is already mocked globally (setup.ts
@@ -58,14 +61,19 @@ const unitMock = vi.hoisted(() => ({
   units: null as UnitSet | null,
   gallonStandard: 'us' as 'us' | 'uk',
 }))
-vi.mock('../../hooks/useUnitPreference', () => ({
-  useUnitPreference: () => ({
+vi.mock('../../hooks/useUnitPreference', () => {
+  // UnitSession reads the account half too; same answer, nothing to pin here.
+  const unitPreference = () => ({
     system: unitMock.system,
     units: unitMock.units,
     gallonStandard: unitMock.gallonStandard,
     showBoth: false,
-  }),
-}))
+  })
+  return {
+    useUnitPreference: unitPreference,
+    useAccountUnitPreference: unitPreference,
+  }
+})
 // Sets the whole account in one go so system, set and gallon flavour can't disagree.
 const setAccount = (system: 'metric' | 'imperial', flavour: 'us' | 'uk' = 'us'): void => {
   unitMock.system = system
@@ -79,11 +87,18 @@ vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { currency_code: currencyMock.code } }),
 }))
 // Local i18n mock: a `{ unit }` call shows its unit so the avg-cost label can
-// tell qt from fl oz. Everything else is the bare key, and t stays one stable
-// function for the same reason setup.ts hoists its own.
+// tell qt from fl oz, and a `{ value, unit }` call shows both for the list cell.
+// Everything else is the bare key, and t stays one stable function for the same
+// reason setup.ts hoists its own.
+// A test that needs the shipped English sets `realT` and gets a real i18next
+// instead.
+const i18nMock = vi.hoisted(() => ({ realT: null as ((key: string, options?: object) => string) | null }))
 vi.mock('react-i18next', () => {
-  const t = (key: string, options?: { unit?: string }): string =>
-    options?.unit !== undefined ? `${key} (${options.unit})` : key
+  const t = (key: string, options?: { unit?: string; value?: string }): string => {
+    if (i18nMock.realT) return i18nMock.realT(key, options)
+    if (options?.value !== undefined) return `${key} (${options.value} / ${options.unit})`
+    return options?.unit !== undefined ? `${key} (${options.unit})` : key
+  }
   const i18n = { language: 'en', changeLanguage: () => Promise.resolve() }
   return {
     useTranslation: () => ({ t, i18n }),
@@ -130,6 +145,9 @@ beforeEach(() => {
     variables: undefined,
   })
 })
+
+// A rejection a failed test queued but never used mustn't reach the next one.
+afterEach(dropQueuedOnces(createSupplyMock, updateSupplyMock))
 
 describe('Supplies page', () => {
   it('renders the supply list from useSupplies', () => {
@@ -661,7 +679,9 @@ describe('Supplies page: each supply shows its own unit', () => {
     expect(screen.queryByText('$0.01')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
-    expect(within(screen.getByRole('table')).getByText('$0.0053')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('table')).getByText('supplies.avgCostValuePerUnit ($0.0053 / mL)'),
+    ).toBeInTheDocument()
   })
 
   it('a legacy supply with no unit still follows the imperial pick to qt', () => {
@@ -676,6 +696,76 @@ describe('Supplies page: each supply shows its own unit', () => {
     // 10.5 L is 11.095 US qt.
     expect(screen.getByText('11.10 qt')).toBeInTheDocument()
     expect(screen.getByText('supplies.avgCostPerUnit (qt)')).toBeInTheDocument()
+  })
+})
+
+describe('Supplies page: the list avg cost cell names its unit', () => {
+  // The list has one header for every row, so each cell says what it's per.
+  // Prices are per litre on the wire: $25 for 5 US qt, $5.25/L, and $6 per UK qt.
+  const ukQuartLitres = 4.54609 / 4
+  const quarts = { ...mockSupply, id: 31, name: 'Quart Oil', volume_unit: 'qt_us', avg_unit_cost: String(25 / 4.732) } as Supply
+  const millis = { ...mockSupply, id: 32, name: 'Milli Additive', volume_unit: 'mL', avg_unit_cost: '5.25' } as Supply
+  const ukQuarts = { ...mockSupply, id: 33, name: 'UK Quart Oil', volume_unit: 'qt_uk', avg_unit_cost: String(6 / ukQuartLitres) } as Supply
+  const counted = { ...mockSupply, id: 34, name: 'Oil Filter', unit_type: 'count', volume_unit: null, on_hand: '4', avg_unit_cost: '12.5' } as Supply
+  const unpriced = { ...mockSupply, id: 35, name: 'Free Coolant', volume_unit: 'qt_us', avg_unit_cost: null } as Supply
+
+  const avgCostCell = (name: string): string | null => {
+    const row = within(screen.getByRole('table')).getByText(name).closest('tr') as HTMLElement
+    // name, category, vehicle, on hand, avg cost, actions
+    return within(row).getAllByRole('cell')[4].textContent
+  }
+
+  const renderList = (supplies: Supply[]): void => {
+    useSuppliesMock.mockReturnValue({ data: { supplies, total: supplies.length }, isLoading: false, error: null })
+    render(<Supplies />)
+    fireEvent.click(screen.getByRole('button', { name: 'supplies.listView' }))
+  }
+
+  it('a qt supply, a mL supply and a UK quart supply each name their own unit', () => {
+    renderList([quarts, millis, ukQuarts])
+
+    expect(avgCostCell('Quart Oil')).toBe('supplies.avgCostValuePerUnit ($5.00 / qt)')
+    expect(avgCostCell('Milli Additive')).toBe('supplies.avgCostValuePerUnit ($0.0053 / mL)')
+    expect(avgCostCell('UK Quart Oil')).toBe('supplies.avgCostValuePerUnit ($6.00 / qt (UK))')
+  })
+
+  // Guard: main shows every cell plain. Mutation: drop the label check in
+  // avgCostCell and this grows a dangling "/".
+  it('a counted supply shows the plain price, no unit', () => {
+    renderList([counted])
+
+    expect(avgCostCell('Oil Filter')).toBe('$12.50')
+  })
+
+  // The mock above would pass with any template, so this one reads the real en value.
+  it('the shipped English reads $5.00/qt and $6.00/qt (UK)', async () => {
+    const english = i18next.createInstance()
+    await english.init({
+      lng: 'en',
+      ns: ['common'],
+      defaultNS: 'common',
+      resources: { en: { common: commonEn } },
+      interpolation: { escapeValue: false },
+    })
+    i18nMock.realT = english.t as unknown as (key: string, options?: object) => string
+    try {
+      useSuppliesMock.mockReturnValue({ data: { supplies: [quarts, ukQuarts], total: 2 }, isLoading: false, error: null })
+      render(<Supplies />)
+      fireEvent.click(screen.getByRole('button', { name: commonEn.supplies.listView }))
+
+      expect(avgCostCell('Quart Oil')).toBe('$5.00/qt')
+      expect(avgCostCell('UK Quart Oil')).toBe('$6.00/qt (UK)')
+    } finally {
+      i18nMock.realT = null
+    }
+  })
+
+  // Guard: main already shows a bare dash here. Mutation: drop the cost check in
+  // avgCostCell and this reads "-/qt".
+  it('a supply with no cost yet keeps the bare dash', () => {
+    renderList([unpriced])
+
+    expect(avgCostCell('Free Coolant')).toBe('-')
   })
 })
 
@@ -936,5 +1026,88 @@ describe('SupplyForm: product image', () => {
 
     await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
     expect(uploadImageMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('SupplyForm: a rejected save', () => {
+  const supplyForm = (): HTMLFormElement => document.getElementById('supply-form') as HTMLFormElement
+  const banner = (): HTMLElement | null => screen.queryByText(/^Failed to supplies\.saveAction\./)
+  const openAdd = (): void => {
+    render(<Supplies />)
+    fireEvent.click(screen.getByText('supplies.addSupply'))
+    fireEvent.change(document.getElementById('name')!, { target: { value: 'Brake Fluid' } })
+  }
+
+  it('a non-422 failure shows the banner and no field error', async () => {
+    createSupplyMock.mockRejectedValueOnce(new Error('Network Error'))
+    openAdd()
+    fireEvent.submit(supplyForm())
+
+    expect(await screen.findByText('Failed to supplies.saveAction. Network Error')).toBeInTheDocument()
+    expect(document.getElementById('name-error')).toBeNull()
+  })
+
+  it('a 422 on name shows under name and no banner', async () => {
+    createSupplyMock.mockRejectedValueOnce(validationError({ name: 'Name already in use' }))
+    openAdd()
+    fireEvent.submit(supplyForm())
+
+    await waitFor(() => expect(document.getElementById('name-error')).not.toBeNull())
+    expect(document.getElementById('name-error')).toHaveTextContent('Name already in use')
+    expect(banner()).toBeNull()
+  })
+
+  it('a 422 on barcode shows under barcode and no banner', async () => {
+    createSupplyMock.mockRejectedValueOnce(validationError({ barcode: 'String should have at most 64 characters' }))
+    openAdd()
+    fireEvent.change(document.getElementById('barcode')!, { target: { value: '0123456789012' } })
+    fireEvent.submit(supplyForm())
+
+    await waitFor(() => expect(createSupplyMock).toHaveBeenCalled())
+    await waitFor(() => expect(document.getElementById('barcode-error')).not.toBeNull())
+    expect(document.getElementById('barcode-error')).toHaveTextContent('String should have at most 64 characters')
+    expect(banner()).toBeNull()
+  })
+
+  // Named controls that aren't payload fields go here. None today.
+  const UI_ONLY: string[] = []
+  // Submitted but held in state with no name, so the sweep below can't see it.
+  // A toggle has no inline error, so its 422 goes to the banner.
+  const BANNER_ROUTED = ['is_active']
+
+  // Guard for knownFields drift: a 422 on any field the form registers has to
+  // attach, never fall through to the banner. Edit mode on a volume supply shows
+  // every field. Mutant: drop any name from knownFields and the banner shows.
+  it('guard: a 422 on every registered field attaches, so none is missing from knownFields', async () => {
+    render(<Supplies />)
+    fireEvent.click(screen.getByLabelText('common:edit'))
+    const names = registeredFieldNames(supplyForm(), UI_ONLY)
+    // The field that drifted before has to be in the sweep, or it proves nothing.
+    expect(names).toEqual(expect.arrayContaining(['barcode', 'volume_unit']))
+
+    updateSupplyMock.mockRejectedValueOnce(validationError(Object.fromEntries(names.map((n) => [n, `bad ${n}`]))))
+    fireEvent.submit(supplyForm())
+
+    await waitFor(() => expect(updateSupplyMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(names.filter((n) => !document.getElementById(`${n}-error`)?.textContent?.includes(`bad ${n}`))).toEqual([])
+    )
+    expect(banner()).toBeNull()
+  })
+
+  // Guard for the nameless toggle: its 422 has to reach the banner. Mutant: put
+  // is_active in knownFields with no error slot and it goes silent.
+  it('guard: a 422 on the active toggle shows the banner', async () => {
+    render(<Supplies />)
+    fireEvent.click(screen.getByLabelText('common:edit'))
+
+    const wrong: string[] = []
+    for (const name of BANNER_ROUTED) {
+      const got = await whereA422Lands(supplyForm(), updateSupplyMock, name, `bad ${name}`, banner)
+      // It has to be a field the save really sends, or the sweep proves nothing.
+      expect(updateSupplyMock.mock.calls.at(-1)?.[0]).toHaveProperty(name)
+      if (got !== 'banner') wrong.push(`${name}: ${got}`)
+    }
+    expect(wrong).toEqual([])
   })
 })

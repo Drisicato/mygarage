@@ -44,10 +44,18 @@ def _dedupe_vins(value: list[str] | None) -> list[str] | None:
     return None if value is None else list(dict.fromkeys(value))
 
 
-#: The largest quantity a Numeric(12,3) supply ledger column holds (purchases
+#: The largest quantity a Numeric(25,13) supply ledger column holds (purchases
 #: and usages alike). What the column holds and no tighter: a household cap
-#: would be invented, and past the column PostgreSQL refuses the row.
-SUPPLY_QUANTITY_MAX = Decimal("999999999.999")
+#: would be invented, and past the column PostgreSQL refuses the row. SQLite
+#: keeps it as a REAL, so the max and any entry of 16+ significant digits read
+#: back with noise in the last digit, and OpenAPI renders it as the float 1e12.
+SUPPLY_QUANTITY_MAX = Decimal("999999999999.9999999999999")
+#: The column's grain. 13 places hold a US fl oz (0.0295735295625 L) and every
+#: other supported unit exactly, so a typed amount reads back as typed.
+SUPPLY_QUANTITY_GRAIN = Decimal("1E-13")
+#: The smallest amount the ledger takes: 1 mL, or a thousandth of a count. A
+#: product rule, not the column's limit; the history modal checks the same.
+SUPPLY_QUANTITY_MIN = Decimal("0.001")
 
 
 class SupplyBase(BaseModel):
@@ -162,12 +170,12 @@ class SupplyReceiptSummary(BaseModel):
 
 
 def _storable_quantity(value: Decimal) -> Decimal:
-    """Numeric(12,3) rounds on write on PG but not on SQLite, so quantize here:
-    both dialects then store the same number, and a sub-0.0005 quantity that
-    would round to a stored zero is refused instead."""
-    quantized = value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-    if quantized == 0:
-        raise ValueError("quantity is below the smallest storable amount (0.001)")
+    """The quantity at the column's 13 places, so the response echoes what's
+    stored. Anything under 1 mL (0.001) is refused: too small to be a real
+    measurement, and the history modal won't send it either."""
+    quantized = value.quantize(SUPPLY_QUANTITY_GRAIN, rounding=ROUND_HALF_UP)
+    if quantized < SUPPLY_QUANTITY_MIN:
+        raise ValueError("quantity is below the smallest amount tracked (0.001, 1 mL)")
     return quantized
 
 
@@ -269,8 +277,12 @@ class SupplyLedgerEntry(BaseModel):
     entry_type: Literal["purchase", "usage"]
     id: int
     at: datetime = Field(
-        description="Effective ledger date: purchase.date (midnight), a job usage's OWNING "
-        "VISIT date, or a standalone adjustment's created_at (R1-H3 ordering)"
+        description="Effective ledger time on the household clock, with its offset: "
+        "purchase.date (midnight), a job usage's OWNING VISIT date (midnight), or a "
+        "standalone adjustment's created_at (R1-H3 ordering)"
+    )
+    ledger_date: date_type = Field(
+        description="The household calendar day the entry falls on (the date of `at`)"
     )
     quantity: Decimal = Field(description="signed: + for purchase, − for usage")
     running_balance: Decimal

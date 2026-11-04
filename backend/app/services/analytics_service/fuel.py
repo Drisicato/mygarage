@@ -14,6 +14,7 @@ import pandas as pd
 from app.models import FuelRecord
 from app.services.analytics_service.trends import calculate_trend_direction
 from app.services.fuel_service import (
+    L_PER_100KM_PLACES,
     average_l_per_100km,
     compute_full_tank_hours_economy,
     economy_periods,
@@ -112,9 +113,9 @@ def calculate_fuel_economy_with_pandas(
     # *highest* (semantic flip from MPG).
     stats = {
         "average_l_per_100km": average_l_per_100km(plotted),
-        "best_l_per_100km": Decimal(str(round(values.min(), 2))),
-        "worst_l_per_100km": Decimal(str(round(values.max(), 2))),
-        "recent_l_per_100km": Decimal(str(round(values.iloc[-1], 2))),
+        "best_l_per_100km": Decimal(str(round(values.min(), L_PER_100KM_PLACES))),
+        "worst_l_per_100km": Decimal(str(round(values.max(), L_PER_100KM_PLACES))),
+        "recent_l_per_100km": Decimal(str(round(values.iloc[-1], L_PER_100KM_PLACES))),
         "trend": _l_per_100km_trend(values.tail(10)),
         "std_dev": (Decimal(str(round(values.std(), 2))) if len(values) > 1 else Decimal("0")),
     }
@@ -221,22 +222,11 @@ def calculate_propane_costs(fuel_records: list[FuelRecord]) -> dict[str, Any]:
     # Bottle refills only: one rule, shared with the dashboard's propane rate.
     propane_records = [r for r in fuel_records if is_bottle_refill(r)]
 
-    if not propane_records:
-        return {
-            "total_spent": Decimal("0.00"),
-            "total_liters": Decimal("0.00"),
-            "avg_price_per_liter": None,
-            "record_count": 0,
-            "monthly_trend": [],
-            "tank_breakdown": {},
-            "tank_timeline": [],
-            "refill_frequency": {},
-        }
-
     # Convert to DataFrame for analysis
     data = []
     for record in propane_records:
-        if record.date and record.cost and record.propane_liters:
+        # A $0 refill still put propane in the bottle; only a missing cost stays out.
+        if record.date and record.cost is not None and record.propane_liters:
             data.append(
                 {
                     "date": pd.Timestamp(record.date),
@@ -250,6 +240,8 @@ def calculate_propane_costs(fuel_records: list[FuelRecord]) -> dict[str, Any]:
                 }
             )
 
+    # record_count is these rows: the refills the totals came from, like the other
+    # cost frames. No refill with a cost means nothing to count.
     if not data:
         return {
             "total_spent": Decimal("0.00"),
@@ -346,8 +338,9 @@ def calculate_propane_costs(fuel_records: list[FuelRecord]) -> dict[str, Any]:
     return {
         "total_spent": Decimal(str(round(total_spent, 2))),
         "total_liters": Decimal(str(round(total_liters, 2))),
-        "avg_price_per_liter": Decimal(str(round(avg_price, 2))) if avg_price > 0 else None,
-        "record_count": len(propane_records),
+        # Free refills average 0.00; it's only unknown with no litres to divide by.
+        "avg_price_per_liter": Decimal(str(round(avg_price, 2))) if total_liters > 0 else None,
+        "record_count": len(df),
         "monthly_trend": monthly_trend,
         "tank_breakdown": tank_breakdown,
         "tank_timeline": tank_timeline,

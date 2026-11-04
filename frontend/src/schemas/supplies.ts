@@ -3,7 +3,7 @@ import type { TFunction } from 'i18next'
 
 import { SUPPLY_VOLUME_UNITS } from '@/utils/supplyUnits'
 
-import { makeVinSchema } from './shared'
+import { makeVehicleKeySchema } from './shared'
 
 /**
  * Supply validation schema.
@@ -31,8 +31,9 @@ export const makeSupplySchema = (t: TFunction) =>
     barcode: z.string().max(64, t('common:validation.supply.barcodeTooLong')).optional(),
     category: z.string().max(40, t('common:validation.supply.categoryTooLong')).optional(),
     notes: z.string().max(5000, t('common:validation.supply.notesTooLong')).optional(),
-    // Empty = shared across all vehicles.
-    vins: z.array(makeVinSchema(t)).optional(),
+    // Empty = shared across all vehicles. A key, not only a VIN (#226), so a
+    // vehicle without one can be linked too.
+    vins: z.array(makeVehicleKeySchema(t)).optional(),
   })
 
 export type SupplyFormData = z.infer<ReturnType<typeof makeSupplySchema>>

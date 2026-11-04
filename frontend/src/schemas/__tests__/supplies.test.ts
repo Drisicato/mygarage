@@ -64,6 +64,11 @@ describe('Supply Schema', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts the generated key of a vehicle without a VIN (#226)', () => {
+    const result = supplySchema.safeParse({ ...validEntry, vin: 'QABCDEFGH12345678' })
+    expect(result.success).toBe(true)
+  })
+
   it('rejects a malformed vin', () => {
     const result = supplySchema.safeParse({ ...validEntry, vins: ['1HGCM82633A004352', 'not-a-vin'] })
     expect(result.success).toBe(false)
