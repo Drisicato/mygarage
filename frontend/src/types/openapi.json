@@ -843,6 +843,18 @@
             ],
             "title": "Currency Code"
           },
+          "date_format": {
+            "anyOf": [
+              {
+                "pattern": "^(mdy|dmy)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Format"
+          },
           "email": {
             "anyOf": [
               {
@@ -1546,6 +1558,267 @@
           "view_url"
         ],
         "title": "AttachmentResponse",
+        "type": "object"
+      },
+      "AutoRefCandidate": {
+        "description": "One version AutoRef matched for a VIN, to pick from.",
+        "properties": {
+          "fuel_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fuel normalized to FuelTypeEnum vocabulary",
+            "title": "Fuel Type"
+          },
+          "gearbox_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "M",
+                  "A",
+                  "S",
+                  "H"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AutoRef's gearbox code, echoed on a pick (the full record has none)",
+            "title": "Gearbox Code"
+          },
+          "grouped": {
+            "default": false,
+            "description": "It stands for several configurations",
+            "title": "Grouped",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The id of its full record (ephemeral: pick it right away)",
+            "title": "Id",
+            "type": "string"
+          },
+          "kw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Power in kW, echoed on a pick",
+            "title": "Kw"
+          },
+          "label": {
+            "description": "AutoRef's name for the version",
+            "title": "Label",
+            "type": "string"
+          },
+          "model_full": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AutoRef's MODEL_FULL, echoed on a pick",
+            "title": "Model Full"
+          },
+          "record_type": {
+            "description": "The record type of its full record",
+            "enum": [
+              "TG",
+              "COC",
+              "OLD",
+              "OC",
+              "X"
+            ],
+            "title": "Record Type",
+            "type": "string"
+          },
+          "transmission": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Transmission type",
+            "title": "Transmission"
+          }
+        },
+        "required": [
+          "record_type",
+          "id",
+          "label"
+        ],
+        "title": "AutoRefCandidate",
+        "type": "object"
+      },
+      "AutoRefTestRequest": {
+        "description": "An AutoRef key to test; null or the mask tests the stored one.",
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          }
+        },
+        "title": "AutoRefTestRequest",
+        "type": "object"
+      },
+      "AutoRefTestResponse": {
+        "description": "Whether AutoRef accepts the key, and what's left of its plan.",
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "message"
+        ],
+        "title": "AutoRefTestResponse",
+        "type": "object"
+      },
+      "AutoRefVersionRequest": {
+        "description": "A version picked from a decode's ``candidates``, echoed back to check it.",
+        "properties": {
+          "expect_kw": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The candidate's kw",
+            "title": "Expect Kw"
+          },
+          "expect_model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The candidate's model_full",
+            "title": "Expect Model"
+          },
+          "gearbox_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "M",
+                  "A",
+                  "S",
+                  "H"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gearbox Code"
+          },
+          "grouped": {
+            "default": false,
+            "title": "Grouped",
+            "type": "boolean"
+          },
+          "id": {
+            "pattern": "^[A-Za-z0-9]{1,32}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "record_type": {
+            "enum": [
+              "TG",
+              "COC",
+              "OLD",
+              "OC",
+              "X"
+            ],
+            "title": "Record Type",
+            "type": "string"
+          },
+          "vin": {
+            "description": "The decoded VIN",
+            "maxLength": 17,
+            "minLength": 17,
+            "title": "Vin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vin",
+          "record_type",
+          "id"
+        ],
+        "title": "AutoRefVersionRequest",
         "type": "object"
       },
       "BackfillResultResponse": {
@@ -2639,6 +2912,10 @@
             "title": "Measurements",
             "type": "array"
           },
+          "on_layout": {
+            "title": "On Layout",
+            "type": "boolean"
+          },
           "outer_pad_measured_on": {
             "anyOf": [
               {
@@ -2667,7 +2944,9 @@
               "FL",
               "FR",
               "RL",
-              "RR"
+              "RR",
+              "F",
+              "R"
             ],
             "title": "Position",
             "type": "string"
@@ -2786,6 +3065,7 @@
         },
         "required": [
           "position",
+          "on_layout",
           "axle",
           "brake_type",
           "condition",
@@ -2819,7 +3099,9 @@
               "FL",
               "FR",
               "RL",
-              "RR"
+              "RR",
+              "F",
+              "R"
             ],
             "title": "Position",
             "type": "string"
@@ -2982,7 +3264,9 @@
               "FL",
               "FR",
               "RL",
-              "RR"
+              "RR",
+              "F",
+              "R"
             ],
             "title": "Position",
             "type": "string"
@@ -3228,7 +3512,9 @@
               "FL",
               "FR",
               "RL",
-              "RR"
+              "RR",
+              "F",
+              "R"
             ],
             "title": "Position",
             "type": "string"
@@ -3361,7 +3647,9 @@
               "FL",
               "FR",
               "RL",
-              "RR"
+              "RR",
+              "F",
+              "R"
             ],
             "title": "Position",
             "type": "string"
@@ -3546,7 +3834,7 @@
         "type": "object"
       },
       "BrakeOverviewResponse": {
-        "description": "A vehicle's brakes: both axles and the four corners, FL, FR, RL, RR.",
+        "description": "A vehicle's brakes: both axles and the corners.\n\nThe wheel layout's corners in its order, then any off-layout corner that\nstill has history (#272).",
         "properties": {
           "axles": {
             "items": {
@@ -3580,9 +3868,22 @@
             ],
             "title": "Usage Axis",
             "type": "string"
+          },
+          "wheel_layout": {
+            "enum": [
+              "four",
+              "two",
+              "trike_2f1r",
+              "trike_1f2r",
+              "dually",
+              "none"
+            ],
+            "title": "Wheel Layout",
+            "type": "string"
           }
         },
         "required": [
+          "wheel_layout",
           "axles",
           "corners"
         ],
@@ -8507,7 +8808,7 @@
         "type": "object"
       },
       "FuelReceiptParseResponse": {
-        "description": "Response for opt-in LLM receipt parse \u2014 draft only.",
+        "description": "Response for opt-in LLM receipt parse (a draft only).",
         "properties": {
           "draft": {
             "$ref": "#/components/schemas/FuelReceiptDraft"
@@ -8620,7 +8921,7 @@
                 "type": "null"
               }
             ],
-            "description": "DEF tank level (0.00=empty, 1.00=full) \u2014 auto-creates a DEF observation",
+            "description": "DEF tank level (0.00=empty, 1.00=full); auto-creates a DEF observation",
             "title": "Def Fill Level"
           },
           "diesel_grade": {
@@ -9649,7 +9950,7 @@
                 "type": "null"
               }
             ],
-            "description": "Resolved station name for display: the linked address-book entry's business_name, else station_name_freetext. Read-only \u2014 write via station_address_book_id / station_name_freetext (issue #108).",
+            "description": "Resolved station name for display: the linked address-book entry's business_name, else station_name_freetext. Read-only; write via station_address_book_id / station_name_freetext (issue #108).",
             "title": "Station Name"
           },
           "station_name_freetext": {
@@ -9807,7 +10108,7 @@
                 "type": "null"
               }
             ],
-            "description": "DEF tank level (0.00=empty, 1.00=full) \u2014 auto-creates a DEF observation",
+            "description": "DEF tank level (0.00=empty, 1.00=full); auto-creates a DEF observation",
             "title": "Def Fill Level"
           },
           "diesel_grade": {
@@ -10466,6 +10767,11 @@
             "title": "Total Maintenance",
             "type": "string"
           },
+          "total_running_cost": {
+            "default": "0.00",
+            "title": "Total Running Cost",
+            "type": "string"
+          },
           "total_taxes": {
             "default": "0.00",
             "title": "Total Taxes",
@@ -10720,6 +11026,12 @@
           },
           "engine_hours": {
             "title": "Engine Hours",
+            "type": "string"
+          },
+          "source": {
+            "default": "manual",
+            "description": "Where the reading came from",
+            "title": "Source",
             "type": "string"
           }
         },
@@ -12784,6 +13096,76 @@
         "title": "LinkOIDCAccountRequest",
         "type": "object"
       },
+      "LinkedRecall": {
+        "description": "The recall a line item links, enough to label its chip.",
+        "properties": {
+          "campaign": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NHTSA campaign number, else the provider's own identifier",
+            "title": "Campaign"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Component the recall covers",
+            "title": "Component"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "LinkedRecall",
+        "type": "object"
+      },
+      "LinkedWarranty": {
+        "description": "The warranty a line item links, enough to label its chip.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Warranty provider name",
+            "title": "Provider"
+          },
+          "warranty_type": {
+            "description": "Type of warranty coverage",
+            "title": "Warranty Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "warranty_type"
+        ],
+        "title": "LinkedWarranty",
+        "type": "object"
+      },
       "LiveLinkDeviceListResponse": {
         "description": "Schema for device list response.",
         "properties": {
@@ -13396,6 +13778,7 @@
           "category": {
             "anyOf": [
               {
+                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -13420,6 +13803,7 @@
           "display_name": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -13445,6 +13829,7 @@
           "icon": {
             "anyOf": [
               {
+                "maxLength": 50,
                 "type": "string"
               },
               {
@@ -15027,6 +15412,12 @@
               "FR",
               "RL",
               "RR",
+              "F",
+              "R",
+              "RLO",
+              "RLI",
+              "RRI",
+              "RRO",
               "SPARE"
             ],
             "title": "Position",
@@ -15164,7 +15555,7 @@
       },
       "MountPeriodUpdate": {
         "additionalProperties": false,
-        "description": "Correct one mount period's bounds or notes.\n\nEvery field optional, `exclude_unset` semantics: a key absent from the\nbody is untouched, a key sent as null is cleared to unknown. `position`\nis deliberately not here (D14: only mount, dismount and rotate write it),\nand forbid-extra makes sending it a 422 rather than a silent ignore.",
+        "description": "Correct one mount period's bounds or notes.\n\nEvery field optional, `exclude_unset` semantics: a key absent from the\nbody is untouched, a key sent as null is cleared to unknown. `position`\nis deliberately not here (only mount, dismount and rotate write it),\nand forbid-extra makes sending it a 422 rather than a silent ignore.",
         "properties": {
           "dismounted_hours": {
             "anyOf": [
@@ -15856,7 +16247,7 @@
         "type": "object"
       },
       "ObcSuggestionResponse": {
-        "description": "OBC auto-suggest payload \u2014 returned for `GET /api/vehicles/{vin}/fuel/obc-suggestion`.",
+        "description": "OBC auto-suggest payload, returned for `GET /api/vehicles/{vin}/fuel/obc-suggestion`.",
         "properties": {
           "distance_km": {
             "anyOf": [
@@ -17309,139 +17700,6 @@
           }
         },
         "title": "PhotoUpdate",
-        "type": "object"
-      },
-      "PlaceResult": {
-        "description": "Normalized place result from any provider (TomTom or OSM).",
-        "properties": {
-          "address": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Address"
-          },
-          "business_name": {
-            "title": "Business Name",
-            "type": "string"
-          },
-          "category": {
-            "default": "service",
-            "title": "Category",
-            "type": "string"
-          },
-          "city": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "City"
-          },
-          "distance_meters": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Distance Meters"
-          },
-          "external_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "External Id"
-          },
-          "latitude": {
-            "title": "Latitude",
-            "type": "string"
-          },
-          "longitude": {
-            "title": "Longitude",
-            "type": "string"
-          },
-          "phone": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Phone"
-          },
-          "rating": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rating"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          },
-          "state": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "State"
-          },
-          "website": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Website"
-          },
-          "zip_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Zip Code"
-          }
-        },
-        "required": [
-          "business_name",
-          "latitude",
-          "longitude",
-          "source"
-        ],
-        "title": "PlaceResult",
         "type": "object"
       },
       "PlannedRepairCreate": {
@@ -19225,6 +19483,44 @@
         "title": "RecallCreate",
         "type": "object"
       },
+      "RecallLinkedVisit": {
+        "description": "The service visit whose line item fixed the recall.",
+        "properties": {
+          "date": {
+            "description": "The visit's date, the day the recall was fixed",
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "line_item_id": {
+            "title": "Line Item Id",
+            "type": "integer"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the work was done",
+            "title": "Vendor Name"
+          },
+          "visit_id": {
+            "title": "Visit Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "visit_id",
+          "line_item_id",
+          "date"
+        ],
+        "title": "RecallLinkedVisit",
+        "type": "object"
+      },
       "RecallListResponse": {
         "description": "Schema for list of recalls.",
         "properties": {
@@ -19261,9 +19557,16 @@
         "description": "Schema for recall response.",
         "properties": {
           "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Component affected by recall",
-            "title": "Component",
-            "type": "string"
+            "title": "Component"
           },
           "consequence": {
             "anyOf": [
@@ -19327,6 +19630,17 @@
             "title": "Is Resolved",
             "type": "boolean"
           },
+          "linked_visit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecallLinkedVisit"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The service visit that fixed it, when a line item links it"
+          },
           "match_confidence": {
             "anyOf": [
               {
@@ -19387,6 +19701,22 @@
             ],
             "title": "Resolved At"
           },
+          "resolved_via": {
+            "anyOf": [
+              {
+                "enum": [
+                  "manual",
+                  "service_visit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "manual or service_visit; null on an older row, read as manual",
+            "title": "Resolved Via"
+          },
           "source": {
             "anyOf": [
               {
@@ -19405,9 +19735,16 @@
             "title": "Source"
           },
           "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Summary of the recall issue",
-            "title": "Summary",
-            "type": "string"
+            "title": "Summary"
           },
           "vin": {
             "title": "Vin",
@@ -19415,8 +19752,6 @@
           }
         },
         "required": [
-          "component",
-          "summary",
           "id",
           "vin",
           "is_resolved",
@@ -20769,7 +21104,7 @@
         "type": "object"
       },
       "ReminderUpdate": {
-        "description": "Schema for updating a vehicle reminder.\n\nStatus is NOT here \u2014 use /done, /dismiss or /complete endpoints.\nValidation is lenient (fields may be absent). The route handler merges\nthis patch onto the existing reminder and validates the final state.\n\n``recurrence`` edits the reminder's rule (or creates one); an explicit\n``null`` deactivates the rule and leaves the reminder as a one-off. For a\nreminder with an active rule the ``due_*`` fields are derived and\nrejected with 422 if sent.",
+        "description": "Schema for updating a vehicle reminder.\n\nStatus is NOT here; use /done, /dismiss or /complete endpoints.\nValidation is lenient (fields may be absent). The route handler merges\nthis patch onto the existing reminder and validates the final state.\n\n``recurrence`` edits the reminder's rule (or creates one); an explicit\n``null`` deactivates the rule and leaves the reminder as a one-off. For a\nreminder with an active rule the ``due_*`` fields are derived and\nrejected with 422 if sent.",
         "properties": {
           "due_date": {
             "anyOf": [
@@ -21180,6 +21515,18 @@
             "title": "Keyring",
             "type": "string"
           },
+          "keyring_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which key source broke while the keyring is unavailable: 'env' (MYGARAGE_SETTINGS_KEY), 'env_file' (MYGARAGE_SETTINGS_KEY_FILE) or 'data_dir' (the data directory's key file); null while it is usable.",
+            "title": "Keyring Source"
+          },
           "unreadable_keys": {
             "description": "Secret setting keys, sorted, whose stored value can't be decrypted with the current keyring. Each reads as unset until its key is restored or it is re-entered.",
             "items": {
@@ -21378,6 +21725,18 @@
             "title": "Is Inspection",
             "type": "boolean"
           },
+          "is_recall": {
+            "default": false,
+            "description": "Is this recall work",
+            "title": "Is Recall",
+            "type": "boolean"
+          },
+          "is_warranty": {
+            "default": false,
+            "description": "Is this warranty work",
+            "title": "Is Warranty",
+            "type": "boolean"
+          },
           "maintenance_type": {
             "anyOf": [
               {
@@ -21403,6 +21762,18 @@
             ],
             "description": "Additional notes",
             "title": "Notes"
+          },
+          "recall_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The recall this item fixed, when it's in MyGarage (needs is_recall)",
+            "title": "Recall Id"
           },
           "reminder": {
             "anyOf": [
@@ -21446,6 +21817,18 @@
             ],
             "description": "ID of inspection that triggered this repair",
             "title": "Triggered By Inspection Id"
+          },
+          "warranty_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The warranty that covered this item, if any (needs is_warranty)",
+            "title": "Warranty Id"
           }
         },
         "required": [
@@ -21563,6 +21946,18 @@
             "title": "Is Inspection",
             "type": "boolean"
           },
+          "is_recall": {
+            "default": false,
+            "description": "Is this recall work",
+            "title": "Is Recall",
+            "type": "boolean"
+          },
+          "is_warranty": {
+            "default": false,
+            "description": "Is this warranty work",
+            "title": "Is Warranty",
+            "type": "boolean"
+          },
           "maintenance_type": {
             "anyOf": [
               {
@@ -21593,6 +21988,29 @@
             "description": "Additional notes",
             "title": "Notes"
           },
+          "recall_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The recall this item fixed, when it's in MyGarage (needs is_recall)",
+            "title": "Recall Id"
+          },
+          "recall_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LinkedRecall"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The linked recall, if any"
+          },
           "supply_usages": {
             "items": {
               "$ref": "#/components/schemas/SupplyUsageResponse"
@@ -21615,6 +22033,29 @@
           "visit_id": {
             "title": "Visit Id",
             "type": "integer"
+          },
+          "warranty_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The warranty that covered this item, if any (needs is_warranty)",
+            "title": "Warranty Id"
+          },
+          "warranty_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LinkedWarranty"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The linked warranty, if any"
           }
         },
         "required": [
@@ -21627,7 +22068,7 @@
         "type": "object"
       },
       "ServiceLineItemUpdate": {
-        "description": "Line item shape for diff-based visit updates.\n\nAn existing item (`id` set) keeps any field the request leaves out. A\nnullable field sent as null is cleared; `is_inspection` takes false, not\nnull; `supplies_used` takes [] to remove every usage (null is refused);\n`description` is always required.\n\ntemp_id: negative int assigned by client for new items so other new items\ncan reference them via triggered_by_inspection_id before flush.",
+        "description": "Line item shape for diff-based visit updates.\n\nAn existing item (`id` set) keeps any field the request leaves out. A\nnullable field sent as null is cleared; `is_inspection`, `is_recall` and\n`is_warranty` take false, not null; `supplies_used` takes [] to remove\nevery usage (null is refused); `description` is always required.\n\ntemp_id: negative int assigned by client for new items so other new items\ncan reference them via triggered_by_inspection_id before flush.",
         "properties": {
           "category": {
             "anyOf": [
@@ -21719,6 +22160,16 @@
             "title": "Is Inspection",
             "type": "boolean"
           },
+          "is_recall": {
+            "default": false,
+            "title": "Is Recall",
+            "type": "boolean"
+          },
+          "is_warranty": {
+            "default": false,
+            "title": "Is Warranty",
+            "type": "boolean"
+          },
           "maintenance_type": {
             "anyOf": [
               {
@@ -21742,6 +22193,17 @@
               }
             ],
             "title": "Notes"
+          },
+          "recall_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall Id"
           },
           "reminder": {
             "anyOf": [
@@ -21783,6 +22245,17 @@
               }
             ],
             "title": "Triggered By Inspection Id"
+          },
+          "warranty_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty Id"
           }
         },
         "required": [
@@ -21893,6 +22366,19 @@
             "description": "Insurance claim number",
             "title": "Insurance Claim Number"
           },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop invoice number",
+            "title": "Invoice Number"
+          },
           "line_items": {
             "description": "Services performed during this visit",
             "items": {
@@ -21948,6 +22434,19 @@
             ],
             "description": "Odometer reading in kilometers",
             "title": "Odometer Km"
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Purchase order number",
+            "title": "Po Number"
           },
           "service_category": {
             "anyOf": [
@@ -22031,6 +22530,19 @@
             ],
             "description": "Vendor ID",
             "title": "Vendor Id"
+          },
+          "work_order_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Work order number",
+            "title": "Work Order Number"
           }
         },
         "required": [
@@ -22153,6 +22665,18 @@
             "description": "Insurance claim number",
             "title": "Insurance Claim Number"
           },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop invoice number",
+            "title": "Invoice Number"
+          },
           "line_item_count": {
             "description": "Number of line items",
             "title": "Line Item Count",
@@ -22207,6 +22731,18 @@
             "description": "\u03a3 supply usage cost snapshots across line items",
             "title": "Parts Supplies Cost",
             "type": "string"
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Purchase order number",
+            "title": "Po Number"
           },
           "service_category": {
             "anyOf": [
@@ -22305,6 +22841,18 @@
           "vin": {
             "title": "Vin",
             "type": "string"
+          },
+          "work_order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Work order number",
+            "title": "Work Order Number"
           }
         },
         "required": [
@@ -22372,6 +22920,19 @@
             "description": "Insurance claim number",
             "title": "Insurance Claim Number"
           },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop invoice number",
+            "title": "Invoice Number"
+          },
           "line_items": {
             "anyOf": [
               {
@@ -22433,6 +22994,19 @@
             ],
             "description": "Odometer reading in kilometers",
             "title": "Odometer Km"
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Purchase order number",
+            "title": "Po Number"
           },
           "service_category": {
             "anyOf": [
@@ -22516,6 +23090,19 @@
             ],
             "description": "Vendor ID",
             "title": "Vendor Id"
+          },
+          "work_order_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Work order number",
+            "title": "Work Order Number"
           }
         },
         "title": "ServiceVisitUpdate",
@@ -22739,217 +23326,6 @@
           "total"
         ],
         "title": "SettingsListResponse",
-        "type": "object"
-      },
-      "ShopRecommendation": {
-        "description": "Recommended shop from address book based on usage.",
-        "properties": {
-          "address": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Address"
-          },
-          "business_name": {
-            "title": "Business Name",
-            "type": "string"
-          },
-          "city": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "City"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "phone": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Phone"
-          },
-          "rating": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rating"
-          },
-          "state": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "State"
-          },
-          "usage_count": {
-            "title": "Usage Count",
-            "type": "integer"
-          },
-          "user_rating": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "User Rating"
-          }
-        },
-        "required": [
-          "id",
-          "business_name",
-          "usage_count"
-        ],
-        "title": "ShopRecommendation",
-        "type": "object"
-      },
-      "ShopRecommendationsResponse": {
-        "description": "Response with recommended shops.",
-        "properties": {
-          "count": {
-            "title": "Count",
-            "type": "integer"
-          },
-          "recommendations": {
-            "items": {
-              "$ref": "#/components/schemas/ShopRecommendation"
-            },
-            "title": "Recommendations",
-            "type": "array"
-          }
-        },
-        "required": [
-          "recommendations",
-          "count"
-        ],
-        "title": "ShopRecommendationsResponse",
-        "type": "object"
-      },
-      "ShopSearchRequest": {
-        "description": "Request to search for nearby shops.",
-        "properties": {
-          "latitude": {
-            "description": "Latitude coordinate",
-            "maximum": 90.0,
-            "minimum": -90.0,
-            "title": "Latitude",
-            "type": "number"
-          },
-          "longitude": {
-            "description": "Longitude coordinate",
-            "maximum": 180.0,
-            "minimum": -180.0,
-            "title": "Longitude",
-            "type": "number"
-          },
-          "radius_meters": {
-            "anyOf": [
-              {
-                "maximum": 161000.0,
-                "minimum": 100.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": 8000,
-            "description": "Search radius in meters (default: ~5 miles, max: ~100 miles)",
-            "title": "Radius Meters"
-          },
-          "shop_type": {
-            "anyOf": [
-              {
-                "enum": [
-                  "auto",
-                  "rv"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": "auto",
-            "description": "Type of repair shop to search for",
-            "title": "Shop Type"
-          }
-        },
-        "required": [
-          "latitude",
-          "longitude"
-        ],
-        "title": "ShopSearchRequest",
-        "type": "object"
-      },
-      "ShopSearchResponse": {
-        "description": "Response containing search results.",
-        "properties": {
-          "count": {
-            "title": "Count",
-            "type": "integer"
-          },
-          "latitude": {
-            "title": "Latitude",
-            "type": "number"
-          },
-          "longitude": {
-            "title": "Longitude",
-            "type": "number"
-          },
-          "radius_meters": {
-            "title": "Radius Meters",
-            "type": "integer"
-          },
-          "results": {
-            "items": {
-              "$ref": "#/components/schemas/PlaceResult"
-            },
-            "title": "Results",
-            "type": "array"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          }
-        },
-        "required": [
-          "results",
-          "count",
-          "source",
-          "latitude",
-          "longitude",
-          "radius_meters"
-        ],
-        "title": "ShopSearchResponse",
         "type": "object"
       },
       "SpotRentalBillingCreate": {
@@ -26091,6 +26467,12 @@
               "FR",
               "RL",
               "RR",
+              "F",
+              "R",
+              "RLO",
+              "RLI",
+              "RRI",
+              "RRO",
               "SPARE"
             ],
             "title": "Position",
@@ -26242,6 +26624,30 @@
       "TireListResponse": {
         "description": "All tires for a vehicle.",
         "properties": {
+          "positions": {
+            "items": {
+              "enum": [
+                "FL",
+                "FR",
+                "RL",
+                "RR",
+                "F",
+                "R",
+                "RLO",
+                "RLI",
+                "RRI",
+                "RRO",
+                "SPARE"
+              ],
+              "type": "string"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "rotates": {
+            "title": "Rotates",
+            "type": "boolean"
+          },
           "tires": {
             "items": {
               "$ref": "#/components/schemas/TireResponse"
@@ -26271,11 +26677,26 @@
             ],
             "title": "Usage Axis",
             "type": "string"
+          },
+          "wheel_layout": {
+            "enum": [
+              "four",
+              "two",
+              "trike_2f1r",
+              "trike_1f2r",
+              "dually",
+              "none"
+            ],
+            "title": "Wheel Layout",
+            "type": "string"
           }
         },
         "required": [
           "tires",
-          "total"
+          "total",
+          "wheel_layout",
+          "positions",
+          "rotates"
         ],
         "title": "TireListResponse",
         "type": "object"
@@ -26344,6 +26765,12 @@
               "FR",
               "RL",
               "RR",
+              "F",
+              "R",
+              "RLO",
+              "RLI",
+              "RRI",
+              "RRO",
               "SPARE"
             ],
             "title": "Position",
@@ -26700,7 +27127,7 @@
       },
       "TireResponse": {
         "additionalProperties": false,
-        "description": "A tire, with where it is now and what is known about its wear.\n\n`position` is RE-DECLARED here as nullable rather than inherited: it left\nthe write schema (D2c) but is still part of every read. Declaring it only\non the base would have made it required on writes; omitting it entirely\nwould have dropped it from responses. Neither is what a reader wants.\n\n`installed_date` is DERIVED, not stored (D12): the `mounted_on` of the\nearliest period **that has one**. When the earliest period is the migrated\nassumed one with a null start, this is null -- NOT the next known remount\ndate. A plain MIN(mounted_on) would skip the unknown and report a later\ndate as the installation date, which is worse than reporting nothing.",
+        "description": "A tire, with where it is now and what is known about its wear.\n\n`position` is RE-DECLARED here as nullable rather than inherited: it left\nthe write schema but is still part of every read. Declaring it only\non the base would have made it required on writes; omitting it entirely\nwould have dropped it from responses. Neither is what a reader wants.\n\n`installed_date` is DERIVED, not stored: the `mounted_on` of the\nearliest period **that has one**. When the earliest period is the migrated\nassumed one with a null start, this is null -- NOT the next known remount\ndate. A plain MIN(mounted_on) would skip the unknown and report a later\ndate as the installation date, which is worse than reporting nothing.",
         "properties": {
           "below_threshold": {
             "default": false,
@@ -26882,6 +27309,12 @@
                   "FR",
                   "RL",
                   "RR",
+                  "F",
+                  "R",
+                  "RLO",
+                  "RLI",
+                  "RRI",
+                  "RRO",
                   "SPARE"
                 ],
                 "type": "string"
@@ -27066,6 +27499,12 @@
               "FR",
               "RL",
               "RR",
+              "F",
+              "R",
+              "RLO",
+              "RLI",
+              "RRI",
+              "RRO",
               "SPARE"
             ],
             "title": "Position",
@@ -27355,7 +27794,7 @@
       },
       "TireUpdate": {
         "additionalProperties": false,
-        "description": "Partial tire update.\n\nNeither `position` nor `installed_date` is writable here: position changes\nthrough mount/dismount (D14), and `installed_date` is derived (D12).",
+        "description": "Partial tire update.\n\nNeither `position` nor `installed_date` is writable here: position changes\nthrough mount/dismount, and `installed_date` is derived.",
         "properties": {
           "brand": {
             "anyOf": [
@@ -29551,6 +29990,11 @@
             "title": "Dashboard Sort",
             "type": "string"
           },
+          "date_format": {
+            "default": "mdy",
+            "title": "Date Format",
+            "type": "string"
+          },
           "default_payment_method": {
             "anyOf": [
               {
@@ -29963,6 +30407,18 @@
             ],
             "title": "Dashboard Sort"
           },
+          "date_format": {
+            "anyOf": [
+              {
+                "pattern": "^(mdy|dmy)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Format"
+          },
           "default_payment_method": {
             "anyOf": [
               {
@@ -30093,6 +30549,34 @@
           }
         ],
         "properties": {
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The country deciding which decoder Automatic asks first (the vehicle's registration country, else the person's); omitted reads the account's",
+            "title": "Country"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "enum": [
+                  "nhtsa",
+                  "autoref"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The decoder the person chose. Omitted means Automatic: the preferred decoder first, NHTSA when AutoRef has no answer",
+            "title": "Provider"
+          },
           "vin": {
             "description": "17-character Vehicle Identification Number",
             "maxLength": 17,
@@ -30145,6 +30629,21 @@
             "description": "Body class/style",
             "title": "Body Class"
           },
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AutoRefCandidate"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AutoRef's versions for this VIN when it matched more than one, most registered first; pick one with POST /vin/autoref/version",
+            "title": "Candidates"
+          },
           "decode_quality": {
             "anyOf": [
               {
@@ -30162,6 +30661,22 @@
             ],
             "description": "How much NHTSA itself decoded, before the WMI table fills anything. full: make and model; partial: make only; wmi_only: NHTSA named no make and the VIN's first three characters did; none: nothing",
             "title": "Decode Quality"
+          },
+          "decoded_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "nhtsa",
+                  "autoref"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which decoder answered: nhtsa or autoref",
+            "title": "Decoded By"
           },
           "doors": {
             "anyOf": [
@@ -30263,7 +30778,8 @@
               {
                 "enum": [
                   "nhtsa",
-                  "wmi"
+                  "wmi",
+                  "autoref"
                 ],
                 "type": "string"
               },
@@ -30271,7 +30787,7 @@
                 "type": "null"
               }
             ],
-            "description": "Where `make` came from: NHTSA's answer or the bundled WMI table",
+            "description": "Where `make` came from: NHTSA's answer, AutoRef's, or the bundled WMI table",
             "title": "Make Source"
           },
           "manufacturer": {
@@ -30299,7 +30815,7 @@
             "title": "Model"
           },
           "notes": {
-            "description": "Why the answer is partial: eu_vin_no_model, year_unreliable, check_digit_not_applicable",
+            "description": "What to check: eu_vin_no_model, year_unreliable, check_digit_not_applicable; autoref_best_guess, autoref_pick_version, autoref_external_record; and when Automatic fell back to NHTSA, autoref_no_match, autoref_key_rejected, autoref_quota, autoref_unavailable",
             "items": {
               "type": "string"
             },
@@ -30435,6 +30951,38 @@
           "vin"
         ],
         "title": "VINDecodeResponse",
+        "type": "object"
+      },
+      "VINProvidersResponse": {
+        "description": "The decoders this instance can use, and which one Automatic asks first.",
+        "properties": {
+          "available": {
+            "description": "nhtsa always; autoref when it has a key",
+            "items": {
+              "enum": [
+                "nhtsa",
+                "autoref"
+              ],
+              "type": "string"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "preferred": {
+            "description": "The decoder Automatic asks first",
+            "enum": [
+              "nhtsa",
+              "autoref"
+            ],
+            "title": "Preferred",
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "preferred"
+        ],
+        "title": "VINProvidersResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -30899,6 +31447,7 @@
           "current_hours": {
             "anyOf": [
               {
+                "maximum": 999999999.9,
                 "minimum": 0.0,
                 "type": "number"
               },
@@ -31126,6 +31675,19 @@
             ],
             "title": "Identifier Type",
             "type": "string"
+          },
+          "inspection_due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Next periodic inspection due by (field X.1 of an EU registration certificate); the reminder holds to it within the current cycle",
+            "title": "Inspection Due Date"
           },
           "lez_class": {
             "anyOf": [
@@ -31471,6 +32033,26 @@
             "description": "17-character Vehicle Identification Number. Required when identifier_type is 'vin'; omitted otherwise (the server generates the vehicle's key).",
             "title": "Vin"
           },
+          "wheel_layout": {
+            "anyOf": [
+              {
+                "enum": [
+                  "four",
+                  "two",
+                  "trike_2f1r",
+                  "trike_1f2r",
+                  "dually",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which tire and brake corners the vehicle has; null follows the vehicle type's default (#272)",
+            "title": "Wheel Layout"
+          },
           "year": {
             "anyOf": [
               {
@@ -31760,7 +32342,7 @@
         "type": "object"
       },
       "VehicleDetailStats": {
-        "description": "Read-aggregation for the Vehicle Detail hero + key-facts strip (P5).\n\nMetric-canonical: latest_odometer_km is raw km (frontend converts at the\nboundary). spent_this_year is currency (Decimal -> JSON string).",
+        "description": "Read-aggregation for the Vehicle Detail hero + key-facts strip.\n\nMetric-canonical: latest_odometer_km is raw km (frontend converts at the\nboundary). spent_this_year is currency (Decimal -> JSON string).",
         "properties": {
           "average_cost_per_hr": {
             "anyOf": [
@@ -32936,6 +33518,20 @@
             "description": "DEF tank capacity in liters",
             "title": "Def Tank Capacity Liters"
           },
+          "default_wheel_layout": {
+            "description": "The layout the vehicle type gets with no override, for the Automatic option (#272).",
+            "enum": [
+              "four",
+              "two",
+              "trike_2f1r",
+              "trike_1f2r",
+              "dually",
+              "none"
+            ],
+            "readOnly": true,
+            "title": "Default Wheel Layout",
+            "type": "string"
+          },
           "destination_charge": {
             "anyOf": [
               {
@@ -32998,6 +33594,20 @@
             ],
             "description": "Drive type (FWD, RWD, AWD, etc.)",
             "title": "Drive Type"
+          },
+          "effective_wheel_layout": {
+            "description": "The layout in force: the stored override, else the vehicle type's default (#272).",
+            "enum": [
+              "four",
+              "two",
+              "trike_2f1r",
+              "trike_1f2r",
+              "dually",
+              "none"
+            ],
+            "readOnly": true,
+            "title": "Effective Wheel Layout",
+            "type": "string"
           },
           "environmental_rating_ghg": {
             "anyOf": [
@@ -33200,6 +33810,19 @@
             "default": "vin",
             "description": "What identifies this vehicle",
             "title": "Identifier Type"
+          },
+          "inspection_due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Next periodic inspection due by (field X.1 of an EU registration certificate); the reminder holds to it within the current cycle",
+            "title": "Inspection Due Date"
           },
           "interior_color": {
             "anyOf": [
@@ -33674,6 +34297,26 @@
             ],
             "title": "Warranty Powertrain"
           },
+          "wheel_layout": {
+            "anyOf": [
+              {
+                "enum": [
+                  "four",
+                  "two",
+                  "trike_2f1r",
+                  "trike_1f2r",
+                  "dually",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which tire and brake corners the vehicle has; null follows the vehicle type's default (#272)",
+            "title": "Wheel Layout"
+          },
           "wheel_specs": {
             "anyOf": [
               {
@@ -33783,7 +34426,9 @@
           "vehicle_type",
           "vin",
           "created_at",
-          "has_vin"
+          "has_vin",
+          "effective_wheel_layout",
+          "default_wheel_layout"
         ],
         "title": "VehicleResponse",
         "type": "object"
@@ -34553,6 +35198,7 @@
           "current_hours": {
             "anyOf": [
               {
+                "maximum": 999999999.9,
                 "minimum": 0.0,
                 "type": "number"
               },
@@ -34816,6 +35462,19 @@
             ],
             "description": "vin, serial, hin, chassis, asset_tag or none (omit to leave unchanged)",
             "title": "Identifier Type"
+          },
+          "inspection_due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Next periodic inspection due by (field X.1 of an EU registration certificate); the reminder holds to it within the current cycle",
+            "title": "Inspection Due Date"
           },
           "interior_color": {
             "anyOf": [
@@ -35340,6 +35999,26 @@
             ],
             "description": "Powertrain warranty",
             "title": "Warranty Powertrain"
+          },
+          "wheel_layout": {
+            "anyOf": [
+              {
+                "enum": [
+                  "four",
+                  "two",
+                  "trike_2f1r",
+                  "trike_1f2r",
+                  "dually",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which tire and brake corners the vehicle has; null follows the vehicle type's default (#272)",
+            "title": "Wheel Layout"
           },
           "wheel_specs": {
             "anyOf": [
@@ -35896,6 +36575,50 @@
         "title": "WarrantyDocumentResponse",
         "type": "object"
       },
+      "WarrantyLinkedItem": {
+        "description": "A line item done under the warranty.",
+        "properties": {
+          "cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cost for this line item",
+            "title": "Cost"
+          },
+          "date": {
+            "description": "The visit's date",
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "description": {
+            "description": "Service description",
+            "title": "Description",
+            "type": "string"
+          },
+          "line_item_id": {
+            "title": "Line Item Id",
+            "type": "integer"
+          },
+          "visit_id": {
+            "title": "Visit Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "visit_id",
+          "line_item_id",
+          "date",
+          "description"
+        ],
+        "title": "WarrantyLinkedItem",
+        "type": "object"
+      },
       "WarrantyRecord": {
         "description": "Schema for warranty record response.",
         "properties": {
@@ -35939,6 +36662,14 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "linked_items": {
+            "description": "Line items done under this warranty, by visit date",
+            "items": {
+              "$ref": "#/components/schemas/WarrantyLinkedItem"
+            },
+            "title": "Linked Items",
+            "type": "array"
           },
           "mileage_limit_km": {
             "anyOf": [
@@ -38655,6 +39386,25 @@
               "title": "Locale",
               "type": "string"
             }
+          },
+          {
+            "description": "'mdy' or 'dmy'; defaults to the account's.",
+            "in": "query",
+            "name": "date_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(mdy|dmy)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'mdy' or 'dmy'; defaults to the account's.",
+              "title": "Date Format"
+            }
           }
         ],
         "responses": {
@@ -38943,6 +39693,25 @@
               "description": "BCP 47 locale; defaults to en-US.",
               "title": "Locale",
               "type": "string"
+            }
+          },
+          {
+            "description": "'mdy' or 'dmy'; defaults to the account's.",
+            "in": "query",
+            "name": "date_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(mdy|dmy)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'mdy' or 'dmy'; defaults to the account's.",
+              "title": "Date Format"
             }
           }
         ],
@@ -40444,7 +41213,7 @@
     },
     "/api/backup/create-full": {
       "post": {
-        "description": "Create a full backup including database and all uploaded files.\n\nThis may take several minutes depending on the size of your data. 503 while\na secret setting is still stored as plaintext and can't be encrypted first:\nthe archive copies the database.\n\nArgs:\n    db: Database session, for the preflight only\n\nReturns:\n    Metadata about the created backup file",
+        "description": "Create a full backup including database and all uploaded files.\n\nThis may take several minutes depending on the size of your data. 503 while\na secret setting is still stored as plaintext and can't be encrypted first:\nthe archive copies the database.\n\nArgs:\n    db: Database session, for the preflight and the service's plaintext check\n\nReturns:\n    Metadata about the created backup file",
         "operationId": "create_full_backup_api_backup_create_full_post",
         "responses": {
           "200": {
@@ -40599,7 +41368,7 @@
     },
     "/api/backup/restore/{filename}": {
       "post": {
-        "description": "Restore a settings backup now, or stage a full backup for the next start.\n\nEither way a safety backup comes first. A full restore is SQLite only and finishes when MyGarage\nrestarts. 503 while a secret setting is still stored as plaintext and can't be encrypted first,\nsince the safety backup would copy it.\n\n409 when a settings backup would leave sign-in set to SSO without usable SSO; nothing is\nrestored then.\n\nA settings restore that skipped secret keys (ciphertext no key in the keyring opens, or\nplaintext with no keyring to encrypt it) lists them in `details.skipped_secret_keys` and names\nthem in `warning`; those keys keep their current values.\n\nArgs:\n    filename: Name of the backup file to restore from\n    db: Database session\n\nReturns:\n    Success message with details about restore operation",
+        "description": "Restore a settings backup now, or stage a full backup for the next start.\n\nEither way a safety backup comes first. A full restore is SQLite only and finishes when MyGarage\nrestarts. 503 while a secret setting is still stored as plaintext and can't be encrypted first,\nsince the safety backup would copy it.\n\n409 when a settings backup would leave sign-in set to SSO without usable SSO; nothing is\nrestored then.\n\nA settings restore that skipped secret keys (ciphertext no key in the keyring opens, or\nplaintext with no keyring to encrypt it) lists them in `details.skipped_secret_keys` and names\nthem in `warning`; those keys keep their current values.\n\nA bad name is a 400 and a missing backup a 404, both checked before the preflight, so neither\nreads as a 503 while a secret can't be encrypted.\n\nArgs:\n    filename: Name of the backup file to restore from\n    db: Database session\n\nReturns:\n    Success message with details about restore operation",
         "operationId": "restore_backup_api_backup_restore__filename__post",
         "parameters": [
           {
@@ -47503,7 +48272,7 @@
     },
     "/api/settings/public": {
       "get": {
-        "description": "Get public settings (no authentication required).\n\nReturns only non-sensitive settings required for frontend initialization:\n- auth_mode: Authentication mode (local/oidc)\n- app_name: Application name\n- theme: UI theme preference\n- family_friends_enabled: garage section feature flag\n- nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility\n- the other feature flags and unit defaults every user's UI reads\n\nSecurity: This endpoint is intentionally public to allow frontend\ninitialization before login. All sensitive settings are excluded.",
+        "description": "The settings every client reads at start-up. Anyone may call it, signed in or not.\n\nNo login and no role check: the app reads it before it knows whether\nthere's a user, and non-admins read it after, since `GET /settings` is\nadmin-only. So it answers only the allowlisted rows that exist (auth_mode,\napp_name, theme, the feature switches, the unit and country defaults),\nnever a secret, plus two read-only computed entries:\n`effective_timezone`, the household zone in effect, and\n`document_upload_max_bytes`, the document upload cap.",
         "operationId": "get_public_settings_api_settings_public_get",
         "responses": {
           "200": {
@@ -47771,192 +48540,6 @@
         "summary": "Update Setting",
         "tags": [
           "Settings"
-        ]
-      }
-    },
-    "/api/shop-discovery/increment-usage/{shop_id}": {
-      "post": {
-        "description": "Increment usage count for a shop.\n\nCalled when creating service record with this shop.\n\nArgs:\n    shop_id: Address book entry ID\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    None (204 No Content)\n\nRaises:\n    HTTPException: 404 if shop not found",
-        "operationId": "increment_shop_usage_api_shop_discovery_increment_usage__shop_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "shop_id",
-            "required": true,
-            "schema": {
-              "title": "Shop Id",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Increment Shop Usage",
-        "tags": [
-          "Shop Discovery"
-        ]
-      }
-    },
-    "/api/shop-discovery/recommendations": {
-      "get": {
-        "description": "Get recommended shops based on usage history.\n\nArgs:\n    limit: Maximum number of recommendations (default: 5)\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    ShopRecommendationsResponse with top shops by usage\n\nNotes:\n    - Only returns shops whose category is 'service' in any case (the\n      Address Book page stores 'Service'), ignoring surrounding spaces\n    - Sorted by usage_count DESC (most used first)\n    - Only includes shops that have been used at least once",
-        "operationId": "get_shop_recommendations_api_shop_discovery_recommendations_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 5,
-              "maximum": 50,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShopRecommendationsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Shop Recommendations",
-        "tags": [
-          "Shop Discovery"
-        ]
-      }
-    },
-    "/api/shop-discovery/save": {
-      "post": {
-        "description": "Save a discovered shop to the address book.\n\nArgs:\n    entry_data: Address book entry data\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    Created AddressBookEntry\n\nNotes:\n    - Shop source should be set to 'tomtom' or 'osm'\n    - Category is stored as sent (none if omitted); the app sends the\n      Address Book chip for the POI type",
-        "operationId": "save_discovered_shop_api_shop_discovery_save_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddressBookEntryCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AddressBookEntryResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Save Discovered Shop",
-        "tags": [
-          "Shop Discovery"
-        ]
-      }
-    },
-    "/api/shop-discovery/search": {
-      "post": {
-        "description": "Search for nearby auto repair shops using TomTom or OSM.\n\nArgs:\n    search_request: Search parameters (latitude, longitude, radius)\n    db: Database session\n    current_user: Authenticated user\n\nReturns:\n    ShopSearchResponse with results from TomTom or OSM\n\nNotes:\n    - Tries TomTom API first (if configured)\n    - Falls back to OpenStreetMap if TomTom unavailable\n    - Returns empty results on error (graceful degradation)",
-        "operationId": "search_nearby_shops_api_shop_discovery_search_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShopSearchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShopSearchResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Search Nearby Shops",
-        "tags": [
-          "Shop Discovery"
         ]
       }
     },
@@ -57279,6 +57862,25 @@
               "title": "Locale",
               "type": "string"
             }
+          },
+          {
+            "description": "'mdy' or 'dmy'; defaults to the account's.",
+            "in": "query",
+            "name": "date_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(mdy|dmy)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'mdy' or 'dmy'; defaults to the account's.",
+              "title": "Date Format"
+            }
           }
         ],
         "responses": {
@@ -57324,6 +57926,25 @@
             "schema": {
               "title": "Vin",
               "type": "string"
+            }
+          },
+          {
+            "description": "'mdy' or 'dmy'; defaults to the account's.",
+            "in": "query",
+            "name": "date_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(mdy|dmy)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'mdy' or 'dmy'; defaults to the account's.",
+              "title": "Date Format"
             }
           }
         ],
@@ -57513,6 +58134,25 @@
               "title": "Locale",
               "type": "string"
             }
+          },
+          {
+            "description": "'mdy' or 'dmy'; defaults to the account's.",
+            "in": "query",
+            "name": "date_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(mdy|dmy)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'mdy' or 'dmy'; defaults to the account's.",
+              "title": "Date Format"
+            }
           }
         ],
         "responses": {
@@ -57593,6 +58233,25 @@
               "description": "BCP 47 locale; defaults to en-US.",
               "title": "Locale",
               "type": "string"
+            }
+          },
+          {
+            "description": "'mdy' or 'dmy'; defaults to the account's.",
+            "in": "query",
+            "name": "date_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(mdy|dmy)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'mdy' or 'dmy'; defaults to the account's.",
+              "title": "Date Format"
             }
           }
         ],
@@ -62186,9 +62845,103 @@
         ]
       }
     },
+    "/api/vin/autoref/test": {
+      "post": {
+        "description": "Check an AutoRef key against `/usage`, which costs no quota (admin only).\n\nA null key or the mask tests the stored one. Every failure is a 200 with\n`valid: false`; the key never reaches a log line or an error.",
+        "operationId": "test_autoref_key_api_vin_autoref_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoRefTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoRefTestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Test Autoref Key",
+        "tags": [
+          "VIN"
+        ]
+      }
+    },
+    "/api/vin/autoref/version": {
+      "post": {
+        "description": "Decode the version picked from an AutoRef decode's `candidates`.\n\nFetches that version's full record (1 AutoRef request), checks it still\nbelongs to the VIN and is still the version picked, then answers like a\ndecode.\n\n**Raises:**\n- **400**: Invalid VIN format\n- **404**: AutoRef no longer has this version (its ids change when it rebuilds)\n- **409**: AutoRef isn't configured\n- **422**: A malformed pick\n- **429**: AutoRef's quota is used up\n- **502**: AutoRef rejected the key or failed\n- **503/504**: AutoRef can't be reached or timed out",
+        "operationId": "decode_autoref_version_api_vin_autoref_version_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoRefVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VINDecodeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decode Autoref Version",
+        "tags": [
+          "VIN"
+        ]
+      }
+    },
     "/api/vin/decode": {
       "post": {
-        "description": "Decode a VIN using the NHTSA vPIC API.\n\nThis endpoint validates the VIN format and queries the NHTSA database\nto retrieve vehicle information including make, model, year, engine specs,\nand other details.\n\n**Args:**\n- **vin**: 17-character Vehicle Identification Number\n\n**Returns:**\n- Vehicle information decoded from the VIN\n\n**Raises:**\n- **400**: Invalid VIN format\n- **500**: NHTSA API error or service unavailable",
+        "description": "Decode a VIN with NHTSA or AutoRef.\n\nWithout `provider` (Automatic) the preferred decoder answers first: AutoRef\nfor a European country when it has a key, NHTSA otherwise and for every\nNorth American VIN. An AutoRef miss or error then asks NHTSA and says so in\n`notes`. A chosen `provider` runs alone.\n\n**Raises:**\n- **400**: Invalid VIN format\n- **404**: AutoRef chosen and it has no record for this VIN\n- **409**: AutoRef chosen and it isn't configured\n- **429**: AutoRef chosen and its quota is used up\n- **502**: AutoRef rejected the key or failed; NHTSA failed\n- **503/504**: the chosen decoder can't be reached or timed out",
         "operationId": "decode_vin_api_vin_decode_post",
         "requestBody": {
           "content": {
@@ -62276,6 +63029,63 @@
           }
         ],
         "summary": "Decode Vin Get",
+        "tags": [
+          "VIN"
+        ]
+      }
+    },
+    "/api/vin/providers": {
+      "get": {
+        "description": "The decoders this instance can use and which one Automatic asks first.\n\nOpen to every user: the settings behind it are admin-only.",
+        "operationId": "vin_providers_api_vin_providers_get",
+        "parameters": [
+          {
+            "description": "ISO 3166-1 alpha-2; omitted reads the account's",
+            "in": "query",
+            "name": "country",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 3166-1 alpha-2; omitted reads the account's",
+              "title": "Country"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VINProvidersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Vin Providers",
         "tags": [
           "VIN"
         ]

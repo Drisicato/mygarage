@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { resolvePostLoginRoute } from '../utils/postLoginRedirect'
@@ -10,8 +10,9 @@ import { makeLoginSchema, type LoginFormData } from '../schemas/auth'
 import { FormError } from '../components/FormError'
 import AuthPageLayout from '../components/AuthPageLayout'
 import { withBase } from '../utils/basePath'
-import { applyServerErrors } from '../hooks/useApiFormErrors'
-import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { applyServerErrors } from '../utils/apiFormErrors'
+import { useAutofillSubmit } from '../hooks/useAutofillSubmit'
+import { actionErrorMessage } from '../utils/httpErrorHandler'
 
 // The backend's SSOError values (app/constants/oidc.py), which its SSO redirect
 // sends back as ?sso_error=. Anything else is someone's hand-typed URL, so it
@@ -62,6 +63,9 @@ export default function Login() {
   // SSO is primary. When OIDC is disabled (or the check fails) show the
   // password form immediately since it's the only option.
   const [showPasswordForm, setShowPasswordForm] = useState(false)
+  // A login picked from Safari's or the Passwords app's list signs in by itself.
+  const formRef = useRef<HTMLFormElement>(null)
+  useAutofillSubmit(formRef, 'username', 'password')
   const { login } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -138,9 +142,9 @@ export default function Login() {
       // attached.length === 0 catches a non-422 failure (network drop, 500):
       // it carries no field problems at all, so `unhandled` alone would stay
       // empty and this banner would never show.
-      const { attached, unhandled } = applyServerErrors<LoginFormData>(setFieldError, err, ['username', 'password'])
+      const { parsed, attached, unhandled } = applyServerErrors<LoginFormData>(setFieldError, err, ['username', 'password'])
       if (attached.length === 0 || unhandled.length > 0) {
-        setError(getActionErrorMessage(err, t('login.signInAction')))
+        setError(actionErrorMessage(parsed, t('login.signInAction')))
       }
     }
   }
@@ -161,7 +165,7 @@ export default function Login() {
         </div>
       }
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <form ref={formRef} onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Error Message */}
         {bannerError && (
           <div role="alert" className="p-4 bg-danger-500/10 border border-danger-500 rounded-lg flex items-start gap-2">

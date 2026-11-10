@@ -12,7 +12,14 @@ Plan test 12, and the restore route's `warning`:
   settings files hold no plaintext, and neither does the full backup's
   `mygarage.db` member, read from the archive itself. The archive carries
   neither key file;
-- a settings restore that skipped secret keys names them in a `warning`.
+- a settings restore that skipped secret keys names them in a `warning`;
+- the restore route answers a bad file name 400 and a missing backup 404 before
+  the preflight, so neither turns into a 503 while plaintext remains;
+- called directly, without the routes' preflight, each of the four service
+  writers refuses a plaintext secret row itself, before it writes any file;
+- on a file database the preflight's encrypt runs with `secure_delete` on, so the
+  full backup's snapshot carries no freed plaintext cell, and a refusal for want
+  of a keyring turns `secure_delete` back off on the pooled connection.
 
 The routes run against `BackupService(tmp_path, ...)` through a patched
 `get_backup_service`, not the `/data`-gated route file: under pytest the routes'
@@ -42,15 +49,18 @@ from app.services.settings_secrets import (
 )
 from app.utils.settings_crypto import CIPHERTEXT_PREFIX, ENV_KEY, encrypt
 from tests.integration._secret_helpers import (
+    REMNANT,
     Keep,
     UseKeys,
+    file_db,
     keyring_entry,
     only_these_secret_rows,
+    pooled_pragma,
     raw_column,
     read_back,
 )
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+pytestmark = pytest.mark.integration
 
 KEY_A = keyring_entry(b"preflight test key A")
 KEY_FOREIGN = keyring_entry(b"preflight test key from another instance")
@@ -97,7 +107,9 @@ def _test_database_file(engine: AsyncEngine) -> Path:
 def test_plaintext_secrets_remain_is_not_a_runtime_error() -> None:
     """R2-2: `create-full`'s `except RuntimeError` must never turn the 503 into a 500."""
     assert not issubclass(PlaintextSecretsRemain, RuntimeError)
-    message = str(PlaintextSecretsRemain(("ntfy_token", "llm_api_key")))
+    message = str(
+        PlaintextSecretsRemain(("ntfy_token", "llm_api_key"), keyring_fix=f"Set {ENV_KEY}.")
+    )
     assert "ntfy_token, llm_api_key" in message
     assert ENV_KEY in message
 
@@ -136,6 +148,10 @@ async def test_with_no_keyring_the_preflight_refuses_and_writes_nothing(
     assert raised.value.keys == ("ntfy_token",)
     assert PLAIN_NTFY not in str(raised.value)
     assert await raw_column(test_sessionmaker, "ntfy_token") == PLAIN_NTFY
+    # The broken env var wins over the data dir, so the fix names it, not a
+    # writable data dir that would change nothing (B2-21).
+    assert f"Set {ENV_KEY} to a valid key. Then try again." in str(raised.value)
+    assert "writable" not in str(raised.value)
 
 
 async def test_with_no_keyring_and_no_plaintext_the_preflight_passes(
@@ -208,7 +224,7 @@ def _app(*, debug: bool) -> FastAPI:
 
     @app.post("/backup")
     async def backup() -> None:
-        raise PlaintextSecretsRemain(("ntfy_token",))
+        raise PlaintextSecretsRemain(("ntfy_token",), keyring_fix=f"Set {ENV_KEY}.")
 
     return app
 
@@ -423,3 +439,141 @@ async def test_a_clean_restore_has_no_warning(
     assert response.status_code == 200, response.text
     assert response.json()["details"]["skipped_secret_keys"] == []
     assert "warning" not in response.json()
+
+
+# ------------------------------------------------------- the restore route's 400 and 404
+
+
+@pytest.mark.parametrize(
+    ("filename", "status"),
+    [
+        ("mygarage-settings-missing.json", 404),
+        ("mygarage-full-missing.tar.gz", 404),
+        ("some-file.txt", 400),
+        ("mygarage-settings..json", 400),
+    ],
+    ids=["missing-settings", "missing-full", "wrong-type", "dot-dot"],
+)
+async def test_a_bad_restore_name_is_a_400_or_404_even_while_plaintext_remains(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    keep_rows: Keep,
+    use_keys: UseKeys,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    filename: str,
+    status: int,
+) -> None:
+    """The name is checked before the preflight, so a typo never reads as a key problem."""
+    service = _service(tmp_path)
+    _use_service(monkeypatch, service)
+    await only_these_secret_rows(db_session, keep_rows, {"ntfy_token": PLAIN_NTFY})
+    assert use_keys("not-a-valid-key") is None
+
+    response = await client.post(f"/api/backup/restore/{filename}", headers=auth_headers)
+
+    assert response.status_code == status, response.text
+    assert "ntfy_token" not in response.json()["detail"]
+    assert list(service.backup_dir.iterdir()) == []
+    assert await raw_column(test_sessionmaker, "ntfy_token") == PLAIN_NTFY
+
+
+# ------------------------------------------------------- the service's own guard
+
+
+@pytest.mark.parametrize(
+    "writer",
+    ["create_settings_backup", "create_full_backup", "restore_settings", "restore_full"],
+)
+async def test_each_service_writer_refuses_plaintext_when_called_directly(
+    db_session: AsyncSession,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    keep_rows: Keep,
+    use_keys: UseKeys,
+    tmp_path: Path,
+    writer: str,
+) -> None:
+    """Without the routes' preflight the service still writes no file holding plaintext.
+
+    The keyring works here, so nothing but the service's own check stands in the way.
+    """
+    use_keys(KEY_A)
+    live = tmp_path / "live.db"
+    sqlite3.connect(live).close()
+    service = _service(tmp_path, live)
+    _place_backups(service)
+    before = sorted(p.name for p in service.backup_dir.iterdir())
+    await only_these_secret_rows(db_session, keep_rows, {"ntfy_token": PLAIN_NTFY})
+
+    with pytest.raises(PlaintextSecretsRemain) as raised:
+        match writer:
+            case "create_settings_backup":
+                await service.create_settings_backup(db_session)
+            case "create_full_backup":
+                await service.create_full_backup(db_session)
+            case "restore_settings":
+                await service.restore_settings_backup(SETTINGS_FILE, db_session)
+            case _:
+                await service.restore_full_backup(FULL_FILE, db_session)
+
+    assert raised.value.keys == ("ntfy_token",)
+    assert PLAIN_NTFY not in str(raised.value)
+    assert sorted(p.name for p in service.backup_dir.iterdir()) == before
+    assert not (service.data_dir / ".restore-pending").exists()
+    assert await raw_column(test_sessionmaker, "ntfy_token") == PLAIN_NTFY
+    if writer == "restore_settings":
+        # It held the sign-in settings lock; a refusal lets it go.
+        assert not db_session.in_transaction()
+
+
+# ------------------------------------------------------- secure_delete on a file database
+
+
+async def test_the_full_backup_preflight_leaves_no_freed_plaintext_in_the_snapshot(
+    tmp_path: Path, use_keys: UseKeys
+) -> None:
+    """The encrypt runs with secure_delete on, so the snapshot's freed cells are zeroed too.
+
+    The backup API copies pages whole, free space and all, so a plaintext cell
+    the encrypt merely freed would ride along into the archive.
+    """
+    use_keys(KEY_A)
+    engine, path = await file_db(tmp_path)
+    try:
+        service = _service(tmp_path, path)
+        sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with sessionmaker() as db:
+            await ensure_secrets_encrypted(db)
+            meta = await service.create_full_backup(db)
+
+        with tarfile.open(service.backup_dir / meta["filename"], "r:gz") as tar:
+            member = tar.extractfile("mygarage.db")
+            assert member is not None
+            snapshot = member.read()
+        assert REMNANT.encode() not in snapshot
+        assert await read_back(sessionmaker, "ntfy_token") == REMNANT
+    finally:
+        await engine.dispose()
+
+
+async def test_a_refusal_for_want_of_a_keyring_turns_secure_delete_back(
+    tmp_path: Path, use_keys: UseKeys
+) -> None:
+    """No keyring: the encrypt step raises before its flush, and the PRAGMA goes back first."""
+    engine, _path = await file_db(tmp_path)
+    try:
+        assert use_keys("not-a-valid-key") is None
+        sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with sessionmaker() as db:
+            with pytest.raises(PlaintextSecretsRemain) as raised:
+                await ensure_secrets_encrypted(db)
+
+        assert raised.value.keys == ("ntfy_token",)
+        assert await raw_column(sessionmaker, "ntfy_token") == REMNANT
+        assert await pooled_pragma(engine, "secure_delete") == 0
+    finally:
+        await engine.dispose()

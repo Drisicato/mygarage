@@ -211,20 +211,20 @@ class TestGenerateVehicleAnalyticsPdf:
 
     def test_returns_valid_pdf(self) -> None:
         data = _make_analytics_data()
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         content = buf.read()
         assert content[:4] == PDF_MAGIC
         assert len(content) > 5000
 
     def test_contains_vehicle_name(self) -> None:
         data = _make_analytics_data(vehicle_name="2023 Ram 3500")
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
         assert "2023 Ram 3500" in text
 
     def test_contains_vin(self) -> None:
         data = _make_analytics_data(vin="3C63RRGL9NG000001")
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
         assert "3C63RRGL9NG000001" in text
 
@@ -233,12 +233,14 @@ class TestGenerateVehicleAnalyticsPdf:
         and the key is there, so a `.get` default never kicks in. The badge has
         to say Unknown instead of reportlab choking on None."""
         known = _extract_text(
-            generate_vehicle_analytics_pdf(_make_analytics_data(), render_context=METRIC_CTX).read()
+            generate_vehicle_analytics_pdf(
+                _make_analytics_data(), render_context=METRIC_CTX, date_order="mdy"
+            ).read()
         )
         assert "Unknown" not in known
 
         data = {**_make_analytics_data(), "vehicle_type": None}
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         assert "Unknown" in _extract_text(buf.read())
 
     def test_the_banner_itself_takes_a_missing_type(self) -> None:
@@ -253,14 +255,14 @@ class TestGenerateVehicleAnalyticsPdf:
 
     def test_contains_section_headings(self) -> None:
         data = _make_analytics_data()
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
         assert "Monthly Spending" in text
         assert "Service Breakdown" in text
 
     def test_contains_kpi_labels(self) -> None:
         data = _make_analytics_data()
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
         assert "TOTAL COST" in text
         # The label carries the reader's scale, like the screen does.
@@ -271,7 +273,9 @@ class TestGenerateVehicleAnalyticsPdf:
     def test_with_vendor_data(self) -> None:
         data = _make_analytics_data()
         vendor = _make_vendor_data()
-        buf = generate_vehicle_analytics_pdf(data, vendor_data=vendor, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(
+            data, vendor_data=vendor, render_context=METRIC_CTX, date_order="mdy"
+        )
         text = _extract_text(buf.read())
         assert "Vendor Analysis" in text
         assert "AutoZone" in text
@@ -280,7 +284,7 @@ class TestGenerateVehicleAnalyticsPdf:
         data = _make_analytics_data()
         seasonal = _make_seasonal_data()
         buf = generate_vehicle_analytics_pdf(
-            data, seasonal_data=seasonal, render_context=METRIC_CTX
+            data, seasonal_data=seasonal, render_context=METRIC_CTX, date_order="mdy"
         )
         text = _extract_text(buf.read())
         assert "Seasonal Spending" in text
@@ -289,14 +293,16 @@ class TestGenerateVehicleAnalyticsPdf:
         data = _make_analytics_data()
         vendor = _make_vendor_data()
         seasonal = _make_seasonal_data()
-        buf = generate_vehicle_analytics_pdf(data, vendor, seasonal, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(
+            data, vendor, seasonal, render_context=METRIC_CTX, date_order="mdy"
+        )
         text = _extract_text(buf.read())
         assert "MyGarage" in text
 
     def test_no_vendor_no_seasonal(self) -> None:
         data = _make_analytics_data()
         buf = generate_vehicle_analytics_pdf(
-            data, vendor_data=None, seasonal_data=None, render_context=METRIC_CTX
+            data, vendor_data=None, seasonal_data=None, render_context=METRIC_CTX, date_order="mdy"
         )
         content = buf.read()
         assert content[:4] == PDF_MAGIC
@@ -309,13 +315,13 @@ class TestGenerateVehicleAnalyticsPdf:
             include_monthly=False,
             include_service_breakdown=False,
         )
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         content = buf.read()
         assert content[:4] == PDF_MAGIC
 
     def test_contains_branded_footer(self) -> None:
         data = _make_analytics_data()
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
         assert "homelabforge.io" in text
 
@@ -389,7 +395,7 @@ class TestUsageEfficiencySection:
             ]
         )
 
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
 
         assert "Usage & Efficiency" in text
@@ -416,11 +422,28 @@ class TestUsageEfficiencySection:
             ]
         )
 
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
 
         assert "100.0 hr" in text
         assert "150.0 hr" in text
+
+    def test_hours_history_shows_each_readings_source(self) -> None:
+        """The Source column names where a reading came from (G2c-108)."""
+        data = _make_analytics_data()
+        data["total_km_driven"] = None
+        points = _make_hours_accumulated(
+            [("2025-01-01", Decimal("100.0")), ("2025-03-01", Decimal("150.0"))]
+        )
+        points[0]["source"] = "fuel"
+        points[1]["source"] = "service_visit"
+        data["hours_accumulated"] = points
+
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
+        text = _extract_text(buf.read())
+
+        assert "Fuel fill-up" in text
+        assert "Service visit" in text
 
     def test_dual_vehicle_shows_both_dimensions(self) -> None:
         """Dual-track vehicle: both odometer/distance AND hours summaries
@@ -437,7 +460,7 @@ class TestUsageEfficiencySection:
             [("2025-01-01", Decimal("100.0")), ("2025-06-01", Decimal("250.0"))]
         )
 
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
 
         assert "DISTANCE DRIVEN" in text
@@ -454,7 +477,7 @@ class TestUsageEfficiencySection:
         """Pure-distance vehicle (no hours data at all): report is
         unchanged — no hours section, no hours history table leak in."""
         data = _make_analytics_data()
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
 
         assert "Usage & Efficiency" not in text
@@ -471,7 +494,7 @@ class TestUsageEfficiencySection:
         ]
 
         buf = generate_vehicle_analytics_pdf(
-            data, reminders_data=reminders, render_context=METRIC_CTX
+            data, reminders_data=reminders, render_context=METRIC_CTX, date_order="mdy"
         )
         text = _extract_text(buf.read())
 
@@ -488,7 +511,7 @@ class TestUsageEfficiencySection:
         ]
 
         buf = generate_vehicle_analytics_pdf(
-            data, reminders_data=reminders, render_context=METRIC_CTX
+            data, reminders_data=reminders, render_context=METRIC_CTX, date_order="mdy"
         )
         text = _extract_text(buf.read())
 
@@ -499,7 +522,7 @@ class TestUsageEfficiencySection:
         """Without reminders_data, no reminders section renders (backward
         compatible default)."""
         data = _make_analytics_data()
-        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        buf = generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
         text = _extract_text(buf.read())
         assert "Upcoming Reminders" not in text
 
@@ -527,7 +550,7 @@ class TestUsageEfficiencySection:
         dual["hours_accumulated"] = _make_hours_accumulated([("2025-01-01", Decimal("100.0"))])
 
         for shape in (pure_distance, pure_hours, dual):
-            buf = generate_vehicle_analytics_pdf(shape, render_context=METRIC_CTX)
+            buf = generate_vehicle_analytics_pdf(shape, render_context=METRIC_CTX, date_order="mdy")
             content = buf.read()
             assert content[:4] == PDF_MAGIC
 
@@ -608,7 +631,7 @@ class TestRenderContextDrivesUnits:
 
         text = _normalized_text(
             generate_vehicle_analytics_pdf(
-                data, render_context=vehicle_ctx, rate_context=METRIC_CTX
+                data, render_context=vehicle_ctx, rate_context=METRIC_CTX, date_order="mdy"
             ).read()
         )
 
@@ -627,7 +650,9 @@ class TestRenderContextDrivesUnits:
         vehicle_ctx = RenderContext(units=apply_vehicle_units(METRIC_PRESET, "mi"), show_both=False)
 
         text = _normalized_text(
-            generate_vehicle_analytics_pdf(data, render_context=vehicle_ctx).read()
+            generate_vehicle_analytics_pdf(
+                data, render_context=vehicle_ctx, date_order="mdy"
+            ).read()
         )
 
         assert "COST PER 1,000 MI $675.92" in text
@@ -637,7 +662,7 @@ class TestRenderContextDrivesUnits:
         reminders = [_make_reminder("Tire rotation", "mileage", due_mileage_km=Decimal("50000"))]
 
         buf = generate_vehicle_analytics_pdf(
-            data, reminders_data=reminders, render_context=METRIC_CTX
+            data, reminders_data=reminders, render_context=METRIC_CTX, date_order="mdy"
         )
         text = _normalized_text(buf.read())
 
@@ -653,7 +678,7 @@ class TestRenderContextDrivesUnits:
         reminders = [_make_reminder("Tire rotation", "mileage", due_mileage_km=Decimal("50000"))]
 
         buf = generate_vehicle_analytics_pdf(
-            data, reminders_data=reminders, render_context=IMPERIAL_CTX
+            data, reminders_data=reminders, render_context=IMPERIAL_CTX, date_order="mdy"
         )
         text = _normalized_text(buf.read())
 
@@ -671,7 +696,7 @@ class TestRenderContextDrivesUnits:
         reminders = [_make_reminder("Tire rotation", "mileage", due_mileage_km=Decimal("50000"))]
 
         buf = generate_vehicle_analytics_pdf(
-            data, reminders_data=reminders, render_context=IMPERIAL_CTX
+            data, reminders_data=reminders, render_context=IMPERIAL_CTX, date_order="mdy"
         )
         text = _normalized_text(buf.read())
 
@@ -686,7 +711,9 @@ class TestRenderContextDrivesUnits:
         30.05 -> "30.1 MPG (UK)"; 1.85 / 4.54609 = 0.407 -> "0.41 gal (UK)/hr"."""
         data = _make_unit_bearing_data()
 
-        text = _normalized_text(generate_vehicle_analytics_pdf(data, render_context=UK_CTX).read())
+        text = _normalized_text(
+            generate_vehicle_analytics_pdf(data, render_context=UK_CTX, date_order="mdy").read()
+        )
 
         assert "30.1 MPG (UK)" in text
         assert "0.41 gal (UK)/hr" in text
@@ -696,7 +723,9 @@ class TestRenderContextDrivesUnits:
         data = _make_unit_bearing_data()
 
         text = _normalized_text(
-            generate_vehicle_analytics_pdf(data, render_context=IMPERIAL_CTX).read()
+            generate_vehicle_analytics_pdf(
+                data, render_context=IMPERIAL_CTX, date_order="mdy"
+            ).read()
         )
 
         assert "(UK)" not in text
@@ -706,7 +735,7 @@ class TestRenderContextDrivesUnits:
         reminders = [_make_reminder("Tire rotation", "mileage", due_mileage_km=Decimal("50000"))]
 
         buf = generate_vehicle_analytics_pdf(
-            data, reminders_data=reminders, render_context=METRIC_BOTH_CTX
+            data, reminders_data=reminders, render_context=METRIC_BOTH_CTX, date_order="mdy"
         )
         text = _normalized_text(buf.read())
 
@@ -730,12 +759,12 @@ class TestRenderContextDrivesUnits:
 
         metric = _normalized_text(
             generate_vehicle_analytics_pdf(
-                data, reminders_data=reminders, render_context=METRIC_CTX
+                data, reminders_data=reminders, render_context=METRIC_CTX, date_order="mdy"
             ).read()
         )
         imperial = _normalized_text(
             generate_vehicle_analytics_pdf(
-                data, reminders_data=reminders, render_context=IMPERIAL_CTX
+                data, reminders_data=reminders, render_context=IMPERIAL_CTX, date_order="mdy"
             ).read()
         )
 
@@ -752,7 +781,10 @@ class TestRenderContextDrivesUnits:
 
         text = _normalized_text(
             generate_vehicle_analytics_pdf(
-                data, reminders_data=[_make_low_tread_reminder()], render_context=METRIC_CTX
+                data,
+                reminders_data=[_make_low_tread_reminder()],
+                render_context=METRIC_CTX,
+                date_order="mdy",
             ).read()
         )
 
@@ -765,7 +797,10 @@ class TestRenderContextDrivesUnits:
 
         text = _normalized_text(
             generate_vehicle_analytics_pdf(
-                data, reminders_data=[_make_low_tread_reminder()], render_context=IMPERIAL_CTX
+                data,
+                reminders_data=[_make_low_tread_reminder()],
+                render_context=IMPERIAL_CTX,
+                date_order="mdy",
             ).read()
         )
 
@@ -780,11 +815,39 @@ class TestRenderContextDrivesUnits:
 
         text = _normalized_text(
             generate_vehicle_analytics_pdf(
-                data, reminders_data=[_make_low_tread_reminder()], render_context=METRIC_BOTH_CTX
+                data,
+                reminders_data=[_make_low_tread_reminder()],
+                render_context=METRIC_BOTH_CTX,
+                date_order="mdy",
             ).read()
         )
 
         assert "Tread 1.50 mm (2/32 in), min 3.00 mm (4/32 in)" in text
+
+    @pytest.mark.parametrize(
+        ("date_order", "expected", "absent"),
+        [
+            ("mdy", ["Jan 01, 2025", "Jun 01, 2025", "Nov 01, 2026"], "01 Jun 2025"),
+            ("dmy", ["01 Jan 2025", "01 Jun 2025", "01 Nov 2026"], "Jun 01, 2025"),
+        ],
+    )
+    def test_dates_follow_the_date_order(
+        self, date_order: str, expected: list[str], absent: str
+    ) -> None:
+        """#278: the hours card, hours history and reminder due dates."""
+        text = _normalized_text(
+            generate_vehicle_analytics_pdf(
+                _make_unit_bearing_data(),
+                reminders_data=[_make_low_tread_reminder()],
+                render_context=METRIC_CTX,
+                date_order=date_order,  # type: ignore[arg-type]
+            ).read()
+        )
+
+        for value in expected:
+            assert value in text
+        assert f"As of {expected[1]}" in text
+        assert absent not in text
 
     @pytest.mark.parametrize("missing", ["tread_depth_mm", "tread_threshold_mm"])
     def test_tread_needs_both_fields(self, missing: str) -> None:
@@ -795,7 +858,7 @@ class TestRenderContextDrivesUnits:
 
         text = _normalized_text(
             generate_vehicle_analytics_pdf(
-                data, reminders_data=[reminder], render_context=METRIC_CTX
+                data, reminders_data=[reminder], render_context=METRIC_CTX, date_order="mdy"
             ).read()
         )
 
@@ -810,7 +873,9 @@ class TestRenderContextDrivesUnits:
         data = _make_unit_bearing_data()
 
         text = _normalized_text(
-            generate_vehicle_analytics_pdf(data, render_context=IMPERIAL_CTX).read()
+            generate_vehicle_analytics_pdf(
+                data, render_context=IMPERIAL_CTX, date_order="mdy"
+            ).read()
         )
 
         assert "COST PER 1,000 MI" in text
@@ -823,7 +888,9 @@ class TestRenderContextDrivesUnits:
         data["fuel_economy"] = {"average_l_per_100km": None}
 
         text = _normalized_text(
-            generate_vehicle_analytics_pdf(data, render_context=METRIC_BOTH_CTX).read()
+            generate_vehicle_analytics_pdf(
+                data, render_context=METRIC_BOTH_CTX, date_order="mdy"
+            ).read()
         )
 
         assert "N/A (N/A)" not in text
@@ -857,7 +924,7 @@ class TestCostPerDistanceCard:
 
         monkeypatch.setattr(pdf_vehicle_report, "make_kpi_row", spy)
         generate_vehicle_analytics_pdf(
-            data, render_context=render_context, rate_context=rate_context
+            data, render_context=render_context, rate_context=rate_context, date_order="mdy"
         )
         # The headline row is drawn first; the cost card sits second in it.
         return rows[0][1]
@@ -950,7 +1017,7 @@ class TestMonthlySpendingChartSkipsFinancingOnlyMonths:
 
         data = _make_analytics_data()
         data["cost_analysis"]["monthly_breakdown"] = rows
-        generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX)
+        generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy")
 
         assert len(charted) == 1
         assert [(m["year"], m["month"]) for m in charted[0]] == running
@@ -961,7 +1028,11 @@ def test_every_chart_labels_money_in_the_report_currency(
 ) -> None:
     """The tables already used `currency_code`; the charts wrote "$"."""
     generate_vehicle_analytics_pdf(
-        _make_analytics_data(), currency_code="HUF", locale="hu-HU", render_context=METRIC_CTX
+        _make_analytics_data(),
+        currency_code="HUF",
+        locale="hu-HU",
+        render_context=METRIC_CTX,
+        date_order="mdy",
     )
 
     drawn = chart_texts()
@@ -979,7 +1050,9 @@ class TestBannerIdentifier:
         data = _make_analytics_data()
         data["vin"] = "QABCDEFGH12345678"
         data["identifier_text"] = "Serial BX23S-10234"
-        text = _extract_text(generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX).read())
+        text = _extract_text(
+            generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy").read()
+        )
         assert "Serial BX23S-10234" in text
         assert "QABCDEFGH12345678" not in text
 
@@ -987,7 +1060,9 @@ class TestBannerIdentifier:
         data = _make_analytics_data()
         data["vehicle_name"] = "Mower <b>deck</b>"
         data["identifier_text"] = "Serial <img src='/etc/passwd'/> & co"
-        text = _extract_text(generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX).read())
+        text = _extract_text(
+            generate_vehicle_analytics_pdf(data, render_context=METRIC_CTX, date_order="mdy").read()
+        )
         assert "Mower <b>deck</b>" in text
         assert "Serial <img src='/etc/passwd'/> & co" in text
 
@@ -998,7 +1073,7 @@ class TestBannerIdentifier:
         data = _make_analytics_data()
         data["cost_analysis"]["service_type_breakdown"][0]["service_type"] = "Brake <b>job"
         data["hours_accumulated"] = [
-            {"date": "2025-01-01", "engine_hours": Decimal("10"), "notes": "Read <i>by hand"}
+            {"date": "2025-01-01", "engine_hours": Decimal("10"), "source": "Read <i>by hand"}
         ]
         vendors = _make_vendor_data()
         vendors["vendors"][0]["vendor_name"] = "Bob <i>& Sons"
@@ -1010,6 +1085,7 @@ class TestBannerIdentifier:
                     vendor_data=vendors,
                     reminders_data=reminders,
                     render_context=METRIC_CTX,
+                    date_order="mdy",
                 ).read()
             ).split()
         )

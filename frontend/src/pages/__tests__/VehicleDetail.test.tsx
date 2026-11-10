@@ -9,13 +9,19 @@ vi.mock('../../components/tabs/PlannedRepairsTab', () => ({ default: () => <div>
 vi.mock('../../components/tabs/FuelTab', () => ({ default: () => <div>FuelTab</div> }))
 vi.mock('../../components/tabs/OdometerTab', () => ({ default: () => <div>OdometerTab</div> }))
 vi.mock('../../components/tabs/HoursTab', () => ({ default: () => <div>HoursTab</div> }))
+// Counted, so a list that renders for one commit (and fires its fetches) still shows.
+const listRenders = vi.hoisted(() => ({ tires: vi.fn(), brakes: vi.fn() }))
 vi.mock('../../components/TireList', () => ({
-  default: ({ onLogBrakes }: { onLogBrakes?: () => void }) => (
-    <button type="button" onClick={onLogBrakes}>TireList log brakes</button>
-  ),
+  default: ({ onLogBrakes }: { onLogBrakes?: () => void }) => {
+    listRenders.tires()
+    return <button type="button" onClick={onLogBrakes}>TireList log brakes</button>
+  },
 }))
 vi.mock('../../components/brakes/BrakeList', () => ({
-  default: ({ logOnOpen }: { logOnOpen?: boolean }) => <div>BrakeList logOnOpen={String(logOnOpen)}</div>,
+  default: ({ logOnOpen }: { logOnOpen?: boolean }) => {
+    listRenders.brakes()
+    return <div>BrakeList logOnOpen={String(logOnOpen)}</div>
+  },
 }))
 vi.mock('../../components/tabs/PhotosTab', () => ({ default: () => <div>PhotosTab</div> }))
 vi.mock('../../components/tabs/DocumentsTab', () => ({ default: () => <div>DocumentsTab</div> }))
@@ -141,6 +147,7 @@ import type { Vehicle, VehicleDetailStats, VehicleType } from '../../types/vehic
 import type { VehicleLiveLinkStatus } from '../../types/livelink'
 import { makeUnitFormat } from '../../utils/unitFormat'
 import VehicleDetail from '../VehicleDetail'
+import { rememberVehicle } from '../../utils/vehicleCache'
 import { IMPERIAL_UNITS, makeUser, makeDetailStats } from '../../__tests__/factories'
 
 const mockedVehicleService = vi.mocked(vehicleService)
@@ -165,6 +172,9 @@ const mockVehicle: Vehicle = {
   created_at: '2024-01-15T00:00:00Z',
   archived_visible: true,
   location_tracking_enabled: true,
+  wheel_layout: null,
+  effective_wheel_layout: 'four',
+  default_wheel_layout: 'four',
 }
 
 // The hero's detail-stats live on the query cache (#192), so every render needs
@@ -277,10 +287,7 @@ describe('VehicleDetail', () => {
 
   it('shows cached data with warning when offline', async () => {
     // Pre-populate cache
-    localStorage.setItem(
-      'vehicle-cache-TEST12345678901234',
-      JSON.stringify({ timestamp: Date.now(), data: mockVehicle })
-    )
+    rememberVehicle('TEST12345678901234', mockVehicle)
 
     // navigator.onLine controls the cache fallback in loadVehicle
     const originalOnLine = navigator.onLine
@@ -510,6 +517,116 @@ describe('VehicleDetail', () => {
     fireEvent.click(screen.getAllByText('detail.tabs.maintenance')[0])
     await waitFor(() => expect(screen.queryByRole('tab', { name: 'detail.misc.brakes' })).toBeNull())
     expect(screen.queryByText(/BrakeList/)).toBeNull()
+  })
+
+  // --- Wheel layout (#272) ---
+
+  it.each([
+    ['none', false],
+    ['four', true],
+  ] as const)('a %s wheel layout shows Tires and Brakes: %s', async (layout, shown) => {
+    mockedVehicleService.get.mockResolvedValue({ ...mockVehicle, effective_wheel_layout: layout })
+    renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+
+    fireEvent.click(screen.getAllByText('detail.tabs.maintenance')[0])
+    const subNav = await screen.findByTestId('sub-tab-nav')
+    // Service is always there, so the strip itself rendered.
+    expect(within(subNav).getByRole('tab', { name: 'vehicleStats.service' })).toBeInTheDocument()
+    expect(within(subNav).queryByRole('tab', { name: 'detail.misc.tires' }) !== null).toBe(shown)
+    expect(within(subNav).queryByRole('tab', { name: 'detail.misc.brakes' }) !== null).toBe(shown)
+  })
+
+  it('falls back to Service when the vehicle reloads with no wheels while on Tires (RF7)', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {} } as { data: unknown })
+    const { container } = renderVehicleDetail('/vehicles/TEST12345678901234?tab=tires')
+    expect(await screen.findByText('TireList log brakes')).toBeInTheDocument()
+
+    // A JSON import reloads the vehicle; this time it comes back with no wheels.
+    mockedVehicleService.get.mockResolvedValue({
+      ...mockVehicle, wheel_layout: 'none', effective_wheel_layout: 'none',
+    })
+    const input = container.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement
+    fireEvent.change(input, {
+      target: { files: [new File(['{}'], 'vehicle.json', { type: 'application/json' })] },
+    })
+
+    expect(await screen.findByText('ServiceTab')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'vehicleStats.service' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('TireList log brakes')).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'detail.misc.tires' })).toBeNull()
+  })
+
+  it.each(['tires', 'brakes'] as const)(
+    'never renders the %s list for a vehicle with no wheels, even for one commit',
+    async (tab) => {
+      // The reset swaps the tab after the first loaded render; the content gate
+      // keeps that render from mounting the list and firing its fetches.
+      mockedVehicleService.get.mockResolvedValue({
+        ...mockVehicle, wheel_layout: 'none', effective_wheel_layout: 'none',
+      })
+      renderVehicleDetail(`/vehicles/TEST12345678901234?tab=${tab}`)
+
+      expect(await screen.findByText('ServiceTab')).toBeInTheDocument()
+      expect(listRenders[tab]).not.toHaveBeenCalled()
+    },
+  )
+
+  it('waits for the new vehicle after a switch from one with no wheels', async () => {
+    // A has no wheels; B does, and loads late. If A's row counted as loaded for
+    // B, ?tab=tires would bounce to Service before B arrived.
+    let resolveB: (vehicle: Vehicle) => void = () => {}
+    mockedVehicleService.get.mockImplementation((vin: string) =>
+      vin === 'AAAAAAAAAAAAAAAAA'
+        ? Promise.resolve({ ...mockVehicle, vin, nickname: 'Boat A', effective_wheel_layout: 'none' })
+        : new Promise<Vehicle>((resolve) => { resolveB = resolve }),
+    )
+    render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <MemoryRouter initialEntries={['/vehicles/AAAAAAAAAAAAAAAAA']}>
+          <Routes>
+            <Route path="/vehicles/:vin" element={<VehicleDetail />} />
+          </Routes>
+          <Link to="/vehicles/BBBBBBBBBBBBBBBBB?tab=tires">go B</Link>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText('Boat A')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('go B'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    await act(async () => {
+      resolveB({ ...mockVehicle, vin: 'BBBBBBBBBBBBBBBBB', nickname: 'Car B' })
+    })
+
+    expect(await screen.findByText('Car B')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'detail.misc.tires' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('TireList log brakes')).toBeInTheDocument()
+  })
+
+  it('keeps a ?tab=tires deep link when the vehicle loads after mount', async () => {
+    // Before the load the page reads as non-motorized, so a reset that didn't
+    // wait for the vehicle would bounce the link to Service.
+    let resolveVehicle: (vehicle: Vehicle) => void = () => {}
+    mockedVehicleService.get.mockImplementation(
+      () => new Promise<Vehicle>((resolve) => { resolveVehicle = resolve }),
+    )
+    renderVehicleDetail('/vehicles/TEST12345678901234?tab=tires')
+    expect(screen.getByRole('status', { name: 'detail.loading' })).toBeInTheDocument()
+    // Let the mount effects (the tab param among them) settle with no vehicle.
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      resolveVehicle(mockVehicle)
+    })
+
+    expect(await screen.findByText('TireList log brakes')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'detail.misc.tires' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('ServiceTab')).toBeNull()
   })
 
   it("the Tires page's brake prompt opens Brakes with Log measurements", async () => {
@@ -964,7 +1081,7 @@ describe('VehicleDetail', () => {
     expect(within(optionalDialog).queryByText('ABS')).not.toBeInTheDocument()
   })
 
-  it('with only optional equipment: Standard button hidden, Optional opens the editor (B7)', async () => {
+  it('with only optional equipment: both pills show, Optional opens the editor', async () => {
     mockedVehicleService.get.mockResolvedValue({
       ...mockVehicle,
       standard_equipment: null,
@@ -972,10 +1089,79 @@ describe('VehicleDetail', () => {
     })
     renderVehicleDetail()
     await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
-    // No standard list -> no Standard button; Optional present and functional.
-    expect(screen.queryByRole('button', { name: 'detail.hero.standard' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'detail.hero.standard' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'detail.hero.optional' }))
     const dialog = await screen.findByRole('dialog', { name: 'detail.optionalEquipment' })
     expect(within(dialog).getByText('Sunroof')).toBeInTheDocument()
+  })
+
+  // Equipment is added by hand too, so the pills can't wait for a window
+  // sticker. A plain trailer has nothing to list, unless it already does.
+  it('offers equipment on a car with none saved yet, opening an empty editor', async () => {
+    mockedVehicleService.get.mockResolvedValue({
+      ...mockVehicle,
+      vehicle_type: 'Car',
+      standard_equipment: null,
+      optional_equipment: {},
+    })
+    renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'detail.hero.optional' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'detail.hero.standard' }))
+    const dialog = await screen.findByRole('dialog', { name: 'detail.standardEquipment' })
+    expect(within(dialog).getByText('detail.equipment.empty')).toBeInTheDocument()
+  })
+
+  it('offers equipment in the phone Actions sheet, and not for a bare trailer', async () => {
+    mockedVehicleService.get.mockResolvedValue({
+      ...mockVehicle, vehicle_type: 'Car', standard_equipment: null, optional_equipment: null,
+    })
+    const { unmount } = renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'detail.actions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'detail.optionalEquipment' }))
+    const dialog = await screen.findByRole('dialog', { name: 'detail.optionalEquipment' })
+    expect(within(dialog).getByText('detail.equipment.empty')).toBeInTheDocument()
+    unmount()
+
+    mockedVehicleService.get.mockResolvedValue({
+      ...mockVehicle, vehicle_type: 'Trailer', standard_equipment: null, optional_equipment: null,
+    })
+    renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'detail.actions' }))
+    expect(screen.getByRole('button', { name: 'detail.editVehicle' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'detail.standardEquipment' })).not.toBeInTheDocument()
+  })
+
+  it.each(['FifthWheel', 'TravelTrailer'] as const)('offers equipment on a %s', async (type) => {
+    mockedVehicleService.get.mockResolvedValue({
+      ...mockVehicle, vehicle_type: type, standard_equipment: null, optional_equipment: null,
+    })
+    renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'detail.hero.standard' })).toBeInTheDocument()
+  })
+
+  it('offers no equipment on a trailer with none saved', async () => {
+    mockedVehicleService.get.mockResolvedValue({
+      ...mockVehicle, vehicle_type: 'Trailer', standard_equipment: null, optional_equipment: null,
+    })
+    renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+    expect(screen.queryByText('detail.hero.equipment')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'detail.hero.standard' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'detail.hero.optional' })).not.toBeInTheDocument()
+  })
+
+  it('keeps equipment reachable on a trailer that already has some', async () => {
+    mockedVehicleService.get.mockResolvedValue({
+      ...mockVehicle, vehicle_type: 'Trailer', standard_equipment: null, optional_equipment: { items: ['Spare'] },
+    })
+    renderVehicleDetail()
+    await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'detail.hero.optional' }))
+    const dialog = await screen.findByRole('dialog', { name: 'detail.optionalEquipment' })
+    expect(within(dialog).getByText('Spare')).toBeInTheDocument()
   })
 })

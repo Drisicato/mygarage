@@ -5,17 +5,22 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     BeforeValidator,
     Field,
+    ValidationInfo,
     computed_field,
     field_validator,
     model_validator,
 )
 
+from app.constants import wheel_layouts
 from app.constants.countries import is_country_code, normalize_country_code
 from app.constants.fuel import FUEL_TYPE_VALUES, normalize_fuel_type
 from app.constants.units import DistanceUnit
+from app.constants.wheel_layouts import WheelLayoutId
+from app.schemas._figures import to_stored_tenth
 from app.schemas._money import OptionalMoney
 from app.schemas._nullability import reject_null
 from app.utils.lenient_vocab import LenientVocab, lenient_reader
@@ -39,11 +44,37 @@ def _normalize_country_input(v: Any) -> Any:
     return code
 
 
+def _normalize_make_input(v: Any) -> Any:
+    """Canonical make spelling for typed or decoded input (#219 takeover).
+
+    A `mode="before"` validator on the writers only (`VehicleCreate`,
+    `VehicleUpdate`, the external-vehicle schemas): a stored legacy
+    `MITSUBISHI` must still read, so responses never normalize. A non-string
+    is passed through for the field's own type check to refuse.
+    """
+    from app.utils.vehicle_names import normalize_make
+
+    return normalize_make(v) if isinstance(v, str) else v
+
+
+def _normalize_model_input(v: Any, info: ValidationInfo) -> Any:
+    """Title Case for an ALL-CAPS model; mixed case stays as typed (#219 takeover).
+
+    Reads the make validated just before it (``make`` is declared first), so
+    a MINI ``ONE`` reads One; an update that leaves the make out matches the
+    whole catalog.
+    """
+    from app.utils.vehicle_names import normalize_model
+
+    make = info.data.get("make")
+    return normalize_model(v, make if isinstance(make, str) else None) if isinstance(v, str) else v
+
+
 def _normalize_fuel_type_input(v: Any) -> Any:
     """Normalize free-text / NHTSA fuel-type input to the canonical vocabulary.
 
     Used as a `mode="before"` validator on `VehicleCreate` / `VehicleUpdate`
-    only — never on `VehicleBase`/`VehicleResponse`. Response schemas
+    only, never on `VehicleBase`/`VehicleResponse`. Response schemas
     validate from DB attributes, and a legacy unrecognized value already
     persisted must not make a vehicle read 500.
 
@@ -111,6 +142,14 @@ LenientUsageUnit = Annotated[
 LenientIdentifierType = Annotated[
     IdentifierType | None, BeforeValidator(lenient_reader(IdentifierType)), LenientVocab(None)
 ]
+# A layout this build doesn't know reads as null, so it falls back to the type's default.
+LenientWheelLayout = Annotated[
+    WheelLayoutId | None, BeforeValidator(lenient_reader(WheelLayoutId)), LenientVocab(None)
+]
+
+_WHEEL_LAYOUT_DESCRIPTION = (
+    "Which tire and brake corners the vehicle has; null follows the vehicle type's default (#272)"
+)
 
 
 def _clean_identifier(v: Any) -> Any:
@@ -132,8 +171,11 @@ class VehicleBase(BaseModel):
         "distance",
         description="Usage tracking dimension: 'distance' (odometer) or 'hours' (hour meter)",
     )
-    current_hours: Decimal | None = Field(
-        None, description="Current engine-hour reading (used when usage_unit == 'hours')", ge=0
+    current_hours: Annotated[Decimal | None, AfterValidator(to_stored_tenth)] = Field(
+        None,
+        description="Current engine-hour reading (used when usage_unit == 'hours')",
+        ge=0,
+        le=999999999.9,
     )
     secondary_usage_enabled: bool = Field(
         False,
@@ -163,6 +205,13 @@ class VehicleBase(BaseModel):
     first_registration_date: date | None = Field(
         None,
         description="Date of first registration (field B of an EU registration certificate)",
+    )
+    inspection_due_date: date | None = Field(
+        None,
+        description=(
+            "Next periodic inspection due by (field X.1 of an EU registration "
+            "certificate); the reminder holds to it within the current cycle"
+        ),
     )
     # The other EU registration-certificate fields (#211). Bounds are the
     # input's; the response reads what is stored.
@@ -250,6 +299,8 @@ class VehicleBase(BaseModel):
     maintenance_specs_notes: str | None = Field(
         None, description="Freeform notes for other fluid/torque specs", max_length=500
     )
+    # Not in reject_null on the update: an explicit null is how you go back to automatic.
+    wheel_layout: WheelLayoutId | None = Field(None, description=_WHEEL_LAYOUT_DESCRIPTION)
 
 
 class VehicleCreate(VehicleBase):
@@ -317,6 +368,18 @@ class VehicleCreate(VehicleBase):
             )
         return self
 
+    @field_validator("make", mode="before")
+    @classmethod
+    def normalize_make(cls, v: Any) -> Any:
+        """Canonical make spelling (#219 takeover)."""
+        return _normalize_make_input(v)
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def normalize_model(cls, v: Any, info: ValidationInfo) -> Any:
+        """Title Case for an ALL-CAPS model (#219 takeover)."""
+        return _normalize_model_input(v, info)
+
     @field_validator("fuel_type", "fuel_type_secondary", mode="before")
     @classmethod
     def normalize_fuel_type_fields(cls, v: Any) -> Any:
@@ -365,7 +428,7 @@ class VehicleUpdate(VehicleBase):
         None, description="Serial / HIN / chassis number / asset tag", max_length=64
     )
     # Overridden as optional: VehicleBase gives these non-null defaults, which
-    # the generated OpenAPI otherwise marks REQUIRED — forcing every partial
+    # the generated OpenAPI otherwise marks REQUIRED, forcing every partial
     # update (equipment/pricing sidecars) to resend them. exclude_unset makes an
     # omitted field a no-op, so callers editing unrelated fields can drop them.
     usage_unit: UsageUnit | None = Field(
@@ -375,7 +438,7 @@ class VehicleUpdate(VehicleBase):
         None, description="Dual distance+hours tracking (omit to leave unchanged)"
     )
     # Equipment is editable from the vehicle-detail sidecar. Declared here (not
-    # only on VehicleResponse) so partial PUTs actually persist it — Pydantic's
+    # only on VehicleResponse) so partial PUTs actually persist it: Pydantic's
     # default extra='ignore' silently drops unknown keys otherwise.
     standard_equipment: dict[str, Any] | None = Field(
         None, description="Standard equipment (category -> list of items)"
@@ -421,6 +484,18 @@ class VehicleUpdate(VehicleBase):
     def clean_identifier(cls, v: Any) -> Any:
         """Trim a typed identifier; a blank one is no identifier."""
         return _clean_identifier(v)
+
+    @field_validator("make", mode="before")
+    @classmethod
+    def normalize_make(cls, v: Any) -> Any:
+        """Canonical make spelling (#219 takeover)."""
+        return _normalize_make_input(v)
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def normalize_model(cls, v: Any, info: ValidationInfo) -> Any:
+        """Title Case for an ALL-CAPS model (#219 takeover)."""
+        return _normalize_model_input(v, info)
 
     @field_validator("fuel_type", "fuel_type_secondary", mode="before")
     @classmethod
@@ -549,6 +624,22 @@ class VehicleResponse(VehicleBase):
     def has_vin(self) -> bool:
         """Whether `vin` is a real VIN (decode, recalls and VIN display apply)."""
         return self.identifier_type == "vin"
+
+    wheel_layout: LenientWheelLayout = Field(None, description=_WHEEL_LAYOUT_DESCRIPTION)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def effective_wheel_layout(self) -> WheelLayoutId:
+        """The layout in force: the stored override, else the vehicle type's default (#272)."""
+        return wheel_layouts.resolve_wheel_layout(
+            self.wheel_layout, self.vehicle_type, vin=self.vin
+        ).id
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def default_wheel_layout(self) -> WheelLayoutId:
+        """The layout the vehicle type gets with no override, for the Automatic option (#272)."""
+        return wheel_layouts.default_wheel_layout(self.vehicle_type)
 
     # Served, never refused: the column has no CHECK, and a strict Literal here
     # would turn one hand-edited row into a 500 for every response carrying it.
@@ -783,7 +874,7 @@ class VehicleBulkArchiveRequest(BaseModel):
 
 
 class VehicleDetailStats(BaseModel):
-    """Read-aggregation for the Vehicle Detail hero + key-facts strip (P5).
+    """Read-aggregation for the Vehicle Detail hero + key-facts strip.
 
     Metric-canonical: latest_odometer_km is raw km (frontend converts at the
     boundary). spent_this_year is currency (Decimal -> JSON string).
@@ -792,23 +883,23 @@ class VehicleDetailStats(BaseModel):
     overdue_count: int
     upcoming_count: int
     # The subset of upcoming that is due soon: expected within DUE_SOON_WINDOW,
-    # or DUE_SOON_PROGRESS along a usage span no rate can project (#192 D2).
+    # or DUE_SOON_PROGRESS along a usage span no rate can project (#192).
     # The hero badge (reminder_service.reminder_due_status, as on the dashboard).
     due_soon_count: int
     usage_unit: LenientUsageUnit  # drives the odometer/hours relabel
-    # Kept for API compat only — NO LONGER the display source (R2-H1). The
+    # Kept for API compat only, NO LONGER the display source. The
     # canonical reading is `latest_hours` below, via `latest_engine_hours_and_date`.
-    current_hours: Decimal | None  # required-but-nullable — legacy column value
-    # Canonical latest engine-hours reading (the §1 helper) + hours-economy
-    # figures — required-but-nullable (M2) — NO `= None` default. Null for a
+    current_hours: Decimal | None  # required-but-nullable, legacy column value
+    # Canonical latest engine-hours reading + hours-economy
+    # figures, required-but-nullable, NO `= None` default. Null for a
     # pure-distance vehicle.
     latest_hours: Decimal | None
     average_l_per_hr: Decimal | None
     average_cost_per_hr: Decimal | None
     secondary_usage_enabled: bool
-    latest_odometer_km: Decimal | None  # required-but-nullable (M2) — NO `= None` default
-    latest_odometer_date: date | None  # required-but-nullable (M2) — NO `= None` default
-    last_service_date: date | None  # required-but-nullable (M2) — NO `= None` default
-    last_fillup_date: date | None  # required-but-nullable (M2) — NO `= None` default
+    latest_odometer_km: Decimal | None  # required-but-nullable, NO `= None` default
+    latest_odometer_date: date | None  # required-but-nullable, NO `= None` default
+    last_service_date: date | None  # required-but-nullable, NO `= None` default
+    last_fillup_date: date | None  # required-but-nullable, NO `= None` default
     spent_this_year: Decimal
     year: int

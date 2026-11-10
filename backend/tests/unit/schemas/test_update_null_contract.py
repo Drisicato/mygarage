@@ -241,6 +241,7 @@ EXPECTED_NOT_NULL: dict[str, set[str]] = {
     "AddressBookEntryUpdate": {"business_name", "source"},
     "AdminUserUpdate": {
         "currency_code",
+        "date_format",
         "email",
         "family_dashboard_order",
         "is_active",
@@ -296,6 +297,7 @@ EXPECTED_NOT_NULL: dict[str, set[str]] = {
     "UserSelfUpdate": {
         "currency_code",
         "dashboard_sort",
+        "date_format",
         "email",
         "language",
         "mobile_quick_entry_enabled",

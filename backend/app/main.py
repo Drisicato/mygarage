@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -130,17 +131,17 @@ def log_secret_key_status() -> None:
     if os.environ.get("MYGARAGE_SECRET_KEY"):
         logger.info("✓ Secret key loaded from MYGARAGE_SECRET_KEY environment variable")
     elif secret_key.KEY_SOURCE == "loaded":
-        logger.info("✓ Secret key loaded from %s", secret_key.DEFAULT_KEY_FILE)
+        logger.info("✓ Secret key loaded from %s", secret_key.KEY_FILE)
     elif secret_key.KEY_SOURCE == "generated":
         logger.info(
             "✓ Generated a new secret key and saved it to %s; it persists across restarts",
-            secret_key.DEFAULT_KEY_FILE,
+            secret_key.KEY_FILE,
         )
     else:
         logger.warning(
             "Secret key could not be persisted to %s - using a temporary in-memory key "
             "(sessions end on restart)",
-            secret_key.DEFAULT_KEY_FILE,
+            secret_key.KEY_FILE,
         )
 
 
@@ -225,8 +226,6 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down MyGarage application (maintenance mode)...")
         return
 
-    # After the maintenance-mode stop, since it writes. A failure keeps the
-    # list, so the next start tries again.
     from sqlalchemy.exc import SQLAlchemyError
 
     from app.services import session_repair
@@ -234,17 +233,22 @@ async def lifespan(app: FastAPI):
 
     # Encrypts leftover plaintext secrets and re-keys old ones. It logs and
     # swallows its own failures; this guard only keeps a bug in it from
-    # stopping the start (D5a: never fatal). Type name only: an exception's
-    # text could carry a setting value.
+    # stopping the start (it is never fatal). Type name and where it was
+    # raised only: an exception's text could carry a setting value.
     try:
         async with get_db_context() as db:
             await sweep_secret_settings(db)
     except Exception as exc:
+        frames = traceback.extract_tb(exc.__traceback__)
+        where = f"{frames[-1].filename}:{frames[-1].lineno}" if frames else "unknown"
         logger.error(
-            "The secret settings sweep stopped (%s); the next start tries again",
+            "The secret settings sweep stopped (%s at %s); the next start tries again",
             type(exc).__name__,
+            where,
         )
 
+    # After the maintenance-mode stop, since it writes. A failure keeps the
+    # list, so the next start tries again.
     try:
         async with get_db_context() as db:
             await session_repair.recompute_pending_sessions(db)
@@ -307,7 +311,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # typ
 # still a `BaseHTTPMiddleware` subclass, which buffers the response body
 # through an asyncio queue and stalls streaming responses (proven on backup
 # downloads: ~20 KB/s sustained with bursty 2s-on / 20s-off pattern). The
-# middleware only enforces the global `default_limits` value — every
+# middleware only enforces the global `default_limits` value; every
 # rate-sensitive endpoint (auth, OIDC, exports, uploads, widget) already
 # has an explicit `@limiter.limit(...)` decorator that does not depend on
 # this middleware, and the Traefik `common-rates` chain provides the global
@@ -439,7 +443,6 @@ from app.routes import (
     reports_router,
     service_visits_router,
     settings_router,
-    shop_discovery_router,
     spot_rental_billing_router,
     spot_rental_router,
     supplies_router,
@@ -512,8 +515,7 @@ app.include_router(address_book_router)
 app.include_router(calendar_router)
 app.include_router(window_sticker_router)
 app.include_router(notifications_router)
-app.include_router(poi_router)  # New POI router
-app.include_router(shop_discovery_router)  # Backward compatibility (deprecated)
+app.include_router(poi_router)
 app.include_router(vendors_router)
 app.include_router(service_visits_router)
 app.include_router(planned_repairs_router)

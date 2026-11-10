@@ -980,7 +980,7 @@ export interface paths {
          *     the archive copies the database.
          *
          *     Args:
-         *         db: Database session, for the preflight only
+         *         db: Database session, for the preflight and the service's plaintext check
          *
          *     Returns:
          *         Metadata about the created backup file
@@ -1090,6 +1090,9 @@ export interface paths {
          *     A settings restore that skipped secret keys (ciphertext no key in the keyring opens, or
          *     plaintext with no keyring to encrypt it) lists them in `details.skipped_secret_keys` and names
          *     them in `warning`; those keys keep their current values.
+         *
+         *     A bad name is a 400 and a missing backup a 404, both checked before the preflight, so neither
+         *     reads as a 503 while a secret can't be encrypted.
          *
          *     Args:
          *         filename: Name of the backup file to restore from
@@ -4019,18 +4022,15 @@ export interface paths {
         };
         /**
          * Get Public Settings
-         * @description Get public settings (no authentication required).
+         * @description The settings every client reads at start-up. Anyone may call it, signed in or not.
          *
-         *     Returns only non-sensitive settings required for frontend initialization:
-         *     - auth_mode: Authentication mode (local/oidc)
-         *     - app_name: Application name
-         *     - theme: UI theme preference
-         *     - family_friends_enabled: garage section feature flag
-         *     - nav_address_book_enabled, nav_poi_finder_enabled: top-nav tab visibility
-         *     - the other feature flags and unit defaults every user's UI reads
-         *
-         *     Security: This endpoint is intentionally public to allow frontend
-         *     initialization before login. All sensitive settings are excluded.
+         *     No login and no role check: the app reads it before it knows whether
+         *     there's a user, and non-admins read it after, since `GET /settings` is
+         *     admin-only. So it answers only the allowlisted rows that exist (auth_mode,
+         *     app_name, theme, the feature switches, the unit and country defaults),
+         *     never a secret, plus two read-only computed entries:
+         *     `effective_timezone`, the household zone in effect, and
+         *     `document_upload_max_bytes`, the document upload cap.
          */
         get: operations["get_public_settings_api_settings_public_get"];
         put?: never;
@@ -4160,139 +4160,6 @@ export interface paths {
          * @description Delete a setting (admin only).
          */
         delete: operations["delete_setting_api_settings__key__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shop-discovery/increment-usage/{shop_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Increment Shop Usage
-         * @description Increment usage count for a shop.
-         *
-         *     Called when creating service record with this shop.
-         *
-         *     Args:
-         *         shop_id: Address book entry ID
-         *         db: Database session
-         *         current_user: Authenticated user
-         *
-         *     Returns:
-         *         None (204 No Content)
-         *
-         *     Raises:
-         *         HTTPException: 404 if shop not found
-         */
-        post: operations["increment_shop_usage_api_shop_discovery_increment_usage__shop_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shop-discovery/recommendations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Shop Recommendations
-         * @description Get recommended shops based on usage history.
-         *
-         *     Args:
-         *         limit: Maximum number of recommendations (default: 5)
-         *         db: Database session
-         *         current_user: Authenticated user
-         *
-         *     Returns:
-         *         ShopRecommendationsResponse with top shops by usage
-         *
-         *     Notes:
-         *         - Only returns shops whose category is 'service' in any case (the
-         *           Address Book page stores 'Service'), ignoring surrounding spaces
-         *         - Sorted by usage_count DESC (most used first)
-         *         - Only includes shops that have been used at least once
-         */
-        get: operations["get_shop_recommendations_api_shop_discovery_recommendations_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shop-discovery/save": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save Discovered Shop
-         * @description Save a discovered shop to the address book.
-         *
-         *     Args:
-         *         entry_data: Address book entry data
-         *         db: Database session
-         *         current_user: Authenticated user
-         *
-         *     Returns:
-         *         Created AddressBookEntry
-         *
-         *     Notes:
-         *         - Shop source should be set to 'tomtom' or 'osm'
-         *         - Category is stored as sent (none if omitted); the app sends the
-         *           Address Book chip for the POI type
-         */
-        post: operations["save_discovered_shop_api_shop_discovery_save_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shop-discovery/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Search Nearby Shops
-         * @description Search for nearby auto repair shops using TomTom or OSM.
-         *
-         *     Args:
-         *         search_request: Search parameters (latitude, longitude, radius)
-         *         db: Database session
-         *         current_user: Authenticated user
-         *
-         *     Returns:
-         *         ShopSearchResponse with results from TomTom or OSM
-         *
-         *     Notes:
-         *         - Tries TomTom API first (if configured)
-         *         - Falls back to OpenStreetMap if TomTom unavailable
-         *         - Returns empty results on error (graceful degradation)
-         */
-        post: operations["search_nearby_shops_api_shop_discovery_search_post"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -8587,6 +8454,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vin/autoref/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Autoref Key
+         * @description Check an AutoRef key against `/usage`, which costs no quota (admin only).
+         *
+         *     A null key or the mask tests the stored one. Every failure is a 200 with
+         *     `valid: false`; the key never reaches a log line or an error.
+         */
+        post: operations["test_autoref_key_api_vin_autoref_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vin/autoref/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decode Autoref Version
+         * @description Decode the version picked from an AutoRef decode's `candidates`.
+         *
+         *     Fetches that version's full record (1 AutoRef request), checks it still
+         *     belongs to the VIN and is still the version picked, then answers like a
+         *     decode.
+         *
+         *     **Raises:**
+         *     - **400**: Invalid VIN format
+         *     - **404**: AutoRef no longer has this version (its ids change when it rebuilds)
+         *     - **409**: AutoRef isn't configured
+         *     - **422**: A malformed pick
+         *     - **429**: AutoRef's quota is used up
+         *     - **502**: AutoRef rejected the key or failed
+         *     - **503/504**: AutoRef can't be reached or timed out
+         */
+        post: operations["decode_autoref_version_api_vin_autoref_version_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vin/decode": {
         parameters: {
             query?: never;
@@ -8598,21 +8521,20 @@ export interface paths {
         put?: never;
         /**
          * Decode Vin
-         * @description Decode a VIN using the NHTSA vPIC API.
+         * @description Decode a VIN with NHTSA or AutoRef.
          *
-         *     This endpoint validates the VIN format and queries the NHTSA database
-         *     to retrieve vehicle information including make, model, year, engine specs,
-         *     and other details.
-         *
-         *     **Args:**
-         *     - **vin**: 17-character Vehicle Identification Number
-         *
-         *     **Returns:**
-         *     - Vehicle information decoded from the VIN
+         *     Without `provider` (Automatic) the preferred decoder answers first: AutoRef
+         *     for a European country when it has a key, NHTSA otherwise and for every
+         *     North American VIN. An AutoRef miss or error then asks NHTSA and says so in
+         *     `notes`. A chosen `provider` runs alone.
          *
          *     **Raises:**
          *     - **400**: Invalid VIN format
-         *     - **500**: NHTSA API error or service unavailable
+         *     - **404**: AutoRef chosen and it has no record for this VIN
+         *     - **409**: AutoRef chosen and it isn't configured
+         *     - **429**: AutoRef chosen and its quota is used up
+         *     - **502**: AutoRef rejected the key or failed; NHTSA failed
+         *     - **503/504**: the chosen decoder can't be reached or timed out
          */
         post: operations["decode_vin_api_vin_decode_post"];
         delete?: never;
@@ -8646,6 +8568,28 @@ export interface paths {
          *     - **500**: NHTSA API error or service unavailable
          */
         get: operations["decode_vin_get_api_vin_decode__vin__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vin/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vin Providers
+         * @description The decoders this instance can use and which one Automatic asks first.
+         *
+         *     Open to every user: the settings behind it are admin-only.
+         */
+        get: operations["vin_providers_api_vin_providers_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8981,6 +8925,8 @@ export interface components {
             accent_color?: string | null;
             /** Currency Code */
             currency_code?: string | null;
+            /** Date Format */
+            date_format?: string | null;
             /** Email */
             email?: string | null;
             /** Family Dashboard Order */
@@ -9246,6 +9192,118 @@ export interface components {
              * @description URL to view the file inline
              */
             view_url: string;
+        };
+        /**
+         * AutoRefCandidate
+         * @description One version AutoRef matched for a VIN, to pick from.
+         */
+        AutoRefCandidate: {
+            /**
+             * Fuel Type
+             * @description Fuel normalized to FuelTypeEnum vocabulary
+             */
+            fuel_type?: string | null;
+            /**
+             * Gearbox Code
+             * @description AutoRef's gearbox code, echoed on a pick (the full record has none)
+             */
+            gearbox_code?: ("M" | "A" | "S" | "H") | null;
+            /**
+             * Grouped
+             * @description It stands for several configurations
+             * @default false
+             */
+            grouped: boolean;
+            /**
+             * Id
+             * @description The id of its full record (ephemeral: pick it right away)
+             */
+            id: string;
+            /**
+             * Kw
+             * @description Power in kW, echoed on a pick
+             */
+            kw?: number | null;
+            /**
+             * Label
+             * @description AutoRef's name for the version
+             */
+            label: string;
+            /**
+             * Model Full
+             * @description AutoRef's MODEL_FULL, echoed on a pick
+             */
+            model_full?: string | null;
+            /**
+             * Record Type
+             * @description The record type of its full record
+             * @enum {string}
+             */
+            record_type: "TG" | "COC" | "OLD" | "OC" | "X";
+            /**
+             * Transmission
+             * @description Transmission type
+             */
+            transmission?: string | null;
+        };
+        /**
+         * AutoRefTestRequest
+         * @description An AutoRef key to test; null or the mask tests the stored one.
+         */
+        AutoRefTestRequest: {
+            /** Api Key */
+            api_key?: string | null;
+        };
+        /**
+         * AutoRefTestResponse
+         * @description Whether AutoRef accepts the key, and what's left of its plan.
+         */
+        AutoRefTestResponse: {
+            /** Limit */
+            limit?: number | null;
+            /** Message */
+            message: string;
+            /** Plan */
+            plan?: string | null;
+            /** Remaining */
+            remaining?: number | null;
+            /** Valid */
+            valid: boolean;
+        };
+        /**
+         * AutoRefVersionRequest
+         * @description A version picked from a decode's ``candidates``, echoed back to check it.
+         */
+        AutoRefVersionRequest: {
+            /**
+             * Expect Kw
+             * @description The candidate's kw
+             */
+            expect_kw?: number | null;
+            /**
+             * Expect Model
+             * @description The candidate's model_full
+             */
+            expect_model?: string | null;
+            /** Gearbox Code */
+            gearbox_code?: ("M" | "A" | "S" | "H") | null;
+            /**
+             * Grouped
+             * @default false
+             */
+            grouped: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Record Type
+             * @enum {string}
+             */
+            record_type: "TG" | "COC" | "OLD" | "OC" | "X";
+            /**
+             * Vin
+             * @description The decoded VIN
+             */
+            vin: string;
         };
         /**
          * BackfillResultResponse
@@ -9771,6 +9829,8 @@ export interface components {
             measured_on?: string | null;
             /** Measurements */
             measurements?: components["schemas"]["BrakeMeasurementResponse"][];
+            /** On Layout */
+            on_layout: boolean;
             /** Outer Pad Measured On */
             outer_pad_measured_on?: string | null;
             /** Outer Pad Mm */
@@ -9779,7 +9839,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R";
             /** Projected Usage Remaining */
             projected_usage_remaining?: string | null;
             /** Projected Wear Date */
@@ -9818,7 +9878,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R";
         };
         /**
          * BrakeJobCreate
@@ -9875,7 +9935,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R";
             /** Surface */
             surface?: ("replaced" | "resurfaced") | null;
         };
@@ -9934,7 +9994,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R";
             /** Rotor Mm */
             rotor_mm?: number | string | null;
             /** Shoe Mm */
@@ -9965,7 +10025,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R";
             /**
              * Recorded At
              * Format: date
@@ -10007,7 +10067,10 @@ export interface components {
         };
         /**
          * BrakeOverviewResponse
-         * @description A vehicle's brakes: both axles and the four corners, FL, FR, RL, RR.
+         * @description A vehicle's brakes: both axles and the corners.
+         *
+         *     The wheel layout's corners in its order, then any off-layout corner that
+         *     still has history (#272).
          */
         BrakeOverviewResponse: {
             /** Axles */
@@ -10030,6 +10093,11 @@ export interface components {
              * @enum {string}
              */
             usage_axis: "distance" | "hours";
+            /**
+             * Wheel Layout
+             * @enum {string}
+             */
+            wheel_layout: "four" | "two" | "trike_2f1r" | "trike_1f2r" | "dually" | "none";
         };
         /**
          * CalendarEvent
@@ -11980,7 +12048,7 @@ export interface components {
         };
         /**
          * FuelReceiptParseResponse
-         * @description Response for opt-in LLM receipt parse — draft only.
+         * @description Response for opt-in LLM receipt parse (a draft only).
          */
         FuelReceiptParseResponse: {
             draft: components["schemas"]["FuelReceiptDraft"];
@@ -12034,7 +12102,7 @@ export interface components {
             date: string;
             /**
              * Def Fill Level
-             * @description DEF tank level (0.00=empty, 1.00=full) — auto-creates a DEF observation
+             * @description DEF tank level (0.00=empty, 1.00=full); auto-creates a DEF observation
              */
             def_fill_level?: number | string | null;
             /**
@@ -12482,7 +12550,7 @@ export interface components {
             station_address_book_id?: number | null;
             /**
              * Station Name
-             * @description Resolved station name for display: the linked address-book entry's business_name, else station_name_freetext. Read-only — write via station_address_book_id / station_name_freetext (issue #108).
+             * @description Resolved station name for display: the linked address-book entry's business_name, else station_name_freetext. Read-only; write via station_address_book_id / station_name_freetext (issue #108).
              */
             station_name?: string | null;
             /**
@@ -12535,7 +12603,7 @@ export interface components {
             date?: string | null;
             /**
              * Def Fill Level
-             * @description DEF tank level (0.00=empty, 1.00=full) — auto-creates a DEF observation
+             * @description DEF tank level (0.00=empty, 1.00=full); auto-creates a DEF observation
              */
             def_fill_level?: number | string | null;
             /**
@@ -12794,6 +12862,11 @@ export interface components {
              */
             total_maintenance: string;
             /**
+             * Total Running Cost
+             * @default 0.00
+             */
+            total_running_cost: string;
+            /**
              * Total Taxes
              * @default 0.00
              */
@@ -12983,6 +13056,12 @@ export interface components {
             date: string;
             /** Engine Hours */
             engine_hours: string;
+            /**
+             * Source
+             * @description Where the reading came from
+             * @default manual
+             */
+            source: string;
         };
         /**
          * HoursEconomyDataPoint
@@ -13846,6 +13925,42 @@ export interface components {
             password: string;
             /** Token */
             token: string;
+        };
+        /**
+         * LinkedRecall
+         * @description The recall a line item links, enough to label its chip.
+         */
+        LinkedRecall: {
+            /**
+             * Campaign
+             * @description NHTSA campaign number, else the provider's own identifier
+             */
+            campaign?: string | null;
+            /**
+             * Component
+             * @description Component the recall covers
+             */
+            component?: string | null;
+            /** Id */
+            id: number;
+        };
+        /**
+         * LinkedWarranty
+         * @description The warranty a line item links, enough to label its chip.
+         */
+        LinkedWarranty: {
+            /** Id */
+            id: number;
+            /**
+             * Provider
+             * @description Warranty provider name
+             */
+            provider?: string | null;
+            /**
+             * Warranty Type
+             * @description Type of warranty coverage
+             */
+            warranty_type: string;
         };
         /**
          * LiveLinkDeviceListResponse
@@ -14863,7 +14978,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR" | "SPARE";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R" | "RLO" | "RLI" | "RRI" | "RRO" | "SPARE";
         };
         /**
          * MountPeriodResponse
@@ -14899,7 +15014,7 @@ export interface components {
          *
          *     Every field optional, `exclude_unset` semantics: a key absent from the
          *     body is untouched, a key sent as null is cleared to unknown. `position`
-         *     is deliberately not here (D14: only mount, dismount and rotate write it),
+         *     is deliberately not here (only mount, dismount and rotate write it),
          *     and forbid-extra makes sending it a 422 rather than a silent ignore.
          */
         MountPeriodUpdate: {
@@ -15262,7 +15377,7 @@ export interface components {
         };
         /**
          * ObcSuggestionResponse
-         * @description OBC auto-suggest payload — returned for `GET /api/vehicles/{vin}/fuel/obc-suggestion`.
+         * @description OBC auto-suggest payload, returned for `GET /api/vehicles/{vin}/fuel/obc-suggestion`.
          */
         ObcSuggestionResponse: {
             /**
@@ -15828,43 +15943,6 @@ export interface components {
             caption?: string | null;
             /** Is Main */
             is_main?: boolean | null;
-        };
-        /**
-         * PlaceResult
-         * @description Normalized place result from any provider (TomTom or OSM).
-         */
-        PlaceResult: {
-            /** Address */
-            address?: string | null;
-            /** Business Name */
-            business_name: string;
-            /**
-             * Category
-             * @default service
-             */
-            category: string;
-            /** City */
-            city?: string | null;
-            /** Distance Meters */
-            distance_meters?: number | null;
-            /** External Id */
-            external_id?: string | null;
-            /** Latitude */
-            latitude: string;
-            /** Longitude */
-            longitude: string;
-            /** Phone */
-            phone?: string | null;
-            /** Rating */
-            rating?: string | null;
-            /** Source */
-            source: string;
-            /** State */
-            state?: string | null;
-            /** Website */
-            website?: string | null;
-            /** Zip Code */
-            zip_code?: string | null;
         };
         /**
          * PlannedRepairCreate
@@ -16555,6 +16633,27 @@ export interface components {
             vin: string;
         };
         /**
+         * RecallLinkedVisit
+         * @description The service visit whose line item fixed the recall.
+         */
+        RecallLinkedVisit: {
+            /**
+             * Date
+             * Format: date
+             * @description The visit's date, the day the recall was fixed
+             */
+            date: string;
+            /** Line Item Id */
+            line_item_id: number;
+            /**
+             * Vendor Name
+             * @description Where the work was done
+             */
+            vendor_name?: string | null;
+            /** Visit Id */
+            visit_id: number;
+        };
+        /**
          * RecallListResponse
          * @description Schema for list of recalls.
          */
@@ -16577,7 +16676,7 @@ export interface components {
              * Component
              * @description Component affected by recall
              */
-            component: string;
+            component?: string | null;
             /**
              * Consequence
              * @description Potential consequences
@@ -16607,6 +16706,8 @@ export interface components {
             id: number;
             /** Is Resolved */
             is_resolved: boolean;
+            /** @description The service visit that fixed it, when a line item links it */
+            linked_visit?: components["schemas"]["RecallLinkedVisit"] | null;
             /**
              * Match Confidence
              * @description 0 to 100: how surely the notice concerns this vehicle
@@ -16630,6 +16731,11 @@ export interface components {
             /** Resolved At */
             resolved_at?: string | null;
             /**
+             * Resolved Via
+             * @description manual or service_visit; null on an older row, read as manual
+             */
+            resolved_via?: ("manual" | "service_visit") | null;
+            /**
              * Source
              * @description nhtsa, rappelconso or manual
              */
@@ -16638,7 +16744,7 @@ export interface components {
              * Summary
              * @description Summary of the recall issue
              */
-            summary: string;
+            summary?: string | null;
             /** Vin */
             vin: string;
         };
@@ -17088,7 +17194,7 @@ export interface components {
          * ReminderUpdate
          * @description Schema for updating a vehicle reminder.
          *
-         *     Status is NOT here — use /done, /dismiss or /complete endpoints.
+         *     Status is NOT here; use /done, /dismiss or /complete endpoints.
          *     Validation is lenient (fields may be absent). The route handler merges
          *     this patch onto the existing reminder and validates the final state.
          *
@@ -17287,6 +17393,11 @@ export interface components {
              */
             keyring: "ok" | "unavailable";
             /**
+             * Keyring Source
+             * @description Which key source broke while the keyring is unavailable: 'env' (MYGARAGE_SETTINGS_KEY), 'env_file' (MYGARAGE_SETTINGS_KEY_FILE) or 'data_dir' (the data directory's key file); null while it is usable.
+             */
+            keyring_source?: string | null;
+            /**
              * Unreadable Keys
              * @description Secret setting keys, sorted, whose stored value can't be decrypted with the current keyring. Each reads as unset until its key is restored or it is re-entered.
              */
@@ -17361,6 +17472,18 @@ export interface components {
              */
             is_inspection: boolean;
             /**
+             * Is Recall
+             * @description Is this recall work
+             * @default false
+             */
+            is_recall: boolean;
+            /**
+             * Is Warranty
+             * @description Is this warranty work
+             * @default false
+             */
+            is_warranty: boolean;
+            /**
              * Maintenance Type
              * @description Canonical maintenance type code; classified from the description when omitted
              */
@@ -17370,6 +17493,11 @@ export interface components {
              * @description Additional notes
              */
             notes?: string | null;
+            /**
+             * Recall Id
+             * @description The recall this item fixed, when it's in MyGarage (needs is_recall)
+             */
+            recall_id?: number | null;
             /** @description Optional reminder to create after flush */
             reminder?: components["schemas"]["ReminderCreate"] | null;
             /**
@@ -17387,6 +17515,11 @@ export interface components {
              * @description ID of inspection that triggered this repair
              */
             triggered_by_inspection_id?: number | null;
+            /**
+             * Warranty Id
+             * @description The warranty that covered this item, if any (needs is_warranty)
+             */
+            warranty_id?: number | null;
         };
         /**
          * ServiceLineItemResponse
@@ -17450,6 +17583,18 @@ export interface components {
              */
             is_inspection: boolean;
             /**
+             * Is Recall
+             * @description Is this recall work
+             * @default false
+             */
+            is_recall: boolean;
+            /**
+             * Is Warranty
+             * @description Is this warranty work
+             * @default false
+             */
+            is_warranty: boolean;
+            /**
              * Maintenance Type
              * @description Canonical maintenance type code; classified from the description when omitted
              */
@@ -17465,6 +17610,13 @@ export interface components {
              * @description Additional notes
              */
             notes?: string | null;
+            /**
+             * Recall Id
+             * @description The recall this item fixed, when it's in MyGarage (needs is_recall)
+             */
+            recall_id?: number | null;
+            /** @description The linked recall, if any */
+            recall_summary?: components["schemas"]["LinkedRecall"] | null;
             /** Supply Usages */
             supply_usages?: components["schemas"]["SupplyUsageResponse"][];
             /**
@@ -17474,15 +17626,22 @@ export interface components {
             triggered_by_inspection_id?: number | null;
             /** Visit Id */
             visit_id: number;
+            /**
+             * Warranty Id
+             * @description The warranty that covered this item, if any (needs is_warranty)
+             */
+            warranty_id?: number | null;
+            /** @description The linked warranty, if any */
+            warranty_summary?: components["schemas"]["LinkedWarranty"] | null;
         };
         /**
          * ServiceLineItemUpdate
          * @description Line item shape for diff-based visit updates.
          *
          *     An existing item (`id` set) keeps any field the request leaves out. A
-         *     nullable field sent as null is cleared; `is_inspection` takes false, not
-         *     null; `supplies_used` takes [] to remove every usage (null is refused);
-         *     `description` is always required.
+         *     nullable field sent as null is cleared; `is_inspection`, `is_recall` and
+         *     `is_warranty` take false, not null; `supplies_used` takes [] to remove
+         *     every usage (null is refused); `description` is always required.
          *
          *     temp_id: negative int assigned by client for new items so other new items
          *     can reference them via triggered_by_inspection_id before flush.
@@ -17508,10 +17667,22 @@ export interface components {
              * @default false
              */
             is_inspection: boolean;
+            /**
+             * Is Recall
+             * @default false
+             */
+            is_recall: boolean;
+            /**
+             * Is Warranty
+             * @default false
+             */
+            is_warranty: boolean;
             /** Maintenance Type */
             maintenance_type?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Recall Id */
+            recall_id?: number | null;
             reminder?: components["schemas"]["ReminderCreate"] | null;
             /**
              * Supplies Used
@@ -17525,6 +17696,8 @@ export interface components {
             temp_id?: number | null;
             /** Triggered By Inspection Id */
             triggered_by_inspection_id?: number | null;
+            /** Warranty Id */
+            warranty_id?: number | null;
         };
         /**
          * ServiceTypeCostBreakdown
@@ -17584,6 +17757,11 @@ export interface components {
              */
             insurance_claim_number?: string | null;
             /**
+             * Invoice Number
+             * @description Shop invoice number
+             */
+            invoice_number?: string | null;
+            /**
              * Line Items
              * @description Services performed during this visit
              */
@@ -17603,6 +17781,11 @@ export interface components {
              * @description Odometer reading in kilometers
              */
             odometer_km?: number | string | null;
+            /**
+             * Po Number
+             * @description Purchase order number
+             */
+            po_number?: string | null;
             /**
              * Service Category
              * @description Primary service category
@@ -17628,6 +17811,11 @@ export interface components {
              * @description Vendor ID
              */
             vendor_id?: number | null;
+            /**
+             * Work Order Number
+             * @description Work order number
+             */
+            work_order_number?: string | null;
         };
         /**
          * ServiceVisitListResponse
@@ -17713,6 +17901,11 @@ export interface components {
              */
             insurance_claim_number?: string | null;
             /**
+             * Invoice Number
+             * @description Shop invoice number
+             */
+            invoice_number?: string | null;
+            /**
              * Line Item Count
              * @description Number of line items
              */
@@ -17743,6 +17936,11 @@ export interface components {
              * @default 0
              */
             parts_supplies_cost: string;
+            /**
+             * Po Number
+             * @description Purchase order number
+             */
+            po_number?: string | null;
             /**
              * Service Category
              * @description Primary service category
@@ -17775,6 +17973,11 @@ export interface components {
             vendor_id?: number | null;
             /** Vin */
             vin: string;
+            /**
+             * Work Order Number
+             * @description Work order number
+             */
+            work_order_number?: string | null;
         };
         /**
          * ServiceVisitUpdate
@@ -17801,6 +18004,11 @@ export interface components {
              */
             insurance_claim_number?: string | null;
             /**
+             * Invoice Number
+             * @description Shop invoice number
+             */
+            invoice_number?: string | null;
+            /**
              * Line Items
              * @description Diff-based line items (if provided)
              */
@@ -17820,6 +18028,11 @@ export interface components {
              * @description Odometer reading in kilometers
              */
             odometer_km?: number | string | null;
+            /**
+             * Po Number
+             * @description Purchase order number
+             */
+            po_number?: string | null;
             /**
              * Service Category
              * @description Primary service category
@@ -17845,6 +18058,11 @@ export interface components {
              * @description Vendor ID
              */
             vendor_id?: number | null;
+            /**
+             * Work Order Number
+             * @description Work order number
+             */
+            work_order_number?: string | null;
         };
         /**
          * SettingCreate
@@ -17973,86 +18191,6 @@ export interface components {
             settings: components["schemas"]["SettingResponse"][];
             /** Total */
             total: number;
-        };
-        /**
-         * ShopRecommendation
-         * @description Recommended shop from address book based on usage.
-         */
-        ShopRecommendation: {
-            /** Address */
-            address?: string | null;
-            /** Business Name */
-            business_name: string;
-            /** City */
-            city?: string | null;
-            /** Id */
-            id: number;
-            /** Phone */
-            phone?: string | null;
-            /** Rating */
-            rating?: string | null;
-            /** State */
-            state?: string | null;
-            /** Usage Count */
-            usage_count: number;
-            /** User Rating */
-            user_rating?: number | null;
-        };
-        /**
-         * ShopRecommendationsResponse
-         * @description Response with recommended shops.
-         */
-        ShopRecommendationsResponse: {
-            /** Count */
-            count: number;
-            /** Recommendations */
-            recommendations: components["schemas"]["ShopRecommendation"][];
-        };
-        /**
-         * ShopSearchRequest
-         * @description Request to search for nearby shops.
-         */
-        ShopSearchRequest: {
-            /**
-             * Latitude
-             * @description Latitude coordinate
-             */
-            latitude: number;
-            /**
-             * Longitude
-             * @description Longitude coordinate
-             */
-            longitude: number;
-            /**
-             * Radius Meters
-             * @description Search radius in meters (default: ~5 miles, max: ~100 miles)
-             * @default 8000
-             */
-            radius_meters: number | null;
-            /**
-             * Shop Type
-             * @description Type of repair shop to search for
-             * @default auto
-             */
-            shop_type: ("auto" | "rv") | null;
-        };
-        /**
-         * ShopSearchResponse
-         * @description Response containing search results.
-         */
-        ShopSearchResponse: {
-            /** Count */
-            count: number;
-            /** Latitude */
-            latitude: number;
-            /** Longitude */
-            longitude: number;
-            /** Radius Meters */
-            radius_meters: number;
-            /** Results */
-            results: components["schemas"]["PlaceResult"][];
-            /** Source */
-            source: string;
         };
         /**
          * SpotRentalBillingCreate
@@ -19127,7 +19265,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR" | "SPARE";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R" | "RLO" | "RLI" | "RRI" | "RRO" | "SPARE";
             /** Pressure Kpa */
             pressure_kpa?: number | string | null;
             /** Size */
@@ -19160,6 +19298,10 @@ export interface components {
          * @description All tires for a vehicle.
          */
         TireListResponse: {
+            /** Positions */
+            positions: ("FL" | "FR" | "RL" | "RR" | "F" | "R" | "RLO" | "RLI" | "RRI" | "RRO" | "SPARE")[];
+            /** Rotates */
+            rotates: boolean;
             /** Tires */
             tires: components["schemas"]["TireResponse"][];
             /** Total */
@@ -19180,6 +19322,11 @@ export interface components {
              * @enum {string}
              */
             usage_axis: "distance" | "hours";
+            /**
+             * Wheel Layout
+             * @enum {string}
+             */
+            wheel_layout: "four" | "two" | "trike_2f1r" | "trike_1f2r" | "dually" | "none";
         };
         /**
          * TireMountRequest
@@ -19198,7 +19345,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR" | "SPARE";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R" | "RLO" | "RLI" | "RRI" | "RRO" | "SPARE";
         };
         /**
          * TireReadiness
@@ -19349,11 +19496,11 @@ export interface components {
          * @description A tire, with where it is now and what is known about its wear.
          *
          *     `position` is RE-DECLARED here as nullable rather than inherited: it left
-         *     the write schema (D2c) but is still part of every read. Declaring it only
+         *     the write schema but is still part of every read. Declaring it only
          *     on the base would have made it required on writes; omitting it entirely
          *     would have dropped it from responses. Neither is what a reader wants.
          *
-         *     `installed_date` is DERIVED, not stored (D12): the `mounted_on` of the
+         *     `installed_date` is DERIVED, not stored: the `mounted_on` of the
          *     earliest period **that has one**. When the earliest period is the migrated
          *     assumed one with a null start, this is null -- NOT the next known remount
          *     date. A plain MIN(mounted_on) would skip the unknown and report a later
@@ -19407,7 +19554,7 @@ export interface components {
             /** Notes */
             notes?: string | null;
             /** Position */
-            position?: ("FL" | "FR" | "RL" | "RR" | "SPARE") | null;
+            position?: ("FL" | "FR" | "RL" | "RR" | "F" | "R" | "RLO" | "RLI" | "RRI" | "RRO" | "SPARE") | null;
             /** Pressure Kpa */
             pressure_kpa?: string | null;
             /** Projected Km Remaining */
@@ -19452,7 +19599,7 @@ export interface components {
              * Position
              * @enum {string}
              */
-            position: "FL" | "FR" | "RL" | "RR" | "SPARE";
+            position: "FL" | "FR" | "RL" | "RR" | "F" | "R" | "RLO" | "RLI" | "RRI" | "RRO" | "SPARE";
             /** Tire Id */
             tire_id: number;
         };
@@ -19560,7 +19707,7 @@ export interface components {
          * @description Partial tire update.
          *
          *     Neither `position` nor `installed_date` is writable here: position changes
-         *     through mount/dismount (D14), and `installed_date` is derived (D12).
+         *     through mount/dismount, and `installed_date` is derived.
          */
         TireUpdate: {
             /** Brand */
@@ -20619,6 +20766,11 @@ export interface components {
              * @default name
              */
             dashboard_sort: string;
+            /**
+             * Date Format
+             * @default mdy
+             */
+            date_format: string;
             /** Default Payment Method */
             default_payment_method?: string | null;
             /** Default Trip Type */
@@ -20750,6 +20902,8 @@ export interface components {
             currency_code?: string | null;
             /** Dashboard Sort */
             dashboard_sort?: string | null;
+            /** Date Format */
+            date_format?: string | null;
             /** Default Payment Method */
             default_payment_method?: string | null;
             /** Default Trip Type */
@@ -20779,6 +20933,16 @@ export interface components {
          *     }
          */
         VINDecodeRequest: {
+            /**
+             * Country
+             * @description The country deciding which decoder Automatic asks first (the vehicle's registration country, else the person's); omitted reads the account's
+             */
+            country?: string | null;
+            /**
+             * Provider
+             * @description The decoder the person chose. Omitted means Automatic: the preferred decoder first, NHTSA when AutoRef has no answer
+             */
+            provider?: ("nhtsa" | "autoref") | null;
             /**
              * Vin
              * @description 17-character Vehicle Identification Number
@@ -20817,10 +20981,20 @@ export interface components {
              */
             body_class?: string | null;
             /**
+             * Candidates
+             * @description AutoRef's versions for this VIN when it matched more than one, most registered first; pick one with POST /vin/autoref/version
+             */
+            candidates?: components["schemas"]["AutoRefCandidate"][] | null;
+            /**
              * Decode Quality
              * @description How much NHTSA itself decoded, before the WMI table fills anything. full: make and model; partial: make only; wmi_only: NHTSA named no make and the VIN's first three characters did; none: nothing
              */
             decode_quality?: ("full" | "partial" | "wmi_only" | "none") | null;
+            /**
+             * Decoded By
+             * @description Which decoder answered: nhtsa or autoref
+             */
+            decoded_by?: ("nhtsa" | "autoref") | null;
             /**
              * Doors
              * @description Number of doors
@@ -20860,9 +21034,9 @@ export interface components {
             make?: string | null;
             /**
              * Make Source
-             * @description Where `make` came from: NHTSA's answer or the bundled WMI table
+             * @description Where `make` came from: NHTSA's answer, AutoRef's, or the bundled WMI table
              */
-            make_source?: ("nhtsa" | "wmi") | null;
+            make_source?: ("nhtsa" | "wmi" | "autoref") | null;
             /**
              * Manufacturer
              * @description Manufacturer name
@@ -20875,7 +21049,7 @@ export interface components {
             model?: string | null;
             /**
              * Notes
-             * @description Why the answer is partial: eu_vin_no_model, year_unreliable, check_digit_not_applicable
+             * @description What to check: eu_vin_no_model, year_unreliable, check_digit_not_applicable; autoref_best_guess, autoref_pick_version, autoref_external_record; and when Automatic fell back to NHTSA, autoref_no_match, autoref_key_rejected, autoref_quota, autoref_unavailable
              */
             notes?: string[];
             /**
@@ -20930,6 +21104,23 @@ export interface components {
              * @description Model year
              */
             year?: number | null;
+        };
+        /**
+         * VINProvidersResponse
+         * @description The decoders this instance can use, and which one Automatic asks first.
+         */
+        VINProvidersResponse: {
+            /**
+             * Available
+             * @description nhtsa always; autoref when it has a key
+             */
+            available: ("nhtsa" | "autoref")[];
+            /**
+             * Preferred
+             * @description The decoder Automatic asks first
+             * @enum {string}
+             */
+            preferred: "nhtsa" | "autoref";
         };
         /** ValidationError */
         ValidationError: {
@@ -21190,6 +21381,11 @@ export interface components {
              */
             identifier_type: "vin" | "serial" | "hin" | "chassis" | "asset_tag" | "none";
             /**
+             * Inspection Due Date
+             * @description Next periodic inspection due by (field X.1 of an EU registration certificate); the reminder holds to it within the current cycle
+             */
+            inspection_due_date?: string | null;
+            /**
              * Lez Class
              * @description Low-emission-zone class set by hand (Crit'Air 0-5, Umweltplakette 2-4); overrides the class computed from the fuel and the Euro class
              */
@@ -21318,6 +21514,11 @@ export interface components {
              * @description 17-character Vehicle Identification Number. Required when identifier_type is 'vin'; omitted otherwise (the server generates the vehicle's key).
              */
             vin?: string | null;
+            /**
+             * Wheel Layout
+             * @description Which tire and brake corners the vehicle has; null follows the vehicle type's default (#272)
+             */
+            wheel_layout?: ("four" | "two" | "trike_2f1r" | "trike_1f2r" | "dually" | "none") | null;
             /**
              * Year
              * @description Model year
@@ -21465,7 +21666,7 @@ export interface components {
         };
         /**
          * VehicleDetailStats
-         * @description Read-aggregation for the Vehicle Detail hero + key-facts strip (P5).
+         * @description Read-aggregation for the Vehicle Detail hero + key-facts strip.
          *
          *     Metric-canonical: latest_odometer_km is raw km (frontend converts at the
          *     boundary). spent_this_year is currency (Decimal -> JSON string).
@@ -21931,6 +22132,12 @@ export interface components {
              * @description DEF tank capacity in liters
              */
             def_tank_capacity_liters?: string | null;
+            /**
+             * Default Wheel Layout
+             * @description The layout the vehicle type gets with no override, for the Automatic option (#272).
+             * @enum {string}
+             */
+            readonly default_wheel_layout: "four" | "two" | "trike_2f1r" | "trike_1f2r" | "dually" | "none";
             /** Destination Charge */
             destination_charge?: string | null;
             /**
@@ -21953,6 +22160,12 @@ export interface components {
              * @description Drive type (FWD, RWD, AWD, etc.)
              */
             drive_type?: string | null;
+            /**
+             * Effective Wheel Layout
+             * @description The layout in force: the stored override, else the vehicle type's default (#272).
+             * @enum {string}
+             */
+            readonly effective_wheel_layout: "four" | "two" | "trike_2f1r" | "trike_1f2r" | "dually" | "none";
             /** Environmental Rating Ghg */
             environmental_rating_ghg?: string | null;
             /** Environmental Rating Smog */
@@ -22021,6 +22234,11 @@ export interface components {
              * @default vin
              */
             identifier_type: ("vin" | "serial" | "hin" | "chassis" | "asset_tag" | "none") | null;
+            /**
+             * Inspection Due Date
+             * @description Next periodic inspection due by (field X.1 of an EU registration certificate); the reminder holds to it within the current cycle
+             */
+            inspection_due_date?: string | null;
             /** Interior Color */
             interior_color?: string | null;
             /**
@@ -22185,6 +22403,11 @@ export interface components {
             warranty_basic?: string | null;
             /** Warranty Powertrain */
             warranty_powertrain?: string | null;
+            /**
+             * Wheel Layout
+             * @description Which tire and brake corners the vehicle has; null follows the vehicle type's default (#272)
+             */
+            wheel_layout?: ("four" | "two" | "trike_2f1r" | "trike_1f2r" | "dually" | "none") | null;
             /** Wheel Specs */
             wheel_specs?: string | null;
             /** Window Sticker Confidence Score */
@@ -22566,6 +22789,11 @@ export interface components {
              */
             identifier_type?: ("vin" | "serial" | "hin" | "chassis" | "asset_tag" | "none") | null;
             /**
+             * Inspection Due Date
+             * @description Next periodic inspection due by (field X.1 of an EU registration certificate); the reminder holds to it within the current cycle
+             */
+            inspection_due_date?: string | null;
+            /**
              * Interior Color
              * @description Interior color
              */
@@ -22749,6 +22977,11 @@ export interface components {
              * @description Powertrain warranty
              */
             warranty_powertrain?: string | null;
+            /**
+             * Wheel Layout
+             * @description Which tire and brake corners the vehicle has; null follows the vehicle type's default (#272)
+             */
+            wheel_layout?: ("four" | "two" | "trike_2f1r" | "trike_1f2r" | "dually" | "none") | null;
             /**
              * Wheel Specs
              * @description Wheel specifications
@@ -23019,6 +23252,32 @@ export interface components {
             id: number;
         };
         /**
+         * WarrantyLinkedItem
+         * @description A line item done under the warranty.
+         */
+        WarrantyLinkedItem: {
+            /**
+             * Cost
+             * @description Cost for this line item
+             */
+            cost?: string | null;
+            /**
+             * Date
+             * Format: date
+             * @description The visit's date
+             */
+            date: string;
+            /**
+             * Description
+             * @description Service description
+             */
+            description: string;
+            /** Line Item Id */
+            line_item_id: number;
+            /** Visit Id */
+            visit_id: number;
+        };
+        /**
          * WarrantyRecord
          * @description Schema for warranty record response.
          */
@@ -23042,6 +23301,11 @@ export interface components {
             end_date?: string | null;
             /** Id */
             id: number;
+            /**
+             * Linked Items
+             * @description Line items done under this warranty, by visit date
+             */
+            linked_items?: components["schemas"]["WarrantyLinkedItem"][];
             /**
              * Mileage Limit Km
              * @description Mileage limit in kilometers if applicable
@@ -23964,6 +24228,8 @@ export interface operations {
                 currency_code?: string;
                 /** @description BCP 47 locale; defaults to en-US. */
                 locale?: string;
+                /** @description 'mdy' or 'dmy'; defaults to the account's. */
+                date_format?: string | null;
             };
             header?: never;
             path?: never;
@@ -24074,6 +24340,8 @@ export interface operations {
                 currency_code?: string;
                 /** @description BCP 47 locale; defaults to en-US. */
                 locale?: string;
+                /** @description 'mdy' or 'dmy'; defaults to the account's. */
+                date_format?: string | null;
             };
             header?: never;
             path: {
@@ -29750,132 +30018,6 @@ export interface operations {
             };
         };
     };
-    increment_shop_usage_api_shop_discovery_increment_usage__shop_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                shop_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_shop_recommendations_api_shop_discovery_recommendations_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShopRecommendationsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_discovered_shop_api_shop_discovery_save_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddressBookEntryCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AddressBookEntryResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_nearby_shops_api_shop_discovery_search_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ShopSearchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShopSearchResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_supplies_api_supplies_get: {
         parameters: {
             query?: {
@@ -35220,6 +35362,8 @@ export interface operations {
                 currency_code?: string;
                 /** @description BCP 47 locale; defaults to en-US. */
                 locale?: string;
+                /** @description 'mdy' or 'dmy'; defaults to the account's. */
+                date_format?: string | null;
             };
             header?: never;
             path: {
@@ -35251,7 +35395,10 @@ export interface operations {
     };
     download_sale_history_pdf_api_vehicles__vin__reports_sale_history_pdf_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 'mdy' or 'dmy'; defaults to the account's. */
+                date_format?: string | null;
+            };
             header?: never;
             path: {
                 vin: string;
@@ -35327,6 +35474,8 @@ export interface operations {
                 currency_code?: string;
                 /** @description BCP 47 locale; defaults to en-US. */
                 locale?: string;
+                /** @description 'mdy' or 'dmy'; defaults to the account's. */
+                date_format?: string | null;
             };
             header?: never;
             path: {
@@ -35365,6 +35514,8 @@ export interface operations {
                 currency_code?: string;
                 /** @description BCP 47 locale; defaults to en-US. */
                 locale?: string;
+                /** @description 'mdy' or 'dmy'; defaults to the account's. */
+                date_format?: string | null;
             };
             header?: never;
             path: {
@@ -38001,6 +38152,72 @@ export interface operations {
             };
         };
     };
+    test_autoref_key_api_vin_autoref_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoRefTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoRefTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decode_autoref_version_api_vin_autoref_version_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoRefVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VINDecodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     decode_vin_api_vin_decode_post: {
         parameters: {
             query?: never;
@@ -38052,6 +38269,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VINDecodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    vin_providers_api_vin_providers_get: {
+        parameters: {
+            query?: {
+                /** @description ISO 3166-1 alpha-2; omitted reads the account's */
+                country?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VINProvidersResponse"];
                 };
             };
             /** @description Validation Error */

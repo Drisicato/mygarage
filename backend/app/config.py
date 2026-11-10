@@ -11,7 +11,7 @@ from typing import Annotated
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from app.utils.secret_key import get_or_create_secret_key
+from app.utils.secret_key import KEY_FILE_NAME, get_or_create_secret_key
 
 
 def get_version() -> str:
@@ -209,11 +209,11 @@ class Settings(BaseSettings):
     # NHTSA API
     nhtsa_api_base_url: str = "https://vpic.nhtsa.dot.gov/api"
 
-    # TomTom Places API (optional - falls back to OSM if not configured)
-    tomtom_api_key: str = ""  # Empty by default - graceful degradation
+    # TomTom Places API base URL. The key and the on/off switch are settings
+    # rows (Settings > Integrations). POI search tries TomTom first when it's
+    # switched on and has a key, then Google Places, Yelp and Foursquare (each
+    # needs its own switch on and a key), and OSM last.
     tomtom_api_base_url: str = "https://api.tomtom.com/search/2"
-    shop_search_radius_meters: int = 8000  # ~5 miles
-    shop_search_max_results: int = 20
 
     # File Upload Limits
     max_upload_size_mb: int = 10
@@ -244,7 +244,11 @@ class Settings(BaseSettings):
     }
 
     # JWT Authentication
-    secret_key: str = Field(default_factory=get_or_create_secret_key)
+    # In the data directory, so `MYGARAGE_DATA_DIR` moves the key with the
+    # rest of the data (B2-6). `data_dir` is declared above, so it's validated.
+    secret_key: str = Field(
+        default_factory=lambda data: get_or_create_secret_key(data["data_dir"] / KEY_FILE_NAME)
+    )
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 120  # 2 hours
 

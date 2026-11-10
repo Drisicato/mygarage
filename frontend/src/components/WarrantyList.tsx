@@ -1,5 +1,6 @@
 import { Shield, Plus, Trash2, Edit3, Calendar, FileText } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import type { WarrantyRecord } from '../types/warranty'
 import { useWarrantyRecords, useDeleteWarrantyRecord } from '../hooks/queries/useWarrantyRecords'
@@ -8,6 +9,9 @@ import { useDateLocale } from '../hooks/useDateLocale'
 import { useUnitFormat } from '../hooks/useUnitFormat'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
 import { warrantyDocumentUrl } from '../utils/warrantyDocument'
+import { formatCurrency } from '../utils/formatUtils'
+import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
+import { serviceItemSearch } from '../constants/serviceVisit'
 import { Button, IconButton, Mono, EmptyState } from './ui'
 
 interface WarrantyListProps {
@@ -22,6 +26,7 @@ export default function WarrantyList({ vin, onAddClick, onEditClick }: WarrantyL
   const deleteMutation = useDeleteWarrantyRecord(vin)
   const dateLocale = useDateLocale()
   const u = useUnitFormat()
+  const { currencyCode, locale } = useCurrencyPreference()
 
   const handleDelete = (warrantyId: number) => {
     if (!confirm(t('warrantyList.confirmDelete'))) {
@@ -169,6 +174,27 @@ export default function WarrantyList({ vin, onAddClick, onEditClick }: WarrantyL
                           <FileText aria-hidden="true" size={14} className="flex-shrink-0" />
                           <span className="truncate">{doc.file_name}</span>
                         </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* The service lines done under it, newest first; each opens its visit. */}
+              {(warranty.linked_items ?? []).length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs text-text-mute mb-1">{t('warrantyList.usedOn')}</p>
+                  <ul className="space-y-1">
+                    {(warranty.linked_items ?? []).map((used) => (
+                      <li key={used.line_item_id}>
+                        <Link
+                          to={{ search: serviceItemSearch(used.visit_id, used.line_item_id) }}
+                          className="flex items-center gap-3 rounded-md bg-surface-2/50 px-3 py-2 text-sm transition-colors hover:bg-surface-2"
+                        >
+                          <Mono size="sm" tone="muted">{formatDate(used.date)}</Mono>
+                          <span className="min-w-0 flex-1 truncate text-text">{used.description}</span>
+                          <Mono size="sm">{formatCurrency(used.cost, { currencyCode, locale })}</Mono>
+                        </Link>
                       </li>
                     ))}
                   </ul>

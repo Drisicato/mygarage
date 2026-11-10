@@ -171,3 +171,11 @@ migrations must swallow their own operational errors.
 | `150_add_vehicle_identifier` | **FATAL**: Add vehicles.identifier_type and vehicles.identifier (#226). |
 | `151_add_fuel_octane_scale` | **FATAL**: Add fuel_records.octane_scale, the scale a fill-up's octane was read on (B4). |
 | `152_add_vehicle_inspection_due_date` | **FATAL**: Add vehicles.inspection_due_date, the deadline field X.1 prints (#211). |
+| `153_add_vehicle_wheel_layout` | **FATAL**: Add vehicles.wheel_layout, the per-vehicle wheel layout override (#272). |
+| `154_widen_brake_position_check` | **FATAL**: Widen the brake position CHECK to take F and R, for one-wheel axles (#272). |
+| `155_wheel_layout_position_remap` | **FATAL**: Move existing two-wheelers onto F/R and pin four on no-wheel types with data (#272). |
+| `156_add_date_format` | **FATAL**: Add users.date_format: the order of day and month in this person's dates. |
+| `157_add_visit_reference_numbers` | **FATAL**: Add invoice, PO and work order numbers to service_visits. |
+| `158_line_item_recall_warranty` | **FATAL**: Recall and warranty flags and links on service_line_items, and recalls.resolved_via. |
+| `159_title_case_vehicle_names` | Stored makes and models in Title Case (#219 takeover). |
+| `160_settings_hygiene` | Tidy stored switches, drop the dead map keys and empty the token tables. |

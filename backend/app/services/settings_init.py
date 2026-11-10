@@ -237,7 +237,9 @@ DEFAULT_SETTINGS = {
         "encrypted": False,
     },
     "ntfy_topic": {
-        "value": "mygarage",
+        # Blank, not a shared default: on a public server anyone who knows
+        # the topic can read it (B2-4).
+        "value": "",
         "category": "notifications",
         "description": "ntfy topic name",
         "encrypted": False,
@@ -556,6 +558,18 @@ DEFAULT_SETTINGS = {
         "value": "",
         "category": "integrations",
         "description": "TomTom API key for Places API (2,500 free requests/day)",
+        "encrypted": True,
+    },
+    "autoref_enabled": {
+        "value": "false",
+        "category": "integrations",
+        "description": "Decode European VINs with AutoRef (needs an API key)",
+        "encrypted": False,
+    },
+    "autoref_api_key": {
+        "value": "",
+        "category": "integrations",
+        "description": "AutoRef API key (paid; a free Test plan of 50 requests/month from info@autoref.eu)",
         "encrypted": True,
     },
     # ============================================

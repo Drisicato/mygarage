@@ -97,6 +97,7 @@ export function makeUser(overrides: Partial<User> = {}): User {
     language: 'en',
     currency_code: 'USD',
     time_format: '12h',
+    date_format: 'mdy',
     dashboard_sort: 'name',
     mobile_quick_entry_enabled: true,
     show_both_units: false,
@@ -190,6 +191,55 @@ export function makeDetailStats(overrides: Partial<VehicleDetailStats> = {}): Ve
     last_fillup_date: null,
     spent_this_year: '0.00',
     year: 2026,
+    ...overrides,
+  }
+}
+
+export type TireListLayout = Pick<components['schemas']['TireListResponse'], 'positions' | 'rotates' | 'wheel_layout'>
+
+/** The layout half of a tire list for a car (#272). Spread it into a useTires mock. */
+export const FOUR_LAYOUT: TireListLayout = {
+  positions: ['FL', 'FR', 'RL', 'RR', 'SPARE'],
+  rotates: true,
+  wheel_layout: 'four',
+}
+
+export type BrakeCorner = components['schemas']['BrakeCornerResponse']
+export type BrakeAxle = components['schemas']['BrakeAxleResponse']
+export type BrakeOverview = components['schemas']['BrakeOverviewResponse']
+
+/** A brake corner with nothing on it yet. Front is disc and rear is drum, as in BRAKE_AXLES. */
+export function brakeCorner(position: BrakeCorner['position'], overrides: Partial<BrakeCorner> = {}): BrakeCorner {
+  const rear = position.startsWith('R')
+  return {
+    position,
+    axle: rear ? 'rear' : 'front',
+    brake_type: rear ? 'drum' : 'disc',
+    condition: 'unknown',
+    wear_status: 'no_measurements',
+    surface_past_limit: false,
+    on_layout: true,
+    measurements: [],
+    jobs: [],
+    ...overrides,
+  }
+}
+
+/** Front discs on the defaults, rear drums set up with a maximum. */
+export const BRAKE_AXLES: BrakeAxle[] = [
+  { axle: 'front', brake_type: 'disc', min_thickness_mm: '3.00', new_thickness_mm: '10.00', configured: false, due_soon_mm: '4.75' },
+  { axle: 'rear', brake_type: 'drum', min_thickness_mm: '1.50', new_thickness_mm: '5.00', drum_max_mm: '230.00', configured: true, due_soon_mm: '2.38' },
+]
+
+/** A car's brake overview: four empty corners on BRAKE_AXLES. Override anything, corners and layout included. */
+export function brakeOverview(overrides: Partial<BrakeOverview> = {}): BrakeOverview {
+  return {
+    usage_axis: 'distance',
+    tracks_distance: true,
+    tracks_hours: false,
+    axles: BRAKE_AXLES,
+    corners: (['FL', 'FR', 'RL', 'RR'] as const).map((position) => brakeCorner(position)),
+    wheel_layout: 'four',
     ...overrides,
   }
 }

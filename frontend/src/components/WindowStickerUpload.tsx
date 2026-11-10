@@ -2,8 +2,8 @@ import { useState, useRef, type ReactElement, type SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Upload, FileText, DollarSign, Fuel, Edit2, Save, Palette, Shield, Leaf, Cog, Car } from 'lucide-react'
 import api from '../services/api'
-import { getActionErrorMessage } from '../utils/httpErrorHandler'
-import { applyControlledFieldErrors, withoutFieldError } from '../hooks/useApiFormErrors'
+import { actionErrorMessage } from '../utils/httpErrorHandler'
+import { applyControlledFieldErrors, withoutFieldError } from '../utils/apiFormErrors'
 import { parseDecimalInput } from '../utils/decimalInput'
 import { moneyTextError } from '../schemas/shared'
 import { getActiveLocale } from '@/constants/i18n'
@@ -12,8 +12,9 @@ import { useCurrencySymbol } from '../hooks/useCurrencySymbol'
 import { useCurrencyPreference } from '../hooks/useCurrencyPreference'
 import { formatStickerValue } from '../utils/formatUtils'
 import { useUnitFormat } from '../hooks/useUnitFormat'
-import { usePublicSettings } from '../hooks/usePublicSettings'
+import { usePublicSettings } from '../hooks/queries/usePublicSettings'
 import { isSettingOn } from '../utils/settingSwitch'
+import { documentMaxBytes, megabytes } from '../utils/uploadLimits'
 import { seedUnitField, unitFieldUnchanged, type UnitFieldOrigin } from '../utils/unitFormat'
 import { num } from '../utils/wireNumber'
 import type { components } from '../types/api.generated'
@@ -140,9 +141,10 @@ function WindowStickerUpload({
       return
     }
 
-    // Validate file size (10MB)
-    if (selectedFile.size > 10 * 1024 * 1024) {
-      setError(t('windowSticker.misc.fileTooLarge'))
+    // The server's documents limit; unknown means the server checks alone.
+    const maxBytes = documentMaxBytes(publicSettings)
+    if (maxBytes !== null && selectedFile.size > maxBytes) {
+      setError(t('windowSticker.misc.fileTooLargeLimit', { size: megabytes(maxBytes) }))
       return
     }
 
@@ -186,7 +188,7 @@ function WindowStickerUpload({
       else setSuccess(t('windowSticker.misc.uploadSuccess'))
       setEditMode(true)
     } catch (err) {
-      const { attached, unhandled, errorsByField } = applyControlledFieldErrors(
+      const { parsed, attached, unhandled, errorsByField } = applyControlledFieldErrors(
         err,
         WINDOW_STICKER_KNOWN_FIELDS
       )
@@ -194,7 +196,7 @@ function WindowStickerUpload({
         setFieldErrors(errorsByField)
       }
       if (attached.length === 0 || unhandled.length > 0) {
-        setError(getActionErrorMessage(err, t('windowSticker.uploadAction')))
+        setError(actionErrorMessage(parsed, t('windowSticker.uploadAction')))
       }
     } finally {
       setUploading(false)
@@ -272,7 +274,7 @@ function WindowStickerUpload({
       await api.patch(`/vehicles/${vin}/window-sticker/data`, changes)
       finish()
     } catch (err) {
-      const { attached, unhandled, errorsByField } = applyControlledFieldErrors(
+      const { parsed, attached, unhandled, errorsByField } = applyControlledFieldErrors(
         err,
         WINDOW_STICKER_KNOWN_FIELDS
       )
@@ -280,7 +282,7 @@ function WindowStickerUpload({
         setFieldErrors(errorsByField)
       }
       if (attached.length === 0 || unhandled.length > 0) {
-        setError(getActionErrorMessage(err, t('windowSticker.saveAction')))
+        setError(actionErrorMessage(parsed, t('windowSticker.saveAction')))
       }
     } finally {
       setUploading(false)

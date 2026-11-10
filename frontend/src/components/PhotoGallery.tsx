@@ -18,6 +18,7 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { formatAPITimestamp } from '../utils/parseAPITimestamp'
 import { withBase } from '../utils/basePath'
 import { getActionErrorMessage } from '../utils/httpErrorHandler'
+import { getActiveDateLocale } from '@/constants/i18n'
 
 interface PhotoGalleryProps {
   vin: string
@@ -91,9 +92,7 @@ function PhotoGallery({ vin, onAddClick }: PhotoGalleryProps) {
       await vehicleService.deletePhoto(vin, photo.filename)
       await fetchPhotos()
     } catch (err) {
-      toast.error(t('photoGallery.misc.deleteError'), {
-        description: getActionErrorMessage(err, t('photoGallery.misc.deleteAction'))
-      })
+      toast.error(getActionErrorMessage(err, t('photoGallery.misc.deleteAction')))
     } finally {
       setDeletingId(null)
     }
@@ -111,9 +110,7 @@ function PhotoGallery({ vin, onAddClick }: PhotoGalleryProps) {
       await fetchPhotos()
       toast.success(t('photoGallery.misc.mainPhotoUpdated'))
     } catch (err) {
-      toast.error(t('photoGallery.misc.setMainError'), {
-        description: getActionErrorMessage(err, t('photoGallery.misc.setMainAction'))
-      })
+      toast.error(getActionErrorMessage(err, t('photoGallery.misc.setMainAction')))
     }
   }
 
@@ -146,9 +143,7 @@ function PhotoGallery({ vin, onAddClick }: PhotoGalleryProps) {
       await fetchPhotos()
       toast.success(t('photoGallery.misc.captionUpdated'))
     } catch (err) {
-      toast.error(t('photoGallery.misc.captionError'), {
-        description: getActionErrorMessage(err, t('photoGallery.misc.captionAction'))
-      })
+      toast.error(getActionErrorMessage(err, t('photoGallery.misc.captionAction')))
     } finally {
       setSavingCaption(false)
     }
@@ -278,7 +273,7 @@ function PhotoGallery({ vin, onAddClick }: PhotoGalleryProps) {
                         {photo.caption ? photo.caption : <span className="text-text-mute italic">{t('photoGallery.misc.noCaption')}</span>}
                       </p>
                       <div className="flex items-center justify-between text-xs text-text-mute">
-                        <Mono size="sm" tone="muted">{formatAPITimestamp(photo.uploaded_at, (d) => d.toLocaleDateString())}</Mono>
+                        <Mono size="sm" tone="muted">{formatAPITimestamp(photo.uploaded_at, (d) => d.toLocaleDateString(getActiveDateLocale()))}</Mono>
                         {photo.id && (
                           <Button variant="ghost" size="sm" icon={Edit3} onClick={() => startEditing(photo)} disabled={!isOnline}>
                             {t('photoGallery.misc.editCaption')}

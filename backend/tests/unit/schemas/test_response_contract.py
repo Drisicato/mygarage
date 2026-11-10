@@ -136,7 +136,7 @@ def _response_roots() -> list[Any]:
         if route.response_model is not None:
             roots.append(route.response_model)
         for extra in route.responses.values():
-            if isinstance(extra, dict) and extra.get("model") is not None:
+            if extra.get("model") is not None:
                 roots.append(extra["model"])
     return roots
 
@@ -259,6 +259,8 @@ def test_no_response_constrains_text():
 #: Twins that differ from the field they shadow on purpose: (model, field) -> why.
 DELIBERATE_TWINS: dict[tuple[str, str], str] = {
     ("AddressBookEntryResponse", "email"): "a plain str: EmailStr refuses a local-domain address",
+    ("RecallResponse", "component"): "nullable column: a sync or import can store none",
+    ("RecallResponse", "summary"): "nullable column: a sync or import can store none",
     ("TopicMapResponse", "role"): "lenient read; the input stays strict",
     ("UserResponse", "email"): "a plain str: EmailStr refuses an SSO email at a local domain",
     ("VehicleResponse", "usage_unit"): "lenient read; the input stays strict",
@@ -595,6 +597,33 @@ COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
         "app.services.vin_decoder.enrich",
         "a constant per branch",
     ),
+    # Which decoder answered (#219 takeover): enrich copies decode()'s
+    # `source`, a Provider literal set on each branch.
+    ("VINDecodeResponse", "decoded_by"): (
+        "app.services.vin_decoder.enrich",
+        "a constant per branch",
+    ),
+    # AutoRef's versions to pick (#219 follow-up): the type is one of
+    # LOCAL_RECORD_TYPES or "COC", and the gearbox code is kept only when
+    # it's a key of _GEARBOX_CODES.
+    ("AutoRefCandidate", "record_type"): (
+        "app.services.autoref._detail_target",
+        "a type from LOCAL_RECORD_TYPES or COC",
+    ),
+    ("AutoRefCandidate", "gearbox_code"): (
+        "app.services.autoref._candidate",
+        "only a key of _GEARBOX_CODES",
+    ),
+    # The provider list and Automatic's pick are worked out per request from
+    # the settings, never read from a row.
+    ("VINProvidersResponse", "available"): (
+        "app.services.vin_decoder.available_providers",
+        "a constant per branch",
+    ),
+    ("VINProvidersResponse", "preferred"): (
+        "app.services.vin_decoder.preferred_provider",
+        "a constant per branch",
+    ),
     ("LezRules", "scheme"): (_COUNTRY_PROFILE_LOADER, "shipped data, validated on load"),
     ("NoClaimsScheme", "scheme"): (_COUNTRY_PROFILE_LOADER, "shipped data, validated on load"),
     ("InspectionSchedule", "vehicle_types"): (
@@ -631,11 +660,15 @@ COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("BrakeCornerResponse", "position"): (
         "app.services.brake_service.BrakeService._corners",
-        "one corner per entry of POSITIONS",
+        "the layout's brake_positions, then off-layout BrakePosition codes with rows",
     ),
     ("BrakeCornerResponse", "wear_status"): (
         "app.services.brake_wear.project_brake_wear",
         "every branch returns a BrakeWearStatus member",
+    ),
+    ("BrakeOverviewResponse", "wheel_layout"): (
+        "app.services.wheel_layout_service.vehicle_wheel_layout",
+        "a WHEEL_LAYOUTS entry's id, via resolve_wheel_layout",
     ),
     ("BrakeOverviewResponse", "usage_axis"): (
         "app.services.brake_service.BrakeService._respond",
@@ -733,6 +766,15 @@ COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
         "app.services.tire_service.TireService.list_tires",
         "the primary axis's kind, one of two constants",
     ),
+    # Both come off the vehicle's resolved layout, never a stored tire row.
+    ("TireListResponse", "wheel_layout"): (
+        "app.services.wheel_layout_service.vehicle_wheel_layout",
+        "a WHEEL_LAYOUTS entry's id, via resolve_wheel_layout",
+    ),
+    ("TireListResponse", "positions"): (
+        "app.services.wheel_layout_service.vehicle_wheel_layout",
+        "a WHEEL_LAYOUTS entry's tire_positions, shipped constants",
+    ),
     ("TireResponse", "usage_axis"): (
         "app.services.tire_service.TireService._to_response",
         "the primary axis's kind, one of two constants",
@@ -740,6 +782,16 @@ COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
     ("VehicleLiveLinkStatus", "device_status"): (
         "app.routes.livelink_vehicle.get_vehicle_livelink_status",
         "follows `online` (R7): a ternary of two constants, never the stored column",
+    ),
+    # The stored override reads leniently; these two are worked out from it
+    # and the type, and an unknown stored id falls back to the type's default.
+    ("VehicleResponse", "effective_wheel_layout"): (
+        "app.constants.wheel_layouts.resolve_wheel_layout",
+        "a WHEEL_LAYOUTS entry's id, the stored one only once it's checked",
+    ),
+    ("VehicleResponse", "default_wheel_layout"): (
+        "app.constants.wheel_layouts.default_wheel_layout",
+        "a constant per branch",
     ),
     **{
         ("UnitSet", quantity): (
@@ -772,7 +824,15 @@ FILTERED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
     ),
 }
 #: Names a stored vocabulary column goes by on a response.
-VOCABULARY_NAMESAKES = ("vehicle_type", "usage_unit", "ecu_status", "device_status", "anchor_kind")
+VOCABULARY_NAMESAKES = (
+    "vehicle_type",
+    "usage_unit",
+    "ecu_status",
+    "device_status",
+    "anchor_kind",
+    "wheel_layout",
+    "resolved_via",
+)
 #: Namesakes that carry something else: (model, field) -> what they carry.
 FREE_TEXT_NAMESAKES: dict[tuple[str, str], str] = {
     ("ExternalVehicleResponse", "vehicle_type"): (
@@ -906,6 +966,24 @@ def test_every_vocabulary_field_is_accounted_for():
         "lenient (app.utils.lenient_vocab), or register the CHECK, the filter or "
         "the computation that keeps it inside"
     )
+
+
+def test_the_wheel_layout_override_reads_leniently():
+    """#272: the stored override is a vocabulary column with no CHECK, so it
+    has to read leniently rather than ride a registry entry."""
+    by_name = {model.__name__: model for model in RESPONSE_MODELS}
+    info = by_name["VehicleResponse"].model_fields["wheel_layout"]
+    assert _vocabulary(info.annotation)
+    assert _reads_leniently(info)
+
+
+def test_the_recall_resolved_via_reads_leniently():
+    """recalls.resolved_via has no CHECK, so it reads leniently (D10): a value
+    a restored backup or a downgrade left there reads as null, i.e. manual."""
+    by_name = {model.__name__: model for model in RESPONSE_MODELS}
+    info = by_name["RecallResponse"].model_fields["resolved_via"]
+    assert _vocabulary(info.annotation) == {"manual", "service_visit"}
+    assert _reads_leniently(info)
 
 
 def test_vocabulary_namesakes_reach_a_literal():
@@ -1231,13 +1309,21 @@ def _lenient_probe() -> type[BaseModel]:
 
     Built when called, so a missing reader fails its test and not the module.
     """
-    lenient = Annotated[
-        _ModuleVocab | None, BeforeValidator(lenient_reader(_ModuleVocab)), LenientVocab(None)
-    ]
 
+    # Spelled out twice on purpose. A local variable isn't a valid type, and a
+    # `type` alias would probe the alias shape instead of a bare Annotated.
     class _LenientProbe(BaseModel):
-        nullable: lenient = None
-        nested: lenient | None = None
+        nullable: Annotated[
+            _ModuleVocab | None, BeforeValidator(lenient_reader(_ModuleVocab)), LenientVocab(None)
+        ] = None
+        nested: (
+            Annotated[
+                _ModuleVocab | None,
+                BeforeValidator(lenient_reader(_ModuleVocab)),
+                LenientVocab(None),
+            ]
+            | None
+        ) = None
         required: Annotated[
             _ModuleVocab,
             BeforeValidator(lenient_reader(_ModuleVocab, fallback="x")),

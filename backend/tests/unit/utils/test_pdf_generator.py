@@ -35,7 +35,7 @@ class TestGenerateServiceHistoryPdf:
         item.description) there instead.
         """
         generator = PDFReportGenerator(
-            render_context=METRIC_CTX, currency_code="USD", locale="en_US"
+            render_context=METRIC_CTX, currency_code="USD", locale="en_US", date_order="mdy"
         )
         buf = generator.generate_service_history_pdf(
             {
@@ -115,7 +115,7 @@ class TestOdometerColumnFollowsTheRenderContext:
     """
 
     def test_service_history_header_and_cell_are_metric_under_a_metric_context(self) -> None:
-        generator = PDFReportGenerator(render_context=METRIC_CTX)
+        generator = PDFReportGenerator(render_context=METRIC_CTX, date_order="mdy")
         buf = generator.generate_service_history_pdf(
             _VEHICLE_INFO, [_service_record(Decimal("19312"))]
         )
@@ -127,7 +127,7 @@ class TestOdometerColumnFollowsTheRenderContext:
     def test_service_history_header_and_cell_are_imperial_under_an_imperial_context(
         self,
     ) -> None:
-        generator = PDFReportGenerator(render_context=IMPERIAL_CTX)
+        generator = PDFReportGenerator(render_context=IMPERIAL_CTX, date_order="mdy")
         buf = generator.generate_service_history_pdf(
             _VEHICLE_INFO, [_service_record(Decimal("19312"))]
         )
@@ -141,7 +141,7 @@ class TestOdometerColumnFollowsTheRenderContext:
     def test_sale_history_header_and_cell_are_metric_under_a_metric_context(self) -> None:
         """The sale PDF is a separate generator method with its own header
         row, so it needs its own assertion, not the service PDF's."""
-        generator = PDFReportGenerator(render_context=METRIC_CTX)
+        generator = PDFReportGenerator(render_context=METRIC_CTX, date_order="mdy")
         buf = generator.generate_sale_history_pdf(
             _VEHICLE_INFO, [_service_record(Decimal("19312"))]
         )
@@ -152,7 +152,7 @@ class TestOdometerColumnFollowsTheRenderContext:
         assert "19,312" in text
 
     def test_sale_history_header_and_cell_are_imperial_under_an_imperial_context(self) -> None:
-        generator = PDFReportGenerator(render_context=IMPERIAL_CTX)
+        generator = PDFReportGenerator(render_context=IMPERIAL_CTX, date_order="mdy")
         buf = generator.generate_sale_history_pdf(
             _VEHICLE_INFO, [_service_record(Decimal("19312"))]
         )
@@ -175,12 +175,12 @@ class TestOdometerColumnFollowsTheRenderContext:
         record = [_service_record(Decimal("123.90"))]
 
         service = _normalized_text(
-            PDFReportGenerator(render_context=METRIC_CTX)
+            PDFReportGenerator(render_context=METRIC_CTX, date_order="mdy")
             .generate_service_history_pdf(_VEHICLE_INFO, record)
             .read()
         )
         sale = _normalized_text(
-            PDFReportGenerator(render_context=METRIC_CTX)
+            PDFReportGenerator(render_context=METRIC_CTX, date_order="mdy")
             .generate_sale_history_pdf(_VEHICLE_INFO, record)
             .read()
         )
@@ -200,7 +200,7 @@ class TestOdometerColumnFollowsTheRenderContext:
         asserting one "N/A" over a two-record render would let either input
         alone satisfy the whole claim.
         """
-        generator = PDFReportGenerator(render_context=IMPERIAL_CTX)
+        generator = PDFReportGenerator(render_context=IMPERIAL_CTX, date_order="mdy")
         buf = generator.generate_service_history_pdf(_VEHICLE_INFO, [_service_record(None)])
         text = _normalized_text(buf.read())
 
@@ -216,7 +216,7 @@ class TestOdometerColumnFollowsTheRenderContext:
         `if not odometer_km` to `if odometer_km is None` renders "0" here
         and leaves the null test above green.
         """
-        generator = PDFReportGenerator(render_context=IMPERIAL_CTX)
+        generator = PDFReportGenerator(render_context=IMPERIAL_CTX, date_order="mdy")
         buf = generator.generate_service_history_pdf(_VEHICLE_INFO, [_service_record(Decimal("0"))])
         text = _normalized_text(buf.read())
 
@@ -226,7 +226,7 @@ class TestOdometerColumnFollowsTheRenderContext:
     def test_both_missing_odometer_forms_render_na_in_one_table(self) -> None:
         """Both rows of a mixed table, counted rather than sampled: a single
         existential "N/A" over two records is satisfied by either one."""
-        generator = PDFReportGenerator(render_context=IMPERIAL_CTX)
+        generator = PDFReportGenerator(render_context=IMPERIAL_CTX, date_order="mdy")
         buf = generator.generate_service_history_pdf(
             _VEHICLE_INFO, [_service_record(None), _service_record(Decimal("0"))]
         )
@@ -259,7 +259,7 @@ class TestOdometerCellsStaySingleRepresentationUnderShowBoth:
     """
 
     def test_service_history_metric_cell_omits_the_mile_counterpart(self) -> None:
-        generator = PDFReportGenerator(render_context=SHOW_BOTH_METRIC_CTX)
+        generator = PDFReportGenerator(render_context=SHOW_BOTH_METRIC_CTX, date_order="mdy")
         buf = generator.generate_service_history_pdf(
             _VEHICLE_INFO, [_service_record(Decimal("19312"))]
         )
@@ -272,7 +272,7 @@ class TestOdometerCellsStaySingleRepresentationUnderShowBoth:
     def test_service_history_imperial_cell_omits_the_kilometre_counterpart(self) -> None:
         """The other direction, so an "always show the metric side" bug cannot
         hide behind the metric reader's test above."""
-        generator = PDFReportGenerator(render_context=SHOW_BOTH_IMPERIAL_CTX)
+        generator = PDFReportGenerator(render_context=SHOW_BOTH_IMPERIAL_CTX, date_order="mdy")
         buf = generator.generate_service_history_pdf(
             _VEHICLE_INFO, [_service_record(Decimal("19312"))]
         )
@@ -287,7 +287,7 @@ class TestOdometerCellsStaySingleRepresentationUnderShowBoth:
         and a wider (1.4 inch) odometer column -- wide enough for today's
         six-figure show-both string and not for a seven-figure one. It follows
         the same rule as the narrow one rather than diverging by column width."""
-        generator = PDFReportGenerator(render_context=SHOW_BOTH_METRIC_CTX)
+        generator = PDFReportGenerator(render_context=SHOW_BOTH_METRIC_CTX, date_order="mdy")
         buf = generator.generate_sale_history_pdf(
             _VEHICLE_INFO, [_service_record(Decimal("19312"))]
         )
@@ -304,22 +304,123 @@ class TestOdometerCellsStaySingleRepresentationUnderShowBoth:
         the other."""
         for units in (METRIC_PRESET, IMPERIAL_PRESET):
             off = PDFReportGenerator(
-                render_context=RenderContext(units=units, show_both=False)
+                render_context=RenderContext(units=units, show_both=False), date_order="mdy"
             )._format_odometer(Decimal("19312"))
             on = PDFReportGenerator(
-                render_context=RenderContext(units=units, show_both=True)
+                render_context=RenderContext(units=units, show_both=True), date_order="mdy"
             )._format_odometer(Decimal("19312"))
             assert off == on
             assert "(" not in on
         assert (
-            PDFReportGenerator(render_context=SHOW_BOTH_METRIC_CTX)._format_odometer(
-                Decimal("19312")
-            )
+            PDFReportGenerator(
+                render_context=SHOW_BOTH_METRIC_CTX, date_order="mdy"
+            )._format_odometer(Decimal("19312"))
             == "19,312"
         )
         assert (
-            PDFReportGenerator(render_context=SHOW_BOTH_IMPERIAL_CTX)._format_odometer(
-                Decimal("19312")
-            )
+            PDFReportGenerator(
+                render_context=SHOW_BOTH_IMPERIAL_CTX, date_order="mdy"
+            )._format_odometer(Decimal("19312"))
             == "12,000"
         )
+
+
+class TestServiceHistoryFitsThePage:
+    """The table sat 6.7 in wide in a 6.5 in frame (G1b-83), and a long
+    service type was cut with no sign of it (G1b-84)."""
+
+    def _render(self, service_type: str) -> bytes:
+        generator = PDFReportGenerator(
+            render_context=METRIC_CTX, currency_code="USD", locale="en_US", date_order="mdy"
+        )
+        buf = generator.generate_service_history_pdf(
+            {"vin": "1HGBH41JXMN109186", "year": 2018, "make": "Honda", "model": "Accord"},
+            [
+                {
+                    "date": date(2024, 3, 1),
+                    "odometer_km": Decimal("19312"),
+                    "service_category": "Maintenance",
+                    "service_type": service_type,
+                    "cost": Decimal("45.99"),
+                    "vendor_name": "Jiffy Lube",
+                }
+            ],
+            None,
+            None,
+        )
+        return buf.read()
+
+    def test_a_cut_service_type_ends_in_an_ellipsis(self) -> None:
+        text = _extract_text(self._render("x" * 49 + "TAIL" + "y" * 20))
+
+        assert "x" * 49 + "…" in text.replace("\n", "")
+        assert "TAIL" not in text
+
+
+_RECORD = {
+    "date": date(2024, 3, 1),
+    "odometer_km": Decimal("19312"),
+    "service_category": "Maintenance",
+    "service_type": "Oil change",
+    "category": "Maintenance",
+    "description": "Oil change",
+    "cost": Decimal("45.99"),
+    "vendor_name": "Jiffy Lube",
+}
+
+
+def _every_report() -> list[tuple[str, bytes]]:
+    generator = PDFReportGenerator(
+        render_context=METRIC_CTX, currency_code="USD", locale="en_US", date_order="mdy"
+    )
+    return [
+        (
+            "service history",
+            generator.generate_service_history_pdf(_VEHICLE_INFO, [_RECORD], None, None).read(),
+        ),
+        ("sale history", generator.generate_sale_history_pdf(_VEHICLE_INFO, [_RECORD]).read()),
+        (
+            "cost summary",
+            generator.generate_cost_summary_pdf(
+                _VEHICLE_INFO, {"service_count": 1, "service_total": Decimal("45.99")}, 2024
+            ).read(),
+        ),
+        (
+            "tax deduction",
+            generator.generate_tax_deduction_pdf(_VEHICLE_INFO, [_RECORD], 2024).read(),
+        ),
+    ]
+
+
+def test_every_report_table_stays_inside_the_right_margin() -> None:
+    """Each table was 6.7 to 7 in wide in a 6.5 in frame and ran into the
+    right margin (G1b-83)."""
+    for name, pdf in _every_report():
+        doc = pymupdf.open(stream=pdf, filetype="pdf")
+        page = doc[0]
+        right_margin_edge = page.rect.width - 72  # SimpleDocTemplate's 1 in margin
+        rightmost = max(d["rect"].x1 for d in page.get_drawings())
+        doc.close()
+
+        assert rightmost <= right_margin_edge, (name, rightmost)
+
+
+def test_service_history_words_still_fit_their_columns() -> None:
+    """Narrower columns must not break a word: "Maintenance" in one piece."""
+    text = _extract_text(_every_report()[0][1])
+
+    assert "Maintenance" in text
+
+
+def test_a_five_figure_total_stays_on_one_line() -> None:
+    """Narrowing the table must not break an amount: the Cost column wrapped
+    $1,234.56 as "$1,234.5" and "6" (Codex R1-M1)."""
+    generator = PDFReportGenerator(
+        render_context=METRIC_CTX, currency_code="USD", locale="en_US", date_order="mdy"
+    )
+    records = [{**_RECORD, "cost": Decimal("12345.67")}, {**_RECORD, "cost": Decimal("1.00")}]
+    pdf = generator.generate_service_history_pdf(_VEHICLE_INFO, records, None, None).read()
+    lines = _extract_text(pdf).splitlines()
+
+    assert "$12,345.67" in lines
+    assert "$12,346.67" in lines

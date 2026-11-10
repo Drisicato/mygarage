@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthProvider } from './contexts/AuthContext'
@@ -14,7 +14,9 @@ import AppToaster from './components/AppToaster'
 import { useLanguageSync } from './hooks/useLanguageSync'
 import { useAccentSync } from './hooks/useAccentSync'
 import { useThemeSync } from './hooks/useThemeSync'
+import { useDateFormatSync } from './hooks/useDateFormatSync'
 import { basePath } from './utils/basePath'
+import { queryClient } from './lib/queryClient'
 
 // Eager load login/register for instant access
 import Login from './pages/Login'
@@ -53,11 +55,12 @@ const LoadingFallback = () => (
   </div>
 )
 
-/** Syncs language + UI accent + theme with the authenticated user's DB preferences. */
+/** Syncs language + UI accent + theme + date format with the authenticated user's DB preferences. */
 function PreferenceSyncProvider({ children }: { children: React.ReactNode }) {
   useLanguageSync()
   useAccentSync()
   useThemeSync()
+  useDateFormatSync()
   return <>{children}</>
 }
 
@@ -66,24 +69,15 @@ function FamilyRedirect() {
   return <Navigate to={isAdmin ? '/settings' : '/'} replace />
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-      refetchOnWindowFocus: true,
-    },
-  },
-})
-
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
         <AccentProvider>
+        {/* Above AuthProvider: it reads public settings through this cache. */}
+        <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <PreferenceSyncProvider>
-          <QueryClientProvider client={queryClient}>
           <BrowserRouter basename={basePath() || undefined}>
             <Suspense fallback={<LoadingFallback />}>
               <Routes>
@@ -132,10 +126,10 @@ function App() {
             <InstallPrompt />
             <AppToaster />
           </BrowserRouter>
-          <ReactQueryDevtools initialIsOpen={false} />
-          </QueryClientProvider>
           </PreferenceSyncProvider>
         </AuthProvider>
+        <ReactQueryDevtools initialIsOpen={false} />
+        </QueryClientProvider>
         </AccentProvider>
       </ThemeProvider>
     </ErrorBoundary>

@@ -9,7 +9,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { renderWithQueryClient } from '@/__tests__/queryClient'
 import { MemoryRouter } from 'react-router-dom'
 import type { Vehicle, VehicleDetailStats } from '../../../types/vehicle'
 
@@ -57,6 +58,9 @@ const baseVehicle: Vehicle = {
   fuel_type: 'gasoline',
   location_tracking_enabled: true,
   distance_unit: null,
+  wheel_layout: null,
+  effective_wheel_layout: 'four',
+  default_wheel_layout: 'four',
 }
 
 const stats = (usage_unit: VehicleDetailStats['usage_unit']): VehicleDetailStats =>
@@ -66,7 +70,7 @@ function renderDrawer(vehicle: Vehicle): void {
   mockedApi.get.mockImplementation((url: string) =>
     Promise.resolve({ data: url.includes('detail-stats') ? stats(vehicle.usage_unit) : vehicle })
   )
-  render(
+  renderWithQueryClient(
     <MemoryRouter>
       <VehicleEditDrawer
         open

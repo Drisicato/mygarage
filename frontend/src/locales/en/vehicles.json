@@ -204,7 +204,6 @@
     "environmentalRatings": "Environmental Ratings",
     "export": "Export",
     "exportData": "Export Data",
-    "exportError": "Failed to export data",
     "exportSuccess": "Vehicle data exported successfully",
     "exportTooltip": "Export this vehicle and most of its records as JSON",
     "exporting": "Exporting...",
@@ -220,7 +219,6 @@
     },
     "import": "Import",
     "importData": "Import Data",
-    "importError": "Failed to import data",
     "importSuccess": "Import completed successfully",
     "importWithErrors": "Import finished, but some rows weren't imported",
     "importing": "Importing...",
@@ -468,7 +466,7 @@
     "uploading": "Uploading...",
     "misc": {
       "invalidFileType": "Invalid file type. Allowed: PDF, DOC, DOCX, TXT, JPG, PNG, WEBP, XLS, XLSX, CSV",
-      "fileTooLarge": "File size must be less than 25MB",
+      "fileTooLargeLimit": "File size must be {{size}} MB or less",
       "sizeZero": "0 Bytes",
       "unitBytes": "Bytes",
       "unitKb": "KB",
@@ -533,6 +531,7 @@
     "registrationCountryHint": "Where the vehicle is registered. Drives its inspection cadence, fuel pump names and tax types.",
     "firstRegistrationDate": "First registration date",
     "firstRegistrationDateHint": "Field B on an EU registration certificate.",
+    "inspectionDueDate": "Next inspection due by",
     "euroClass": "Euro emission class (V.9)",
     "fiscalPower": "Fiscal power (P.6, CV)",
     "co2": "CO₂ (V.7, g/km)",
@@ -665,7 +664,6 @@
       "selectPlaceholder": "Select...",
       "typeOrSelect": "Type or select a service...",
       "selectCategoryFirst": "Select a category first...",
-      "isInspectionItem": "This is an inspection item",
       "triggeredByFailedInspection": "Triggered by Failed Inspection",
       "notTriggeredByInspection": "Not triggered by inspection",
       "notesPlaceholder": "Additional details...",
@@ -775,7 +773,15 @@
       "reminderMode": "Reminder",
       "reminderModeOnce": "One-time, on a date",
       "reminderModeRecurring": "Repeat after this service",
-      "reminderRecurringHelp": "The next reminder counts from this visit's date and odometer."
+      "reminderRecurringHelp": "The next reminder counts from this visit's date and odometer.",
+      "markAs": "Mark As:",
+      "inspectionChip": "Inspection",
+      "recallChip": "Recall",
+      "warrantyChip": "Warranty",
+      "pickRecall": "Which recall",
+      "noSpecificRecall": "No specific recall",
+      "pickWarranty": "Which warranty",
+      "noSpecificWarranty": "No specific warranty"
     }
   },
   "livelink": {
@@ -954,14 +960,11 @@
       "offlineMainPhotoDesc": "Connect to the internet to update the main photo.",
       "offlineCaptionDesc": "Connect to the internet to update captions.",
       "confirmDelete": "Are you sure you want to delete this photo?",
-      "deleteError": "Failed to delete photo",
       "mainPhoto": "Main Photo",
       "mainPhotoUpdated": "Main photo updated",
-      "setMainError": "Failed to set main photo",
       "photoAlt": "Vehicle photo",
       "captionPlaceholder": "Add a caption...",
       "captionUpdated": "Caption updated",
-      "captionError": "Failed to update caption",
       "noCaption": "No caption",
       "editCaption": "Edit caption",
       "save": "Save",
@@ -1092,7 +1095,11 @@
       "manual": "Manual"
     },
     "noVinNote": "NHTSA looks recalls up by VIN, so it isn't asked about this vehicle. Sources that match on make and model still are.",
-    "noVinNoProvider": "No recall source covers a vehicle without a VIN in this country."
+    "noVinNoProvider": "No recall source covers a vehicle without a VIN in this country.",
+    "unnamed": "Unnamed recall",
+    "resolvedAtVisit": "Resolved at the service visit on {{date}}",
+    "resolvedAtVisitVendor": "Resolved at the service visit on {{date}} ({{vendor}})",
+    "reopenBlocked": "Unlink it on the service visit to reopen."
   },
   "reminderList": {
     "addReminder": "Add Reminder",
@@ -1176,16 +1183,16 @@
     "confirmDelete": "Are you sure you want to delete this service visit and all its line items?",
     "costBreakdown": "Cost Breakdown",
     "deleteAction": "delete the service visit",
-    "deleteFailed": "Delete failed",
-    "deleteFailedDesc": "Failed to delete visit",
     "deleted": "Service visit deleted",
     "inspection": "Inspection",
-    "insuranceClaim": "Insurance Claim",
+    "insuranceClaim": "Insurance Claim #",
+    "invoice": "Invoice #",
     "loading": "Loading service history...",
     "logFirstVisit": "Log First Service Visit",
     "logVisit": "Log Service Visit",
     "detail": {
       "cost": "Cost",
+      "editVisit": "Edit visit",
       "labor": "Labor / shop",
       "noSupplies": "No supplies recorded for this service.",
       "openSupply": "Open {{name}} in Supplies",
@@ -1201,6 +1208,7 @@
     "searchPlaceholder": "Search services...",
     "serviceCount": "{{count}} services",
     "partsCost": "Parts {{amount}}",
+    "po": "PO #",
     "servicesPerformed": "Services Performed",
     "shopSupplies": "Shop Supplies",
     "showingResults": "Showing {{shown}} of {{total}} visits",
@@ -1209,7 +1217,11 @@
     "title": "Service History",
     "total": "Total",
     "visitCount": "{{count}} visits",
-    "loadAction": "load service history"
+    "workOrder": "WO #",
+    "loadAction": "load service history",
+    "recallChip": "Recall {{campaign}}",
+    "recallChipPlain": "Recall",
+    "warrantyChip": "Warranty"
   },
   "serviceVisitAttachmentUpload": {
     "title": "Upload Attachment",
@@ -1451,13 +1463,34 @@
     "validateFailed": "Failed to validate VIN",
     "euPartial": "European VIN: the maker is {{make}}, but the VIN does not carry the model or the year. Type them, or import the registration certificate.",
     "partialDecode": "Partial decode: the maker is {{make}}. Type the model and the year.",
+    "euNoModel": "European VIN: the maker is {{make}} and the year {{year}}, but the VIN does not carry the model. Type it, or import the registration certificate.",
+    "partialNoModel": "Partial decode: the maker is {{make}} and the year {{year}}. Type the model.",
     "nothingDecoded": "This VIN could not be decoded. Type the vehicle's details, or import the registration certificate.",
     "importCertificate": "Import the registration certificate",
     "fieldWmiCountry": "Built in:",
+    "decodeWith": "Decode with",
+    "providerAutomatic": "Automatic ({{first}} first)",
+    "providers": {
+      "nhtsa": "NHTSA",
+      "autoref": "AutoRef"
+    },
+    "tryAutoRef": "Try AutoRef",
+    "tryNhtsa": "Try NHTSA",
+    "decodedBy": "Decoded by {{provider}}",
+    "version": "Version",
+    "pickVersion": "Pick your version ({{count}} found)",
+    "versionKw": "{{kw}} kW",
     "notes": {
       "eu_vin_no_model": "European VINs do not encode the model.",
       "year_unreliable": "Position 10 is not a model year for this maker; the year was left blank.",
-      "check_digit_not_applicable": "The check digit is a North American rule and does not apply to this VIN."
+      "check_digit_not_applicable": "The check digit is a North American rule and does not apply to this VIN.",
+      "autoref_best_guess": "Best match from AutoRef; check the model and engine.",
+      "autoref_pick_version": "AutoRef found several versions for this VIN. Pick yours to fill the engine and body.",
+      "autoref_external_record": "From the UK or US vehicle registry, as written there.",
+      "autoref_no_match": "AutoRef had no record for this VIN, so NHTSA answered.",
+      "autoref_key_rejected": "AutoRef rejected the API key, so NHTSA answered. Check the key in Settings.",
+      "autoref_quota": "AutoRef's monthly quota is used up, so NHTSA answered.",
+      "autoref_unavailable": "AutoRef could not be reached, so NHTSA answered."
     }
   },
   "tireList": {
@@ -1494,7 +1527,7 @@
     "editTitleNamed": "{{position}} Tire",
     "editTitleStored": "Tire in storage",
     "empty": "No tires tracked yet",
-    "emptyHint": "Add FL/FR/RL/RR (and spare) with tread depth and DOT code.",
+    "emptyHint": "Add each tire with its tread depth and DOT code.",
     "eventDate": "Date",
     "eventDateRequired": "Pick a date for this.",
     "firstInstalled": "First installed {{date}} @ {{odometer}}",
@@ -1533,6 +1566,7 @@
     "odometer": "Odometer",
     "odometerUnknown": "odometer unknown",
     "odometerWithUnit": "Odometer ({{unit}})",
+    "offLayout": "Not on this wheel layout",
     "onTheVehicle": "On the vehicle",
     "pastPeriodCorner": "Corner",
     "pastPeriodCornerRequired": "Choose the corner the tire was on.",
@@ -1559,6 +1593,12 @@
       "FR": "Front Right",
       "RL": "Rear Left",
       "RR": "Rear Right",
+      "F": "Front",
+      "R": "Rear",
+      "RLO": "Rear Left Outer",
+      "RLI": "Rear Left Inner",
+      "RRI": "Rear Right Inner",
+      "RRO": "Rear Right Outer",
       "SPARE": "Spare"
     },
     "pressure": "Pressure",
@@ -1669,6 +1709,17 @@
     "brakesPromptAction": "Log brake measurements",
     "brakesPromptDismiss": "Dismiss"
   },
+  "wheelLayout": {
+    "label": "Wheel layout",
+    "current": "Wheel layout: {{layout}}. Change it under Vehicle Details.",
+    "autoNamed": "Automatic: {{layout}}",
+    "four": "Four wheels",
+    "two": "Two wheels (front and rear)",
+    "trike_2f1r": "Trike, two front wheels",
+    "trike_1f2r": "Trike, two rear wheels",
+    "dually": "Dual rear wheels (dually)",
+    "none": "No wheels"
+  },
   "brakes": {
     "title": "Brakes",
     "axleSetup": "Axle setup",
@@ -1683,7 +1734,7 @@
     "emptyHint": "No brake measurements yet. Log the pads next time the wheels are off.",
     "frontAxle": "Front axle",
     "rearAxle": "Rear axle",
-    "allFour": "All four",
+    "allCorners": "All corners",
     "disc": "Disc",
     "drum": "Drum",
     "discLimits": "Disc · pads {{new}} new, {{min}} minimum",
@@ -1811,7 +1862,8 @@
     "startDate": "Start Date",
     "title": "Warranties",
     "warrantyCount": "{{count}} warranties tracked",
-    "loadAction": "load warranties"
+    "loadAction": "load warranties",
+    "usedOn": "Used on"
   },
   "windowSticker": {
     "dropOrClick": "Drop file here or click to upload",
@@ -1841,7 +1893,7 @@
     "viewMode": "View Mode",
     "misc": {
       "invalidFileType": "Please select a valid file (PDF, JPG, or PNG)",
-      "fileTooLarge": "File size must be less than 10MB",
+      "fileTooLargeLimit": "File size must be {{size}} MB or less",
       "uploadSuccess": "Window sticker uploaded successfully! Review the extracted data below.",
       "saveSuccess": "Window sticker data saved successfully!",
       "errorOccurred": "An error occurred",
@@ -1935,6 +1987,7 @@
       "enterVinHeading": "Enter Vehicle Identification Number",
       "nicknamePlaceholder": "My Red Mirage",
       "modelPlaceholder": "Mirage",
+      "makePlaceholder": "Mitsubishi",
       "colorPlaceholder": "Red",
       "licensePlatePlaceholder": "ABC-1234",
       "vinDecodedInfoOptional": "VIN Decoded Information (Optional)",

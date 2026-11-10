@@ -16,6 +16,7 @@ NHTSA answers "a valid decode, zero recalls" for any VIN it doesn't know.
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -32,12 +33,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.recall import Recall
 from app.models.vehicle import Vehicle
 from app.services.settings_service import SettingsService
-from app.tasks import scheduled
 from app.tasks.scheduled import check_recalls_all_vehicles
 from app.utils.datetime_utils import utc_now
 from app.utils.vin import calculate_check_digit
+from tests._fake_nhtsa import decode_answer, failure, is_decode, serve
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 # Every vehicle this module creates has a VIN starting with this, so cleanup
 # and call counting can tell this module's vehicles from other modules'.
@@ -212,7 +213,7 @@ async def test_auto_check_off_stops_only_nhtsa(
     recalls_fetch: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """F-4: `nhtsa_auto_check` is NHTSA's switch. With it off, a French
+    """`nhtsa_auto_check` is NHTSA's switch. With it off, a French
     vehicle still gets its scheduled RappelConso check, and NHTSA is never
     asked about the American one."""
     rappel = AsyncMock(return_value=[])
@@ -247,7 +248,7 @@ async def test_a_vehicle_without_a_vin_reaches_rappelconso_never_nhtsa(
     monkeypatch: pytest.MonkeyPatch,
     nhtsa_enabled: str,
 ) -> None:
-    """R1-H2 / F-3: the sweep stays inclusive, so a French tractor keyed by a
+    """The sweep stays inclusive, so a French tractor keyed by a
     Q key still gets RappelConso (make and model, no VIN), whatever NHTSA's
     switch says. NHTSA is never asked about a Q key, not even for a vehicle
     with no country, which NHTSA would otherwise cover."""
@@ -481,33 +482,22 @@ class _FakeNHTSA:
         self.fail: tuple[str, str, str] | None = None
         self.requested: list[str] = []
 
-    def _failure(self, url: str, how: str) -> httpx.Response:
-        request = httpx.Request("GET", url)
-        if how == "timeout":
-            raise httpx.ReadTimeout("timed out", request=request)
-        if how == "503":
-            return httpx.Response(503, request=request, text="Service Unavailable")
-        if how == "decoding-error":
-            raise httpx.DecodingError("bad gzip stream", request=request)
-        raise AssertionError(how)
-
     def answer(self, url: str) -> httpx.Response:
         """The response to a GET of `url`, or the transport error it raises."""
         self.requested.append(url)
         request = httpx.Request("GET", url)
         parts = urlsplit(url)
-        if "/DecodeVinValues/" in parts.path:
+        if is_decode(url):
             vin = parts.path.rsplit("/", 1)[1]
             if self.fail and self.fail[:2] == (vin, "decode"):
-                return self._failure(url, self.fail[2])
+                return failure(request, self.fail[2])
             model = "" if vin in self.no_model else self.models.get(vin, "NoRecallsModel")
-            result = {"Make": "TESTMAKE", "Model": model, "ModelYear": "2020", "ErrorCode": "0"}
-            return httpx.Response(200, request=request, json={"Results": [result]})
+            return decode_answer(request, make="TESTMAKE", model=model)
         if parts.path.endswith("/recallsByVehicle"):
             model = parse_qs(parts.query)["model"][0]
             vin = next((v for v, m in self.models.items() if m == model), None)
             if vin and self.fail and self.fail[:2] == (vin, "recalls"):
-                return self._failure(url, self.fail[2])
+                return failure(request, self.fail[2])
             return httpx.Response(
                 200, request=request, json={"results": self.recalls.get(vin or "", [])}
             )
@@ -518,12 +508,7 @@ class _FakeNHTSA:
 def nhtsa(monkeypatch: pytest.MonkeyPatch) -> _FakeNHTSA:
     """The fake NHTSA behind every httpx request, with DNS lookups off."""
     fake = _FakeNHTSA()
-
-    async def fake_get(client: object, url: str, **kwargs: object) -> httpx.Response:
-        return fake.answer(url)
-
-    monkeypatch.setattr("httpx.AsyncClient.get", fake_get)
-    monkeypatch.setattr("app.utils.url_validation.resolve_hostname", lambda hostname: None)
+    serve(monkeypatch, fake.answer)
     return fake
 
 
@@ -766,26 +751,101 @@ async def test_a_rappelconso_outage_is_retried_without_asking_nhtsa_early(
     assert _fetched(recalls_fetch, american.vin) == 1
 
 
-# --- the trigger --------------------------------------------------------------
+async def _french(make_vehicle: Callable[..., Awaitable[Vehicle]], db: AsyncSession) -> Vehicle:
+    vehicle = await make_vehicle()
+    vehicle.registration_country = "FR"
+    vehicle.make = "Renault"
+    await db.commit()
+    return vehicle
 
 
-def test_the_recall_check_is_scheduled_daily_at_2_utc(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The job ticks daily and decides itself whether the interval is due.
+async def _both_due(db: AsyncSession) -> None:
+    await _store(
+        db,
+        nhtsa_enabled="true",
+        nhtsa_auto_check="true",
+        nhtsa_recall_check_interval="7",
+        nhtsa_last_check="",
+        rappelconso_enabled="true",
+        rappelconso_last_check="",
+    )
 
-    Pinned to UTC: the scheduler has no zone, so a local-zone cron would put
-    23 or 25 hours between ticks on DST days, and the hour of slack assumes 24.
-    Red on main, which registered Sunday only, in the scheduler's zone.
-    """
-    monkeypatch.setenv("SCHEDULER_ENABLED", "true")
-    monkeypatch.setattr(scheduled.scheduler, "start", lambda *args, **kwargs: None)
-    try:
-        scheduled.start_scheduler()
-        job = scheduled.scheduler.get_job("check_recalls_all_vehicles")
-        assert job is not None
-        fields = {field.name: str(field) for field in job.trigger.fields}
-        assert fields["day_of_week"] == "*"
-        assert fields["hour"] == "2"
-        assert fields["minute"] == "0"
-        assert job.trigger.timezone == UTC
-    finally:
-        scheduled.scheduler.remove_all_jobs()
+
+async def test_a_source_no_vehicle_was_asked_keeps_its_stamp(
+    db_session: AsyncSession,
+    make_vehicle: Callable[..., Awaitable[Vehicle]],
+    recalls_fetch: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No French car, so RappelConso was asked nothing and keeps its blank
+    stamp: the first French car added is asked the next night, not up to an
+    interval later. Red on 3.10.0-rc1, which stamped every due source."""
+    rappel = AsyncMock(return_value=[])
+    monkeypatch.setattr("app.services.recalls.rappelconso.RappelConsoProvider.fetch", rappel)
+    american = await make_vehicle()
+    await _both_due(db_session)
+
+    await check_recalls_all_vehicles()
+
+    assert _fetched(recalls_fetch, american.vin) == 1
+    assert await _last_check(db_session)
+    assert rappel.await_count == 0
+    assert await _stamp(db_session, "rappelconso_last_check") in (None, "")
+
+    french = await _french(make_vehicle, db_session)
+    await check_recalls_all_vehicles()
+
+    assert sum(1 for call in rappel.await_args_list if call.args[1].vin == french.vin) == 1
+    assert await _stamp(db_session, "rappelconso_last_check")
+
+
+async def test_a_rappelconso_page_that_isnt_json_is_an_outage(
+    db_session: AsyncSession,
+    make_vehicle: Callable[..., Awaitable[Vehicle]],
+    recalls_fetch: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A maintenance page served as 200 makes `response.json()` raise a
+    JSONDecodeError, a ValueError, which used to pass for "this vehicle
+    can't be checked" and stamped RappelConso for a whole interval."""
+    rappel = AsyncMock(side_effect=json.JSONDecodeError("Expecting value", "<html>", 0))
+    monkeypatch.setattr("app.services.recalls.rappelconso.RappelConsoProvider.fetch", rappel)
+    await _french(make_vehicle, db_session)
+    await _both_due(db_session)
+
+    await check_recalls_all_vehicles()
+
+    assert rappel.await_count == 1
+    assert await _stamp(db_session, "rappelconso_last_check") in (None, "")
+
+
+async def test_a_vehicle_that_errors_holds_every_due_stamp(
+    db_session: AsyncSession,
+    make_vehicle: Callable[..., Awaitable[Vehicle]],
+    recalls_fetch: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An error of the vehicle's own ("database is locked") reaches no
+    source for it, so neither stamp moves and it's retried the next night."""
+    from app.services import recall_service
+
+    rappel = AsyncMock(return_value=[])
+    monkeypatch.setattr("app.services.recalls.rappelconso.RappelConsoProvider.fetch", rappel)
+    await make_vehicle()
+    await _french(make_vehicle, db_session)
+    locked = await make_vehicle()
+    real_sync = recall_service.sync_vehicle_recalls
+
+    async def flaky_sync(db: AsyncSession, vehicle: Vehicle, **kwargs: Any) -> Any:
+        if vehicle.vin == locked.vin:
+            raise RuntimeError("database is locked")
+        return await real_sync(db, vehicle, **kwargs)
+
+    monkeypatch.setattr(recall_service, "sync_vehicle_recalls", flaky_sync)
+    await _both_due(db_session)
+
+    await check_recalls_all_vehicles()
+
+    assert rappel.await_count == 1
+    assert await _last_check(db_session) in (None, "")
+    assert await _stamp(db_session, "rappelconso_last_check") in (None, "")

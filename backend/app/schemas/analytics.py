@@ -130,6 +130,8 @@ class HoursAccumulatedDataPoint(BaseModel):
 
     date: date_type
     engine_hours: Decimal
+    # Plain text, as on HoursRecordResponse: manual, fuel or service_visit.
+    source: str = Field(default="manual", description="Where the reading came from")
 
     model_config = {"from_attributes": True}
 
@@ -372,6 +374,9 @@ class GarageCostTotals(BaseModel):
     total_insurance: Decimal = Field(default=Decimal("0.00"))
     total_taxes: Decimal = Field(default=Decimal("0.00"))
     total_financing: Decimal = Field(default=Decimal("0.00"))
+    # Running costs = all five service categories + fuel + DEF. Same thing the
+    # per-vehicle Total counts, so it's the sum of those.
+    total_running_cost: Decimal = Field(default=Decimal("0.00"))
 
     model_config = {"from_attributes": True}
 

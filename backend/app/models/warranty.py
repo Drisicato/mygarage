@@ -52,6 +52,10 @@ class WarrantyRecord(Base):
         order_by="WarrantyDocument.id",
         lazy="selectin",
     )
+    # Line items done under this warranty. Read-only: each item owns its link.
+    linked_line_items: Mapped[list[ServiceLineItem]] = relationship(
+        "ServiceLineItem", viewonly=True
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -86,4 +90,5 @@ class WarrantyDocument(Base):
     __table_args__ = (Index("idx_warranty_documents_warranty_id", "warranty_id"),)
 
 
+from app.models.service_line_item import ServiceLineItem
 from app.models.vehicle import Vehicle

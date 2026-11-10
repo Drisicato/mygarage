@@ -9,17 +9,17 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from datetime import timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.constants.wheel_layouts import Axle, BrakePosition, WheelLayoutId
+from app.schemas._figures import to_stored_hundredth
 from app.schemas._nullability import reject_null
 from app.schemas.tire import HoursFigure, UsageAxisName
 from app.utils.household_time import household_today
 
-BrakePosition = Literal["FL", "FR", "RL", "RR"]
-Axle = Literal["front", "rear"]
 BrakeType = Literal["disc", "drum"]
 Surface = Literal["replaced", "resurfaced"]
 BrakeConditionName = Literal["ok", "due_soon", "replace_now", "unknown"]
@@ -35,17 +35,12 @@ BrakeWearStatusName = Literal[
 ]
 
 
-def _to_stored_hundredth(value: Decimal) -> Decimal:
-    """Round to the hundredth the NUMERIC columns keep, so what's checked is what's saved."""
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
 #: A pad or shoe lining, in mm. NUMERIC(4, 2).
-Thickness = Annotated[Decimal, Field(ge=0, le=50), AfterValidator(_to_stored_hundredth)]
+Thickness = Annotated[Decimal, Field(ge=0, le=50), AfterValidator(to_stored_hundredth)]
 #: A rotor's thickness, in mm. NUMERIC(5, 2).
-RotorFigure = Annotated[Decimal, Field(ge=0, le=100), AfterValidator(_to_stored_hundredth)]
+RotorFigure = Annotated[Decimal, Field(ge=0, le=100), AfterValidator(to_stored_hundredth)]
 #: A drum's inside diameter, in mm. NUMERIC(6, 2).
-DrumFigure = Annotated[Decimal, Field(ge=0, le=1000), AfterValidator(_to_stored_hundredth)]
+DrumFigure = Annotated[Decimal, Field(ge=0, le=1000), AfterValidator(to_stored_hundredth)]
 #: An odometer, in km. NUMERIC(10, 2).
 OdometerFigure = Annotated[Decimal, Field(ge=0, le=Decimal("99999999.99"))]
 
@@ -272,6 +267,9 @@ class BrakeCornerResponse(BaseModel):
     """One corner: its condition, wear estimate, newest figures and history."""
 
     position: BrakePosition
+    #: False for a corner off the vehicle's wheel layout that still has rows.
+    #: It lists and edits as usual, but takes no new measurement or job.
+    on_layout: bool
     axle: Axle
     brake_type: BrakeType
     condition: BrakeConditionName
@@ -311,8 +309,13 @@ class BrakeCornerResponse(BaseModel):
 
 
 class BrakeOverviewResponse(BaseModel):
-    """A vehicle's brakes: both axles and the four corners, FL, FR, RL, RR."""
+    """A vehicle's brakes: both axles and the corners.
 
+    The wheel layout's corners in its order, then any off-layout corner that
+    still has history (#272).
+    """
+
+    wheel_layout: WheelLayoutId
     usage_axis: UsageAxisName = "distance"
     tracks_distance: bool = True
     tracks_hours: bool = False

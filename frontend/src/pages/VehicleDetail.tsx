@@ -413,24 +413,16 @@ function VehicleDetailPage() {
   const logKinds = vehicleLogKinds(vehicle)
   const isMotorized = logKinds.motorized
   const showFuelLog = logKinds.fuel
+  // Tires and brakes need wheels too (#272): a boat or a `none` override gets neither tab.
+  const hasWheels = isMotorized && vehicle?.effective_wheel_layout !== 'none'
 
-  // Equipment-presence flags (B7) — the actions toolbar hides an Equipment
-  // button when its <details> target (below, in VehicleOverviewTab) is absent.
-  // Optional-chained into a local so no `vehicle.standard_equipment` non-null
-  // deref is written (B5 — strict-clean); `vehicle` is still `Vehicle | null`
-  // here, before the `!vehicle` early return.
-  const standardEquipment = vehicle?.standard_equipment
-  const hasStandardEquipment = Boolean(
-    standardEquipment &&
-    typeof standardEquipment === 'object' &&
-    Object.keys(standardEquipment).length > 0,
+  // Equipment gets added by hand too, so every vehicle gets the pills, not
+  // just one with a parsed window sticker. A plain trailer has nothing to
+  // list, unless something's already saved there.
+  const hasEquipment = [vehicle?.standard_equipment, vehicle?.optional_equipment].some(
+    (list) => Boolean(list && typeof list === 'object' && Object.keys(list).length > 0),
   )
-  const optionalEquipment = vehicle?.optional_equipment
-  const hasOptionalEquipment = Boolean(
-    optionalEquipment &&
-    typeof optionalEquipment === 'object' &&
-    Object.keys(optionalEquipment).length > 0,
-  )
+  const showEquipment = vehicle?.vehicle_type !== 'Trailer' || hasEquipment
 
   const hasPropane = logKinds.propane
   // Either fuel slot, as the API gates DEF writes; the DEF tab renders
@@ -503,8 +495,8 @@ function VehicleDetailPage() {
       { id: 'inspections' as const, label: t('vehicleInspections.title'), icon: ClipboardCheck, visible: isMotorized },
       { id: 'odometer' as const, label: t('detail.misc.odometer'), icon: Gauge, visible: logKinds.odometer },
       { id: 'hours' as const, label: t('common:engineHours'), icon: Clock, visible: logKinds.hours },
-      { id: 'tires' as const, label: t('detail.misc.tires'), icon: CircleDot, visible: isMotorized },
-      { id: 'brakes' as const, label: t('detail.misc.brakes'), icon: Disc, visible: isMotorized },
+      { id: 'tires' as const, label: t('detail.misc.tires'), icon: CircleDot, visible: hasWheels },
+      { id: 'brakes' as const, label: t('detail.misc.brakes'), icon: Disc, visible: hasWheels },
       { id: 'recalls' as const, label: t('detail.misc.recalls'), icon: AlertTriangle },
     ],
     fuel: [
@@ -538,6 +530,19 @@ function VehicleDetailPage() {
       { id: 'trips' as const, label: t('detail.misc.trips'), icon: MapPin, visible: canLiveLink('location') },
     ],
   }
+
+  // A sub-tab that went away while open (layout switched to none on Tires) falls
+  // back to the first one left. It waits for the vehicle (the page remounts per vin,
+  // so that's always this one): before it loads everything reads as non-motorized and
+  // ?tab=tires would bounce. LiveLink is skipped since its sub-tabs wait on their own fetch.
+  const activeSubTabHidden =
+    vehicle != null &&
+    activePrimaryTab !== 'livelink' &&
+    subTabsConfig[activePrimaryTab]?.find((sub) => sub.id === activeSubTab)?.visible === false
+  const firstVisibleSubTab = subTabsConfig[activePrimaryTab]?.find((sub) => sub.visible !== false)?.id
+  useEffect(() => {
+    if (activeSubTabHidden && firstVisibleSubTab) setActiveSubTab(firstVisibleSubTab)
+  }, [activeSubTabHidden, firstVisibleSubTab])
 
   if (loading) {
     return (
@@ -588,8 +593,7 @@ function VehicleDetailPage() {
         <VehicleActionsToolbar
           isAdmin={isAdmin}
           showFuelAction={Boolean(showFuelLog || hasDEF || hasPropane)}
-          hasStandardEquipment={hasStandardEquipment}
-          hasOptionalEquipment={hasOptionalEquipment}
+          showEquipment={showEquipment}
           onLogService={() => goToSection('maintenance', 'service')}
           onAddFuel={() => goToSection('fuel', fillUpKind({ ...logKinds, def: logKinds.defHistory }) ?? 'fuel')}
           onReminder={() => goToSection('tracking', 'reminders')}
@@ -651,10 +655,10 @@ function VehicleDetailPage() {
         {activePrimaryTab === 'fuel' && activeSubTab === 'propane' && vin && <PropaneTab vin={vin} />}
         {activePrimaryTab === 'maintenance' && activeSubTab === 'odometer' && vin && <OdometerTab vin={vin} />}
         {activePrimaryTab === 'maintenance' && activeSubTab === 'hours' && vin && <HoursTab vin={vin} />}
-        {activePrimaryTab === 'maintenance' && activeSubTab === 'tires' && vin && (
+        {activePrimaryTab === 'maintenance' && activeSubTab === 'tires' && vin && hasWheels && (
           <TireList key={vin} vin={vin} onLogBrakes={isMotorized ? openBrakeLog : undefined} />
         )}
-        {activePrimaryTab === 'maintenance' && activeSubTab === 'brakes' && vin && isMotorized && (
+        {activePrimaryTab === 'maintenance' && activeSubTab === 'brakes' && vin && hasWheels && (
           <BrakeList key={vin} vin={vin} logOnOpen={brakeLogRequested} onLogOpened={clearBrakeLog} />
         )}
         {activePrimaryTab === 'maintenance' && activeSubTab === 'recalls' && vin && <SafetyTab vin={vin} />}
@@ -803,6 +807,8 @@ function VehicleDetailPage() {
           onOpenModal={setOpenModal}
           onClose={() => setShowMobileMenu(false)}
           onEdit={() => setEditDrawerOpen(true)}
+          showEquipment={showEquipment}
+          onEditEquipment={handleEquipmentClick}
         />
       )}
 

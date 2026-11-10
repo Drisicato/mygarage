@@ -40,8 +40,8 @@ import SupplyImageField from '@/components/SupplyImageField'
 import { firstImageFile, supplyImageUrl } from '@/utils/supplyImage'
 import type { Supply, SupplyCreate, SupplyUpdate } from '@/types/supplies'
 import { getActiveLocale } from '@/constants/i18n'
-import { applyServerErrors } from '@/hooks/useApiFormErrors'
-import { getActionErrorMessage } from '@/utils/httpErrorHandler'
+import { applyServerErrors } from '@/utils/apiFormErrors'
+import { getActionErrorMessage, actionErrorMessage } from '@/utils/httpErrorHandler'
 import { withUnitSession } from '@/contexts/UnitSession'
 
 export default function Supplies() {
@@ -794,7 +794,7 @@ function SupplyFormBody({ supply, onClose, onSuccess, categorySuggestions = [] }
       // attached.length === 0 catches a non-422 failure (network drop, 500):
       // it carries no field problems at all, so `unhandled` alone would stay
       // empty and this banner would never show.
-      const { attached, unhandled } = applyServerErrors<SupplyFormData>(setFieldError, err, [
+      const { parsed, attached, unhandled } = applyServerErrors<SupplyFormData>(setFieldError, err, [
         'name',
         'unit_type',
         'volume_unit',
@@ -807,7 +807,7 @@ function SupplyFormBody({ supply, onClose, onSuccess, categorySuggestions = [] }
         'vins',
       ])
       if (attached.length === 0 || unhandled.length > 0) {
-        setError(getActionErrorMessage(err, t('supplies.saveAction')))
+        setError(actionErrorMessage(parsed, t('supplies.saveAction')))
       }
     }
   }

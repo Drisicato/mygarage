@@ -3,7 +3,21 @@
  */
 
 import api from './api'
-import type { VINDecodeResponse, VINValidationResponse } from '@/types/vin'
+import type {
+  AutoRefCandidate,
+  AutoRefTestResponse,
+  VINDecodeResponse,
+  VINProvider,
+  VINProvidersResponse,
+  VINValidationResponse,
+} from '@/types/vin'
+
+export interface VINDecodeOptions {
+  /** Only after the person chose one; omitted is Automatic, with fallback. */
+  provider?: VINProvider
+  /** The country that orders the decoders (ISO 3166-1 alpha-2). */
+  country?: string | null
+}
 
 export const vinService = {
   /**
@@ -15,10 +29,46 @@ export const vinService = {
   },
 
   /**
-   * Decode a VIN using NHTSA API
+   * Decode a VIN. Without a provider the backend asks the preferred decoder
+   * first and falls back to NHTSA; a provider runs alone (#219).
    */
-  async decode(vin: string): Promise<VINDecodeResponse> {
-    const response = await api.post<VINDecodeResponse>('/vin/decode', { vin })
+  async decode(vin: string, options: VINDecodeOptions = {}): Promise<VINDecodeResponse> {
+    const body: { vin: string; provider?: VINProvider; country?: string } = { vin }
+    if (options.provider) body.provider = options.provider
+    if (options.country) body.country = options.country
+    const response = await api.post<VINDecodeResponse>('/vin/decode', body)
+    return response.data
+  },
+
+  /**
+   * Decode the version picked from an AutoRef decode's candidates (1 AutoRef
+   * request). Its model and power go back so the backend can check AutoRef
+   * still has that version under that id.
+   */
+  async decodeVersion(vin: string, candidate: AutoRefCandidate): Promise<VINDecodeResponse> {
+    const response = await api.post<VINDecodeResponse>('/vin/autoref/version', {
+      vin,
+      record_type: candidate.record_type,
+      id: candidate.id,
+      gearbox_code: candidate.gearbox_code,
+      expect_model: candidate.model_full,
+      expect_kw: candidate.kw,
+      grouped: candidate.grouped,
+    })
+    return response.data
+  },
+
+  /** The decoders this instance can use and which one Automatic asks first. */
+  async providers(country?: string | null): Promise<VINProvidersResponse> {
+    const response = await api.get<VINProvidersResponse>('/vin/providers', {
+      params: country ? { country } : {},
+    })
+    return response.data
+  },
+
+  /** Check an AutoRef key (admin). Null or the mask tests the stored one; costs no quota. */
+  async testAutoRef(apiKey: string | null): Promise<AutoRefTestResponse> {
+    const response = await api.post<AutoRefTestResponse>('/vin/autoref/test', { api_key: apiKey })
     return response.data
   },
 

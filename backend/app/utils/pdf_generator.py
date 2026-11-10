@@ -21,6 +21,7 @@ from reportlab.platypus import (
 )
 
 from app.schemas.vehicle import NON_MOTORIZED_VEHICLE_TYPES
+from app.utils.date_order import DateOrder, format_date, format_datetime
 from app.utils.household_time import household_zone
 from app.utils.render_context import RenderContext
 from app.utils.unit_adapters import adapter_for
@@ -36,6 +37,13 @@ def _esc(value: object) -> str:
     return "" if value is None else escape(str(value))
 
 
+def _clip(value: object, limit: int) -> str:
+    """``value`` as text, cut to ``limit`` characters with an ellipsis when it
+    was longer, so a cut reads as one (G1b-84)."""
+    text = str(value)
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "\u2026"
+
+
 class PDFReportGenerator:
     """Generate PDF reports for vehicle maintenance tracking.
 
@@ -48,6 +56,8 @@ class PDFReportGenerator:
     silently fall back to a hardcoded unit; the two reports that render no
     unit-bearing quantity at all (cost summary, tax deduction) still take
     one, because the context belongs to the generator, not to one method.
+    `date_order` is required for the same reason: a route that forgot it
+    would print month-first to a day-first reader.
     """
 
     def __init__(
@@ -55,12 +65,15 @@ class PDFReportGenerator:
         render_context: RenderContext,
         currency_code: str = "USD",
         locale: str = "en-US",
+        *,
+        date_order: DateOrder,
     ):
-        """Build a generator bound to one render context and currency."""
+        """Build a generator bound to one render context, currency and date order."""
         self.styles = getSampleStyleSheet()
         self._setup_custom_styles()
         self.currency_code = currency_code
         self.locale = locale
+        self.date_order: DateOrder = date_order
         self.render_context = render_context
 
     def _odometer_header(self) -> str:
@@ -164,13 +177,11 @@ class PDFReportGenerator:
         """Format date object."""
         if date_obj is None:
             return "N/A"
-        if isinstance(date_obj, str):
-            return date_obj
-        return date_obj.strftime("%m/%d/%Y")
+        return format_date(date_obj, self.date_order)
 
     def _generated_at(self) -> str:
         """When the report was made, on the household clock like the branded header."""
-        return datetime.now(household_zone()).strftime("%m/%d/%Y %I:%M %p")
+        return format_datetime(datetime.now(household_zone()), self.date_order)
 
     def generate_service_history_pdf(
         self,
@@ -238,7 +249,7 @@ class PDFReportGenerator:
                             self.styles["Normal"],
                         ),
                         Paragraph(
-                            _esc(str(record.get("service_type") or "N/A")[:50]),
+                            _esc(_clip(record.get("service_type") or "N/A", 50)),
                             self.styles["Normal"],
                         ),
                         self._format_currency(cost),
@@ -264,13 +275,15 @@ class PDFReportGenerator:
             # Create table
             table = Table(
                 table_data,
+                # 6.3 in: the 6.5 in between the margins less the frame's
+                # 6 pt padding each side (G1b-83).
                 colWidths=[
                     0.8 * inch,
-                    0.9 * inch,
-                    1.0 * inch,
-                    1.8 * inch,
-                    0.8 * inch,
+                    0.85 * inch,
+                    1.05 * inch,
                     1.4 * inch,
+                    1.0 * inch,
+                    1.2 * inch,
                 ],
             )
             table.setStyle(
@@ -347,10 +360,10 @@ class PDFReportGenerator:
                     [
                         self._format_date(record.get("date")),
                         self._format_odometer(record.get("odometer_km")),
-                        Paragraph(_esc(str(desc)[:80]), self.styles["Normal"]),
+                        Paragraph(_esc(_clip(desc, 80)), self.styles["Normal"]),
                     ]
                 )
-            table = Table(table_data, colWidths=[1.2 * inch, 1.4 * inch, 4.2 * inch])
+            table = Table(table_data, colWidths=[1.1 * inch, 1.3 * inch, 3.9 * inch])
             table.setStyle(
                 TableStyle(
                     [
@@ -468,7 +481,7 @@ class PDFReportGenerator:
             ]
         )
 
-        table = Table(table_data, colWidths=[3 * inch, 1 * inch, 1.5 * inch, 1.5 * inch])
+        table = Table(table_data, colWidths=[2.7 * inch, 0.9 * inch, 1.35 * inch, 1.35 * inch])
         table.setStyle(
             TableStyle(
                 [
@@ -574,7 +587,7 @@ class PDFReportGenerator:
                         self._format_date(record.get("date")),
                         record.get("category", "Service"),
                         Paragraph(
-                            _esc(str(record.get("description") or "")[:60]),
+                            _esc(_clip(record.get("description") or "", 60)),
                             self.styles["Normal"],
                         ),
                         self._format_currency(amount),
@@ -593,7 +606,9 @@ class PDFReportGenerator:
                 ]
             )
 
-            table = Table(table_data, colWidths=[1 * inch, 1.5 * inch, 3 * inch, 1.5 * inch])
+            table = Table(
+                table_data, colWidths=[0.95 * inch, 1.35 * inch, 2.65 * inch, 1.35 * inch]
+            )
             table.setStyle(
                 TableStyle(
                     [

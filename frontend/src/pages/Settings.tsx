@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { Settings as SettingsIcon, Plug, Bell, HardDrive, Download, Server, ArrowDownUp } from 'lucide-react'
 import SettingsSystemTab from '../components/tabs/SettingsSystemTab'
 import SettingsFilesTab from '../components/tabs/SettingsFilesTab'
@@ -11,6 +12,8 @@ import { SettingsProvider, useSettings } from '../contexts/SettingsContext'
 import { useCanManageInstance } from '../hooks/useCanManageInstance'
 import SubTabNav from '../components/SubTabNav'
 import SecretsStatusBanner from '../components/settings/SecretsStatusBanner'
+import { useAuth } from '../contexts/AuthContext'
+import { SECRETS_STATUS_QUERY_KEY } from '../hooks/queries/useSecretsStatus'
 
 type TabType = 'system' | 'files' | 'integrations' | 'notifications' | 'importExport' | 'backup'
 
@@ -75,9 +78,21 @@ function SettingsContent() {
   )
 }
 
-export default function Settings() {
+export default function Settings(): ReactElement {
+  const { refreshPublicSettings } = useAuth()
+  const queryClient = useQueryClient()
+
+  // Any tab's save can change a public setting (read all over the app) or
+  // re-enter a secret (the banner). The public refresh is awaited, so the
+  // new values are in place before the save reports done; a non-admin has
+  // no banner mounted, so the invalidation asks for nothing.
+  const handleSaved = useCallback(async (): Promise<void> => {
+    void queryClient.invalidateQueries({ queryKey: SECRETS_STATUS_QUERY_KEY })
+    await refreshPublicSettings()
+  }, [queryClient, refreshPublicSettings])
+
   return (
-    <SettingsProvider>
+    <SettingsProvider onSaved={handleSaved}>
       <SettingsContent />
     </SettingsProvider>
   )

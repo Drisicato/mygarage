@@ -43,8 +43,8 @@ import type { Supply, SupplyPurchaseUpdate } from '@/types/supplies'
 import type { AddressBookEntry } from '@/types/addressBook'
 import type { components } from '@/types/api.generated'
 import { getActiveLocale } from '@/constants/i18n'
-import { applyServerErrors } from '@/hooks/useApiFormErrors'
-import { getActionErrorMessage } from '@/utils/httpErrorHandler'
+import { applyServerErrors } from '@/utils/apiFormErrors'
+import { getActionErrorMessage, actionErrorMessage } from '@/utils/httpErrorHandler'
 import { moneyError } from '@/schemas/shared'
 import { withUnitSession } from '@/contexts/UnitSession'
 
@@ -648,7 +648,7 @@ function PurchaseForm({
       // empty and this banner would never show.
       // The form names the supplier, the API takes its address-book id: a 422
       // on supplier_id belongs under the name box.
-      const { attached, unhandled } = applyServerErrors<PurchaseFormValues & { supplier_id?: number | null }>(
+      const { parsed, attached, unhandled } = applyServerErrors<PurchaseFormValues & { supplier_id?: number | null }>(
         (field, fieldError, options) =>
           setFieldError((field === 'supplier_id' ? 'supplier_name' : field) as Path<PurchaseFormValues>, fieldError, options),
         err,
@@ -662,7 +662,7 @@ function PurchaseForm({
       ])
       if (attached.length === 0 || unhandled.length > 0) {
         setError(
-          getActionErrorMessage(err, t(editing ? 'supplies.history.editPurchaseAction' : 'supplies.history.logPurchaseAction')),
+          actionErrorMessage(parsed, t(editing ? 'supplies.history.editPurchaseAction' : 'supplies.history.logPurchaseAction')),
         )
       }
     }
@@ -845,9 +845,9 @@ function AdjustmentForm({
       // attached.length === 0 catches a non-422 failure (network drop, 500):
       // it carries no field problems at all, so `unhandled` alone would stay
       // empty and this banner would never show.
-      const { attached, unhandled } = applyServerErrors<AdjustmentFormValues>(setFieldError, err, ['quantity'])
+      const { parsed, attached, unhandled } = applyServerErrors<AdjustmentFormValues>(setFieldError, err, ['quantity'])
       if (attached.length === 0 || unhandled.length > 0) {
-        setError(getActionErrorMessage(err, t('supplies.history.logAdjustmentAction')))
+        setError(actionErrorMessage(parsed, t('supplies.history.logAdjustmentAction')))
       }
     }
   }

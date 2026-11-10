@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import api from '@/services/api'
 import type {
   WarrantyDocument,
@@ -6,6 +6,12 @@ import type {
   WarrantyRecordCreate,
   WarrantyRecordUpdate,
 } from '@/types/warranty'
+
+/** Visit items show their warranty, and a deleted warranty drops off its item. */
+function invalidateWarrantyWrite(queryClient: QueryClient, vin: string): void {
+  void queryClient.invalidateQueries({ queryKey: ['warranties', vin] })
+  void queryClient.invalidateQueries({ queryKey: ['serviceVisits', vin] })
+}
 
 export function useWarrantyRecords(vin: string) {
   return useQuery({
@@ -27,9 +33,7 @@ export function useCreateWarrantyRecord(vin: string) {
       const { data } = await api.post(`/vehicles/${vin}/warranties`, payload)
       return data
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['warranties', vin] })
-    },
+    onSuccess: () => invalidateWarrantyWrite(queryClient, vin),
   })
 }
 
@@ -40,9 +44,7 @@ export function useUpdateWarrantyRecord(vin: string) {
       const { data } = await api.put(`/vehicles/${vin}/warranties/${id}`, payload)
       return data
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['warranties', vin] })
-    },
+    onSuccess: () => invalidateWarrantyWrite(queryClient, vin),
   })
 }
 
@@ -83,8 +85,6 @@ export function useDeleteWarrantyRecord(vin: string) {
     mutationFn: async (recordId: number) => {
       await api.delete(`/vehicles/${vin}/warranties/${recordId}`)
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['warranties', vin] })
-    },
+    onSuccess: () => invalidateWarrantyWrite(queryClient, vin),
   })
 }

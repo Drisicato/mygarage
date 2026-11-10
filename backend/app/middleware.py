@@ -24,6 +24,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.database import get_db_context
 from app.models.csrf_token import CSRFToken
+from app.services.hashed_tokens import hash_token
 from app.utils.datetime_utils import utc_now
 from app.utils.logging_utils import sanitize_for_log
 
@@ -48,10 +49,7 @@ def _content_security_policy(script_hashes: Sequence[str]) -> str:
         f"script-src {script_src}; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: "
-        "https://tile.openstreetmap.org "
-        "https://a.tile.openstreetmap.org "
-        "https://b.tile.openstreetmap.org "
-        "https://c.tile.openstreetmap.org; "
+        "https://tile.openstreetmap.org; "
         "font-src 'self'; "
         "connect-src 'self'; "
         "frame-src 'self' blob:; "
@@ -214,9 +212,10 @@ class CSRFProtectionMiddleware:
 
         try:
             async with get_db_context() as db:
+                # The table holds digests, so the token itself never matches a row.
                 result = await db.execute(
                     select(CSRFToken).where(
-                        CSRFToken.token == csrf_token,
+                        CSRFToken.token == hash_token(csrf_token),
                         CSRFToken.expires_at > utc_now(),
                     )
                 )

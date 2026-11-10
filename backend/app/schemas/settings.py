@@ -3,7 +3,7 @@
 import datetime as dt
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.schemas._nullability import reject_null
 
@@ -59,8 +59,7 @@ class SettingResponse(SettingBase):
     created_at: dt.datetime
     updated_at: dt.datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SettingsListResponse(BaseModel):
@@ -125,6 +124,14 @@ class SecretsStatusResponse(BaseModel):
         description=(
             "'unavailable' when no usable settings encryption key is configured: secret "
             "settings can't be saved, and encrypted ones can't be read."
+        ),
+    )
+    keyring_source: str | None = Field(
+        default=None,
+        description=(
+            "Which key source broke while the keyring is unavailable: 'env' "
+            "(MYGARAGE_SETTINGS_KEY), 'env_file' (MYGARAGE_SETTINGS_KEY_FILE) or 'data_dir' "
+            "(the data directory's key file); null while it is usable."
         ),
     )
     unreadable_keys: list[str] = Field(

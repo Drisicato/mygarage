@@ -17,8 +17,10 @@ from reportlab.platypus import (
     PageTemplate,
     Paragraph,
     Spacer,
+    TableStyle,
 )
 
+from app.utils.date_order import DateOrder
 from app.utils.pdf_charts import render_donut_chart, render_garage_monthly_trends
 from app.utils.pdf_components import (
     draw_branded_footer,
@@ -38,6 +40,7 @@ from app.utils.pdf_styles import (
     PAGE_HEIGHT,
     PAGE_SIZE,
     SECTION_SPACING,
+    format_currency,
     format_currency_compact,
     format_currency_short,
     get_styles,
@@ -71,11 +74,16 @@ def generate_garage_analytics_pdf(
     garage_data: dict[str, Any],
     currency_code: str = "USD",
     locale: str = "en-US",
+    *,
+    date_order: DateOrder,
 ) -> BytesIO:
     """Generate a branded garage-wide analytics PDF report.
 
     Args:
         garage_data: GarageAnalytics.model_dump() output.
+        currency_code: ISO 4217 code for money.
+        locale: BCP 47 locale for money.
+        date_order: 'mdy' or 'dmy' for the header date.
 
     Returns:
         BytesIO containing the PDF document.
@@ -105,7 +113,7 @@ def generate_garage_analytics_pdf(
     subtitle = "Garage Analytics Report"
 
     def on_first_page(canvas: Any, doc: Any) -> None:  # pyright: ignore[reportUnusedParameter]
-        draw_branded_header(canvas, doc, subtitle)
+        draw_branded_header(canvas, doc, subtitle, date_order=date_order)
         draw_branded_footer(canvas, doc)
 
     def on_later_pages(canvas: Any, doc: Any) -> None:  # pyright: ignore[reportUnusedParameter]
@@ -133,23 +141,8 @@ def generate_garage_analytics_pdf(
     garage_value = _safe_float(total_costs.get("total_garage_value", 0))
     total_maintenance = _safe_float(total_costs.get("total_maintenance", 0))
     total_fuel = _safe_float(total_costs.get("total_fuel", 0))
-
-    # Calculate total operating cost (all categories except garage value)
-    operating_cost = sum(
-        _safe_float(total_costs.get(f, 0))
-        for f in [
-            "total_maintenance",
-            "total_fuel",
-            "total_insurance",
-            "total_taxes",
-            "total_upgrades",
-            "total_inspection",
-            "total_collision",
-            "total_detailing",
-            "total_def",
-            "total_financing",
-        ]
-    )
+    # The route works this out, so the card can't drift from the page.
+    running_cost = _safe_float(total_costs.get("total_running_cost", 0))
 
     kpi_cards = [
         {
@@ -159,15 +152,15 @@ def generate_garage_analytics_pdf(
             "color": "blue",
         },
         {
-            "label": "Operating Cost",
-            "value": format_currency_short(operating_cost, currency_code, locale),
-            "sub": "Maintenance + Fuel + Insurance + Taxes",
+            "label": "Running Cost",
+            "value": format_currency_short(running_cost, currency_code, locale),
+            "sub": "Service + fuel + DEF",
             "color": "green",
         },
         {
             "label": "Total Maintenance",
             "value": format_currency_short(total_maintenance, currency_code, locale),
-            "sub": "Service records",
+            "sub": "Maintenance only",
             "color": "amber",
         },
         {
@@ -242,13 +235,18 @@ def generate_garage_analytics_pdf(
                     fc_compact(v.get("total_detailing", 0)),
                     fc_compact(v.get("total_fuel", 0)),
                     fc_compact(v.get("total_def", 0)),
-                    fc_compact(v.get("total_cost", 0)),
+                    # Cents here, so the totals add up to the Running Cost card.
+                    Paragraph(
+                        format_currency(v.get("total_cost", 0), currency_code, locale), amt_style
+                    ),
                 ]
             )
 
-        # Column widths — give name more room, dollar cols share the rest
-        name_w = CONTENT_WIDTH * 0.13
-        dollar_w = (CONTENT_WIDTH - name_w) / 9
+        # Total gets room for a six-figure amount with cents and a 3-char
+        # symbol (CA$123,456.78); name and the other eight split the rest.
+        name_w = CONTENT_WIDTH * 0.12
+        total_w = 80.0
+        dollar_w = (CONTENT_WIDTH - name_w - total_w) / 8
 
         vehicle_table = make_data_table(
             headers=[
@@ -264,12 +262,23 @@ def generate_garage_analytics_pdf(
                 "Total",
             ],
             rows=table_rows,
-            col_widths=[name_w] + [dollar_w] * 9,
+            col_widths=[name_w] + [dollar_w] * 8 + [total_w],
             amount_columns=list(range(1, 10)),
             compact=True,
         )
 
-        story.append(style_as_card(vehicle_table, padding=8))
+        style_as_card(vehicle_table, padding=8)
+        # Keep the card's 8pt inset on the outer edges only. Inside, the
+        # compact 4pt is plenty and buys each money column 8pt of text.
+        vehicle_table.setStyle(
+            TableStyle(
+                [
+                    ("LEFTPADDING", (1, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-2, -1), 4),
+                ]
+            )
+        )
+        story.append(vehicle_table)
         story.append(Spacer(1, SECTION_SPACING))
 
     # ── 5. Monthly Spending Trends Chart ──────────────────────

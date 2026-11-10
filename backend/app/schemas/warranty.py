@@ -4,9 +4,19 @@ from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas._nullability import reject_null
+
+
+class WarrantyLinkedItem(BaseModel):
+    """A line item done under the warranty."""
+
+    visit_id: int
+    line_item_id: int
+    date: date_type = Field(..., description="The visit's date")
+    description: str = Field(..., description="Service description")
+    cost: Decimal | None = Field(None, description="Cost for this line item")
 
 
 class WarrantyRecordBase(BaseModel):
@@ -70,6 +80,10 @@ class WarrantyRecord(WarrantyRecordBase):
     vin: str
     created_at: datetime
     documents: list[WarrantyDocumentResponse] = Field(default_factory=list)
+    # Not an ORM attribute, so from_attributes leaves it empty; whoever loads
+    # the links sets it.
+    linked_items: list[WarrantyLinkedItem] = Field(
+        default_factory=list, description="Line items done under this warranty, by visit date"
+    )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
