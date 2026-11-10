@@ -207,6 +207,8 @@ describe('FuelRecordForm — the gallon comes from the user, not the instance', 
    *   price   1.32 * 4.54609   = 6.00084   -> 3 display dp     -> 6.001
    *           6.001 / 4.54609  = 1.32003545904 at 12 significant digits
    *
+   * Gallons now display at three decimals, so the volume seeds as 4.996.
+   *
    * Plan 3b task 7 put both fields on the origin-preserving protocol, so the
    * right-hand column is now what the form does NOT post. The first case
    * asserts that, and asserts the two shifted answers by name so it cannot pass
@@ -241,7 +243,7 @@ describe('FuelRecordForm — the gallon comes from the user, not the instance', 
     // ★ The DISPLAY is still quantised onto the grid the input accepts, and
     // that is what makes the payload assertions below mean something: the
     // form is not posting the stored values because it never rounded them.
-    expect(field('liters').value).toBe('5')
+    expect(field('liters').value).toBe('4.996')
     expect(field('price_per_unit').value).toBe('6.001')
 
     fireEvent.submit(drawerForm())
@@ -389,9 +391,9 @@ describe('FuelRecordForm — the gallon comes from the user, not the instance', 
     fireEvent.click(screen.getByRole('button', { name: 'fuel.parseReceipt' }))
     fireEvent.click(await screen.findByRole('button', { name: 'fuel.receiptDraftAccept' }))
 
-    // 22.712 / 4.54609 = 4.9959... at two decimals is 5.00; 1.32 x 4.54609 =
+    // 22.712 / 4.54609 = 4.9959... at three decimals is 4.996; 1.32 x 4.54609 =
     // 6.00084 at three is 6.001. Both are quantised, which is the point.
-    await waitFor(() => expect(field('liters').value).toBe('5'))
+    await waitFor(() => expect(field('liters').value).toBe('4.996'))
     expect(field('price_per_unit').value).toBe('6.001')
 
     fireEvent.change(field('date'), { target: { value: '2026-02-10' } })
@@ -435,8 +437,8 @@ describe('FuelRecordForm — the gallon comes from the user, not the instance', 
       />
     )
     await waitFor(() => expect(field('propane_liters')).not.toBeNull())
-    // 22.712 / 4.54609 = 4.9959... at two decimals is 5.00.
-    expect(field('propane_liters').value).toBe('5')
+    // 22.712 / 4.54609 = 4.9959... at three decimals is 4.996.
+    expect(field('propane_liters').value).toBe('4.996')
 
     fireEvent.submit(drawerForm())
     await waitFor(() => expect(mockedApiPut).toHaveBeenCalled())

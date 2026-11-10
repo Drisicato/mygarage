@@ -184,6 +184,8 @@ export default function CompleteRepairDialog({
                 category: serviceCategory,
                 cost: null,
                 is_inspection: false,
+                is_recall: false,
+                is_warranty: false,
                 supplies_used: [{ supply_id: item.supplyId, quantity: canonicalQuantity(item) }],
               }
             : {
@@ -191,6 +193,8 @@ export default function CompleteRepairDialog({
                 category: serviceCategory,
                 cost: parseOptionalDecimal(item.cost) ?? null,
                 is_inspection: false,
+                is_recall: false,
+                is_warranty: false,
               },
         ),
     }

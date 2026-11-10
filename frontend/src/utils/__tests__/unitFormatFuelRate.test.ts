@@ -62,33 +62,33 @@ describe('formatFuelRate', () => {
 
   it('renders a US-gallon set in US gallons per hour', () => {
     // 3.785411784 L is one US gallon.
-    expect(formatFuelRate(IMPERIAL, 3.785411784)).toBe('1.00 gal/hr')
-    expect(formatFuelRate(IMPERIAL, 12)).toBe('3.17 gal/hr')
+    expect(formatFuelRate(IMPERIAL, 3.785411784)).toBe('1.000 gal/hr')
+    expect(formatFuelRate(IMPERIAL, 12)).toBe('3.170 gal/hr')
   })
 
   it('★ takes the gallon from the reader\'s own token, not an instance static', () => {
     // Defect L1's fuel-rate half. `UnitFormatter.formatFuelRate` divided by
     // `LITERS_PER_SECONDARY_GALLON[getGallonStandard()]`, a MUTABLE static
     // following the INSTANCE setting, so a `gal_uk` account on a US-default
-    // instance read 4.54609 L/hr as 1.20 GPH beside a volume column that had
+    // instance read 4.54609 L/hr as 1.201 GPH beside a volume column that had
     // already converted it as one imperial gallon.
-    expect(formatFuelRate(UK_IMPERIAL, 4.54609)).toBe('1.00 gal (UK)/hr')
-    expect(formatFuelRate(IMPERIAL, 4.54609)).toBe('1.20 gal/hr')
+    expect(formatFuelRate(UK_IMPERIAL, 4.54609)).toBe('1.000 gal (UK)/hr')
+    expect(formatFuelRate(IMPERIAL, 4.54609)).toBe('1.201 gal/hr')
   })
 
   it('appends the counterpart under show-both, in the D4b gallon flavour', () => {
-    expect(formatFuelRate(METRIC, 3.785411784, true)).toBe('3.79 L/hr (1.00 gal/hr)')
-    expect(formatFuelRate(METRIC_UK_PAIR, 4.54609, true)).toBe('4.55 L/hr (1.00 gal (UK)/hr)')
-    expect(formatFuelRate(IMPERIAL, 3.785411784, true)).toBe('1.00 gal/hr (3.79 L/hr)')
+    expect(formatFuelRate(METRIC, 3.785411784, true)).toBe('3.79 L/hr (1.000 gal/hr)')
+    expect(formatFuelRate(METRIC_UK_PAIR, 4.54609, true)).toBe('4.55 L/hr (1.000 gal (UK)/hr)')
+    expect(formatFuelRate(IMPERIAL, 3.785411784, true)).toBe('1.000 gal/hr (3.79 L/hr)')
   })
 
   it('★ suffixes each representation, never the composed string', () => {
-    // `unit_formatting.format_rate`'s rule: "3.79 L (1.00 gal)/hr" would state
+    // `unit_formatting.format_rate`'s rule: "3.79 L (1.000 gal)/hr" would state
     // neither rate correctly. Asserted as a shape, so a naive
     // `${format(...)}/hr` reimplementation fails here rather than passing the
     // equality above by luck.
     const both = formatFuelRate(METRIC, 3.785411784, true)
-    expect(both).not.toBe('3.79 L (1.00 gal)/hr')
+    expect(both).not.toBe('3.79 L (1.000 gal)/hr')
     expect(both.split('/hr')).toHaveLength(3)
   })
 
@@ -111,7 +111,7 @@ describe('formatFuelRate', () => {
     // 'N/A' claimed the figure was unknown. Matches `format_rate`, which
     // short-circuits only on a conversion that is undefined.
     expect(formatFuelRate(METRIC, 0)).toBe('0.00 L/hr')
-    expect(formatFuelRate(IMPERIAL, 0)).toBe('0.00 gal/hr')
+    expect(formatFuelRate(IMPERIAL, 0)).toBe('0.000 gal/hr')
   })
 })
 
@@ -199,12 +199,12 @@ describe('consumption, through the resolved token', () => {
 describe('formatVolumeRate: the same mechanism with the period as a parameter', () => {
   // 20.8 L is 20.8 / 3.785411784 = 5.4948... US gallons.
   it('renders a per-month rate in the reader\'s volume unit', () => {
-    expect(formatVolumeRate(IMPERIAL, 20.8, PER_MONTH)).toBe('5.49 gal/mo')
+    expect(formatVolumeRate(IMPERIAL, 20.8, PER_MONTH)).toBe('5.495 gal/mo')
     expect(formatVolumeRate(METRIC, 20.8, PER_MONTH)).toBe('20.80 L/mo')
   })
 
   it('puts the suffix on each representation when show-both is on', () => {
-    expect(formatVolumeRate(METRIC, 20.8, PER_MONTH, true)).toBe('20.80 L/mo (5.49 gal/mo)')
+    expect(formatVolumeRate(METRIC, 20.8, PER_MONTH, true)).toBe('20.80 L/mo (5.495 gal/mo)')
   })
 
   it('is what formatFuelRate is built on', () => {

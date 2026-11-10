@@ -211,8 +211,8 @@ describe('DEFRecordForm — the gallon comes from the user, not the instance', (
     // that test passed on the shipped code too and said nothing about ruling
     // R4. This one is an ordinary stored pair, and the shipped path moved both:
     //
-    //   volume  22.712 / 4.54609 = 4.9959... -> two display dp  -> 5.00
-    //           5 * 4.54609      = 22.73045  -> 3 wire decimals -> 22.73
+    //   volume  22.712 / 4.54609 = 4.9959... -> three display dp -> 4.996
+    //           (at the old two dp: 5 * 4.54609 = 22.73045 -> 22.73)
     //   price   1.32 * 4.54609   = 6.00084   -> 3 display dp    -> 6.001
     //           6.001 / 4.54609  = 1.32003545904 at 12 significant digits
     unitPrefMock.system = 'imperial'
@@ -223,7 +223,7 @@ describe('DEFRecordForm — the gallon comes from the user, not the instance', (
       liters: 22.712, price_per_unit: 1.32, cost: 30.01,
     } as never} />)
     // The DISPLAY is quantised, which is what makes the payload meaningful.
-    expect((document.getElementById('liters') as HTMLInputElement).value).toBe('5')
+    expect((document.getElementById('liters') as HTMLInputElement).value).toBe('4.996')
     expect((document.getElementById('price_per_unit') as HTMLInputElement).value).toBe('6.001')
 
     fireEvent.submit(defForm())

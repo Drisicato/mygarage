@@ -34,10 +34,13 @@ code under test.
   US_GALLONS_TO_LITERS  3.785411784
   UK_GALLONS_TO_LITERS  4.54609
 
-  12345.00 km / 1.609344 = 7670.827368...  -> "7670.827"  (3 dp)
-    800.00 km / 1.609344 =  497.096954...  ->  "497.097"
-    900.00 km / 1.609344 =  559.234073...  ->  "559.234"
-   40.000 L  / 3.785411784  =   10.566882...  ->  "10.5669"  (4 dp)
+A converted cell takes the fewest places (up to 3 for mi, 4 for gal) whose
+conversion back stores as the same canonical value:
+
+  12345.00 km / 1.609344 = 7670.827368...  -> "7670.83"   (x 1.609344 = 12344.997)
+    800.00 km / 1.609344 =  497.096954...  ->  "497.1"    (= 800.002)
+    900.00 km / 1.609344 =  559.234073...  ->  "559.234"  (559.23 = 899.993)
+   40.000 L  / 3.785411784  =   10.566882...  ->  "10.567"   (x 3.785411784 = 40.0004)
    20.000 L  / 3.785411784  =    5.283441...  ->   "5.2834"
    40.000 L  / 4.54609  =    8.798770...  ->   "8.7988"
    20.000 L  / 4.54609  =    4.399385...  ->   "4.3994"
@@ -355,7 +358,7 @@ class TestServiceHistoryCsv:
             assert rows[0] == SERVICE_HISTORY_IMPERIAL
             assert rows[1] == [
                 "2026-03-01",
-                "7670.827",
+                "7670.83",
                 "Maintenance",
                 "Oil change",
                 "49.99",
@@ -430,10 +433,10 @@ class TestAllRecordsCsv:
             await _seed(db_session, owner)
             rows = _rows(await _get(client, _headers_for(caller), "all-records-csv"))
             assert rows[0] == ALL_RECORDS_IMPERIAL
-            assert rows[1][5] == "7670.827"
+            assert rows[1][5] == "7670.83"
             assert rows[1][7] == ""
-            assert rows[2][5] == "497.097"
-            assert rows[2][7] == "10.5669"
+            assert rows[2][5] == "497.1"
+            assert rows[2][7] == "10.567"
             assert rows[3][5] == "559.234"
             assert rows[3][7] == "5.2834"
         finally:
@@ -472,7 +475,7 @@ class TestAllRecordsCsv:
             assert rows[0][5] == "Odometer (km)"
             assert rows[0][7] == "Volume (gal_us)"
             assert rows[2][5] == "800.00"
-            assert rows[2][7] == "10.5669"
+            assert rows[2][7] == "10.567"
         finally:
             await _cleanup(db_session)
 
@@ -667,7 +670,7 @@ class TestAZeroIsARealValue:
 
             rows = _rows(await _get(client, _headers_for(caller), "service-history-csv"))
             zero_row = next(row for row in rows[1:] if row[0] == "2026-02-02")
-            assert zero_row[1] == "0.000"
+            assert zero_row[1] == "0"
         finally:
             await _cleanup(db_session)
 
@@ -724,8 +727,8 @@ class TestCellsAreNumericOnly:
             all_records = _rows(await _get(client, _headers_for(caller), "all-records-csv"))
             # The conversion DID happen, so "no counterpart in the cell" is
             # not just "nothing was converted".
-            assert service[1][1] == "7670.827"
-            assert all_records[2][7] == "10.5669"
+            assert service[1][1] == "7670.83"
+            assert all_records[2][7] == "10.567"
             for report, rows in (("service", service), ("all", all_records)):
                 for row in rows[1:]:
                     for cell in row:
@@ -745,7 +748,7 @@ class TestCellsAreNumericOnly:
             await _seed(db_session, owner)
             rows = _rows(await _get(client, _headers_for(caller), "service-history-csv"))
             odometer = rows[1][1]
-            assert odometer == "7670.827"
+            assert odometer == "7670.83"
             assert "," not in odometer
             assert "mi" not in odometer
         finally:

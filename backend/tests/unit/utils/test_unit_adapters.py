@@ -18,8 +18,8 @@ EXPECTED: dict[str, tuple[str, int, str | None]] = {
     "m": ("m", 2, "1"),
     "ft": ("ft", 2, "0.3048"),
     "L": ("L", 2, "1"),
-    "gal_us": ("gal", 2, "3.785411784"),
-    "gal_uk": ("gal (UK)", 2, "4.54609"),
+    "gal_us": ("gal", 3, "3.785411784"),
+    "gal_uk": ("gal (UK)", 3, "4.54609"),
     "l_100km": ("L/100km", 2, "1"),
     "km_l": ("km/L", 2, "100"),
     "mpg_us": ("MPG", 1, "235.2145833333333333333333333"),
@@ -243,7 +243,7 @@ class TestUkLabelsNameThemselves:
 
     def test_uk_volume_renders_with_uk(self) -> None:
         # 45.4609 L / 4.54609 = 10 UK gallons.
-        assert ADAPTERS["gal_uk"].format(Decimal("45.4609")) == "10.00 gal (UK)"
+        assert ADAPTERS["gal_uk"].format(Decimal("45.4609")) == "10.000 gal (UK)"
 
     def test_uk_economy_renders_with_uk(self) -> None:
         # 282.48... / 9.4 = 30.05 UK MPG.
@@ -251,5 +251,5 @@ class TestUkLabelsNameThemselves:
 
     def test_us_labels_unchanged(self) -> None:
         """Guard: the US side keeps its bare labels."""
-        assert ADAPTERS["gal_us"].format(Decimal("37.85411784")) == "10.00 gal"
+        assert ADAPTERS["gal_us"].format(Decimal("37.85411784")) == "10.000 gal"
         assert ADAPTERS["mpg_us"].format(Decimal("9.4")) == "25.0 MPG"

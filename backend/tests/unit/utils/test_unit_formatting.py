@@ -110,17 +110,17 @@ class TestMissingCounterpart:
 class TestSecondaryGallon:
     """A litre primary's show-both counterpart has no flavour of its own
     (D4b), so `secondary_gallon` supplies one. Canonical: 40 L.
-    40 / 3.785411784 = 10.56688... -> "10.57"; 40 / 4.54609 = 8.79877... -> "8.80"."""
+    40 / 3.785411784 = 10.56688... -> "10.567"; 40 / 4.54609 = 8.79877... -> "8.799"."""
 
     def test_us_secondary_gallon(self) -> None:
         ctx = _ctx(show_both=True, volume="L", secondary_gallon="us")
         result = format_quantity(Decimal("40"), ctx, "volume")
-        assert result == "40.00 L (10.57 gal)"
+        assert result == "40.00 L (10.567 gal)"
 
     def test_uk_secondary_gallon(self) -> None:
         ctx = _ctx(show_both=True, volume="L", secondary_gallon="uk")
         result = format_quantity(Decimal("40"), ctx, "volume")
-        assert result == "40.00 L (8.80 gal (UK))"
+        assert result == "40.00 L (8.799 gal (UK))"
 
     def test_the_two_flavours_actually_differ(self) -> None:
         """Two settings that happen to agree would prove nothing (same
@@ -179,8 +179,8 @@ class TestForcedVolumePair:
     """DEF's forced dual representation: always litres-then-gallons,
     independent of `show_both`, with the gallon flavour chosen by D4b
     precedence rather than the show-both counterpart table. Canonical: 2.5 L.
-    2.5 / 3.785411784 = 0.660430... -> "0.66"; 2.5 / 4.54609 = 0.549923... ->
-    "0.55". Preserves the live string's separator: `" / "`, single spaces,
+    2.5 / 3.785411784 = 0.660430... -> "0.660"; 2.5 / 4.54609 = 0.549923... ->
+    "0.550". Preserves the live string's separator: `" / "`, single spaces,
     no surrounding parenthesis or "remaining" text (that belongs to the
     dispatcher's own message template, Task 6)."""
 
@@ -189,17 +189,17 @@ class TestForcedVolumePair:
 
     def test_litre_primary_us_secondary(self) -> None:
         ctx = _ctx(volume="L", secondary_gallon="us")
-        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.66 gal"
+        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.660 gal"
 
     def test_litre_primary_uk_secondary(self) -> None:
         ctx = _ctx(volume="L", secondary_gallon="uk")
-        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.55 gal (UK)"
+        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.550 gal (UK)"
 
     def test_gal_uk_primary_wins_over_us_secondary(self) -> None:
         """Conflict direction 1: a UK-gallon primary beats a US
         `secondary_gallon`, because the primary states its own flavour."""
         ctx = _ctx(volume="gal_uk", secondary_gallon="us")
-        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.55 gal (UK)"
+        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.550 gal (UK)"
 
     def test_gal_us_primary_wins_over_uk_secondary(self) -> None:
         """Conflict direction 2: the reverse pairing. Testing only the
@@ -208,10 +208,10 @@ class TestForcedVolumePair:
         "always use the primary" -- both of which pass one direction and
         fail the other."""
         ctx = _ctx(volume="gal_us", secondary_gallon="uk")
-        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.66 gal"
+        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.660 gal"
 
     @pytest.mark.parametrize("show_both", [True, False])
     def test_unaffected_by_show_both(self, show_both: bool) -> None:
         """Not `format_quantity` with a flag: DEF emits both units always."""
         ctx = _ctx(show_both=show_both, volume="L", secondary_gallon="us")
-        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.66 gal"
+        assert format_forced_volume_pair(Decimal("2.5"), ctx) == "2.50 L / 0.660 gal"

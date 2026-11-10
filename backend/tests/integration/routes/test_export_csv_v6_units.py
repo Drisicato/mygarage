@@ -424,7 +424,7 @@ class TestMarkerDiscriminatesOnTheResolvedSet:
             assert "Price Per Unit (gal_uk)" in headers
             assert row["Odometer (km)"] == "500.00"
             assert row["Volume (gal_uk)"] == "8.7988"
-            assert row["Price Per Unit (gal_uk)"] == "6.8191"
+            assert row["Price Per Unit (gal_uk)"] == "6.819"
             # Consumption and temperature stayed metric: only volume moved.
             assert row["OBC Economy (l_100km)"] == "8.0000"
             assert row["Outside Temp (c)"] == "20.00"
@@ -532,10 +532,10 @@ class TestExplicitUnitsParameterWinsOutright:
             assert row["unit_system"] == "imperial"
             assert "Volume (gal_us)" in headers
             assert "Volume (gal_uk)" not in headers
-            # 40 L is 10.5669 US gallons, not 8.7988 UK ones.
-            assert row["Volume (gal_us)"] == "10.5669"
-            assert row["Price Per Unit (gal_us)"] == "5.6781"
-            assert row["OBC Economy (mpg_us)"] == "29.40182"
+            # 40 L is 10.567 US gallons, not 8.7988 UK ones.
+            assert row["Volume (gal_us)"] == "10.567"
+            assert row["Price Per Unit (gal_us)"] == "5.678"
+            assert row["OBC Economy (mpg_us)"] == "29.402"
         finally:
             await _cleanup(db_session)
 
@@ -561,9 +561,9 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
             assert row["unit_system"] == "custom"
             assert row["Odometer (mi)"] == "310.686"
             assert row["Volume (gal_uk)"] == "8.7988"
-            assert row["Price Per Unit (gal_uk)"] == "6.8191"
-            assert row["Outside Temp (f)"] == "68.00"
-            assert row["OBC Economy (mpg_uk)"] == "35.31012"
+            assert row["Price Per Unit (gal_uk)"] == "6.819"
+            assert row["Outside Temp (f)"] == "68"
+            assert row["OBC Economy (mpg_uk)"] == "35.31"
             assert row["OBC Avg Speed (mph)"] == "62.14"
             # Dimensionless columns are untouched by the unit set.
             assert row["Engine Hours"] == "42.3"
@@ -607,8 +607,8 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
                 "Visit Notes",
             ]
             assert row["unit_system"] == "custom"
-            # 600 km / 1.609344 = 372.82272...
-            assert row["Odometer (mi)"] == "372.823"
+            # 600 km / 1.609344 = 372.82272...; 372.82 mi = 599.996 km -> 600.00
+            assert row["Odometer (mi)"] == "372.82"
             assert row["Cost"] == "20.00"
         finally:
             await _cleanup(db_session)
@@ -642,9 +642,10 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
             ]
             assert row["unit_system"] == "custom"
             assert row["Odometer (mi)"] == "310.686"
-            # 10 L / 4.54609 = 2.19969...; 0.850 * 4.54609 = 3.8641765 (4 dp)
+            # 10 L / 4.54609 = 2.19969...; 0.850 * 4.54609 = 3.8641765, and
+            # 3.864 / 4.54609 = 0.84996 stores as 0.8500 again
             assert row["Volume (gal_uk)"] == "2.1997"
-            assert row["Price Per Unit (gal_uk)"] == "3.8642"
+            assert row["Price Per Unit (gal_uk)"] == "3.864"
         finally:
             await _cleanup(db_session)
 
@@ -664,8 +665,8 @@ class TestEveryUnitBearingPairEmitsTokenisedHeaders:
             headers, row = _read(response.text)
             assert headers == ["units_version", "unit_system", "Date", "Reading (mi)", "Notes"]
             assert row["unit_system"] == "custom"
-            # 1000 km / 1.609344 = 621.37119...
-            assert row["Reading (mi)"] == "621.371"
+            # 1000 km / 1.609344 = 621.37119...; 621.37 mi = 999.998 km -> 1000.00
+            assert row["Reading (mi)"] == "621.37"
         finally:
             await _cleanup(db_session)
 

@@ -341,8 +341,9 @@ def _fuel_row(
     else:
         liters = (quantity * LITRES_PER[opts.fuel_unit]).quantize(Decimal("0.001"))
     unit_amount = kwh if electric else liters
+    # The column's own scale. At 0.001/L a $3.849/gal fill-up came back $3.850.
     price_per_unit = (
-        (cost / unit_amount).quantize(Decimal("0.001"))
+        (cost / unit_amount).quantize(Decimal("0.0001"))
         if cost is not None and unit_amount
         else None
     )

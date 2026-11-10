@@ -390,16 +390,16 @@ describe('FuelRecordList — hours usage tracking (Task 13)', () => {
     useFuelRecordsMock.mockReturnValue({ data: HOURS_DATA, isLoading: false, error: null })
     render(<FuelRecordList {...DEFAULT_PROPS} />)
 
-    // 4.5 / 4.54609 = 0.99 on the card; 3.2 / 4.54609 = 0.70 in the row.
-    expect(await screen.findByText('0.99 gal (UK)/hr')).toBeInTheDocument()
-    expect(within(table()).getByText('0.70 gal (UK)/hr')).toBeInTheDocument()
+    // 4.5 / 4.54609 = 0.990 on the card; 3.2 / 4.54609 = 0.704 in the row.
+    expect(await screen.findByText('0.990 gal (UK)/hr')).toBeInTheDocument()
+    expect(within(table()).getByText('0.704 gal (UK)/hr')).toBeInTheDocument()
     // The card's LABEL too, through the local i18n mock's `{{unit}}`: a label
     // that lost the `/hr` and read a bare `gal` would otherwise survive, since
     // the value beside it is unchanged.
     expect(screen.getByText('fuelList.avgFuelRate (gal (UK)/hr)')).toBeInTheDocument()
     // What the instance-wide US gallon would have answered for the same rows.
-    // 4.5 / 3.785411784 = 1.19, printed by the US adapter.
-    expect(screen.queryByText('1.19 gal/hr')).not.toBeInTheDocument()
+    // 4.5 / 3.785411784 = 1.189, printed by the US adapter.
+    expect(screen.queryByText('1.189 gal/hr')).not.toBeInTheDocument()
     expect(screen.queryByText('1.19 GPH')).not.toBeInTheDocument()
   })
 

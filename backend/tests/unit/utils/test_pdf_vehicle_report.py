@@ -616,7 +616,7 @@ class TestRenderContextDrivesUnits:
         rate        1,000 / 1.609344 = 621.3712 -> "621 mi/mo"; the suffix is
                     applied to EACH side, never to a composed string
         consumption 235.2145833... / 9.4 = 25.0228 -> "25.0 MPG" (precision 1)
-        fuel rate   1.85 / 3.785411784 = 0.4887 -> "0.49 gal/hr" (precision 2)
+        fuel rate   1.85 / 3.785411784 = 0.4887 -> "0.489 gal/hr" (precision 2)
         cost/dist   0.42 * 1 * 100 = 42.00 -> "$42.00" under "Cost Per 100 km";
                     0.42 * 1.609344 * 1000 = 675.9245 -> "$675.92" under
                     "Cost Per 1,000 mi"; a counterpart keeps its scale
@@ -685,7 +685,7 @@ class TestRenderContextDrivesUnits:
         assert "7,456 mi" in text
         assert "Avg 621 mi/mo" in text
         assert "25.0 MPG" in text
-        assert "0.49 gal/hr" in text
+        assert "0.489 gal/hr" in text
         assert "COST PER 1,000 MI $675.92" in text
         assert "31,069 mi" in text
 
@@ -708,7 +708,7 @@ class TestRenderContextDrivesUnits:
 
     def test_uk_reader_sees_uk_gallons_and_uk_mpg(self) -> None:
         """D3: a UK reader's economy and fuel rate say (UK). 282.48... / 9.4 =
-        30.05 -> "30.1 MPG (UK)"; 1.85 / 4.54609 = 0.407 -> "0.41 gal (UK)/hr"."""
+        30.05 -> "30.1 MPG (UK)"; 1.85 / 4.54609 = 0.407 -> "0.407 gal (UK)/hr"."""
         data = _make_unit_bearing_data()
 
         text = _normalized_text(
@@ -716,7 +716,7 @@ class TestRenderContextDrivesUnits:
         )
 
         assert "30.1 MPG (UK)" in text
-        assert "0.41 gal (UK)/hr" in text
+        assert "0.407 gal (UK)/hr" in text
 
     def test_us_reader_gets_no_uk_tag(self) -> None:
         """Guard: the US labels stay bare."""
@@ -745,7 +745,7 @@ class TestRenderContextDrivesUnits:
         # which states neither rate.
         assert "Avg 1,000 km/mo (621 mi/mo)" in text
         assert "9.40 L/100km (25.0 MPG)" in text
-        assert "1.85 L/hr (0.49 gal/hr)" in text
+        assert "1.85 L/hr (0.489 gal/hr)" in text
         # The counterpart keeps its scale, nothing else on the card names it.
         assert "COST PER 100 KM $42.00 ($675.92/1,000 mi)" in text
         assert "50,000 km (31,069 mi)" in text

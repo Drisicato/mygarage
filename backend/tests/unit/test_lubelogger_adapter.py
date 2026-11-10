@@ -115,7 +115,7 @@ class TestFuel:
         assert first["odometer_km"] == Decimal("115389.96")  # 71,700 mi
         assert first["liters"] == Decimal("39.747")  # 10.5 US gal
         assert first["cost"] == Decimal("42.00")
-        assert first["price_per_unit"] == Decimal("1.057")
+        assert first["price_per_unit"] == Decimal("1.0567")  # the column's 4 places
         assert first["is_full_tank"] is True
         assert first["missed_fillup"] is False
         assert first["notes"] == "Costco\nTags: road trip"

@@ -91,6 +91,11 @@ kilometre. The table below is derived from what each column's stored
 |              |                 | lb       | 5  | a pound price is 0.4536x the |
 |              |                 |          |    | kilo price; 4 dp is coarser  |
 
+For a converted (non-canonical) token the dp is a ceiling, not a fixed
+width: the cell is written at the fewest places that re-import as the stored
+value, so a whole-mile odometer goes out as `41223` rather than the
+`41223.001` its 66341.99 km storage converts to.
+
 The three reciprocal consumption tokens have no fixed resolution: one step of
 MPG is worth more L/100km the thirstier the vehicle. Five decimals carries
 the stored 0.0001 L/100km down to 4.9 US MPG and 5.3 UK MPG, below which no
@@ -114,7 +119,7 @@ file's units.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -174,6 +179,17 @@ _MASS_DECIMALS: Mapping[str, int] = {"kg": 3, "lb": 3}
 _PRICE_PER_MASS_DECIMALS: Mapping[str, int] = {"kg": 4, "lb": 5}
 #: per_kwh and per_tank prices go out as stored.
 _UNITLESS_PRICE_DECIMALS = 4
+#: The token each quantity is stored in; a cell in any other token is converted.
+_CANONICAL_TOKENS: Mapping[str, str] = {
+    DISTANCE: "km",
+    VOLUME: "L",
+    PROPANE_VOLUME: "L",
+    PRICE_PER_VOLUME: "L",
+    TEMPERATURE: "c",
+    CONSUMPTION: "l_100km",
+    SPEED: "kmh",
+    MASS: "kg",
+}
 
 # Keyed by the CANONICAL header name the four export routes declare, which is
 # also the metric spelling v3 through v5 emitted. A header not in this map is
@@ -282,26 +298,60 @@ def _quantized(value: Decimal, decimals: int) -> str:
     return format(value.quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP), "f")
 
 
+def _shortest_round_trip(
+    display: Decimal,
+    decimals: int,
+    stored: Decimal,
+    canonical_decimals: int,
+    to_canonical: Callable[[Decimal], Decimal | None],
+) -> str:
+    """`display` at the fewest places, up to `decimals`, that re-import as `stored`.
+
+    A converted cell at a fixed `decimals` drags the storage rounding along:
+    41,223 mi is stored as 66341.99 km and went out as 41223.001. The
+    importer converts a cell back with the same adapter and stores it at the
+    column's scale, half up, so any spelling that lands on `stored` there is
+    as lossless as the full `decimals`; the shortest one is what was typed.
+    """
+    step = Decimal(1).scaleb(-canonical_decimals)
+    target = stored.quantize(step, rounding=ROUND_HALF_UP)
+    for places in range(decimals):
+        candidate = display.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+        back = to_canonical(candidate)
+        if back is not None and back.quantize(step, rounding=ROUND_HALF_UP) == target:
+            return format(candidate, "f")
+    return _quantized(display, decimals)
+
+
 def cell_for(column: EmittedColumn, token: str, value: Decimal | None) -> str:
     """One canonical value as the numeric cell `column` writes in `token`.
 
     Returns `""` for an absent value, and for a reciprocal adapter's
     undefined zero (0 L/100km has no MPG). Never returns a grouped or
-    labelled number: this is a CSV cell, not a rendering.
+    labelled number: this is a CSV cell, not a rendering. A converted cell is
+    written at the fewest places that still re-import exactly (see
+    `_shortest_round_trip`); a canonical one keeps the stored scale.
     """
     if value is None:
         return ""
     decimals = column.decimals[token]
+    canonical = _CANONICAL_TOKENS[column.quantity]
+    to_canonical: Callable[[Decimal], Decimal | None]
     if column.quantity == PRICE_PER_VOLUME:
         # Denominator-aware: a price PER GALLON is a price per litre
         # MULTIPLIED by the litres in a gallon. Scaling it the way the volume
         # column scales (dividing) is off by the square of the factor.
-        display: Decimal | None = value * volume_factor(token)
+        factor = volume_factor(token)
+        display: Decimal | None = value * factor
+        to_canonical = lambda typed: typed / factor  # noqa: E731
     else:
         display = ADAPTERS[token].to_display(value)
+        to_canonical = ADAPTERS[token].to_canonical
     if display is None:
         return ""
-    return _quantized(display, decimals)
+    if token == canonical:
+        return _quantized(display, decimals)
+    return _shortest_round_trip(display, decimals, value, column.decimals[canonical], to_canonical)
 
 
 def price_cell(price: BasisPrice, volume_token: str, units: UnitSet) -> str:

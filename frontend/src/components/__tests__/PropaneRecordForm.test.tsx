@@ -242,19 +242,19 @@ describe('PropaneRecordForm — the gallon comes from the user, not the instance
     fireEvent.change(document.getElementById('date') as HTMLInputElement, { target: { value: '2026-02-10' } })
     fireEvent.change(document.getElementById('tank_size_kg') as HTMLSelectElement, { target: { value: '20' } })
     fireEvent.change(document.getElementById('tank_quantity') as HTMLInputElement, { target: { value: '2' } })
-    // 2 x 9.07 kg x 1.968 L/kg = 35.69952 L, which is 7.85 imperial gallons
-    // (it would be 9.43 US ones).
+    // 2 x 20 lb (9.0718 kg) x 1.968 L/kg = 35.7068 L, which is 7.854 imperial
+    // gallons (it would be 9.433 US ones).
     await waitFor(() =>
-      expect((document.getElementById('propane_liters') as HTMLInputElement).value).toBe('7.85')
+      expect((document.getElementById('propane_liters') as HTMLInputElement).value).toBe('7.854')
     )
 
     fireEvent.change(document.getElementById('price_per_unit') as HTMLInputElement, { target: { value: '6' } })
-    await waitFor(() => expect((document.getElementById('cost') as HTMLInputElement).value).toBe('47.1'))
+    await waitFor(() => expect((document.getElementById('cost') as HTMLInputElement).value).toBe('47.12'))
     fireEvent.submit(propaneForm())
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const payload = createMock.mock.calls[0][0] as Record<string, unknown>
-    expect(payload.propane_liters).toBe(35.687)   // 7.85 x 4.54609, at 3 dp
+    expect(payload.propane_liters).toBe(35.705)   // 7.854 x 4.54609, at 3 dp
     expect(payload.price_per_unit).toBe(1.31981548979)
     const ratio = (payload.price_per_unit as number) * (payload.propane_liters as number) / (payload.cost as number)
     expect(ratio).toBeCloseTo(1, 3)
@@ -265,8 +265,8 @@ describe('PropaneRecordForm — the gallon comes from the user, not the instance
     // are exact round-trip fixed points, so that test passed on the shipped
     // code too. This pair is not, and the shipped path moved both:
     //
-    //   volume  22.712 / 4.54609 = 4.9959... -> two display dp  -> 5.00
-    //           5 * 4.54609      = 22.73045  -> 3 wire decimals -> 22.73
+    //   volume  22.712 / 4.54609 = 4.9959... -> three display dp -> 4.996
+    //           (at the old two dp: 5 * 4.54609 = 22.73045 -> 22.73)
     //   price   1.32 * 4.54609   = 6.00084   -> 3 display dp    -> 6.001
     //           6.001 / 4.54609  = 1.32003545904 at 12 significant digits
     unitPrefMock.system = 'imperial'
@@ -276,7 +276,7 @@ describe('PropaneRecordForm — the gallon comes from the user, not the instance
       id: 13, vin: DEFAULT_PROPS.vin, date: '2026-02-10',
       propane_liters: 22.712, price_per_unit: 1.32, price_basis: 'per_volume', cost: 30.01,
     } as never} />)
-    expect((document.getElementById('propane_liters') as HTMLInputElement).value).toBe('5')
+    expect((document.getElementById('propane_liters') as HTMLInputElement).value).toBe('4.996')
     expect((document.getElementById('price_per_unit') as HTMLInputElement).value).toBe('6.001')
 
     fireEvent.submit(propaneForm())

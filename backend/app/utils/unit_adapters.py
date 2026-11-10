@@ -176,9 +176,9 @@ ADAPTERS: Mapping[str, UnitAdapter] = {
     "ft": LinearUnitAdapter("ft", "ft", 2, UnitConverter.FEET_TO_METERS),
     # Volume
     "L": LinearUnitAdapter("L", "L", 2, Decimal("1")),
-    "gal_us": LinearUnitAdapter("gal_us", "gal", 2, UnitConverter.US_GALLONS_TO_LITERS),
+    "gal_us": LinearUnitAdapter("gal_us", "gal", 3, UnitConverter.US_GALLONS_TO_LITERS),
     # UK labels say so, or a UK reader can't tell which gallon they're looking at.
-    "gal_uk": LinearUnitAdapter("gal_uk", "gal (UK)", 2, UnitConverter.UK_GALLONS_TO_LITERS),
+    "gal_uk": LinearUnitAdapter("gal_uk", "gal (UK)", 3, UnitConverter.UK_GALLONS_TO_LITERS),
     # Consumption
     "l_100km": LinearUnitAdapter("l_100km", "L/100km", 2, Decimal("1")),
     "km_l": InverseUnitAdapter("km_l", "km/L", 2, _KM_L_NUMERATOR),

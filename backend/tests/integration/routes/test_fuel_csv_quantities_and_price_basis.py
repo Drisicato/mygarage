@@ -136,7 +136,7 @@ async def test_a_kwh_and_a_per_tank_price_keep_their_figures_on_an_imperial_file
         "per_kwh",
     )
     assert (tank["Tank Size (lb)"], tank["Tank Quantity"], tank["Price Per Unit (gal_us)"]) == (
-        "20.000",
+        "20",
         "1",
         "25.0000",
     )
@@ -189,15 +189,16 @@ async def test_a_propane_row_round_trips_in_uk_gallons_and_pounds(
     exported = await client.get(f"/api/export/vehicles/{source}/fuel/csv", headers=headers)
     assert exported.status_code == 200, exported.text
     by_volume, by_weight = sorted(_rows(exported.text), key=lambda r: r["Date"])
-    # 18.184 / 4.54609 = 3.99992; 0.88 * 4.54609 = 4.00056
+    # 18.184 / 4.54609 = 3.99992, and 4 gal (UK) = 18.18436 L stores as 18.184;
+    # 0.88 * 4.54609 = 4.00056, where 4.001 would come back 0.8801
     # main: KeyError 'Propane Volume (gal_uk)'
     assert (by_volume["Propane Volume (gal_uk)"], by_volume["Price Per Unit (gal_uk)"]) == (
-        "3.9999",
+        "4",
         "4.0006",
     )
     # 9.072 / 0.45359237 = 20.00034; 2.2047 * 0.45359237 = 1.00004 a pound
     assert (by_weight["Tank Size (lb)"], by_weight["Price Per Unit (gal_uk)"]) == (
-        "20.000",
+        "20",
         "1.00004",
     )
     assert (by_volume["Price Basis"], by_weight["Price Basis"]) == ("per_volume", "per_weight")

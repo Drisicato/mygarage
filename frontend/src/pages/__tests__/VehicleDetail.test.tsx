@@ -537,25 +537,9 @@ describe('VehicleDetail', () => {
     expect(within(subNav).queryByRole('tab', { name: 'detail.misc.brakes' }) !== null).toBe(shown)
   })
 
-  it('falls back to Service when the vehicle reloads with no wheels while on Tires (RF7)', async () => {
-    vi.mocked(api.post).mockResolvedValue({ data: {} } as { data: unknown })
-    const { container } = renderVehicleDetail('/vehicles/TEST12345678901234?tab=tires')
-    expect(await screen.findByText('TireList log brakes')).toBeInTheDocument()
-
-    // A JSON import reloads the vehicle; this time it comes back with no wheels.
-    mockedVehicleService.get.mockResolvedValue({
-      ...mockVehicle, wheel_layout: 'none', effective_wheel_layout: 'none',
-    })
-    const input = container.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement
-    fireEvent.change(input, {
-      target: { files: [new File(['{}'], 'vehicle.json', { type: 'application/json' })] },
-    })
-
-    expect(await screen.findByText('ServiceTab')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'vehicleStats.service' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.queryByText('TireList log brakes')).toBeNull()
-    expect(screen.queryByRole('tab', { name: 'detail.misc.tires' })).toBeNull()
-  })
+  // Upstream's RF7 test ("falls back to Service when the vehicle reloads with no
+  // wheels while on Tires") reloads through the vehicle page's JSON import,
+  // which this fork moved to Settings > Import & Export, so it isn't carried.
 
   it.each(['tires', 'brakes'] as const)(
     'never renders the %s list for a vehicle with no wheels, even for one commit',

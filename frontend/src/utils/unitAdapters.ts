@@ -188,8 +188,8 @@ export const UNIT_ADAPTERS: Readonly<Record<UnitToken, UnitAdapter>> = {
   // Labels come off UnitConverter's table so getVolumeUnit reads the same ones.
   // The UK gallon says so, or a UK reader can't tell which gallon it is.
   L: linear('L', UnitConverter.VOLUME_UNIT_LABELS.L, 2, 1),
-  gal_us: linear('gal_us', UnitConverter.VOLUME_UNIT_LABELS.gal_us, 2, UnitConverter.US_GALLONS_TO_LITERS),
-  gal_uk: linear('gal_uk', UnitConverter.VOLUME_UNIT_LABELS.gal_uk, 2, UnitConverter.UK_GALLONS_TO_LITERS),
+  gal_us: linear('gal_us', UnitConverter.VOLUME_UNIT_LABELS.gal_us, 3, UnitConverter.US_GALLONS_TO_LITERS),
+  gal_uk: linear('gal_uk', UnitConverter.VOLUME_UNIT_LABELS.gal_uk, 3, UnitConverter.UK_GALLONS_TO_LITERS),
   // Consumption
   l_100km: linear('l_100km', 'L/100km', 2, 1),
   km_l: inverse('km_l', 'km/L', 2, KM_L_NUMERATOR),

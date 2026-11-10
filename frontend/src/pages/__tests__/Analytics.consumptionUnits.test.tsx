@@ -370,10 +370,10 @@ describe('Analytics — every consumption rendering reads units.consumption', ()
   it('★ the fuel-rate chart labels its axis, its line and its tooltip in gal/hr', async () => {
     await mountWith(GALLONS_L100KM)
 
-    // 3.80 L/hr / 3.785411784 = 1.0039, 1.00 gal/hr.
+    // 3.80 L/hr / 3.785411784 = 1.0039, 1.004 gal/hr.
     expect(axisLabels()).toContain('gal/hr')
     expect(lineNames()).toContain('vehicle.fuelRateUnitLabel (gal/hr)')
-    expect(tooltipTexts().some((text) => text.includes('1.00 gal/hr'))).toBe(true)
+    expect(tooltipTexts().some((text) => text.includes('1.004 gal/hr'))).toBe(true)
   })
 
   it('★ the period-comparison summaries read L/100km', async () => {

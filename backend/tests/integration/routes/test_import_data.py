@@ -1618,9 +1618,9 @@ class TestCsvRoundTripPreservesUnits:
         assert "Volume (gal_us)" in header_line and "Volume (L)" not in header_line
         assert "Price Per Unit (gal_us)" in header_line
         assert "imperial" in first_row
-        # 500 km = 310.686 mi, 40 L = 10.5669 gal: the file really is imperial.
+        # 500 km = 310.686 mi, 40 L = 10.567 gal: the file really is imperial.
         assert "310.686" in first_row
-        assert "10.5669" in first_row
+        assert "10.567" in first_row
 
         import_resp = await client.post(
             f"/api/import/vehicles/{vin_b}/fuel/csv",

@@ -167,7 +167,7 @@ describe('the entry grid round trip, over the whole vocabulary', () => {
     // they say how many of the 27 the origin is actually load bearing for.
     const volumeNaive = volumeRows.filter((r) => r.naive !== r.canonical)
     const priceNaive = priceRows.filter((r) => r.naive !== r.canonical)
-    expect(volumeNaive.length).toBe(18)
+    expect(volumeNaive.length).toBe(17)
     expect(priceNaive.length).toBe(16)
     // And the two fixed points are real: `45.461` is ten imperial gallons and
     // `47.318` is twelve and a half US ones, so each set has values the naive
@@ -192,7 +192,7 @@ describe('the entry grid round trip, over the whole vocabulary', () => {
     // ten gallons exactly, so the naive path is right and the case proves
     // nothing on its own. Stated so nobody promotes it to the proof.
     const row = volumeRows.find((r) => r.set === 'gal_uk' && r.canonical === 45.461)!
-    expect(row.seeded).toBe('10.00')
+    expect(row.seeded).toBe('10.000')
     expect(row.naive).toBe(45.461)
     expect(row.kept).toBe(45.461)
   })

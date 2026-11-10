@@ -529,8 +529,8 @@ describe('FuelRecordForm — odometer and temperature follow their own tokens', 
     // draft is CANONICAL by contract, which is exactly why the accept path
     // converts it through `litersToVolumeUnit` before seeding the field, so a
     // gallons account read "47.318 L", accepted it, and watched the field it
-    // landed in say 12.50 gal: one quantity under two units, one click apart.
-    // 47.318 / 3.785411784 = 12.5001... US gallons, at the gal adapter's 2 decimals.
+    // landed in say 12.500 gal: one quantity under two units, one click apart.
+    // 47.318 / 3.785411784 = 12.5001... US gallons, at the gal adapter's 3 decimals.
     units = GALLONS_KM_CELSIUS
     receipt.draft = { odometer_km: 72420.3, liters: 47.318 }
 
@@ -541,7 +541,7 @@ describe('FuelRecordForm — odometer and temperature follow their own tokens', 
     fireEvent.click(screen.getByRole('button', { name: 'fuel.parseReceipt' }))
     await screen.findByRole('button', { name: 'fuel.receiptDraftAccept' })
 
-    expect(screen.getByText(/12\.50 gal/)).toBeInTheDocument()
+    expect(screen.getByText(/12\.500 gal/)).toBeInTheDocument()
     expect(screen.queryByText(/47\.318 L/)).not.toBeInTheDocument()
   })
 

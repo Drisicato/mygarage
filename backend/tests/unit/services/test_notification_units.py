@@ -28,9 +28,9 @@ grammar table (which has carried arithmetic errors through six rounds):
     100,000 km / 1.609344 (``UnitConverter.MILES_TO_KM``) = 62,137.1192...
         -> ``mi`` adapter precision 0 -> "62,137 mi"
     2.50 L / 3.785411784 (``US_GALLONS_TO_LITERS``) = 0.66043...
-        -> ``gal_us`` adapter precision 2 -> "0.66 gal"
+        -> ``gal_us`` adapter precision 3 -> "0.660 gal"
     2.50 L / 4.54609 (``UK_GALLONS_TO_LITERS``) = 0.54992...
-        -> ``gal_uk`` adapter precision 2 -> "0.55 gal (UK)"
+        -> ``gal_uk`` adapter precision 3 -> "0.550 gal (UK)"
 
 No database: the dispatcher is handed a ``RenderContext`` by its caller and
 resolves nothing itself (the scheduled job owns that, and
@@ -168,7 +168,7 @@ class TestDefForcedVolumePair:
 
         assert message == (
             f"DEF level for My Truck ({_VIN}) is at 25.0% "
-            "(2.50 L / 0.66 gal remaining), as of 2026-06-15."
+            "(2.50 L / 0.660 gal remaining), as of 2026-06-15."
         )
 
     async def test_show_both_does_not_change_the_forced_pair(
@@ -182,21 +182,21 @@ class TestDefForcedVolumePair:
 
         assert message == (
             f"DEF level for My Truck ({_VIN}) is at 25.0% "
-            "(2.50 L / 0.66 gal remaining), as of 2026-06-15."
+            "(2.50 L / 0.660 gal remaining), as of 2026-06-15."
         )
 
     async def test_litre_primary_defers_to_a_uk_secondary_gallon(
         self, dispatcher: NotificationDispatcher
     ) -> None:
         """`volume="L"` states no gallon flavour, so `secondary_gallon` supplies
-        it: 2.50 L is 0.55 UK gal, not 0.66 US gal."""
+        it: 2.50 L is 0.550 UK gal, not 0.660 US gal."""
         ctx = RenderContext(units=_METRIC_SECONDARY_UK, show_both=False)
 
         message = await self._dispatch_def(dispatcher, ctx)
 
         assert message == (
             f"DEF level for My Truck ({_VIN}) is at 25.0% "
-            "(2.50 L / 0.55 gal (UK) remaining), as of 2026-06-15."
+            "(2.50 L / 0.550 gal (UK) remaining), as of 2026-06-15."
         )
 
     async def test_gal_uk_primary_beats_a_us_secondary_gallon(
@@ -210,7 +210,7 @@ class TestDefForcedVolumePair:
 
         assert message == (
             f"DEF level for My Truck ({_VIN}) is at 25.0% "
-            "(2.50 L / 0.55 gal (UK) remaining), as of 2026-06-15."
+            "(2.50 L / 0.550 gal (UK) remaining), as of 2026-06-15."
         )
 
     async def test_gal_us_primary_beats_a_uk_secondary_gallon(
@@ -225,7 +225,7 @@ class TestDefForcedVolumePair:
 
         assert message == (
             f"DEF level for My Truck ({_VIN}) is at 25.0% "
-            "(2.50 L / 0.66 gal remaining), as of 2026-06-15."
+            "(2.50 L / 0.660 gal remaining), as of 2026-06-15."
         )
 
     async def test_dispatcher_does_not_read_the_instance_gallon_setting(
@@ -242,5 +242,5 @@ class TestDefForcedVolumePair:
 
         message = await self._dispatch_def(dispatcher, ctx)
 
-        assert "0.55 gal (UK)" in message
+        assert "0.550 gal (UK)" in message
         assert "0.66" not in message

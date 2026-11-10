@@ -39,7 +39,7 @@ describe('UK labels (D3)', () => {
   it('renders a UK account\'s volume and economy with (UK)', () => {
     const u = makeUnitFormat(UK)
     // 45.4609 L / 4.54609 = 10 UK gal; 282.48 / 9.4 = 30.05 UK MPG.
-    expect(u.volume.formatPrimary(45.4609)).toBe('10.00 gal (UK)')
+    expect(u.volume.formatPrimary(45.4609)).toBe('10.000 gal (UK)')
     expect(u.consumption.formatPrimary(9.4)).toBe('30.1 MPG (UK)')
     expect(u.volume.label).toBe('gal (UK)')
     expect(u.consumption.label).toBe('MPG (UK)')
@@ -48,7 +48,7 @@ describe('UK labels (D3)', () => {
 
   it('leaves a US account\'s labels bare (guard)', () => {
     const u = makeUnitFormat(IMPERIAL)
-    expect(u.volume.formatPrimary(37.85411784)).toBe('10.00 gal')
+    expect(u.volume.formatPrimary(37.85411784)).toBe('10.000 gal')
     expect(u.consumption.formatPrimary(9.4)).toBe('25.0 MPG')
     expect(fuelRateLabel(IMPERIAL)).toBe('gal/hr')
   })
@@ -106,11 +106,11 @@ describe('format', () => {
 
   it("takes a litre primary's counterpart gallon from secondary_gallon", () => {
     expect(makeUnitFormat(presetUnitsFor('metric', 'us'), true).volume.format(10)).toBe(
-      '10.00 L (2.64 gal)'
+      '10.00 L (2.642 gal)'
     )
     // 10 L / 4.54609 = 2.1997... UK gallons, and it says so (D3)
     expect(makeUnitFormat(presetUnitsFor('metric', 'uk'), true).volume.format(10)).toBe(
-      '10.00 L (2.20 gal (UK))'
+      '10.00 L (2.200 gal (UK))'
     )
   })
 

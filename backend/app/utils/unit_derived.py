@@ -62,7 +62,7 @@ PER_100_KM = Decimal("100")
 PER_1000_MI = Decimal("1000")
 
 # Currency amounts are always rendered to 2 decimal places -- a display
-# convention (like every volume adapter's own `precision=2` in
+# convention (like each adapter's own `precision` in
 # `unit_adapters.ADAPTERS`), not a conversion factor, so it lives here as a
 # plain constant rather than a lookup into unit_adapters.py.
 _CURRENCY_PRECISION = 2
