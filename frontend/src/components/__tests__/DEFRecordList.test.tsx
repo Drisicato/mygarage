@@ -257,7 +257,7 @@ describe('DEFRecordList — one gallon per page, taken from the user', () => {
     // 20.82 L is 4.6 imperial gallons.
     expect(screen.getByText('defList.volumeTotal (4.6 gal (UK))')).toBeInTheDocument()
     // And the row cell agrees with all three.
-    expect(within(screen.getByRole('table', { name: 'defList.tableCaption' })).getByText('4.58 gal (UK)')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'defList.tableCaption' })).getByText('4.580 gal (UK)')).toBeInTheDocument()
   })
 
   it('stays in litres for a metric set', () => {

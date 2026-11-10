@@ -24,6 +24,10 @@
 import type { UnitSet } from '@/types/units';
 import { cachedCurrencyFormat } from './numberFormatCache';
 
+// Gallons read at three decimals, the same as the gal_us / gal_uk adapters in
+// unitAdapters.ts (which imports this file, so the number can't come from there).
+const GALLON_DIGITS = 3;
+
 export type UnitSystem = 'imperial' | 'metric';
 export type GallonStandard = 'us' | 'uk';
 
@@ -262,12 +266,14 @@ export class UnitFormatter {
         const gallons = litersNum / UnitConverter.LITERS_PER_SECONDARY_GALLON[units.secondary_gallon];
         // The counterpart names its gallon too, so a UK secondary reads 'gal (UK)'.
         const gallonLabel = UnitConverter.VOLUME_UNIT_LABELS[`gal_${units.secondary_gallon}` as const];
-        return `${primary} (${gallons.toFixed(2)} ${gallonLabel})`;
+        return `${primary} (${gallons.toFixed(GALLON_DIGITS)} ${gallonLabel})`;
       }
       return primary;
     } else {
-      const gallons = UnitConverter.litersToVolumeUnit(litersNum, units);
-      const primary = `${gallons?.toFixed(2)} ${UnitConverter.VOLUME_UNIT_LABELS[units.volume]}`;
+      // Unrounded: litersToVolumeUnit rounds to 2 places first, which would
+      // print 10.410 for 10.408.
+      const gallons = litersNum / UnitConverter.LITERS_PER_VOLUME_UNIT[units.volume];
+      const primary = `${gallons.toFixed(GALLON_DIGITS)} ${UnitConverter.VOLUME_UNIT_LABELS[units.volume]}`;
       if (showBoth) {
         return `${primary} (${litersNum.toFixed(2)} L)`;
       }

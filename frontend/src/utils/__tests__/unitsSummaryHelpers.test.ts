@@ -47,22 +47,22 @@ describe('UnitFormatter summary card helpers', () => {
     it('renders in the resolved volume unit', () => {
       // 47.317625 L is 12.50 US gallons and 10.41 imperial ones.
       expect(UnitFormatter.formatVolume(47.317625, METRIC)).toBe('47.32 L')
-      expect(UnitFormatter.formatVolume(47.317625, US)).toBe('12.50 gal')
-      expect(UnitFormatter.formatVolume(47.317625, UK)).toBe('10.41 gal (UK)')
+      expect(UnitFormatter.formatVolume(47.317625, US)).toBe('12.500 gal')
+      expect(UnitFormatter.formatVolume(47.317625, UK)).toBe('10.408 gal (UK)')
     })
 
     it('pairs a litre primary with the set\'s secondary gallon (D4b), not the global', () => {
       const metricUk = makeUnitSet({ secondary_gallon: 'uk' })
-      expect(UnitFormatter.formatVolume(47.317625, METRIC, true)).toBe('47.32 L (12.50 gal)')
-      expect(UnitFormatter.formatVolume(47.317625, metricUk, true)).toBe('47.32 L (10.41 gal (UK))')
-      expect(UnitFormatter.formatVolume(47.317625, UK, true)).toBe('10.41 gal (UK) (47.32 L)')
+      expect(UnitFormatter.formatVolume(47.317625, METRIC, true)).toBe('47.32 L (12.500 gal)')
+      expect(UnitFormatter.formatVolume(47.317625, metricUk, true)).toBe('47.32 L (10.408 gal (UK))')
+      expect(UnitFormatter.formatVolume(47.317625, UK, true)).toBe('10.408 gal (UK) (47.32 L)')
     })
 
     it('renders N/A for an absent value in every set', () => {
       expect(UnitFormatter.formatVolume(null, UK)).toBe('N/A')
       expect(UnitFormatter.formatVolume(undefined, UK)).toBe('N/A')
       // Not N/A, and not the US answer: the guard precedes the conversion.
-      expect(UnitFormatter.formatVolume(45.4609, UK)).toBe('10.00 gal (UK)')
+      expect(UnitFormatter.formatVolume(45.4609, UK)).toBe('10.000 gal (UK)')
     })
   })
 

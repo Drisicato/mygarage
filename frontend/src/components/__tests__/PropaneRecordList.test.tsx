@@ -173,9 +173,9 @@ describe('PropaneRecordList — one gallon per page, taken from the user', () =>
 
     render(<PropaneRecordList vin="TEST12345678901234" />)
 
-    // 39.75 L is 8.74 imperial gallons (10.50 US ones).
+    // 39.75 L is 8.744 imperial gallons (10.501 US ones).
     expect(within(table()).getByRole('columnheader', { name: 'propaneList.volumeUnit (gal (UK))' })).toBeInTheDocument()
-    expect(within(table()).getByText('8.74 gal (UK)')).toBeInTheDocument()
+    expect(within(table()).getByText('8.744 gal (UK)')).toBeInTheDocument()
     // $0.766/L is $3.48 per imperial gallon, $2.90 per US one.
     expect(within(table()).getByText('$3.48')).toBeInTheDocument()
     // The total tile and its label follow the same token.

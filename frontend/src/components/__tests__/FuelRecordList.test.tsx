@@ -557,9 +557,9 @@ describe('FuelRecordList — one gallon per page, taken from the user', () => {
     await waitFor(() => expect(apiGetMock).toHaveBeenCalled())
 
     const t = table()
-    // 47.318 L is 10.41 imperial gallons; 12.50 US ones.
+    // 47.318 L is 10.409 imperial gallons; 12.500 US ones.
     expect(within(t).getByRole('columnheader', { name: 'fuelList.volumeUnit (gal (UK))' })).toBeInTheDocument()
-    expect(within(t).getByText('10.41 gal (UK)')).toBeInTheDocument()
+    expect(within(t).getByText('10.409 gal (UK)')).toBeInTheDocument()
     // $0.925/L is $4.21/imperial gal, $3.50/US gal.
     expect(within(t).getByText('$4.21')).toBeInTheDocument()
     // Summary cards, OUTSIDE the table, on the same gallon.
