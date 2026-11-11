@@ -5,7 +5,7 @@
 
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, Edit3 } from 'lucide-react'
+import { CheckCircle2, Edit3, ExternalLink } from 'lucide-react'
 import { Badge, Button, Chip, Drawer, Mono } from '../ui'
 import { supplyEstimate } from './SupplyPartFields'
 import { PRIORITY_TONE } from './priorityTone'
@@ -17,6 +17,8 @@ import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import { formatDateForDisplay } from '../../utils/dateUtils'
 import { repairPhotoUrl } from '../../utils/plannedRepairPhoto'
 import { formatSupplyQuantity, supplyDisplayUnit } from '../../utils/supplyUnits'
+import { apiNumber, partLineTotal, partQuantity } from '../../utils/plannedRepairParts'
+import { isWebUrl } from '../../utils/partSearch'
 import type { PlannedRepair } from '../../types/plannedRepair'
 
 interface PlannedRepairViewProps {
@@ -51,8 +53,14 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
           supplies.find((s) => s.id === part.supply_id),
           Number(part.supply_quantity ?? 0),
         )
-      : Number(part.cost ?? 0)
+      : partLineTotal(apiNumber(part.cost), apiNumber(part.quantity))
   const partsTotal = parts.reduce((sum, p) => sum + partCost(p), 0)
+  /** "2 × $45.50" for a manual part needed more than once; nothing for one. */
+  const manualQuantity = (price: number | null, count: number | null) => {
+    if (count == null || count === 1) return null
+    const quantity = partQuantity(count).toLocaleString(locale)
+    return price == null ? quantity : t('plannedRepairs.qtyTimesPrice', { quantity, price: formatCurrency(price) })
+  }
 
   return (
     <Drawer
@@ -82,6 +90,16 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
             <Badge tone="success" icon={CheckCircle2}>{t('plannedRepairs.inHistory')}</Badge>
           )}
         </div>
+
+        {(repair.systems ?? []).length > 0 && (
+          <section aria-label={t('plannedRepairs.systems')} className="flex flex-wrap items-center gap-1.5">
+            {(repair.systems ?? []).map((key) => (
+              <Chip key={key} tone="accent">
+                {t(`plannedRepairs.system.${key}`)}
+              </Chip>
+            ))}
+          </section>
+        )}
 
         {repair.description && (
           <section>
@@ -129,8 +147,11 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
               <ul className="divide-y divide-border">
                 {parts.map((part) => {
                   const cost = partCost(part)
+                  const isSupply = part.supply_id != null
+                  const price = apiNumber(part.cost)
+                  const count = apiNumber(part.quantity)
                   const quantity =
-                    part.supply_id != null && part.supply_quantity != null
+                    isSupply && part.supply_quantity != null
                       ? formatSupplyQuantity(
                           Number(part.supply_quantity),
                           supplyDisplayUnit(
@@ -139,13 +160,34 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
                           ),
                           locale,
                         )
-                      : null
+                      : manualQuantity(price, count)
+                  const url = part.url && isWebUrl(part.url) ? part.url : null
                   return (
                     <li key={part.id} className="flex items-baseline justify-between gap-4 py-2 text-sm">
-                      <span className="min-w-0 break-words text-text">
-                        {part.supply_name ?? part.description}
-                        {quantity && <span className="text-text-mute"> · {quantity}</span>}
-                      </span>
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="break-words text-text">
+                          {part.supply_name ?? part.description}
+                          {quantity && <span className="text-text-mute"> · {quantity}</span>}
+                        </p>
+                        {(part.part_number || url) && (
+                          <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-text-mute">
+                            {part.part_number && (
+                              <Mono size="xs">{t('plannedRepairs.partNumberShort', { value: part.part_number })}</Mono>
+                            )}
+                            {url && (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-(--accent-fg) hover:underline"
+                              >
+                                <ExternalLink aria-hidden="true" className="h-3 w-3" />
+                                {t('plannedRepairs.openLink')}
+                              </a>
+                            )}
+                          </p>
+                        )}
+                      </div>
                       {cost > 0 && <Mono size="sm">{formatCurrency(cost)}</Mono>}
                     </li>
                   )

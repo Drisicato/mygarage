@@ -817,6 +817,10 @@ COMPUTED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
 #: Vocabulary fields whose one builder drops a stored value outside the
 #: vocabulary before validating it: (model, field) -> (the filter, why).
 FILTERED_VOCAB: dict[tuple[str, str], tuple[str, str]] = {
+    ("PlannedRepairResponse", "systems"): (
+        "app.services.planned_repair_service.to_response",
+        "keeps only the stored keys in VEHICLE_SYSTEMS, which is get_args of the Literal",
+    ),
     ("CoverageEntryResponse", "coverage_key"): (
         "app.services.insurance_service._coverage_responses",
         "drops and logs a key outside the catalogue, and the catalogue is the Literal "

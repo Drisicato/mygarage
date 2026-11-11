@@ -17775,6 +17775,32 @@
             "description": "Category the service visit gets when completed",
             "title": "Service Category"
           },
+          "systems": {
+            "description": "Vehicle systems the repair works on",
+            "items": {
+              "enum": [
+                "engine",
+                "transmission",
+                "differential",
+                "drivetrain",
+                "suspension",
+                "steering",
+                "brakes",
+                "tires_wheels",
+                "cooling",
+                "exhaust",
+                "fuel",
+                "electrical",
+                "hvac",
+                "body",
+                "interior",
+                "other"
+              ],
+              "type": "string"
+            },
+            "title": "Systems",
+            "type": "array"
+          },
           "target_date": {
             "anyOf": [
               {
@@ -17897,7 +17923,7 @@
                 "type": "null"
               }
             ],
-            "description": "Estimated cost of this part or job",
+            "description": "Estimated price of one; the line total is cost x quantity",
             "title": "Cost"
           },
           "description": {
@@ -17906,6 +17932,36 @@
             "minLength": 1,
             "title": "Description",
             "type": "string"
+          },
+          "part_number": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Part number",
+            "title": "Part Number"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many are needed, for a part not taken from supplies; null means one",
+            "title": "Quantity"
           },
           "supply_id": {
             "anyOf": [
@@ -17935,6 +17991,19 @@
             ],
             "description": "How much of the supply, in canonical units (L or count)",
             "title": "Supply Quantity"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the part was found online",
+            "title": "Url"
           }
         },
         "required": [
@@ -17955,7 +18024,7 @@
                 "type": "null"
               }
             ],
-            "description": "Estimated cost of this part or job",
+            "description": "Estimated price of one; the line total is cost x quantity",
             "title": "Cost"
           },
           "description": {
@@ -17966,6 +18035,30 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "part_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Part number",
+            "title": "Part Number"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many are needed, for a part not taken from supplies; null means one",
+            "title": "Quantity"
           },
           "supply_id": {
             "anyOf": [
@@ -18018,6 +18111,18 @@
             ],
             "description": "The supply's unit type, for converting the quantity to display units",
             "title": "Unit Type"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the part was found online",
+            "title": "Url"
           },
           "volume_unit": {
             "anyOf": [
@@ -18188,6 +18293,32 @@
             "title": "Status",
             "type": "string"
           },
+          "systems": {
+            "description": "Vehicle systems the repair works on",
+            "items": {
+              "enum": [
+                "engine",
+                "transmission",
+                "differential",
+                "drivetrain",
+                "suspension",
+                "steering",
+                "brakes",
+                "tires_wheels",
+                "cooling",
+                "exhaust",
+                "fuel",
+                "electrical",
+                "hvac",
+                "body",
+                "interior",
+                "other"
+              ],
+              "type": "string"
+            },
+            "title": "Systems",
+            "type": "array"
+          },
           "target_date": {
             "anyOf": [
               {
@@ -18355,6 +18486,39 @@
             ],
             "description": "Category the service visit gets when completed",
             "title": "Service Category"
+          },
+          "systems": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "engine",
+                    "transmission",
+                    "differential",
+                    "drivetrain",
+                    "suspension",
+                    "steering",
+                    "brakes",
+                    "tires_wheels",
+                    "cooling",
+                    "exhaust",
+                    "fuel",
+                    "electrical",
+                    "hvac",
+                    "body",
+                    "interior",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces every vehicle-system tag when given; [] clears them",
+            "title": "Systems"
           },
           "target_date": {
             "anyOf": [

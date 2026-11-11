@@ -23,6 +23,7 @@ import { canonicalFromUnitField, seedUnitField, type UnitFieldOrigin } from '../
 import { formatDateForInput } from '../../utils/dateUtils'
 import { supplyFitsVehicle } from '../../utils/supplyListView'
 import { parseOptionalDecimal } from '../../utils/decimalInput'
+import { apiNumber, partLineTotal } from '../../utils/plannedRepairParts'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
 import { moneyTextError } from '../../schemas/shared'
 import { SERVICE_CATEGORIES } from '../../schemas/serviceVisit'
@@ -38,6 +39,8 @@ interface ItemRow {
   quantity: string
   /** The unit `quantity` is typed in, kept with the row so submit converts with it. */
   unit: SupplyUnit
+  /** The planned part's number, quantity and link, carried onto the line item's notes. */
+  notes: string
 }
 
 interface CompleteRepairDialogProps {
@@ -85,7 +88,17 @@ export default function CompleteRepairDialog({
   const [items, setItems] = useState<ItemRow[]>(() => {
     const parts = repair.parts ?? []
     if (parts.length === 0) {
-      return [{ key: -1, description: repair.title, cost: costText(repair.estimated_cost), supplyId: null, quantity: '', unit: 'count' }]
+      return [
+        {
+          key: -1,
+          description: repair.title,
+          cost: costText(repair.estimated_cost),
+          supplyId: null,
+          quantity: '',
+          unit: 'count',
+          notes: '',
+        },
+      ]
     }
     return parts.map((p): ItemRow => {
       // The part carries its supply's unit, so the quantity converts
@@ -94,13 +107,26 @@ export default function CompleteRepairDialog({
         { unit_type: p.unit_type ?? 'count', volume_unit: p.volume_unit ?? null },
         system,
       )
+      const isSupply = p.supply_id != null
+      const price = apiNumber(p.cost)
+      const count = apiNumber(p.quantity)
+      // A manual part's line item costs price each times quantity.
+      const cost = isSupply || price == null ? costText(p.cost) : costText(partLineTotal(price, count))
+      const notes = [
+        p.part_number && t('plannedRepairs.complete.partNumberNote', { value: p.part_number }),
+        !isSupply && count != null && count !== 1 && t('plannedRepairs.complete.quantityNote', { value: count }),
+        p.url && t('plannedRepairs.complete.linkNote', { value: p.url }),
+      ]
+        .filter(Boolean)
+        .join('\n')
       return {
         key: p.id,
         description: p.description,
-        cost: costText(p.cost),
+        cost,
         supplyId: p.supply_id ?? null,
         quantity: p.supply_quantity != null ? String(toEditableDisplay(Number(p.supply_quantity), unit)) : '',
         unit,
+        notes,
       }
     })
   })
@@ -134,7 +160,10 @@ export default function CompleteRepairDialog({
   }
 
   const addItem = (supplyId: number | null) => {
-    setItems((rows) => [...rows, { key: nextKey, description: '', cost: '', supplyId, quantity: '', unit: unitFor(supplyId) }])
+    setItems((rows) => [
+      ...rows,
+      { key: nextKey, description: '', cost: '', supplyId, quantity: '', unit: unitFor(supplyId), notes: '' },
+    ])
     setNextKey((k) => k - 1)
   }
 
@@ -187,11 +216,13 @@ export default function CompleteRepairDialog({
                 is_recall: false,
                 is_warranty: false,
                 supplies_used: [{ supply_id: item.supplyId, quantity: canonicalQuantity(item) }],
+                notes: item.notes || null,
               }
             : {
                 description: item.description.trim().slice(0, 200),
                 category: serviceCategory,
                 cost: parseOptionalDecimal(item.cost) ?? null,
+                notes: item.notes || null,
                 is_inspection: false,
                 is_recall: false,
                 is_warranty: false,
@@ -332,6 +363,7 @@ export default function CompleteRepairDialog({
                   disabled={submitting || items.length === 1}
                 />
               </div>
+              {item.notes && <p className="text-xs text-text-mute whitespace-pre-line break-all">{item.notes}</p>}
               {fieldErrors[`item-${item.key}`] && (
                 <p className="text-xs text-danger">{fieldErrors[`item-${item.key}`]}</p>
               )}

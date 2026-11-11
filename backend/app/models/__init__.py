@@ -31,7 +31,12 @@ from app.models.odometer import OdometerRecord
 from app.models.oidc_pending_link import OIDCPendingLink
 from app.models.oidc_state import OIDCState
 from app.models.photo import VehiclePhoto
-from app.models.planned_repair import PlannedRepair, PlannedRepairPart, PlannedRepairPhoto
+from app.models.planned_repair import (
+    PlannedRepair,
+    PlannedRepairPart,
+    PlannedRepairPhoto,
+    PlannedRepairSystem,
+)
 from app.models.recall import Recall
 from app.models.reminder import Reminder
 from app.models.reminder_pack import ReminderPack, ReminderPackItemRow
@@ -82,6 +87,7 @@ __all__ = [
     "PlannedRepair",
     "PlannedRepairPart",
     "PlannedRepairPhoto",
+    "PlannedRepairSystem",
     "VehicleInspection",
     "VehicleInspectionItem",
     "VehicleInspectionCorner",

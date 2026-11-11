@@ -15,6 +15,7 @@ vi.mock('../../../hooks/queries/usePlannedRepairs', () => ({
   useDeletePlannedRepairPhoto: () => ({ mutateAsync: deleteMutate, isPending: false }),
 }))
 vi.mock('../../../hooks/queries/useSupplies', () => ({ useSupplies: () => ({ data: { supplies: [] } }) }))
+vi.mock('../../../hooks/queries/useVehicle', () => ({ useVehicle: () => ({ data: undefined }) }))
 vi.mock('../../../hooks/useUnitPreference', () => ({ useUnitPreference: () => ({ system: 'metric' }) }))
 vi.mock('../../../hooks/useUnitFormat', () => ({
   useUnitFormat: () => ({ distance: { label: 'km', format: (v: number) => String(v) } }),

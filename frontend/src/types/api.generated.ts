@@ -15977,6 +15977,11 @@ export interface components {
              */
             service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
             /**
+             * Systems
+             * @description Vehicle systems the repair works on
+             */
+            systems?: ("engine" | "transmission" | "differential" | "drivetrain" | "suspension" | "steering" | "brakes" | "tires_wheels" | "cooling" | "exhaust" | "fuel" | "electrical" | "hvac" | "body" | "interior" | "other")[];
+            /**
              * Target Date
              * @description When the repair is planned for
              */
@@ -16032,7 +16037,7 @@ export interface components {
         PlannedRepairPartInput: {
             /**
              * Cost
-             * @description Estimated cost of this part or job
+             * @description Estimated price of one; the line total is cost x quantity
              */
             cost?: number | string | null;
             /**
@@ -16040,6 +16045,16 @@ export interface components {
              * @description Part or job
              */
             description: string;
+            /**
+             * Part Number
+             * @description Part number
+             */
+            part_number?: string | null;
+            /**
+             * Quantity
+             * @description How many are needed, for a part not taken from supplies; null means one
+             */
+            quantity?: number | string | null;
             /**
              * Supply Id
              * @description Supply to consume when the repair is completed
@@ -16050,6 +16065,11 @@ export interface components {
              * @description How much of the supply, in canonical units (L or count)
              */
             supply_quantity?: number | string | null;
+            /**
+             * Url
+             * @description Where the part was found online
+             */
+            url?: string | null;
         };
         /**
          * PlannedRepairPartResponse
@@ -16058,7 +16078,7 @@ export interface components {
         PlannedRepairPartResponse: {
             /**
              * Cost
-             * @description Estimated cost of this part or job
+             * @description Estimated price of one; the line total is cost x quantity
              */
             cost?: string | null;
             /**
@@ -16068,6 +16088,16 @@ export interface components {
             description: string;
             /** Id */
             id: number;
+            /**
+             * Part Number
+             * @description Part number
+             */
+            part_number?: string | null;
+            /**
+             * Quantity
+             * @description How many are needed, for a part not taken from supplies; null means one
+             */
+            quantity?: string | null;
             /**
              * Supply Id
              * @description Supply to consume when the repair is completed
@@ -16088,6 +16118,11 @@ export interface components {
              * @description The supply's unit type, for converting the quantity to display units
              */
             unit_type?: ("volume" | "count") | null;
+            /**
+             * Url
+             * @description Where the part was found online
+             */
+            url?: string | null;
             /**
              * Volume Unit
              * @description Per-supply display unit; null means the legacy binary pick
@@ -16160,6 +16195,11 @@ export interface components {
              */
             status: "planning" | "in_progress" | "done";
             /**
+             * Systems
+             * @description Vehicle systems the repair works on
+             */
+            systems?: ("engine" | "transmission" | "differential" | "drivetrain" | "suspension" | "steering" | "brakes" | "tires_wheels" | "cooling" | "exhaust" | "fuel" | "electrical" | "hvac" | "body" | "interior" | "other")[];
+            /**
              * Target Date
              * @description When the repair is planned for
              */
@@ -16216,6 +16256,11 @@ export interface components {
              * @description Category the service visit gets when completed
              */
             service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
+            /**
+             * Systems
+             * @description Replaces every vehicle-system tag when given; [] clears them
+             */
+            systems?: ("engine" | "transmission" | "differential" | "drivetrain" | "suspension" | "steering" | "brakes" | "tires_wheels" | "cooling" | "exhaust" | "fuel" | "electrical" | "hvac" | "body" | "interior" | "other")[] | null;
             /**
              * Target Date
              * @description When the repair is planned for

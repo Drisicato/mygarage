@@ -28,6 +28,8 @@ export const cardDndId = (id: number) => `repair:${id}`
 
 /** Photos shown on a card; the last tile carries a "+N" when there are more. */
 const MAX_THUMBS = 3
+/** System tags shown on a card before a "+N". */
+const MAX_SYSTEMS = 3
 
 interface PlannedRepairCardProps {
   repair: PlannedRepair
@@ -89,6 +91,8 @@ export default function PlannedRepairCard({ repair, onView, onEdit, onDelete, on
   const photos = repair.photos ?? []
   const partCount = repair.parts?.length ?? 0
   const supplyCount = repair.parts?.filter((p) => p.supply_id != null).length ?? 0
+  const systems = repair.systems ?? []
+  const hiddenSystems = systems.slice(MAX_SYSTEMS).map((key) => t(`plannedRepairs.system.${key}`))
 
   return (
     <div
@@ -159,6 +163,16 @@ export default function PlannedRepairCard({ repair, onView, onEdit, onDelete, on
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Chip tone={PRIORITY_TONE[repair.priority]}>{t(`plannedRepairs.priority.${repair.priority}`)}</Chip>
           {repair.service_category && <Chip tone="muted">{repair.service_category}</Chip>}
+          {systems.slice(0, MAX_SYSTEMS).map((key) => (
+            <Chip key={key} tone="accent">
+              {t(`plannedRepairs.system.${key}`)}
+            </Chip>
+          ))}
+          {hiddenSystems.length > 0 && (
+            <span title={hiddenSystems.join(', ')}>
+              <Chip tone="muted">{t('plannedRepairs.moreSystems', { count: hiddenSystems.length })}</Chip>
+            </span>
+          )}
           {repair.service_visit_id != null && (
             <Badge tone="success" icon={CheckCircle2}>{t('plannedRepairs.inHistory')}</Badge>
           )}

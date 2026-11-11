@@ -4,11 +4,14 @@
  * card's menu does the same moves without dragging. Clicking a card opens
  * its read-only view.
  *
+ * The system filter only hides cards: a drop still lands at its place in the
+ * whole column, hidden cards included.
+ *
  * The board only reports intent. Whether a move into Done needs the
  * completion dialog first is decided by the tab, which owns that dialog.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   DndContext,
@@ -23,10 +26,16 @@ import {
   type CollisionDetection,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { Badge, Mono } from '../ui'
+import { Badge, Mono, Select } from '../ui'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import PlannedRepairCard, { cardDndId } from './PlannedRepairCard'
-import { REPAIR_STATUSES, type PlannedRepair, type RepairStatus } from '../../types/plannedRepair'
+import {
+  REPAIR_STATUSES,
+  VEHICLE_SYSTEMS,
+  type PlannedRepair,
+  type RepairStatus,
+  type VehicleSystem,
+} from '../../types/plannedRepair'
 
 const columnDndId = (status: RepairStatus) => `column:${status}`
 
@@ -100,6 +109,14 @@ interface PlannedRepairBoardProps {
 }
 
 export default function PlannedRepairBoard({ repairs, onView, onEdit, onDelete, onMove }: PlannedRepairBoardProps) {
+  const { t } = useTranslation('vehicles')
+  const [systemFilter, setSystemFilter] = useState<VehicleSystem | ''>('')
+  // Only the systems some repair carries, so the filter never offers an empty board.
+  const usedSystems = useMemo(
+    () => VEHICLE_SYSTEMS.filter((key) => repairs.some((r) => r.systems?.includes(key))),
+    [repairs],
+  )
+  const activeFilter = systemFilter && usedSystems.includes(systemFilter) ? systemFilter : ''
   const sensors = useSensors(
     // A few pixels of travel before a drag starts, so clicks on a card's
     // menu still register as clicks.
@@ -115,6 +132,12 @@ export default function PlannedRepairBoard({ repairs, onView, onEdit, onDelete, 
     for (const status of REPAIR_STATUSES) byStatus[status].sort((a, b) => a.position - b.position || a.id - b.id)
     return byStatus
   }, [repairs])
+
+  const visibleColumns = useMemo(() => {
+    if (!activeFilter) return columns
+    const shown = (list: PlannedRepair[]) => list.filter((r) => r.systems?.includes(activeFilter))
+    return { planning: shown(columns.planning), in_progress: shown(columns.in_progress), done: shown(columns.done) }
+  }, [columns, activeFilter])
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over) return
@@ -145,12 +168,25 @@ export default function PlannedRepairBoard({ repairs, onView, onEdit, onDelete, 
 
   return (
     <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={handleDragEnd}>
+      {usedSystems.length > 0 && (
+        <div className="mb-3 flex justify-end">
+          <div className="w-full sm:w-56">
+            <Select
+              aria-label={t('plannedRepairs.filterBySystem')}
+              value={activeFilter}
+              onChange={(e) => setSystemFilter(e.target.value as VehicleSystem | '')}
+              placeholder={t('plannedRepairs.allSystems')}
+              options={usedSystems.map((key) => ({ value: key, label: t(`plannedRepairs.system.${key}`) }))}
+            />
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {REPAIR_STATUSES.map((status) => (
           <Column
             key={status}
             status={status}
-            repairs={columns[status]}
+            repairs={visibleColumns[status]}
             onView={onView}
             onEdit={onEdit}
             onDelete={onDelete}

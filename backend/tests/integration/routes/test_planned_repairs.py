@@ -374,3 +374,109 @@ class TestPlannedRepairRoutes:
     async def test_unknown_repair_is_404(self, client: AsyncClient, auth_headers, test_vehicle):
         response = await client.get(f"{_base(test_vehicle['vin'])}/999999", headers=auth_headers)
         assert response.status_code == 404
+
+    # ---- part detail and vehicle-system tags (migration 161) ----------------
+
+    async def test_part_detail_round_trips(self, client: AsyncClient, auth_headers, test_vehicle):
+        vin = test_vehicle["vin"]
+        part = {
+            "description": "Water pump",
+            "part_number": " WP-1234 ",
+            "cost": "45.50",
+            "quantity": "2",
+            "url": "https://www.rockauto.com/x",
+        }
+        repair = await _create(client, auth_headers, vin, parts=[part, {"description": "Labor"}])
+        stored, labor = repair["parts"]
+        assert stored["part_number"] == "WP-1234"
+        assert float(stored["quantity"]) == 2
+        assert float(stored["cost"]) == 45.5
+        assert stored["url"] == "https://www.rockauto.com/x"
+        assert labor["part_number"] is None and labor["quantity"] is None and labor["url"] is None
+
+        fetched = await client.get(f"{_base(vin)}/{repair['id']}", headers=auth_headers)
+        assert fetched.json()["parts"][0]["part_number"] == "WP-1234"
+
+    @pytest.mark.parametrize(
+        "part",
+        [
+            {"description": "Pump", "url": "javascript:alert(1)"},
+            {"description": "Pump", "quantity": "0"},
+            {"description": "Pump", "part_number": "x" * 61},
+        ],
+    )
+    async def test_bad_part_detail_is_422(
+        self, client: AsyncClient, auth_headers, test_vehicle, part
+    ):
+        response = await client.post(
+            _base(test_vehicle["vin"]),
+            json={"title": "Pump", "parts": [part]},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    async def test_supply_part_refuses_a_manual_quantity(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        sid = await _supply(client, auth_headers)
+        part = {"description": "Oil", "supply_id": sid, "supply_quantity": "4", "quantity": "2"}
+        response = await client.post(
+            _base(test_vehicle["vin"]),
+            json={"title": "Oil change", "parts": [part]},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    async def test_systems_are_stored_deduplicated_in_order(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        repair = await _create(
+            client, auth_headers, test_vehicle["vin"], systems=["cooling", "engine", "cooling"]
+        )
+        assert repair["systems"] == ["engine", "cooling"]
+
+    async def test_unknown_system_is_422(self, client: AsyncClient, auth_headers, test_vehicle):
+        response = await client.post(
+            _base(test_vehicle["vin"]),
+            json={"title": "Pump", "systems": ["warp_drive"]},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    async def test_update_systems_keep_replace_and_clear(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        vin = test_vehicle["vin"]
+        repair = await _create(client, auth_headers, vin, systems=["engine", "cooling"])
+        url = f"{_base(vin)}/{repair['id']}"
+
+        kept = await client.put(url, json={"title": "Renamed"}, headers=auth_headers)
+        assert kept.json()["systems"] == ["engine", "cooling"]
+
+        # A kept key alongside a new one must not collide on the composite key.
+        replaced = await client.put(url, json={"systems": ["cooling", "hvac"]}, headers=auth_headers)
+        assert replaced.status_code == 200, replaced.text
+        assert replaced.json()["systems"] == ["cooling", "hvac"]
+
+        cleared = await client.put(url, json={"systems": []}, headers=auth_headers)
+        assert cleared.json()["systems"] == []
+
+        refused = await client.put(url, json={"systems": None}, headers=auth_headers)
+        assert refused.status_code == 422
+
+    async def test_an_unknown_stored_system_is_dropped_on_read(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        from sqlalchemy import text
+
+        vin = test_vehicle["vin"]
+        repair = await _create(client, auth_headers, vin, systems=["brakes"])
+        await db_session.execute(
+            text("INSERT INTO planned_repair_systems (repair_id, system) VALUES (:id, 'warp')"),
+            {"id": repair["id"]},
+        )
+        await db_session.commit()
+
+        response = await client.get(f"{_base(vin)}/{repair['id']}", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["systems"] == ["brakes"]

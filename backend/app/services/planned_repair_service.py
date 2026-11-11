@@ -11,9 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.models.planned_repair import PlannedRepair, PlannedRepairPart, PlannedRepairPhoto
+from app.models.planned_repair import (
+    PlannedRepair,
+    PlannedRepairPart,
+    PlannedRepairPhoto,
+    PlannedRepairSystem,
+)
 from app.models.service_visit import ServiceVisit
 from app.schemas.planned_repair import (
+    VEHICLE_SYSTEMS,
     PlannedRepairCreate,
     PlannedRepairMove,
     PlannedRepairPartInput,
@@ -43,6 +49,7 @@ def _load_options():
         selectinload(PlannedRepair.parts).selectinload(PlannedRepairPart.supply),
         selectinload(PlannedRepair.vendor),
         selectinload(PlannedRepair.photos),
+        selectinload(PlannedRepair.system_rows),
     )
 
 
@@ -51,11 +58,18 @@ def _parts(items: list[PlannedRepairPartInput]) -> list[PlannedRepairPart]:
         PlannedRepairPart(
             description=p.description,
             cost=p.cost,
+            part_number=p.part_number,
+            quantity=p.quantity,
+            url=p.url,
             supply_id=p.supply_id,
             supply_quantity=p.supply_quantity,
         )
         for p in items
     ]
+
+
+def _systems(systems: list[str]) -> list[PlannedRepairSystem]:
+    return [PlannedRepairSystem(system=s) for s in systems]
 
 
 def _unlink_photo(file_path: str) -> None:
@@ -141,6 +155,7 @@ class PlannedRepairService:
             service_category=data.service_category,
             position=await self._next_position(vin, "planning"),
             parts=_parts(data.parts),
+            system_rows=_systems(data.systems),
         )
         self.db.add(repair)
         await self.db.flush()
@@ -153,14 +168,25 @@ class PlannedRepairService:
     ) -> PlannedRepair:
         repair = await self.get_repair(vin, repair_id)
         # An omitted field keeps its value and an explicit null clears it.
-        for field, value in data.model_dump(exclude_unset=True, exclude={"parts"}).items():
+        changes = data.model_dump(exclude_unset=True, exclude={"parts", "systems"})
+        for field, value in changes.items():
             setattr(repair, field, value)
         if "parts" in data.model_fields_set:
             linked = {p.supply_id for p in repair.parts if p.supply_id is not None}
             await self._check_supplies(vin, data.parts or [], linked)
             repair.parts = _parts(data.parts or [])
+        if "systems" in data.model_fields_set:
+            await self._replace_systems(repair, data.systems or [])
         await self.db.commit()
         return await self.get_repair(vin, repair_id)
+
+    async def _replace_systems(self, repair: PlannedRepair, systems: list[str]) -> None:
+        """Swap the repair's tags. The old rows are flushed away first: a kept
+        key would otherwise insert a duplicate (repair_id, system) before the
+        delete-orphan removal runs."""
+        repair.system_rows = []
+        await self.db.flush()
+        repair.system_rows = _systems(systems)
 
     async def delete_repair(self, vin: str, repair_id: int) -> None:
         """Delete a repair. A service visit it logged stays in service history."""
@@ -315,4 +341,12 @@ class PlannedRepairService:
 
 
 def to_response(repair: PlannedRepair) -> PlannedRepairResponse:
-    return PlannedRepairResponse.model_validate(repair)
+    """The repair as the API returns it.
+
+    planned_repair_systems has no CHECK, so a key the API no longer knows (a
+    restored backup, a downgrade) is dropped here rather than failing the
+    PlannedRepairResponse systems Literal.
+    """
+    response = PlannedRepairResponse.model_validate(repair)
+    stored = {row.system for row in repair.system_rows}
+    return response.model_copy(update={"systems": [s for s in VEHICLE_SYSTEMS if s in stored]})
