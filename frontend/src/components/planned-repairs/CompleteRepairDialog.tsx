@@ -1,8 +1,13 @@
 /**
  * Finish a planned repair: confirm what was actually done and paid, and log
- * it as a service visit. Pre-filled from the repair (its parts become the
- * line items, or its title and estimate when it has none) so the common case
- * is one click, but every amount stays editable for the real invoice.
+ * it as a service visit. Pre-filled from the repair so the common case is one
+ * click, but every amount stays editable for the real invoice.
+ *
+ * Jobs become the line items, with their labor as the cost (the repair's
+ * title and estimate when it has neither jobs nor parts). Parts are recorded
+ * as Parts & supplies on one line item: a typed-in part is added to supplies
+ * for this vehicle (bought on the completion date at its price) and used in
+ * full, and a part picked from supplies comes out of the inventory.
  */
 
 import { useMemo, useState, type SyntheticEvent } from 'react'
@@ -15,7 +20,7 @@ import SupplyPartFields, { supplyEstimate } from './SupplyPartFields'
 import { useSupplies } from '../../hooks/queries/useSupplies'
 import { useUnitPreference } from '../../hooks/useUnitPreference'
 import { supplyDisplayUnit, toCanonical, toEditableDisplay, type SupplyUnit } from '../../utils/supplyUnits'
-import { Button, Field, IconButton, Input, NumberInput, Select, Textarea } from '../ui'
+import { Button, Field, IconButton, Input, Mono, NumberInput, Select, Textarea } from '../ui'
 import { useCompletePlannedRepair } from '../../hooks/queries/usePlannedRepairs'
 import { useUnitFormat } from '../../hooks/useUnitFormat'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
@@ -23,20 +28,33 @@ import { canonicalFromUnitField, seedUnitField, type UnitFieldOrigin } from '../
 import { formatDateForInput } from '../../utils/dateUtils'
 import { supplyFitsVehicle } from '../../utils/supplyListView'
 import { parseOptionalDecimal } from '../../utils/decimalInput'
+import { partLineTotal } from '../../utils/plannedRepairParts'
 import { getActionErrorMessage } from '../../utils/httpErrorHandler'
 import { moneyTextError } from '../../schemas/shared'
 import { SERVICE_CATEGORIES } from '../../schemas/serviceVisit'
-import type { PlannedRepair } from '../../types/plannedRepair'
-import type { ServiceVisitCreate } from '../../types/serviceVisit'
+import type { PlannedRepair, PlannedRepairComplete } from '../../types/plannedRepair'
 
+/** A line item: a job, with its labor as the cost. */
 interface ItemRow {
   key: number
   description: string
   cost: string
-  /** Set when the item consumes a supply; `quantity` is then in display units. */
-  supplyId: number | null
+}
+
+/** A typed-in part, as it was actually bought. */
+interface BoughtPart {
+  partId: number
+  name: string
+  partNumber: string | null
   quantity: string
-  /** The unit `quantity` is typed in, kept with the row so submit converts with it. */
+  price: string
+}
+
+/** A part taken from the supplies inventory; `quantity` is in display units. */
+interface SupplyRow {
+  key: number
+  supplyId: number
+  quantity: string
   unit: SupplyUnit
 }
 
@@ -80,30 +98,47 @@ export default function CompleteRepairDialog({
   const { data: supplyData } = useSupplies(true)
   const supplies = useMemo(() => supplyData?.supplies ?? [], [supplyData])
   const addableSupplies = supplies.filter((s) => s.is_active && supplyFitsVehicle(s, vin))
-  // The parts become the line items (supplies keep their planned quantity), or
-  // the repair's title and estimate when it has no parts.
-  const [items, setItems] = useState<ItemRow[]>(() => {
-    const parts = repair.parts ?? []
-    if (parts.length === 0) {
-      return [{ key: -1, description: repair.title, cost: costText(repair.estimated_cost), supplyId: null, quantity: '', unit: 'count' }]
-    }
-    return parts.map((p): ItemRow => {
-      // The part carries its supply's unit, so the quantity converts
-      // correctly before the supplies list has loaded.
-      const unit = supplyDisplayUnit(
-        { unit_type: p.unit_type ?? 'count', volume_unit: p.volume_unit ?? null },
-        system,
-      )
-      return {
-        key: p.id,
-        description: p.description,
-        cost: costText(p.cost),
-        supplyId: p.supply_id ?? null,
-        quantity: p.supply_quantity != null ? String(toEditableDisplay(Number(p.supply_quantity), unit)) : '',
-        unit,
-      }
-    })
-  })
+
+  const planned = repair.parts ?? []
+  const jobs = planned.filter((p) => p.kind === 'job')
+  const partCount = planned.length - jobs.length
+  const [items, setItems] = useState<ItemRow[]>(() =>
+    jobs.length > 0
+      ? jobs.map((job) => ({ key: job.id, description: job.description, cost: costText(job.cost) }))
+      : // With no jobs, one line item for the repair. It carries the estimate
+        // only when there are no parts either: otherwise the parts are its cost.
+        [{ key: -1, description: repair.title, cost: partCount === 0 ? costText(repair.estimated_cost) : '' }],
+  )
+  const [boughtParts, setBoughtParts] = useState<BoughtPart[]>(() =>
+    planned
+      .filter((p) => p.kind !== 'job' && p.supply_id == null)
+      .map((p) => ({
+        partId: p.id,
+        name: p.description,
+        partNumber: p.part_number ?? null,
+        quantity: p.quantity != null ? costText(p.quantity) : '1',
+        price: costText(p.cost),
+      })),
+  )
+  const [supplyRows, setSupplyRows] = useState<SupplyRow[]>(() =>
+    planned
+      .filter((p) => p.supply_id != null)
+      .map((p) => {
+        // The part carries its supply's unit, so the quantity converts
+        // correctly before the supplies list has loaded.
+        const unit = supplyDisplayUnit(
+          { unit_type: p.unit_type ?? 'count', volume_unit: p.volume_unit ?? null },
+          system,
+        )
+        return {
+          key: p.id,
+          supplyId: p.supply_id as number,
+          quantity: p.supply_quantity != null ? String(toEditableDisplay(Number(p.supply_quantity), unit)) : '',
+          unit,
+        }
+      }),
+  )
+  const [partsLineKey, setPartsLineKey] = useState<number>(() => items[0]?.key ?? -1)
   const [nextKey, setNextKey] = useState(-2)
   const [taxText, setTaxText] = useState('')
   const [notes, setNotes] = useState(repair.description ?? '')
@@ -111,45 +146,63 @@ export default function CompleteRepairDialog({
   const [error, setError] = useState<string | null>(null)
 
   const supplyById = (id: number | null) => supplies.find((s) => s.id === id)
-  /** A supply item's quantity in canonical units (L or count), as the API takes it. */
-  const canonicalQuantity = (item: ItemRow) =>
-    +toCanonical(parseOptionalDecimal(item.quantity) ?? 0, item.unit).toFixed(3)
+  /** A supply row's quantity in canonical units (L or count), as the API takes it. */
+  const canonicalQuantity = (row: SupplyRow) =>
+    +toCanonical(parseOptionalDecimal(row.quantity) ?? 0, row.unit).toFixed(3)
   /** The unit a supply's quantity is typed in: its own display unit. */
   const unitFor = (supplyId: number | null): SupplyUnit => {
     const supply = supplyById(supplyId)
     return supply ? supplyDisplayUnit(supply, system) : 'count'
   }
+  const hasParts = boughtParts.length > 0 || supplyRows.length > 0
   const total =
-    items.reduce(
-      (sum, item) =>
-        sum +
-        (item.supplyId != null
-          ? supplyEstimate(supplyById(item.supplyId), canonicalQuantity(item))
-          : (parseOptionalDecimal(item.cost) ?? 0)),
+    items.reduce((sum, item) => sum + (parseOptionalDecimal(item.cost) ?? 0), 0) +
+    boughtParts.reduce(
+      (sum, p) => sum + partLineTotal(parseOptionalDecimal(p.price) ?? null, parseOptionalDecimal(p.quantity) ?? null),
       0,
-    ) + (parseOptionalDecimal(taxText) ?? 0)
+    ) +
+    supplyRows.reduce((sum, row) => sum + supplyEstimate(supplyById(row.supplyId), canonicalQuantity(row)), 0) +
+    (parseOptionalDecimal(taxText) ?? 0)
 
-  const updateItem = (key: number, change: Partial<ItemRow>) => {
+  const updateItem = (key: number, change: Partial<ItemRow>) =>
     setItems((rows) => rows.map((row) => (row.key === key ? { ...row, ...change } : row)))
-  }
+  const updateBought = (partId: number, change: Partial<BoughtPart>) =>
+    setBoughtParts((rows) => rows.map((row) => (row.partId === partId ? { ...row, ...change } : row)))
+  const updateSupplyRow = (key: number, change: Partial<SupplyRow>) =>
+    setSupplyRows((rows) => rows.map((row) => (row.key === key ? { ...row, ...change } : row)))
 
-  const addItem = (supplyId: number | null) => {
-    setItems((rows) => [...rows, { key: nextKey, description: '', cost: '', supplyId, quantity: '', unit: unitFor(supplyId) }])
+  const addItem = () => {
+    setItems((rows) => [...rows, { key: nextKey, description: '', cost: '' }])
+    setNextKey((k) => k - 1)
+  }
+  const removeItem = (key: number) => {
+    const rest = items.filter((row) => row.key !== key)
+    setItems(rest)
+    if (partsLineKey === key && rest.length > 0) setPartsLineKey(rest[0].key)
+  }
+  const addSupplyRow = () => {
+    const supplyId = addableSupplies[0]?.id
+    if (supplyId == null) return
+    setSupplyRows((rows) => [...rows, { key: nextKey, supplyId, quantity: '', unit: unitFor(supplyId) }])
     setNextKey((k) => k - 1)
   }
 
   const validate = (): boolean => {
     const errors: Record<string, string> = {}
     if (!date) errors.date = t('plannedRepairs.complete.dateRequired')
-    const filled = items.filter((item) => item.supplyId != null || item.description.trim())
-    if (filled.length === 0) errors.items = t('plannedRepairs.complete.itemRequired')
+    if (!items.some((item) => item.description.trim())) errors.items = t('plannedRepairs.complete.itemRequired')
     items.forEach((item) => {
-      if (item.supplyId != null) {
-        if (!(canonicalQuantity(item) > 0)) errors[`item-${item.key}`] = t('plannedRepairs.supplyQuantityRequired')
-        return
-      }
       const costError = moneyTextError(t, item.cost)
       if (costError) errors[`item-${item.key}`] = costError
+    })
+    boughtParts.forEach((p) => {
+      const quantity = parseOptionalDecimal(p.quantity)
+      if (quantity === undefined || !(quantity > 0)) errors[`part-${p.partId}`] = t('plannedRepairs.qtyRequired')
+      const priceError = moneyTextError(t, p.price)
+      if (priceError) errors[`part-${p.partId}`] = priceError
+    })
+    supplyRows.forEach((row) => {
+      if (!(canonicalQuantity(row) > 0)) errors[`supply-${row.key}`] = t('plannedRepairs.supplyQuantityRequired')
     })
     const taxError = moneyTextError(t, taxText)
     if (taxError) errors.tax = taxError
@@ -162,8 +215,13 @@ export default function CompleteRepairDialog({
     setError(null)
     if (!validate()) return
 
-    const serviceCategory = (category || null) as ServiceVisitCreate['service_category']
-    const visit: ServiceVisitCreate = {
+    const serviceCategory = (category || null) as PlannedRepairComplete['service_category']
+    const filled = items.filter((item) => item.description.trim())
+    const partsIndex = Math.max(
+      filled.findIndex((item) => item.key === partsLineKey),
+      0,
+    )
+    const visit: PlannedRepairComplete = {
       date,
       odometer_km: tracksDistance
         ? canonicalFromUnitField(odometerText, odometerOrigin, u.distance) ?? undefined
@@ -173,30 +231,24 @@ export default function CompleteRepairDialog({
       service_category: serviceCategory,
       tax_amount: parseOptionalDecimal(taxText) ?? null,
       notes: notes.trim() || null,
-      line_items: items
-        .filter((item) => item.supplyId != null || item.description.trim())
-        .map((item) =>
-          item.supplyId != null
-            ? {
-                // Consumed from inventory: the usage carries its own cost
-                // snapshot, so the line item adds none on top.
-                description: (supplyById(item.supplyId)?.name ?? item.description).slice(0, 200),
-                category: serviceCategory,
-                cost: null,
-                is_inspection: false,
-                is_recall: false,
-                is_warranty: false,
-                supplies_used: [{ supply_id: item.supplyId, quantity: canonicalQuantity(item) }],
-              }
-            : {
-                description: item.description.trim().slice(0, 200),
-                category: serviceCategory,
-                cost: parseOptionalDecimal(item.cost) ?? null,
-                is_inspection: false,
-                is_recall: false,
-                is_warranty: false,
-              },
-        ),
+      line_items: filled.map((item, index) => ({
+        description: item.description.trim().slice(0, 200),
+        category: serviceCategory,
+        cost: parseOptionalDecimal(item.cost) ?? null,
+        is_inspection: false,
+        is_recall: false,
+        is_warranty: false,
+        supplies_used:
+          index === partsIndex
+            ? supplyRows.map((row) => ({ supply_id: row.supplyId, quantity: canonicalQuantity(row) }))
+            : [],
+      })),
+      parts: boughtParts.map((p) => ({
+        part_id: p.partId,
+        quantity: parseOptionalDecimal(p.quantity) ?? 1,
+        cost: parseOptionalDecimal(p.price) ?? null,
+      })),
+      parts_line_item: partsIndex,
     }
 
     try {
@@ -207,6 +259,11 @@ export default function CompleteRepairDialog({
       setError(getActionErrorMessage(err, t('plannedRepairs.complete.action')))
     }
   }
+
+  const lineItemOptions = items.map((item, index) => ({
+    value: String(item.key),
+    label: item.description.trim() || t('plannedRepairs.complete.itemDescription', { number: index + 1 }),
+  }))
 
   return (
     <FormModalWrapper
@@ -281,54 +338,35 @@ export default function CompleteRepairDialog({
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium text-text mb-1">{t('plannedRepairs.complete.items')}</legend>
+          <p className="text-xs text-text-mute">{t('plannedRepairs.complete.itemsHint')}</p>
           {items.map((item, index) => (
             <div key={item.key} className="space-y-1">
               <div className="flex items-start gap-2">
-                {item.supplyId != null ? (
-                  <SupplyPartFields
-                    supplies={supplies}
-                    vin={vin}
-                    supplyId={item.supplyId}
-                    unit={item.unit}
-                    quantity={item.quantity}
-                    onChange={({ supplyId, quantity }) =>
-                      updateItem(item.key, {
-                        ...(supplyId !== undefined ? { supplyId, unit: unitFor(supplyId) } : {}),
-                        ...(quantity !== undefined ? { quantity } : {}),
-                      })
-                    }
-                    index={index}
+                <div className="flex-1 min-w-0">
+                  <Input
+                    aria-label={t('plannedRepairs.complete.itemDescription', { number: index + 1 })}
+                    value={item.description}
+                    onChange={(e) => updateItem(item.key, { description: e.target.value })}
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="w-36">
+                  <NumberInput
+                    aria-label={t('plannedRepairs.complete.laborCost', { number: index + 1 })}
+                    value={item.cost}
+                    onChange={(e) => updateItem(item.key, { cost: e.target.value })}
+                    placeholder={t('plannedRepairs.laborPlaceholder')}
+                    suffix={currencyCode}
                     invalid={!!fieldErrors[`item-${item.key}`]}
                     disabled={submitting}
                   />
-                ) : (
-                  <>
-                    <div className="flex-1 min-w-0">
-                      <Input
-                        aria-label={t('plannedRepairs.partDescription', { number: index + 1 })}
-                        value={item.description}
-                        onChange={(e) => updateItem(item.key, { description: e.target.value })}
-                        disabled={submitting}
-                      />
-                    </div>
-                    <div className="w-32">
-                      <NumberInput
-                        aria-label={t('plannedRepairs.partCost', { number: index + 1 })}
-                        value={item.cost}
-                        onChange={(e) => updateItem(item.key, { cost: e.target.value })}
-                        placeholder={currencyCode}
-                        invalid={!!fieldErrors[`item-${item.key}`]}
-                        disabled={submitting}
-                      />
-                    </div>
-                  </>
-                )}
+                </div>
                 <IconButton
                   icon={Trash2}
-                  label={t('plannedRepairs.removePart')}
+                  label={t('plannedRepairs.complete.removeItem')}
                   variant="ghost"
                   size="sm"
-                  onClick={() => setItems((rows) => rows.filter((row) => row.key !== item.key))}
+                  onClick={() => removeItem(item.key)}
                   disabled={submitting || items.length === 1}
                 />
               </div>
@@ -338,22 +376,116 @@ export default function CompleteRepairDialog({
             </div>
           ))}
           {fieldErrors.items && <p className="text-xs text-danger">{fieldErrors.items}</p>}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" icon={Plus} onClick={() => addItem(null)} disabled={submitting}>
-              {t('plannedRepairs.addPart')}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={Package}
-              onClick={() => addItem(addableSupplies[0]?.id ?? null)}
-              disabled={submitting || addableSupplies.length === 0}
-            >
-              {t('plannedRepairs.addFromSupplies')}
-            </Button>
-          </div>
-          {items.some((item) => item.supplyId != null) && (
-            <p className="text-xs text-text-mute">{t('plannedRepairs.complete.suppliesHint')}</p>
+          <Button variant="secondary" size="sm" icon={Plus} onClick={addItem} disabled={submitting}>
+            {t('plannedRepairs.complete.addItem')}
+          </Button>
+        </fieldset>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium text-text mb-1">{t('plannedRepairs.complete.parts')}</legend>
+          {!hasParts && <p className="text-xs text-text-mute">{t('plannedRepairs.complete.noParts')}</p>}
+          {boughtParts.map((part) => (
+            <div key={part.partId} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-text break-words">{part.name}</p>
+                  {part.partNumber && (
+                    <Mono size="xs" tone="muted">
+                      {t('plannedRepairs.partNumberShort', { value: part.partNumber })}
+                    </Mono>
+                  )}
+                </div>
+                <div className="w-20">
+                  <NumberInput
+                    aria-label={t('plannedRepairs.complete.partQuantity', { name: part.name })}
+                    value={part.quantity}
+                    onChange={(e) => updateBought(part.partId, { quantity: e.target.value })}
+                    invalid={!!fieldErrors[`part-${part.partId}`]}
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="w-32">
+                  <NumberInput
+                    aria-label={t('plannedRepairs.complete.partPrice', { name: part.name })}
+                    value={part.price}
+                    onChange={(e) => updateBought(part.partId, { price: e.target.value })}
+                    placeholder={t('plannedRepairs.priceEach')}
+                    suffix={currencyCode}
+                    invalid={!!fieldErrors[`part-${part.partId}`]}
+                    disabled={submitting}
+                  />
+                </div>
+                <IconButton
+                  icon={Trash2}
+                  label={t('plannedRepairs.complete.removePartUsed', { name: part.name })}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setBoughtParts((rows) => rows.filter((row) => row.partId !== part.partId))}
+                  disabled={submitting}
+                />
+              </div>
+              {fieldErrors[`part-${part.partId}`] && (
+                <p className="text-xs text-danger">{fieldErrors[`part-${part.partId}`]}</p>
+              )}
+            </div>
+          ))}
+          {supplyRows.map((row, index) => (
+            <div key={row.key} className="space-y-1">
+              <div className="flex items-start gap-2">
+                <SupplyPartFields
+                  supplies={supplies}
+                  vin={vin}
+                  supplyId={row.supplyId}
+                  unit={row.unit}
+                  quantity={row.quantity}
+                  onChange={({ supplyId, quantity }) =>
+                    updateSupplyRow(row.key, {
+                      ...(supplyId !== undefined ? { supplyId, unit: unitFor(supplyId) } : {}),
+                      ...(quantity !== undefined ? { quantity } : {}),
+                    })
+                  }
+                  index={index}
+                  invalid={!!fieldErrors[`supply-${row.key}`]}
+                  disabled={submitting}
+                />
+                <IconButton
+                  icon={Trash2}
+                  label={t('plannedRepairs.removePart')}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSupplyRows((rows) => rows.filter((r) => r.key !== row.key))}
+                  disabled={submitting}
+                />
+              </div>
+              {fieldErrors[`supply-${row.key}`] && (
+                <p className="text-xs text-danger">{fieldErrors[`supply-${row.key}`]}</p>
+              )}
+            </div>
+          ))}
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Package}
+            onClick={addSupplyRow}
+            disabled={submitting || addableSupplies.length === 0}
+          >
+            {t('plannedRepairs.addFromSupplies')}
+          </Button>
+          {hasParts && (
+            <>
+              <p className="text-xs text-text-mute">{t('plannedRepairs.complete.partsHint')}</p>
+              {items.length > 1 && (
+                <Field id="complete-repair-parts-line" label={t('plannedRepairs.complete.partsLineItem')}>
+                  <Select
+                    id="complete-repair-parts-line"
+                    value={String(partsLineKey)}
+                    onChange={(e) => setPartsLineKey(Number(e.target.value))}
+                    disabled={submitting}
+                    options={lineItemOptions}
+                  />
+                </Field>
+              )}
+            </>
           )}
         </fieldset>
 

@@ -6607,6 +6607,10 @@ export interface paths {
          * Complete Planned Repair
          * @description Mark a repair done and log the service visit for it.
          *
+         *     Each part in ``parts`` is added to supplies for this vehicle (a purchase of
+         *     its quantity at its price, dated the visit) and used in full on the line
+         *     item at ``parts_line_item``.
+         *
          *     A repair that already logged a visit keeps it and the body is ignored, so
          *     service history never gets a duplicate.
          */
@@ -6635,6 +6639,34 @@ export interface paths {
          */
         post: operations["move_planned_repair_api_vehicles__vin__planned_repairs__repair_id__move_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/parts/{part_id}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Planned Repair Part Image
+         * @description The part's picture.
+         */
+        get: operations["get_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_get"];
+        put?: never;
+        /**
+         * Upload Planned Repair Part Image
+         * @description Set (or replace) a part's picture. Re-encoded to a size-capped JPEG.
+         */
+        post: operations["upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post"];
+        /**
+         * Delete Planned Repair Part Image
+         * @description Remove a part's picture.
+         */
+        delete: operations["delete_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -9695,6 +9727,11 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** Body_upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post */
+        Body_upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post: {
+            /** File */
+            file: string;
+        };
         /** Body_upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post */
         Body_upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post: {
             /** File */
@@ -10293,6 +10330,28 @@ export interface components {
              * @default 0.00
              */
             period2_value: string;
+        };
+        /**
+         * CompletedPartInput
+         * @description A typed-in part as it was actually bought, for the completion.
+         */
+        CompletedPartInput: {
+            /**
+             * Cost
+             * @description Price paid for one
+             */
+            cost?: number | string | null;
+            /**
+             * Part Id
+             * @description A part (kind part, not from supplies) of this repair
+             */
+            part_id: number;
+            /**
+             * Quantity
+             * @description How many were used
+             * @default 1
+             */
+            quantity: number | string;
         };
         /** ComplianceResponse */
         ComplianceResponse: {
@@ -15945,6 +16004,123 @@ export interface components {
             is_main?: boolean | null;
         };
         /**
+         * PlannedRepairComplete
+         * @description The service visit a completed repair logs, plus the parts it used.
+         *
+         *     Each part in ``parts`` becomes a supply for this vehicle, with a purchase
+         *     of its quantity at its price on the visit's date, used in full on the
+         *     line item at ``parts_line_item``.
+         * @example {
+         *       "date": "2026-01-15",
+         *       "line_items": [
+         *         {
+         *           "category": "Maintenance",
+         *           "cost": 112.23,
+         *           "description": "Engine Oil & Filter Change"
+         *         },
+         *         {
+         *           "category": "Maintenance",
+         *           "cost": 0,
+         *           "description": "Tire Rotation",
+         *           "notes": "Included with oil change"
+         *         }
+         *       ],
+         *       "notes": "Regular maintenance visit",
+         *       "odometer_km": 148864,
+         *       "service_category": "Maintenance",
+         *       "vendor_id": 1
+         *     }
+         */
+        PlannedRepairComplete: {
+            /**
+             * Date
+             * Format: date
+             * @description Visit date
+             */
+            date: string;
+            /**
+             * Engine Hours
+             * @description Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.
+             */
+            engine_hours?: number | string | null;
+            /**
+             * Insurance Claim Number
+             * @description Insurance claim number
+             */
+            insurance_claim_number?: string | null;
+            /**
+             * Invoice Number
+             * @description Shop invoice number
+             */
+            invoice_number?: string | null;
+            /**
+             * Line Items
+             * @description Services performed during this visit
+             */
+            line_items: components["schemas"]["ServiceLineItemCreate"][];
+            /**
+             * Misc Fees
+             * @description Miscellaneous fees (disposal, etc.)
+             */
+            misc_fees?: number | string | null;
+            /**
+             * Notes
+             * @description Visit notes
+             */
+            notes?: string | null;
+            /**
+             * Odometer Km
+             * @description Odometer reading in kilometers
+             */
+            odometer_km?: number | string | null;
+            /**
+             * Parts
+             * @description Typed-in parts to add to supplies and use
+             */
+            parts?: components["schemas"]["CompletedPartInput"][];
+            /**
+             * Parts Line Item
+             * @description Index of the line item the parts are recorded on
+             * @default 0
+             */
+            parts_line_item: number;
+            /**
+             * Po Number
+             * @description Purchase order number
+             */
+            po_number?: string | null;
+            /**
+             * Service Category
+             * @description Primary service category
+             */
+            service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
+            /**
+             * Shop Supplies
+             * @description Shop supplies/environmental fee
+             */
+            shop_supplies?: number | string | null;
+            /**
+             * Tax Amount
+             * @description Sales tax
+             */
+            tax_amount?: number | string | null;
+            /**
+             * Total Cost
+             * @description Ignored: the server always computes the total from line items, supplies, tax and fees. Accepted so existing clients don't 422.
+             */
+            total_cost?: number | string | null;
+            /**
+             * Vendor Id
+             * @description Vendor ID
+             */
+            vendor_id?: number | null;
+            /**
+             * Work Order Number
+             * @description Work order number
+             */
+            work_order_number?: string | null;
+        };
+        /**
          * PlannedRepairCreate
          * @description Schema for creating a planned repair. New repairs start in planning.
          */
@@ -15976,6 +16152,11 @@ export interface components {
              * @description Category the service visit gets when completed
              */
             service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
+            /**
+             * Systems
+             * @description Vehicle systems the repair works on
+             */
+            systems?: ("engine" | "transmission" | "differential" | "drivetrain" | "suspension" | "steering" | "brakes" | "tires_wheels" | "cooling" | "exhaust" | "fuel" | "electrical" | "hvac" | "body" | "interior" | "other")[];
             /**
              * Target Date
              * @description When the repair is planned for
@@ -16032,7 +16213,7 @@ export interface components {
         PlannedRepairPartInput: {
             /**
              * Cost
-             * @description Estimated cost of this part or job
+             * @description A part's estimated price of one (the line total is cost x quantity); a job's estimated labor
              */
             cost?: number | string | null;
             /**
@@ -16040,6 +16221,28 @@ export interface components {
              * @description Part or job
              */
             description: string;
+            /**
+             * Id
+             * @description An existing part of this repair to update in place, keeping its picture; omitted (or another repair's part) adds a new one
+             */
+            id?: number | null;
+            /**
+             * Kind
+             * @description part (bought) or job (work)
+             * @default part
+             * @enum {string}
+             */
+            kind: "part" | "job";
+            /**
+             * Part Number
+             * @description Part number
+             */
+            part_number?: string | null;
+            /**
+             * Quantity
+             * @description How many are needed, for a part not taken from supplies; null means one
+             */
+            quantity?: number | string | null;
             /**
              * Supply Id
              * @description Supply to consume when the repair is completed
@@ -16050,6 +16253,11 @@ export interface components {
              * @description How much of the supply, in canonical units (L or count)
              */
             supply_quantity?: number | string | null;
+            /**
+             * Url
+             * @description Where the part was found online
+             */
+            url?: string | null;
         };
         /**
          * PlannedRepairPartResponse
@@ -16058,7 +16266,7 @@ export interface components {
         PlannedRepairPartResponse: {
             /**
              * Cost
-             * @description Estimated cost of this part or job
+             * @description A part's estimated price of one (the line total is cost x quantity); a job's estimated labor
              */
             cost?: string | null;
             /**
@@ -16066,8 +16274,36 @@ export interface components {
              * @description Part or job
              */
             description: string;
+            /**
+             * Has Image
+             * @description True when the part has a picture
+             * @default false
+             */
+            has_image: boolean;
             /** Id */
             id: number;
+            /**
+             * Image Version
+             * @description Changes when the picture is replaced; add it to the image URL
+             */
+            image_version?: string | null;
+            /**
+             * Kind
+             * @description part (bought) or job (work)
+             * @default part
+             * @enum {string}
+             */
+            kind: "part" | "job";
+            /**
+             * Part Number
+             * @description Part number
+             */
+            part_number?: string | null;
+            /**
+             * Quantity
+             * @description How many are needed, for a part not taken from supplies; null means one
+             */
+            quantity?: string | null;
             /**
              * Supply Id
              * @description Supply to consume when the repair is completed
@@ -16088,6 +16324,11 @@ export interface components {
              * @description The supply's unit type, for converting the quantity to display units
              */
             unit_type?: ("volume" | "count") | null;
+            /**
+             * Url
+             * @description Where the part was found online
+             */
+            url?: string | null;
             /**
              * Volume Unit
              * @description Per-supply display unit; null means the legacy binary pick
@@ -16160,6 +16401,11 @@ export interface components {
              */
             status: "planning" | "in_progress" | "done";
             /**
+             * Systems
+             * @description Vehicle systems the repair works on
+             */
+            systems?: ("engine" | "transmission" | "differential" | "drivetrain" | "suspension" | "steering" | "brakes" | "tires_wheels" | "cooling" | "exhaust" | "fuel" | "electrical" | "hvac" | "body" | "interior" | "other")[];
+            /**
              * Target Date
              * @description When the repair is planned for
              */
@@ -16203,7 +16449,7 @@ export interface components {
             estimated_cost?: number | string | null;
             /**
              * Parts
-             * @description Replaces every part when given
+             * @description The repair's parts when given: one with an id is updated in place, one without is added, and a stored part left out is removed with its picture
              */
             parts?: components["schemas"]["PlannedRepairPartInput"][] | null;
             /**
@@ -16216,6 +16462,11 @@ export interface components {
              * @description Category the service visit gets when completed
              */
             service_category?: ("Maintenance" | "Inspection" | "Collision" | "Repair" | "Upgrades" | "Detailing") | null;
+            /**
+             * Systems
+             * @description Replaces every vehicle-system tag when given; [] clears them
+             */
+            systems?: ("engine" | "transmission" | "differential" | "drivetrain" | "suspension" | "steering" | "brakes" | "tires_wheels" | "cooling" | "exhaust" | "fuel" | "electrical" | "hvac" | "body" | "interior" | "other")[] | null;
             /**
              * Target Date
              * @description When the repair is planned for
@@ -34421,7 +34672,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ServiceVisitCreate"];
+                "application/json": components["schemas"]["PlannedRepairComplete"];
             };
         };
         responses: {
@@ -34469,6 +34720,107 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PlannedRepairResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlannedRepairPartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vin: string;
+                repair_id: number;
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

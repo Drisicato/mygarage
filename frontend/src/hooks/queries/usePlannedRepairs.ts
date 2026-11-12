@@ -3,13 +3,14 @@ import api from '@/services/api'
 import { invalidateMaintenanceQueries } from '@/hooks/useReminders'
 import type {
   PlannedRepair,
+  PlannedRepairComplete,
   PlannedRepairCreate,
   PlannedRepairListResponse,
   PlannedRepairMove,
+  PlannedRepairPart,
   PlannedRepairPhoto,
   PlannedRepairUpdate,
 } from '@/types/plannedRepair'
-import type { ServiceVisitCreate } from '@/types/serviceVisit'
 
 const repairsKey = (vin: string) => ['plannedRepairs', vin]
 
@@ -98,6 +99,44 @@ export function useDeletePlannedRepairPhoto(vin: string) {
   })
 }
 
+interface PartImageTarget {
+  repairId: number
+  partId: number
+}
+
+/** Set (or replace) a part's picture. */
+export function useUploadPlannedRepairPartImage(vin: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ repairId, partId, file }: PartImageTarget & { file: File }) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const { data } = await api.post<PlannedRepairPart>(
+        `/vehicles/${vin}/planned-repairs/${repairId}/parts/${partId}/image`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      return data
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: repairsKey(vin) })
+    },
+  })
+}
+
+/** Remove a part's picture. */
+export function useDeletePlannedRepairPartImage(vin: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ repairId, partId }: PartImageTarget) => {
+      await api.delete(`/vehicles/${vin}/planned-repairs/${repairId}/parts/${partId}/image`)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: repairsKey(vin) })
+    },
+  })
+}
+
 /**
  * Reorder the cached board the way the server will, so a dropped card stays
  * where it was dropped instead of snapping back until the refetch lands.
@@ -153,7 +192,7 @@ export function useMovePlannedRepair(vin: string) {
 export function useCompletePlannedRepair(vin: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, visit }: { id: number; visit: ServiceVisitCreate }) => {
+    mutationFn: async ({ id, visit }: { id: number; visit: PlannedRepairComplete }) => {
       const { data } = await api.post<PlannedRepair>(
         `/vehicles/${vin}/planned-repairs/${id}/complete`,
         visit
@@ -165,6 +204,8 @@ export function useCompletePlannedRepair(vin: string) {
       // The visit it logs is a service like any other: history, readings
       // and reminders all move, and any supplies it used are drawn down.
       invalidateMaintenanceQueries(queryClient, vin)
+      // Its typed-in parts are added to supplies.
+      void queryClient.invalidateQueries({ queryKey: ['supplies'] })
       void queryClient.invalidateQueries({ queryKey: ['supplies'] })
     },
   })

@@ -167,7 +167,11 @@ REGISTRY: dict[type[BaseModel], Entry] = {
     OdometerRecordUpdate: Entry(OdometerRecord),
     PhotoUpdate: Entry(VehiclePhoto),
     PlannedRepairUpdate: Entry(
-        PlannedRepair, unmapped={"parts": "PlannedRepairPart child rows, replaced whole"}
+        PlannedRepair,
+        unmapped={
+            "parts": "PlannedRepairPart child rows, replaced whole",
+            "systems": "PlannedRepairSystem child rows, replaced whole",
+        },
     ),
     PolicyVehicleUpdate: Entry(
         InsurancePolicyVehicle,

@@ -2521,6 +2521,20 @@
         "title": "Body_upload_document_api_vehicles__vin__documents_post",
         "type": "object"
       },
+      "Body_upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post",
+        "type": "object"
+      },
       "Body_upload_planned_repair_photo_api_vehicles__vin__planned_repairs__repair_id__photos_post": {
         "properties": {
           "file": {
@@ -4226,6 +4240,53 @@
           "category"
         ],
         "title": "CategoryChange",
+        "type": "object"
+      },
+      "CompletedPartInput": {
+        "description": "A typed-in part as it was actually bought, for the completion.",
+        "properties": {
+          "cost": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Price paid for one",
+            "title": "Cost"
+          },
+          "part_id": {
+            "description": "A part (kind part, not from supplies) of this repair",
+            "title": "Part Id",
+            "type": "integer"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": "1",
+            "description": "How many were used",
+            "title": "Quantity"
+          }
+        },
+        "required": [
+          "part_id"
+        ],
+        "title": "CompletedPartInput",
         "type": "object"
       },
       "ComplianceResponse": {
@@ -17702,6 +17763,268 @@
         "title": "PhotoUpdate",
         "type": "object"
       },
+      "PlannedRepairComplete": {
+        "description": "The service visit a completed repair logs, plus the parts it used.\n\nEach part in ``parts`` becomes a supply for this vehicle, with a purchase\nof its quantity at its price on the visit's date, used in full on the\nline item at ``parts_line_item``.",
+        "examples": [
+          {
+            "date": "2026-01-15",
+            "line_items": [
+              {
+                "category": "Maintenance",
+                "cost": 112.23,
+                "description": "Engine Oil & Filter Change"
+              },
+              {
+                "category": "Maintenance",
+                "cost": 0,
+                "description": "Tire Rotation",
+                "notes": "Included with oil change"
+              }
+            ],
+            "notes": "Regular maintenance visit",
+            "odometer_km": 148864,
+            "service_category": "Maintenance",
+            "vendor_id": 1
+          }
+        ],
+        "properties": {
+          "date": {
+            "description": "Visit date",
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "engine_hours": {
+            "anyOf": [
+              {
+                "maximum": 9999999.9,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Engine-hours reading at this service visit (hour-metered vehicles). Dimensionless, no unit conversion. Auto-syncs to hours history.",
+            "title": "Engine Hours"
+          },
+          "insurance_claim_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Insurance claim number",
+            "title": "Insurance Claim Number"
+          },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop invoice number",
+            "title": "Invoice Number"
+          },
+          "line_items": {
+            "description": "Services performed during this visit",
+            "items": {
+              "$ref": "#/components/schemas/ServiceLineItemCreate"
+            },
+            "minItems": 1,
+            "title": "Line Items",
+            "type": "array"
+          },
+          "misc_fees": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Miscellaneous fees (disposal, etc.)",
+            "title": "Misc Fees"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Visit notes",
+            "title": "Notes"
+          },
+          "odometer_km": {
+            "anyOf": [
+              {
+                "maximum": 99999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Odometer reading in kilometers",
+            "title": "Odometer Km"
+          },
+          "parts": {
+            "description": "Typed-in parts to add to supplies and use",
+            "items": {
+              "$ref": "#/components/schemas/CompletedPartInput"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "parts_line_item": {
+            "default": 0,
+            "description": "Index of the line item the parts are recorded on",
+            "minimum": 0.0,
+            "title": "Parts Line Item",
+            "type": "integer"
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Purchase order number",
+            "title": "Po Number"
+          },
+          "service_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Maintenance",
+                  "Inspection",
+                  "Collision",
+                  "Repair",
+                  "Upgrades",
+                  "Detailing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Primary service category",
+            "title": "Service Category"
+          },
+          "shop_supplies": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shop supplies/environmental fee",
+            "title": "Shop Supplies"
+          },
+          "tax_amount": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sales tax",
+            "title": "Tax Amount"
+          },
+          "total_cost": {
+            "anyOf": [
+              {
+                "maximum": 9999999999.99,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ignored: the server always computes the total from line items, supplies, tax and fees. Accepted so existing clients don't 422.",
+            "title": "Total Cost"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vendor ID",
+            "title": "Vendor Id"
+          },
+          "work_order_number": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Work order number",
+            "title": "Work Order Number"
+          }
+        },
+        "required": [
+          "date",
+          "line_items"
+        ],
+        "title": "PlannedRepairComplete",
+        "type": "object"
+      },
       "PlannedRepairCreate": {
         "description": "Schema for creating a planned repair. New repairs start in planning.",
         "properties": {
@@ -17774,6 +18097,32 @@
             ],
             "description": "Category the service visit gets when completed",
             "title": "Service Category"
+          },
+          "systems": {
+            "description": "Vehicle systems the repair works on",
+            "items": {
+              "enum": [
+                "engine",
+                "transmission",
+                "differential",
+                "drivetrain",
+                "suspension",
+                "steering",
+                "brakes",
+                "tires_wheels",
+                "cooling",
+                "exhaust",
+                "fuel",
+                "electrical",
+                "hvac",
+                "body",
+                "interior",
+                "other"
+              ],
+              "type": "string"
+            },
+            "title": "Systems",
+            "type": "array"
           },
           "target_date": {
             "anyOf": [
@@ -17897,7 +18246,7 @@
                 "type": "null"
               }
             ],
-            "description": "Estimated cost of this part or job",
+            "description": "A part's estimated price of one (the line total is cost x quantity); a job's estimated labor",
             "title": "Cost"
           },
           "description": {
@@ -17906,6 +18255,58 @@
             "minLength": 1,
             "title": "Description",
             "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An existing part of this repair to update in place, keeping its picture; omitted (or another repair's part) adds a new one",
+            "title": "Id"
+          },
+          "kind": {
+            "default": "part",
+            "description": "part (bought) or job (work)",
+            "enum": [
+              "part",
+              "job"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "part_number": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Part number",
+            "title": "Part Number"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many are needed, for a part not taken from supplies; null means one",
+            "title": "Quantity"
           },
           "supply_id": {
             "anyOf": [
@@ -17935,6 +18336,19 @@
             ],
             "description": "How much of the supply, in canonical units (L or count)",
             "title": "Supply Quantity"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the part was found online",
+            "title": "Url"
           }
         },
         "required": [
@@ -17955,7 +18369,7 @@
                 "type": "null"
               }
             ],
-            "description": "Estimated cost of this part or job",
+            "description": "A part's estimated price of one (the line total is cost x quantity); a job's estimated labor",
             "title": "Cost"
           },
           "description": {
@@ -17963,9 +18377,61 @@
             "title": "Description",
             "type": "string"
           },
+          "has_image": {
+            "default": false,
+            "description": "True when the part has a picture",
+            "title": "Has Image",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "image_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Changes when the picture is replaced; add it to the image URL",
+            "title": "Image Version"
+          },
+          "kind": {
+            "default": "part",
+            "description": "part (bought) or job (work)",
+            "enum": [
+              "part",
+              "job"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "part_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Part number",
+            "title": "Part Number"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many are needed, for a part not taken from supplies; null means one",
+            "title": "Quantity"
           },
           "supply_id": {
             "anyOf": [
@@ -18018,6 +18484,18 @@
             ],
             "description": "The supply's unit type, for converting the quantity to display units",
             "title": "Unit Type"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the part was found online",
+            "title": "Url"
           },
           "volume_unit": {
             "anyOf": [
@@ -18188,6 +18666,32 @@
             "title": "Status",
             "type": "string"
           },
+          "systems": {
+            "description": "Vehicle systems the repair works on",
+            "items": {
+              "enum": [
+                "engine",
+                "transmission",
+                "differential",
+                "drivetrain",
+                "suspension",
+                "steering",
+                "brakes",
+                "tires_wheels",
+                "cooling",
+                "exhaust",
+                "fuel",
+                "electrical",
+                "hvac",
+                "body",
+                "interior",
+                "other"
+              ],
+              "type": "string"
+            },
+            "title": "Systems",
+            "type": "array"
+          },
           "target_date": {
             "anyOf": [
               {
@@ -18315,7 +18819,7 @@
                 "type": "null"
               }
             ],
-            "description": "Replaces every part when given",
+            "description": "The repair's parts when given: one with an id is updated in place, one without is added, and a stored part left out is removed with its picture",
             "title": "Parts"
           },
           "priority": {
@@ -18355,6 +18859,39 @@
             ],
             "description": "Category the service visit gets when completed",
             "title": "Service Category"
+          },
+          "systems": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "engine",
+                    "transmission",
+                    "differential",
+                    "drivetrain",
+                    "suspension",
+                    "steering",
+                    "brakes",
+                    "tires_wheels",
+                    "cooling",
+                    "exhaust",
+                    "fuel",
+                    "electrical",
+                    "hvac",
+                    "body",
+                    "interior",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces every vehicle-system tag when given; [] clears them",
+            "title": "Systems"
           },
           "target_date": {
             "anyOf": [
@@ -56136,7 +56673,7 @@
     },
     "/api/vehicles/{vin}/planned-repairs/{repair_id}/complete": {
       "post": {
-        "description": "Mark a repair done and log the service visit for it.\n\nA repair that already logged a visit keeps it and the body is ignored, so\nservice history never gets a duplicate.",
+        "description": "Mark a repair done and log the service visit for it.\n\nEach part in ``parts`` is added to supplies for this vehicle (a purchase of\nits quantity at its price, dated the visit) and used in full on the line\nitem at ``parts_line_item``.\n\nA repair that already logged a visit keeps it and the body is ignored, so\nservice history never gets a duplicate.",
         "operationId": "complete_planned_repair_api_vehicles__vin__planned_repairs__repair_id__complete_post",
         "parameters": [
           {
@@ -56162,7 +56699,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ServiceVisitCreate"
+                "$ref": "#/components/schemas/PlannedRepairComplete"
               }
             }
           },
@@ -56263,6 +56800,201 @@
           }
         ],
         "summary": "Move Planned Repair",
+        "tags": [
+          "Planned Repairs"
+        ]
+      }
+    },
+    "/api/vehicles/{vin}/planned-repairs/{repair_id}/parts/{part_id}/image": {
+      "delete": {
+        "description": "Remove a part's picture.",
+        "operationId": "delete_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Planned Repair Part Image",
+        "tags": [
+          "Planned Repairs"
+        ]
+      },
+      "get": {
+        "description": "The part's picture.",
+        "operationId": "get_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Planned Repair Part Image",
+        "tags": [
+          "Planned Repairs"
+        ]
+      },
+      "post": {
+        "description": "Set (or replace) a part's picture. Re-encoded to a size-capped JPEG.",
+        "operationId": "upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vin",
+            "required": true,
+            "schema": {
+              "title": "Vin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_planned_repair_part_image_api_vehicles__vin__planned_repairs__repair_id__parts__part_id__image_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedRepairPartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Planned Repair Part Image",
         "tags": [
           "Planned Repairs"
         ]

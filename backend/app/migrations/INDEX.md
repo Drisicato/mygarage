@@ -179,3 +179,6 @@ migrations must swallow their own operational errors.
 | `158_line_item_recall_warranty` | **FATAL**: Recall and warranty flags and links on service_line_items, and recalls.resolved_via. |
 | `159_title_case_vehicle_names` | Stored makes and models in Title Case (#219 takeover). |
 | `160_settings_hygiene` | Tidy stored switches, drop the dead map keys and empty the token tables. |
+| `161_add_planned_repair_part_detail` | **FATAL**: Planned repair part detail and vehicle-system tags. |
+| `162_add_planned_repair_part_images` | **FATAL**: A picture on each planned repair part: planned_repair_parts.image_path. |
+| `163_planned_repair_part_kind` | **FATAL**: Split a planned repair's parts from its jobs: planned_repair_parts.kind. |

@@ -33,7 +33,11 @@ MIGRATIONS = Path(_m.__file__).parent
 
 #: Model Numeric columns added after 136, as table.column. A new one goes here,
 #: never into 136: a historical migration doesn't follow later models (Fable F-2).
-ADDED_AFTER_136: frozenset[str] = frozenset()
+ADDED_AFTER_136: frozenset[str] = frozenset(
+    {
+        "planned_repair_parts.quantity",  # 161
+    }
+)
 
 MILE_KM = Decimal("1.609344")
 DAY = date(2026, 9, 1)

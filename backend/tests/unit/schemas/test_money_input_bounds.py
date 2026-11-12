@@ -47,6 +47,8 @@ from app.schemas.insurance import (
 )
 from app.schemas.maintenance import ReminderCompleteRequest
 from app.schemas.planned_repair import (
+    CompletedPartInput,
+    PlannedRepairComplete,
     PlannedRepairCreate,
     PlannedRepairPartInput,
     PlannedRepairUpdate,
@@ -174,6 +176,12 @@ CASES = [
     Case(PlannedRepairCreate, {"title": "Brakes"}, ("estimated_cost",)),
     Case(PlannedRepairUpdate, {}, ("estimated_cost",)),
     Case(PlannedRepairPartInput, {"description": "Pads"}, ("cost",)),
+    Case(CompletedPartInput, {"part_id": 1}, ("cost",)),
+    Case(
+        PlannedRepairComplete,
+        {"date": DAY, "line_items": [{"description": "Water pump"}]},
+        (*_VISIT_FEES, "total_cost"),
+    ),
     Case(SpotRentalCreate, {"check_in_date": DAY}, _RENTAL),
     Case(SpotRentalUpdate, {}, _RENTAL),
     Case(SpotRentalBillingCreate, {"billing_date": DAY}, _BILLING),
