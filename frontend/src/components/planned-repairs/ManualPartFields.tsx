@@ -4,6 +4,7 @@
  * part number, and the link to the listing the user picked.
  */
 
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ExternalLink, Search, X } from 'lucide-react'
 import { Input, NumberInput } from '../ui'
@@ -30,6 +31,8 @@ interface ManualPartFieldsProps {
   /** Which inputs to mark invalid. */
   invalid?: { cost?: boolean; quantity?: boolean; url?: boolean }
   disabled?: boolean
+  /** The part's picture field, shown beside the inputs. */
+  image?: ReactNode
 }
 
 const linkClass =
@@ -42,6 +45,7 @@ export default function ManualPartFields({
   vehicle,
   invalid = {},
   disabled = false,
+  image,
 }: ManualPartFieldsProps) {
   const { t } = useTranslation('vehicles')
   const { currencyCode, formatCurrency } = useCurrencyPreference()
@@ -51,6 +55,8 @@ export default function ManualPartFields({
   const url = value.url.trim()
 
   return (
+    <div className="flex flex-1 min-w-0 items-start gap-3">
+      {image}
     <div className="flex-1 min-w-0 space-y-2">
       <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-2">
         <Input
@@ -152,6 +158,7 @@ export default function ManualPartFields({
           </a>
         )}
       </div>
+    </div>
     </div>
   )
 }

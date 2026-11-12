@@ -15,7 +15,8 @@ import { useUnitPreference } from '../../hooks/useUnitPreference'
 import { useDateLocale } from '../../hooks/useDateLocale'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
 import { formatDateForDisplay } from '../../utils/dateUtils'
-import { repairPhotoUrl } from '../../utils/plannedRepairPhoto'
+import { repairPartImageUrl, repairPhotoUrl } from '../../utils/plannedRepairPhoto'
+import { supplyImageUrl } from '../../utils/supplyImage'
 import { formatSupplyQuantity, supplyDisplayUnit } from '../../utils/supplyUnits'
 import { apiNumber, partLineTotal, partQuantity } from '../../utils/plannedRepairParts'
 import { isWebUrl } from '../../utils/partSearch'
@@ -45,7 +46,9 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
   const { data: supplyData } = useSupplies(true)
   const supplies = supplyData?.supplies ?? []
 
-  const parts = repair.parts ?? []
+  const parts = (repair.parts ?? []).filter((p) => p.kind !== 'job')
+  const jobs = (repair.parts ?? []).filter((p) => p.kind === 'job')
+  const laborTotal = jobs.reduce((sum, job) => sum + Number(job.cost ?? 0), 0)
   const photos = repair.photos ?? []
   const partCost = (part: (typeof parts)[number]) =>
     part.supply_id != null
@@ -139,7 +142,7 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
         </dl>
 
         <section>
-          <h3 className="text-sm font-medium text-text mb-1">{t('plannedRepairs.parts')}</h3>
+          <h3 className="text-sm font-medium text-text mb-1">{t('plannedRepairs.partsSection')}</h3>
           {parts.length === 0 ? (
             <p className="text-xs text-text-mute">{t('plannedRepairs.noParts')}</p>
           ) : (
@@ -162,9 +165,31 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
                         )
                       : manualQuantity(price, count)
                   const url = part.url && isWebUrl(part.url) ? part.url : null
+                  // A supply part shows the supply's own picture.
+                  const supply = isSupply ? supplies.find((s) => s.id === part.supply_id) : undefined
+                  const imageUrl = part.has_image
+                    ? repairPartImageUrl(repair.vin, repair.id, part.id, part.image_version)
+                    : supply?.has_image
+                      ? supplyImageUrl(supply.id, supply.updated_at)
+                      : null
                   return (
-                    <li key={part.id} className="flex items-baseline justify-between gap-4 py-2 text-sm">
-                      <div className="min-w-0 space-y-0.5">
+                    <li key={part.id} className="flex items-center justify-between gap-4 py-2 text-sm">
+                      {imageUrl && (
+                        <a
+                          href={imageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-md border border-border bg-surface-2"
+                        >
+                          <img
+                            src={imageUrl}
+                            alt={t('plannedRepairs.partImageAlt', { name: part.supply_name ?? part.description })}
+                            loading="lazy"
+                            className="h-full w-full object-contain"
+                          />
+                        </a>
+                      )}
+                      <div className="min-w-0 flex-1 space-y-0.5">
                         <p className="break-words text-text">
                           {part.supply_name ?? part.description}
                           {quantity && <span className="text-text-mute"> · {quantity}</span>}
@@ -193,12 +218,32 @@ export default function PlannedRepairView({ repair, onClose, onEdit }: PlannedRe
                   )
                 })}
               </ul>
-              {partsTotal > 0 && (
-                <p className="mt-1 text-xs text-text-mute">
-                  {t('plannedRepairs.partsTotal', { total: formatCurrency(partsTotal) })}
-                </p>
-              )}
             </>
+          )}
+        </section>
+
+        <section>
+          <h3 className="text-sm font-medium text-text mb-1">{t('plannedRepairs.jobsSection')}</h3>
+          {jobs.length === 0 ? (
+            <p className="text-xs text-text-mute">{t('plannedRepairs.noJobs')}</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {jobs.map((job) => (
+                <li key={job.id} className="flex items-baseline justify-between gap-4 py-2 text-sm">
+                  <span className="min-w-0 break-words text-text">{job.description}</span>
+                  {Number(job.cost ?? 0) > 0 && <Mono size="sm">{formatCurrency(job.cost ?? 0)}</Mono>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {partsTotal + laborTotal > 0 && (
+            <p className="mt-1 text-xs text-text-mute">
+              {t('plannedRepairs.partsAndLaborTotal', {
+                parts: formatCurrency(partsTotal, { zeroIsValid: true }),
+                labor: formatCurrency(laborTotal, { zeroIsValid: true }),
+                total: formatCurrency(partsTotal + laborTotal),
+              })}
+            </p>
           )}
         </section>
 

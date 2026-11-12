@@ -18,7 +18,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.database import Base
 from app.models._types import ScaledNumeric
@@ -118,6 +118,11 @@ class PlannedRepairPart(Base):
         Integer, ForeignKey("planned_repairs.id", ondelete="CASCADE"), nullable=False
     )
     description: Mapped[str] = mapped_column(String(200), nullable=False)
+    #: 'part' (bought; becomes a supply when the repair is completed) or 'job'
+    #: (work; becomes a line item's labor). Migration 163, no CHECK.
+    kind: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="part", server_default=text("'part'")
+    )
     #: Price of one (migration 161); the line total is cost x quantity.
     cost: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 2))
     part_number: Mapped[str | None] = mapped_column(String(60))
@@ -125,6 +130,9 @@ class PlannedRepairPart(Base):
     quantity: Mapped[Decimal | None] = mapped_column(ScaledNumeric(12, 3))
     #: Where the part was found online.
     url: Mapped[str | None] = mapped_column(String(2000))
+    #: A picture of the part (migration 162), relative to settings.photos_dir
+    #: (``<VIN>/planned_repairs/parts/<id>-<token>.jpg``); NULL = none.
+    image_path: Mapped[str | None] = mapped_column(String(255))
     #: A part taken from the supplies inventory (migration 126). Nothing is
     #: consumed while the repair is planned; completing it logs the usage on
     #: the service visit's line item, like one picked in the service form.
@@ -137,6 +145,17 @@ class PlannedRepairPart(Base):
 
     repair: Mapped[PlannedRepair] = relationship("PlannedRepair", back_populates="parts")
     supply: Mapped[Supply | None] = relationship("Supply")
+
+    @property
+    def has_image(self) -> bool:
+        return bool(self.image_path)
+
+    @property
+    def image_version(self) -> str | None:
+        """Changes whenever the picture is replaced, so a URL carrying it busts caches."""
+        if not self.image_path:
+            return None
+        return self.image_path.rsplit("/", 1)[-1].removesuffix(".jpg")
 
     @property
     def supply_name(self) -> str | None:

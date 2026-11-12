@@ -41,7 +41,9 @@ def test_161_adds_the_part_columns_and_systems_table(engine_for_migration):
             )
         )
         conn.execute(
-            text("INSERT INTO planned_repair_parts (repair_id, description, cost) VALUES (1, 'Pads', 40)")
+            text(
+                "INSERT INTO planned_repair_parts (repair_id, description, cost) VALUES (1, 'Pads', 40)"
+            )
         )
 
     _load("161_add_planned_repair_part_detail").upgrade(engine)

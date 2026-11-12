@@ -9,6 +9,7 @@ import type { components } from './api.generated'
 export type PlannedRepair = components['schemas']['PlannedRepairResponse']
 export type PlannedRepairCreate = components['schemas']['PlannedRepairCreate']
 export type PlannedRepairUpdate = components['schemas']['PlannedRepairUpdate']
+export type PlannedRepairComplete = components['schemas']['PlannedRepairComplete']
 export type PlannedRepairPhoto = components['schemas']['PlannedRepairPhotoResponse']
 export type PlannedRepairMove = components['schemas']['PlannedRepairMove']
 export type PlannedRepairListResponse = components['schemas']['PlannedRepairListResponse']
@@ -46,3 +47,5 @@ export const VEHICLE_SYSTEMS: readonly VehicleSystem[] = [
   'interior',
   'other',
 ]
+
+export type PartKind = PlannedRepairPart['kind']

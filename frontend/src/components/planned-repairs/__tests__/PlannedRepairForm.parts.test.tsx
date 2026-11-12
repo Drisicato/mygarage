@@ -5,12 +5,16 @@ import type { PlannedRepair } from '../../../types/plannedRepair'
 
 const createMutate = vi.fn()
 const updateMutate = vi.fn()
+const uploadImageMutate = vi.fn()
+const deleteImageMutate = vi.fn()
 
 vi.mock('../../../hooks/queries/usePlannedRepairs', () => ({
   useCreatePlannedRepair: () => ({ mutateAsync: createMutate, isPending: false }),
   useUpdatePlannedRepair: () => ({ mutateAsync: updateMutate, isPending: false }),
   useUploadPlannedRepairPhoto: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeletePlannedRepairPhoto: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUploadPlannedRepairPartImage: () => ({ mutateAsync: uploadImageMutate, isPending: false }),
+  useDeletePlannedRepairPartImage: () => ({ mutateAsync: deleteImageMutate, isPending: false }),
 }))
 vi.mock('../../../hooks/queries/useSupplies', () => ({ useSupplies: () => ({ data: { supplies: [] } }) }))
 vi.mock('../../../hooks/queries/useVehicle', () => ({
@@ -50,6 +54,10 @@ describe('PlannedRepairForm parts and systems', () => {
     vi.clearAllMocks()
     createMutate.mockResolvedValue({ id: 7 })
     updateMutate.mockResolvedValue({ id: 7 })
+    uploadImageMutate.mockResolvedValue({ id: 40, has_image: true, image_version: 'v1' })
+    deleteImageMutate.mockResolvedValue(undefined)
+    URL.createObjectURL = vi.fn(() => 'blob:part')
+    URL.revokeObjectURL = vi.fn()
   })
 
   const renderForm = (repair?: PlannedRepair) => {
@@ -79,12 +87,27 @@ describe('PlannedRepairForm parts and systems', () => {
     expect(payload.systems).toEqual(['engine', 'cooling'])
     expect(payload.parts).toEqual([
       {
+        id: null,
+        kind: 'part',
         description: 'Water pump',
         part_number: 'WP-1234',
         cost: 45.5,
         quantity: 2,
         url: 'https://www.rockauto.com/x',
       },
+    ])
+  })
+
+  it('sends jobs with only a description and labor', async () => {
+    const { onSuccess } = renderForm()
+    fireEvent.click(screen.getByRole('button', { name: 'plannedRepairs.addJob' }))
+    type('plannedRepairs.jobDescription', 'Replace water pump')
+    type('plannedRepairs.jobCost', '300')
+    save()
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(createMutate.mock.calls[0][0].parts).toEqual([
+      { id: null, kind: 'job', description: 'Replace water pump', cost: 300 },
     ])
   })
 
@@ -136,11 +159,14 @@ describe('PlannedRepairForm parts and systems', () => {
       parts: [
         {
           id: 3,
+          kind: 'part',
           description: 'Water pump',
           part_number: 'WP-1234',
           cost: '45.50',
           quantity: '2.000',
           url: 'https://www.rockauto.com/x',
+          has_image: true,
+          image_version: 'abc',
         },
       ],
     } as PlannedRepair
@@ -150,6 +176,45 @@ describe('PlannedRepairForm parts and systems', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalled())
     const payload = updateMutate.mock.calls[0][0]
     expect(payload.systems).toEqual(['cooling'])
-    expect(payload.parts[0]).toMatchObject({ part_number: 'WP-1234', cost: 45.5, quantity: 2 })
+    // The stored part is named by id, so the server keeps it (and its picture).
+    expect(payload.parts[0]).toMatchObject({ id: 3, part_number: 'WP-1234', cost: 45.5, quantity: 2 })
+    expect(uploadImageMutate).not.toHaveBeenCalled()
+    expect(deleteImageMutate).not.toHaveBeenCalled()
+  })
+
+  it('uploads a picked picture to the part the save created', async () => {
+    createMutate.mockResolvedValue({ id: 7, parts: [{ id: 40, description: 'Water pump', has_image: false }] })
+    const { onSuccess } = renderForm()
+    fireEvent.click(screen.getByRole('button', { name: 'plannedRepairs.addPart' }))
+    type('plannedRepairs.partName', 'Water pump')
+    const file = new File(['x'], 'pump.jpg', { type: 'image/jpeg' })
+    fireEvent.change(screen.getByTestId('part-image-input-0'), { target: { files: [file] } })
+    save()
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(createMutate.mock.calls[0][0].parts[0].id).toBeNull()
+    expect(uploadImageMutate).toHaveBeenCalledWith({ repairId: 7, partId: 40, file })
+  })
+
+  it('removes a stored picture when the form saves', async () => {
+    const repair = {
+      id: 7,
+      vin: 'V1',
+      title: 'Water pump',
+      status: 'planning',
+      priority: 'medium',
+      position: 0,
+      created_at: '2026-11-01T00:00:00',
+      photos: [],
+      parts: [{ id: 3, kind: 'part', description: 'Water pump', has_image: true, image_version: 'abc' }],
+    } as PlannedRepair
+    updateMutate.mockResolvedValue({ ...repair })
+    const { onSuccess } = renderForm(repair)
+    fireEvent.click(screen.getByRole('button', { name: 'plannedRepairs.partImageRemove' }))
+    expect(deleteImageMutate).not.toHaveBeenCalled()
+    save()
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(deleteImageMutate).toHaveBeenCalledWith({ repairId: 7, partId: 3 })
   })
 })

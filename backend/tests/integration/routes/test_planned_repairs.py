@@ -480,3 +480,118 @@ class TestPlannedRepairRoutes:
         response = await client.get(f"{_base(vin)}/{repair['id']}", headers=auth_headers)
         assert response.status_code == 200
         assert response.json()["systems"] == ["brakes"]
+
+    # ---- parts vs jobs (migration 163) --------------------------------------
+
+    async def test_kind_round_trips_and_a_job_takes_no_part_detail(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        vin = test_vehicle["vin"]
+        repair = await _create(
+            client,
+            auth_headers,
+            vin,
+            parts=[
+                {"kind": "part", "description": "Water pump", "part_number": "WP-1"},
+                {"kind": "job", "description": "Labor", "cost": "150"},
+                {"description": "Old-style row"},
+            ],
+        )
+        assert [p["kind"] for p in repair["parts"]] == ["part", "job", "part"]
+
+        response = await client.post(
+            _base(vin),
+            json={
+                "title": "Pump",
+                "parts": [{"kind": "job", "description": "Labor", "part_number": "X"}],
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    async def test_completing_adds_typed_parts_to_supplies_and_uses_them(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        vin = test_vehicle["vin"]
+        repair = await _create(
+            client,
+            auth_headers,
+            vin,
+            parts=[
+                {
+                    "kind": "part",
+                    "description": "Multiair unit",
+                    "part_number": "04893749AE",
+                    "cost": "1000",
+                    "url": "https://parts.example/multiair",
+                },
+                {"kind": "part", "description": "Gasket", "cost": "15", "quantity": "2"},
+                {"kind": "job", "description": "Install", "cost": "300"},
+            ],
+        )
+        unit, gasket, _job = repair["parts"]
+        body = {
+            "date": "2026-11-01",
+            "service_category": "Repair",
+            "line_items": [{"description": "Install", "cost": 300.0}],
+            "parts": [
+                {"part_id": unit["id"], "quantity": "1", "cost": "950"},
+                {"part_id": gasket["id"], "quantity": "2", "cost": "15"},
+            ],
+            "parts_line_item": 0,
+        }
+        response = await client.post(
+            f"{_base(vin)}/{repair['id']}/complete", json=body, headers=auth_headers
+        )
+        assert response.status_code == 200, response.text
+        visit_id = response.json()["service_visit_id"]
+
+        visit = (
+            await client.get(f"/api/vehicles/{vin}/service-visits/{visit_id}", headers=auth_headers)
+        ).json()
+        [item] = visit["line_items"]
+        assert float(item["cost"]) == 300.0
+        used = {u["supply_name"]: u for u in item["supply_usages"]}
+        assert set(used) == {"Multiair unit", "Gasket"}
+        # Labor 300 + parts 950 + 2 x 15.
+        assert float(visit["total_cost"]) == 1280.0
+
+        supply = (
+            await client.get(
+                f"/api/supplies/{used['Multiair unit']['supply_id']}", headers=auth_headers
+            )
+        ).json()
+        assert supply["part_number"] == "04893749AE"
+        assert supply["vins"] == [vin]
+        assert supply["unit_type"] == "count"
+        assert float(supply["on_hand"]) == 0
+        assert "https://parts.example/multiair" in supply["notes"]
+
+    async def test_completing_refuses_a_job_or_foreign_part(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        vin = test_vehicle["vin"]
+        repair = await _create(
+            client, auth_headers, vin, parts=[{"kind": "job", "description": "Install"}]
+        )
+        other = await _create(client, auth_headers, vin, parts=[{"description": "Belt"}])
+        before = await _visit_count(client, auth_headers, vin)
+        for part_id in (repair["parts"][0]["id"], other["parts"][0]["id"]):
+            body = {**_VISIT, "parts": [{"part_id": part_id}]}
+            response = await client.post(
+                f"{_base(vin)}/{repair['id']}/complete", json=body, headers=auth_headers
+            )
+            assert response.status_code == 400, response.text
+        # Nothing was logged or added.
+        assert await _visit_count(client, auth_headers, vin) == before
+
+    async def test_parts_line_item_must_exist(
+        self, client: AsyncClient, auth_headers, test_vehicle
+    ):
+        vin = test_vehicle["vin"]
+        repair = await _create(client, auth_headers, vin, parts=[{"description": "Belt"}])
+        body = {**_VISIT, "parts": [{"part_id": repair["parts"][0]["id"]}], "parts_line_item": 5}
+        response = await client.post(
+            f"{_base(vin)}/{repair['id']}/complete", json=body, headers=auth_headers
+        )
+        assert response.status_code == 422

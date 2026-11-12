@@ -89,7 +89,8 @@ export default function PlannedRepairCard({ repair, onView, onEdit, onDelete, on
 
   const cost = repair.estimated_cost != null ? formatCurrency(repair.estimated_cost) : null
   const photos = repair.photos ?? []
-  const partCount = repair.parts?.length ?? 0
+  const jobCount = repair.parts?.filter((p) => p.kind === 'job').length ?? 0
+  const partCount = (repair.parts?.length ?? 0) - jobCount
   const supplyCount = repair.parts?.filter((p) => p.supply_id != null).length ?? 0
   const systems = repair.systems ?? []
   const hiddenSystems = systems.slice(MAX_SYSTEMS).map((key) => t(`plannedRepairs.system.${key}`))
@@ -203,12 +204,17 @@ export default function PlannedRepairCard({ repair, onView, onEdit, onDelete, on
               <span className="truncate">{repair.vendor.name}</span>
             </div>
           )}
-          {partCount > 0 && (
+          {partCount + jobCount > 0 && (
             <div className="flex items-center gap-1.5">
               <Package aria-hidden="true" className="w-3.5 h-3.5" />
               <span>
-                {t('plannedRepairs.partCount', { count: partCount })}
-                {supplyCount > 0 && ` · ${t('plannedRepairs.fromSupplies', { count: supplyCount })}`}
+                {[
+                  partCount > 0 && t('plannedRepairs.partCount', { count: partCount }),
+                  supplyCount > 0 && t('plannedRepairs.fromSupplies', { count: supplyCount }),
+                  jobCount > 0 && t('plannedRepairs.jobCount', { count: jobCount }),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               </span>
             </div>
           )}

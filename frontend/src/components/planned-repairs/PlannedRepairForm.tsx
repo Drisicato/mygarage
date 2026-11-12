@@ -6,11 +6,12 @@
 
 import { useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Package, Plus, Save, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, Package, Plus, Save, Trash2, Wrench } from 'lucide-react'
 import FormModalWrapper from '../FormModalWrapper'
 import VendorSearch from '../VendorSearch'
 import SupplyPartFields, { supplyEstimate } from './SupplyPartFields'
 import ManualPartFields, { type ManualPartValue } from './ManualPartFields'
+import PartImageField from './PartImageField'
 import { useVehicle } from '../../hooks/queries/useVehicle'
 import { useSupplies } from '../../hooks/queries/useSupplies'
 import { useUnitPreference } from '../../hooks/useUnitPreference'
@@ -19,11 +20,13 @@ import { Button, Chip, Field, IconButton, Input, NumberInput, Select, Textarea }
 import PlannedRepairPhotoField from './PlannedRepairPhotoField'
 import {
   useCreatePlannedRepair,
+  useDeletePlannedRepairPartImage,
   useDeletePlannedRepairPhoto,
   useUpdatePlannedRepair,
+  useUploadPlannedRepairPartImage,
   useUploadPlannedRepairPhoto,
 } from '../../hooks/queries/usePlannedRepairs'
-import { MAX_REPAIR_PHOTOS } from '../../utils/plannedRepairPhoto'
+import { MAX_REPAIR_PHOTOS, repairPartImageUrl } from '../../utils/plannedRepairPhoto'
 import { useFormSubmit } from '../../hooks/useFormSubmit'
 import { useUnitFormat } from '../../hooks/useUnitFormat'
 import { useCurrencyPreference } from '../../hooks/useCurrencyPreference'
@@ -37,6 +40,7 @@ import { SERVICE_CATEGORIES } from '../../schemas/serviceVisit'
 import {
   REPAIR_PRIORITIES,
   VEHICLE_SYSTEMS,
+  type PartKind,
   type PlannedRepair,
   type PlannedRepairCreate,
   type RepairPriority,
@@ -47,11 +51,19 @@ const TITLE_MAX = 200
 
 interface PartRow extends ManualPartValue {
   key: number
+  /** A part is bought (a supply once the repair is done); a job is labor. */
+  kind: PartKind
   /** Set when the part comes from supplies; `supplyQuantity` is then in display units. */
   supplyId: number | null
   supplyQuantity: string
   /** The unit `supplyQuantity` is typed in, kept with the row so submit converts with it. */
   unit: SupplyUnit
+  /** The stored picture's version; null when the part has none. */
+  imageVersion: string | null
+  /** A picture picked but not uploaded yet; it goes up when the form saves. */
+  imageFile: File | null
+  /** The stored picture is to be removed when the form saves. */
+  removeImage: boolean
 }
 
 /** What's wrong with one part row, per input. */
@@ -78,6 +90,8 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
   const updateMutation = useUpdatePlannedRepair(vin)
   const uploadPhotoMutation = useUploadPlannedRepairPhoto(vin)
   const deletePhotoMutation = useDeletePlannedRepairPhoto(vin)
+  const uploadPartImageMutation = useUploadPlannedRepairPartImage(vin)
+  const deletePartImageMutation = useDeletePlannedRepairPartImage(vin)
 
   const [title, setTitle] = useState(repair?.title ?? '')
   const [description, setDescription] = useState(repair?.description ?? '')
@@ -107,6 +121,7 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
         )
         return {
           key: p.id,
+          kind: p.kind ?? 'part',
           description: p.description,
           partNumber: p.part_number ?? '',
           cost: costText(p.cost),
@@ -116,6 +131,9 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
           supplyQuantity:
             p.supply_quantity != null ? String(toEditableDisplay(Number(p.supply_quantity), unit)) : '',
           unit,
+          imageVersion: p.has_image ? (p.image_version ?? '') : null,
+          imageFile: null,
+          removeImage: false,
         }
       }) ?? [],
   )
@@ -123,6 +141,12 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [partErrors, setPartErrors] = useState<Record<number, PartErrors>>({})
   const savedId = useRef<number | null>(repair?.id ?? null)
+  // Ids the server gave rows added in this form, so a retry after a failed
+  // picture upload updates those parts instead of adding them again.
+  const savedPartIds = useRef(new Map<number, number>())
+  /** The stored part a row edits: its own id, or the one the last save gave it. */
+  const partIdFor = (row: PartRow): number | null =>
+    row.key > 0 ? row.key : (savedPartIds.current.get(row.key) ?? null)
   const [pendingPhotos, setPendingPhotos] = useState<File[]>([])
   const [removedPhotoIds, setRemovedPhotoIds] = useState<number[]>([])
   const [photoError, setPhotoError] = useState<string | null>(null)
@@ -151,7 +175,9 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
     const supply = supplyById(supplyId)
     return supply ? supplyDisplayUnit(supply, system) : 'count'
   }
-  const partsTotal = parts.reduce(
+  const partRows = parts.filter((p) => p.kind === 'part')
+  const jobRows = parts.filter((p) => p.kind === 'job')
+  const partsTotal = partRows.reduce(
     (sum, p) =>
       sum +
       (p.supplyId != null
@@ -159,8 +185,10 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
         : partLineTotal(parseOptionalDecimal(p.cost) ?? null, parseOptionalDecimal(p.quantity) ?? null)),
     0,
   )
+  const laborTotal = jobRows.reduce((sum, p) => sum + (parseOptionalDecimal(p.cost) ?? 0), 0)
 
   const submitFn = async () => {
+    const submitted = parts.filter((p) => p.supplyId != null || p.description.trim())
     const payload: PlannedRepairCreate = {
       title: title.trim(),
       description: description.trim() || null,
@@ -171,11 +199,13 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
       target_odometer_km: canonicalFromUnitField(odometerText, odometerOrigin, u.distance),
       vendor_id: vendorId ?? null,
       systems,
-      parts: parts
-        .filter((p) => p.supplyId != null || p.description.trim())
-        .map((p) =>
-          p.supplyId != null
+      parts: submitted.map((p) =>
+          p.kind === 'job'
+            ? { id: partIdFor(p), kind: 'job', description: p.description.trim(), cost: parseOptionalDecimal(p.cost) ?? null }
+            : p.supplyId != null
             ? {
+                id: partIdFor(p),
+                kind: 'part',
                 // The supply's name is the part; its cost comes from the
                 // inventory when the usage is logged, so none is typed here.
                 description: (supplyById(p.supplyId)?.name ?? p.description).slice(0, 200),
@@ -184,6 +214,8 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
                 supply_quantity: canonicalQuantity(p),
               }
             : {
+                id: partIdFor(p),
+                kind: 'part',
                 description: p.description.trim(),
                 part_number: p.partNumber.trim() || null,
                 cost: parseOptionalDecimal(p.cost) ?? null,
@@ -194,11 +226,33 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
     }
     // After a create whose photo upload failed, a retry updates that repair instead of creating a second.
     let id = savedId.current
+    let saved: PlannedRepair
     if (id !== null) {
-      await updateMutation.mutateAsync({ id, ...payload })
+      saved = await updateMutation.mutateAsync({ id, ...payload })
     } else {
-      id = (await createMutation.mutateAsync(payload)).id
+      saved = await createMutation.mutateAsync(payload)
+      id = saved.id
       savedId.current = id
+    }
+    // New rows become the parts the save added, in order (an update keeps a
+    // named part's id and gives each new one a fresh, higher id).
+    const named = new Set(submitted.map(partIdFor).filter((x): x is number => x !== null))
+    const added = (saved.parts ?? []).filter((part) => !named.has(part.id))
+    submitted
+      .filter((row) => partIdFor(row) === null)
+      .forEach((row, i) => {
+        if (added[i]) savedPartIds.current.set(row.key, added[i].id)
+      })
+    for (const row of submitted) {
+      const partId = partIdFor(row)
+      if (partId === null || row.supplyId != null || row.kind === 'job') continue
+      if (row.imageFile) {
+        const part = await uploadPartImageMutation.mutateAsync({ repairId: id, partId, file: row.imageFile })
+        updatePart(row.key, { imageFile: null, removeImage: false, imageVersion: part.image_version ?? '' })
+      } else if (row.removeImage && row.imageVersion !== null) {
+        await deletePartImageMutation.mutateAsync({ repairId: id, partId })
+        updatePart(row.key, { removeImage: false, imageVersion: null })
+      }
     }
     // Each step drops itself from the lists once done, so a retry only repeats what failed.
     for (const photoId of removedPhotoIds) {
@@ -220,7 +274,9 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
     createMutation.isPending ||
     updateMutation.isPending ||
     uploadPhotoMutation.isPending ||
-    deletePhotoMutation.isPending
+    deletePhotoMutation.isPending ||
+    uploadPartImageMutation.isPending ||
+    deletePartImageMutation.isPending
 
   const validate = (): boolean => {
     const errors: Record<string, string> = {}
@@ -231,7 +287,11 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
     const rowErrors: Record<number, PartErrors> = {}
     parts.forEach((p) => {
       const row: PartErrors = {}
-      if (p.supplyId != null) {
+      if (p.kind === 'job') {
+        const costError = moneyTextError(t, p.cost)
+        if (costError) row.cost = costError
+        if (!p.description.trim() && p.cost.trim()) row.description = t('plannedRepairs.jobDescriptionRequired')
+      } else if (p.supplyId != null) {
         if (!(canonicalQuantity(p) > 0)) row.supply = t('plannedRepairs.supplyQuantityRequired')
       } else {
         const costError = moneyTextError(t, p.cost)
@@ -261,16 +321,37 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
     setParts((rows) => rows.map((row) => (row.key === key ? { ...row, ...change } : row)))
   }
 
+  /** Move a typed-in row between Parts and Jobs. A job holds only a description
+   * and labor, so a part's number, quantity, link and picture go with it (the
+   * server removes a stored picture when the part is saved as a job). */
+  const switchKind = (row: PartRow) =>
+    updatePart(
+      row.key,
+      row.kind === 'job'
+        ? { kind: 'part' }
+        : { kind: 'job', partNumber: '', quantity: '', url: '', imageFile: null, imageVersion: null },
+    )
+
   /** Toggle a system tag, keeping the list in the vocabulary's order. */
   const toggleSystem = (key: VehicleSystem) =>
     setSystems((current) =>
       VEHICLE_SYSTEMS.filter((s) => (s === key ? !current.includes(key) : current.includes(s))),
     )
 
-  const addPart = (supplyId: number | null = null) => {
+  const addPart = (supplyId: number | null = null, kind: PartKind = 'part') => {
     setParts((rows) => [
       ...rows,
-      { key: nextKey, ...emptyManual, supplyId, supplyQuantity: '', unit: unitFor(supplyId) },
+      {
+        key: nextKey,
+        kind,
+        ...emptyManual,
+        supplyId,
+        supplyQuantity: '',
+        unit: unitFor(supplyId),
+        imageVersion: null,
+        imageFile: null,
+        removeImage: false,
+      },
     ])
     setNextKey((k) => k - 1)
   }
@@ -380,9 +461,9 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
         </Field>
 
         <fieldset className="space-y-2">
-          <legend className="text-sm font-medium text-text mb-1">{t('plannedRepairs.parts')}</legend>
-          {parts.length === 0 && <p className="text-xs text-text-mute">{t('plannedRepairs.partsHint')}</p>}
-          {parts.map((part, index) => (
+          <legend className="text-sm font-medium text-text mb-1">{t('plannedRepairs.partsSection')}</legend>
+          {partRows.length === 0 && <p className="text-xs text-text-mute">{t('plannedRepairs.partsHint')}</p>}
+          {partRows.map((part, index) => (
             <div
               key={part.key}
               className={part.supplyId != null ? 'space-y-1' : 'space-y-1 rounded-lg border border-border-soft p-2'}
@@ -411,6 +492,22 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
                     onChange={(change) => updatePart(part.key, change)}
                     index={index}
                     vehicle={vehicle}
+                    image={
+                      <PartImageField
+                        index={index}
+                        storedUrl={
+                          part.imageVersion !== null && !part.removeImage && partIdFor(part) !== null && savedId.current !== null
+                            ? repairPartImageUrl(vin, savedId.current, partIdFor(part) as number, part.imageVersion)
+                            : null
+                        }
+                        pendingFile={part.imageFile}
+                        onPick={(file) => updatePart(part.key, { imageFile: file, removeImage: false })}
+                        onClear={() => updatePart(part.key, { imageFile: null, removeImage: true })}
+                        name={part.description}
+                        partNumber={part.partNumber}
+                        disabled={isSubmitting}
+                      />
+                    }
                     invalid={{
                       cost: !!partErrors[part.key]?.cost,
                       quantity: !!partErrors[part.key]?.quantity,
@@ -419,14 +516,27 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
                     disabled={isSubmitting}
                   />
                 )}
-                <IconButton
-                  icon={Trash2}
-                  label={t('plannedRepairs.removePart')}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setParts((rows) => rows.filter((row) => row.key !== part.key))}
-                  disabled={isSubmitting}
-                />
+                <div className="flex flex-col">
+                  <IconButton
+                    icon={Trash2}
+                    label={t('plannedRepairs.removePart')}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setParts((rows) => rows.filter((row) => row.key !== part.key))}
+                    disabled={isSubmitting}
+                  />
+                  {part.supplyId == null && (
+                    <IconButton
+                      icon={ArrowLeftRight}
+                      label={t('plannedRepairs.moveToJobs')}
+                      title={t('plannedRepairs.moveToJobs')}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => switchKind(part)}
+                      disabled={isSubmitting}
+                    />
+                  )}
+                </div>
               </div>
               {Object.values(partErrors[part.key] ?? {}).map((message) => (
                 <p key={message} className="text-xs text-danger">
@@ -449,9 +559,65 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
               {t('plannedRepairs.addFromSupplies')}
             </Button>
           </div>
-          {parts.some((p) => p.supplyId != null) && (
+          {partRows.some((p) => p.supplyId != null) && (
             <p className="text-xs text-text-mute">{t('plannedRepairs.suppliesHint')}</p>
           )}
+        </fieldset>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium text-text mb-1">{t('plannedRepairs.jobsSection')}</legend>
+          {jobRows.length === 0 && <p className="text-xs text-text-mute">{t('plannedRepairs.jobsHint')}</p>}
+          {jobRows.map((job, index) => (
+            <div key={job.key} className="space-y-1">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <Input
+                    aria-label={t('plannedRepairs.jobDescription', { number: index + 1 })}
+                    value={job.description}
+                    onChange={(e) => updatePart(job.key, { description: e.target.value })}
+                    placeholder={t('plannedRepairs.jobPlaceholder')}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <div className="w-36">
+                  <NumberInput
+                    aria-label={t('plannedRepairs.jobCost', { number: index + 1 })}
+                    value={job.cost}
+                    onChange={(e) => updatePart(job.key, { cost: e.target.value })}
+                    placeholder={t('plannedRepairs.laborPlaceholder')}
+                    suffix={currencyCode}
+                    invalid={!!partErrors[job.key]?.cost}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <IconButton
+                  icon={ArrowLeftRight}
+                  label={t('plannedRepairs.moveToParts')}
+                  title={t('plannedRepairs.moveToParts')}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => switchKind(job)}
+                  disabled={isSubmitting}
+                />
+                <IconButton
+                  icon={Trash2}
+                  label={t('plannedRepairs.removeJob')}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setParts((rows) => rows.filter((row) => row.key !== job.key))}
+                  disabled={isSubmitting}
+                />
+              </div>
+              {Object.values(partErrors[job.key] ?? {}).map((message) => (
+                <p key={message} className="text-xs text-danger">
+                  {message}
+                </p>
+              ))}
+            </div>
+          ))}
+          <Button variant="secondary" size="sm" icon={Wrench} onClick={() => addPart(null, 'job')} disabled={isSubmitting}>
+            {t('plannedRepairs.addJob')}
+          </Button>
         </fieldset>
 
         <div className="space-y-1">
@@ -474,7 +640,15 @@ export default function PlannedRepairForm({ vin, repair, onClose, onSuccess }: P
           label={t('plannedRepairs.fieldEstimate')}
           unit={currencyCode}
           error={fieldErrors.estimate}
-          hint={partsTotal > 0 ? t('plannedRepairs.partsTotal', { total: formatCurrency(partsTotal) }) : undefined}
+          hint={
+            partsTotal > 0 || laborTotal > 0
+              ? t('plannedRepairs.partsAndLaborTotal', {
+                  parts: formatCurrency(partsTotal, { zeroIsValid: true }),
+                  labor: formatCurrency(laborTotal, { zeroIsValid: true }),
+                  total: formatCurrency(partsTotal + laborTotal),
+                })
+              : undefined
+          }
         >
           <NumberInput
             id="repair-estimate"

@@ -1,8 +1,10 @@
 """Planned repair business logic: the board's ordering and completion into service history."""
 
 import logging
+import shutil
 import uuid
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -18,8 +20,12 @@ from app.models.planned_repair import (
     PlannedRepairSystem,
 )
 from app.models.service_visit import ServiceVisit
+from app.models.supply import Supply, SupplyPurchase, SupplyVehicle
+from app.models.user import User
 from app.schemas.planned_repair import (
     VEHICLE_SYSTEMS,
+    CompletedPartInput,
+    PlannedRepairComplete,
     PlannedRepairCreate,
     PlannedRepairMove,
     PlannedRepairPartInput,
@@ -27,6 +33,7 @@ from app.schemas.planned_repair import (
     PlannedRepairUpdate,
 )
 from app.schemas.service_visit import ServiceVisitCreate
+from app.schemas.supply import SupplyUsageInput
 from app.services import maintenance_service
 from app.services.service_visit_service import ServiceVisitService
 from app.services.supply_service import SupplyService
@@ -53,23 +60,57 @@ def _load_options():
     )
 
 
+_PART_FIELDS = (
+    "kind",
+    "description",
+    "cost",
+    "part_number",
+    "quantity",
+    "url",
+    "supply_id",
+    "supply_quantity",
+)
+
+
 def _parts(items: list[PlannedRepairPartInput]) -> list[PlannedRepairPart]:
-    return [
-        PlannedRepairPart(
-            description=p.description,
-            cost=p.cost,
-            part_number=p.part_number,
-            quantity=p.quantity,
-            url=p.url,
-            supply_id=p.supply_id,
-            supply_quantity=p.supply_quantity,
-        )
-        for p in items
-    ]
+    return [PlannedRepairPart(**{f: getattr(p, f) for f in _PART_FIELDS}) for p in items]
+
+
+def _merge_parts(
+    current: list[PlannedRepairPart], items: list[PlannedRepairPartInput]
+) -> tuple[list[PlannedRepairPart], list[str]]:
+    """The repair's parts after an update, and the pictures of the parts it drops.
+
+    An item naming one of ``current`` by id updates that row in place, so its
+    picture stays; any other item is a new part. A stored part no item names is
+    dropped (delete-orphan), and its picture is returned for removal once the
+    commit lands.
+    """
+    by_id = {part.id: part for part in current}
+    kept: list[PlannedRepairPart] = []
+    dropped: list[str] = []
+    for item in items:
+        part = by_id.pop(item.id, None) if item.id is not None else None
+        if part is None:
+            part = PlannedRepairPart()
+        for field in _PART_FIELDS:
+            setattr(part, field, getattr(item, field))
+        if part.kind == "job" and part.image_path:
+            # A job has no picture: a part moved to the jobs loses its own.
+            dropped.append(part.image_path)
+            part.image_path = None
+        kept.append(part)
+    dropped += [p.image_path for p in by_id.values() if p.image_path]
+    return kept, dropped
 
 
 def _systems(systems: list[str]) -> list[PlannedRepairSystem]:
     return [PlannedRepairSystem(system=s) for s in systems]
+
+
+def _unlink_photos(file_paths: list[str]) -> None:
+    for path in file_paths:
+        _unlink_photo(path)
 
 
 def _unlink_photo(file_path: str) -> None:
@@ -171,13 +212,15 @@ class PlannedRepairService:
         changes = data.model_dump(exclude_unset=True, exclude={"parts", "systems"})
         for field, value in changes.items():
             setattr(repair, field, value)
+        dropped_images: list[str] = []
         if "parts" in data.model_fields_set:
             linked = {p.supply_id for p in repair.parts if p.supply_id is not None}
             await self._check_supplies(vin, data.parts or [], linked)
-            repair.parts = _parts(data.parts or [])
+            repair.parts, dropped_images = _merge_parts(repair.parts, data.parts or [])
         if "systems" in data.model_fields_set:
             await self._replace_systems(repair, data.systems or [])
         await self.db.commit()
+        _unlink_photos(dropped_images)
         return await self.get_repair(vin, repair_id)
 
     async def _replace_systems(self, repair: PlannedRepair, systems: list[str]) -> None:
@@ -192,10 +235,10 @@ class PlannedRepairService:
         """Delete a repair. A service visit it logged stays in service history."""
         repair = await self.get_repair(vin, repair_id)
         photo_paths = [p.file_path for p in repair.photos]
+        photo_paths += [p.image_path for p in repair.parts if p.image_path]
         await self.db.delete(repair)
         await self.db.commit()
-        for path in photo_paths:
-            _unlink_photo(path)
+        _unlink_photos(photo_paths)
 
     # ---- photos ---------------------------------------------------------------
 
@@ -251,6 +294,50 @@ class PlannedRepairService:
         await self.db.commit()
         _unlink_photo(file_path)
 
+    # ---- part pictures ----------------------------------------------------------
+
+    async def get_part(self, vin: str, repair_id: int, part_id: int) -> PlannedRepairPart:
+        """One part of this vehicle's repair; 404 otherwise."""
+        repair = await self.get_repair(vin, repair_id)
+        part = next((p for p in repair.parts if p.id == part_id), None)
+        if part is None:
+            raise HTTPException(status_code=404, detail="Part not found")
+        return part
+
+    async def set_part_image(
+        self, vin: str, repair_id: int, part_id: int, contents: bytes
+    ) -> PlannedRepairPart:
+        """Store ``contents`` as the part's picture (a size-capped JPEG), replacing any."""
+        part = await self.get_part(vin, repair_id, part_id)
+        image = _encode_photo(contents)
+
+        relative = f"{vin}/planned_repairs/parts/{part_id}-{uuid.uuid4().hex[:8]}.jpg"
+        destination = self.photo_file(relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        image.save(destination, format="JPEG", quality=88)
+
+        old_path = part.image_path
+        part.image_path = relative
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            _unlink_photo(relative)
+            raise
+        if old_path:
+            _unlink_photo(old_path)
+        return await self.get_part(vin, repair_id, part_id)
+
+    async def clear_part_image(self, vin: str, repair_id: int, part_id: int) -> None:
+        """Remove the part's picture; 404 when it has none."""
+        part = await self.get_part(vin, repair_id, part_id)
+        old_path = part.image_path
+        if not old_path:
+            raise HTTPException(status_code=404, detail="This part has no picture")
+        part.image_path = None
+        await self.db.commit()
+        _unlink_photo(old_path)
+
     async def move_repair(self, vin: str, repair_id: int, move: PlannedRepairMove) -> PlannedRepair:
         """Move a repair to a stage and position, renumbering the columns it touches.
 
@@ -299,8 +386,75 @@ class PlannedRepairService:
         for index, item in enumerate(target):
             item.position = index
 
+    async def _parts_to_supplies(
+        self,
+        vin: str,
+        repair: PlannedRepair,
+        parts: list[CompletedPartInput],
+        visit: ServiceVisitCreate,
+        current_user: User | None,
+    ) -> tuple[list[SupplyUsageInput], list[str]]:
+        """Add each completed part to supplies, bought on the visit's date. No commit.
+
+        Returns the usages that consume them, and the picture files copied to
+        the new supplies (for removal if the transaction fails).
+        """
+        typed = {p.id: p for p in repair.parts if p.kind == "part" and p.supply_id is None}
+        usages: list[SupplyUsageInput] = []
+        copied: list[str] = []
+        for item in parts:
+            part = typed.get(item.part_id)
+            if part is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Part {item.part_id} is not a typed-in part of this repair",
+                )
+            notes = [f"Added from the planned repair {repair.title!r}."]
+            if part.url:
+                notes.append(f"Link: {part.url}")
+            supply = Supply(
+                name=part.description[:120],
+                part_number=part.part_number,
+                unit_type="count",
+                notes="\n".join(notes),
+                created_by_user_id=current_user.id if current_user else None,
+                vehicle_links=[SupplyVehicle(vin=vin)],
+            )
+            self.db.add(supply)
+            await self.db.flush()
+            total = None
+            if item.cost is not None:
+                total = (item.cost * item.quantity).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            self.db.add(
+                SupplyPurchase(
+                    supply_id=supply.id,
+                    date=visit.date,
+                    quantity=item.quantity,
+                    total_cost=total,
+                    part_number=part.part_number,
+                )
+            )
+            if part.image_path:
+                relative = f"supplies/{supply.id}-{uuid.uuid4().hex[:8]}.jpg"
+                try:
+                    destination = self.photo_file(relative)
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(self.photo_file(part.image_path), destination)
+                except OSError:
+                    logger.warning("Could not copy the picture of part %s", part.id)
+                else:
+                    supply.image_path = relative
+                    copied.append(relative)
+            usages.append(SupplyUsageInput(supply_id=supply.id, quantity=item.quantity))
+        await self.db.flush()
+        return usages, copied
+
     async def complete_repair(
-        self, vin: str, repair_id: int, visit_data: ServiceVisitCreate
+        self,
+        vin: str,
+        repair_id: int,
+        visit_data: ServiceVisitCreate,
+        current_user: User | None = None,
     ) -> PlannedRepair:
         """Mark a repair done and log its service visit, in one transaction.
 
@@ -311,12 +465,30 @@ class PlannedRepairService:
         repair = await self.get_repair(vin, repair_id)
 
         created_visit = False
+        copied_images: list[str] = []
         if not await self._linked_visit_exists(vin, repair):
+            parts = visit_data.parts if isinstance(visit_data, PlannedRepairComplete) else []
+            line_item_index = (
+                visit_data.parts_line_item if isinstance(visit_data, PlannedRepairComplete) else 0
+            )
+            visit_data = ServiceVisitCreate.model_validate(
+                visit_data.model_dump(exclude={"parts", "parts_line_item"})
+            )
+            if parts:
+                usages, copied_images = await self._parts_to_supplies(
+                    vin, repair, parts, visit_data, current_user
+                )
+                line_item = visit_data.line_items[line_item_index]
+                line_item.supplies_used = [*line_item.supplies_used, *usages]
             # A real visit: its readings feed the odometer/hours history like
             # one logged from the service form.
-            visit, _items = await ServiceVisitService(self.db).persist_visit_rows(
-                vin, visit_data, sync_readings=True
-            )
+            try:
+                visit, _items = await ServiceVisitService(self.db).persist_visit_rows(
+                    vin, visit_data, sync_readings=True
+                )
+            except Exception:
+                _unlink_photos(copied_images)
+                raise
             repair.service_visit_id = visit.id
             created_visit = True
 
@@ -330,7 +502,11 @@ class PlannedRepairService:
             await maintenance_service.reconcile_vehicle_unlocked(self.db, vin)
 
         visit_id = repair.service_visit_id
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except Exception:
+            _unlink_photos(copied_images)
+            raise
         logger.info(
             "Completed planned repair %s for %s (visit %s)",
             repair_id,

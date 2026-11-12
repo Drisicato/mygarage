@@ -9,14 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
 from app.schemas.planned_repair import (
+    PlannedRepairComplete,
     PlannedRepairCreate,
     PlannedRepairListResponse,
     PlannedRepairMove,
+    PlannedRepairPartResponse,
     PlannedRepairPhotoResponse,
     PlannedRepairResponse,
     PlannedRepairUpdate,
 )
-from app.schemas.service_visit import ServiceVisitCreate
 from app.services.auth import get_vehicle_or_403, require_auth
 from app.services.planned_repair_service import PlannedRepairService, to_response
 from app.utils.file_validation import validate_image_upload
@@ -139,6 +140,58 @@ async def delete_planned_repair_photo(
     await PlannedRepairService(db).delete_photo(vin, repair_id, photo_id)
 
 
+@router.post("/{repair_id}/parts/{part_id}/image", response_model=PlannedRepairPartResponse)
+async def upload_planned_repair_part_image(
+    vin: str,
+    repair_id: int,
+    part_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+    current_user: User | None = Depends(require_auth),
+) -> PlannedRepairPartResponse:
+    """Set (or replace) a part's picture. Re-encoded to a size-capped JPEG."""
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db, require_write=True)
+    contents = await validate_image_upload(file)
+    part = await PlannedRepairService(db).set_part_image(vin, repair_id, part_id, contents)
+    return PlannedRepairPartResponse.model_validate(part)
+
+
+@router.get("/{repair_id}/parts/{part_id}/image")
+async def get_planned_repair_part_image(
+    vin: str,
+    repair_id: int,
+    part_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: User | None = Depends(require_auth),
+) -> FileResponse:
+    """The part's picture."""
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db)
+    service = PlannedRepairService(db)
+    part = await service.get_part(vin, repair_id, part_id)
+    if not part.image_path:
+        raise HTTPException(status_code=404, detail="This part has no picture")
+    path = service.photo_file(part.image_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="This part has no picture")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.delete("/{repair_id}/parts/{part_id}/image", status_code=204)
+async def delete_planned_repair_part_image(
+    vin: str,
+    repair_id: int,
+    part_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: User | None = Depends(require_auth),
+) -> None:
+    """Remove a part's picture."""
+    vin = vin.upper().strip()
+    await get_vehicle_or_403(vin, current_user, db, require_write=True)
+    await PlannedRepairService(db).clear_part_image(vin, repair_id, part_id)
+
+
 @router.post("/{repair_id}/move", response_model=PlannedRepairResponse)
 async def move_planned_repair(
     vin: str,
@@ -161,15 +214,21 @@ async def move_planned_repair(
 async def complete_planned_repair(
     vin: str,
     repair_id: int,
-    visit: ServiceVisitCreate,
+    visit: PlannedRepairComplete,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: User | None = Depends(require_auth),
 ) -> PlannedRepairResponse:
     """Mark a repair done and log the service visit for it.
+
+    Each part in ``parts`` is added to supplies for this vehicle (a purchase of
+    its quantity at its price, dated the visit) and used in full on the line
+    item at ``parts_line_item``.
 
     A repair that already logged a visit keeps it and the body is ignored, so
     service history never gets a duplicate.
     """
     vin = vin.upper().strip()
     await get_vehicle_or_403(vin, current_user, db, require_write=True)
-    return to_response(await PlannedRepairService(db).complete_repair(vin, repair_id, visit))
+    return to_response(
+        await PlannedRepairService(db).complete_repair(vin, repair_id, visit, current_user)
+    )

@@ -350,7 +350,11 @@ export default function Drawer({
         data-placement={placement}
         className={`fixed ${panelZ} flex flex-col bg-surface shadow-drawer duration-(--duration-drawer) ease-standard motion-reduce:transition-none ${panelPlacement} ${WIDTH[width]}`}
       >
-        <header className="sticky top-0 flex items-center justify-between gap-3 border-b border-border bg-surface px-6 py-4">
+        {/* Header and footer stay put because only the body scrolls. They must not be
+            sticky: while the drawer is open the page body is overflow:hidden, which
+            makes it their scroll container, and a sticky footer then lines up with the
+            page's edge and lands over the body's content. */}
+        <header className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-6 py-4">
           <h2 className="flex items-center gap-2 text-base font-bold text-text">
             {Icon ? <Icon aria-hidden="true" className="h-5 w-5 text-(--accent-fg)" /> : null}
             {title}
@@ -366,10 +370,10 @@ export default function Drawer({
           </button>
         </header>
 
-        <div ref={bodyRef} className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
 
         {footer ? (
-          <footer className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-surface px-6 py-4">
+          <footer className="flex flex-shrink-0 items-center justify-end gap-3 border-t border-border bg-surface px-6 py-4">
             {footer}
           </footer>
         ) : null}
